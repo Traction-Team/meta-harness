@@ -41,6 +41,7 @@ const ICONS = {
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const cap = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
 
 const state = {
   mode: "system",           // system | product | agents
@@ -124,7 +125,7 @@ function paintSidebar() {
   $("#wsBtn").onclick = (e) => { e.stopPropagation(); state.wsOpen = !state.wsOpen; paintSidebar(); };
   if (state.wsOpen) {
     $("#wsPop").querySelectorAll("[data-ws]").forEach((b) => (b.onclick = () => {
-      state.ws = b.dataset.ws; state.wsOpen = false; state.sel = null; paint(); fit();
+      switchWorkspace(b.dataset.ws);
     }));
     $("#wsNew").onclick = () => { state.wsOpen = false; paintSidebar(); toast("New product workspace"); };
   }
@@ -181,10 +182,10 @@ function paintStrip() {
   const live = AGENTS.filter((r) => r.status === "running").length;
   const waiting = AGENTS.filter((r) => r.status === "waiting").length;
   $("#stripLeft").textContent = state.mode === "system"
-    ? `${REPO.name} · system ${REPO.sysVersion} · 6 runbooks, 12 skills, ${ISSUES.length} open issues`
+    ? `${REPO.name} · system ${REPO.sysVersion} · ${REPO.runbooksN} runbooks, ${REPO.skillsN} skills, ${ISSUES.length} open ${COPY.issuesWord}`
     : state.mode === "agents"
     ? `${REPO.name} · ${live} agents running · ${waiting} waiting on you · ${AGENTS.filter((r) => r.status === "failed").length} failed`
-    : `${REPO.name} · ${REPO.branch} · 314 slices · 436 needs · 301 decisions`;
+    : `${REPO.name} · ${REPO.branch} · ${COPY.productStat}`;
   const chip = $("#lintChip");
   chip.className = "strip-guard" + (bad.length ? " bad" : "");
   chip.textContent = bad.length ? `${bad.length} broken wire` : "Contracts clean";
@@ -202,6 +203,20 @@ function setMode(m) {
   state.view = m === "agents" ? "live" : "loop";
   state.sel = null; state.run = null; closeEditor(true);
   paint(); if (m !== "agents") fit();
+}
+
+/* the whole app re-reads one active dataset, so switching workspace is: swap the
+   dataset, rebuild the doc corpus off it, and drop anything selected in the old
+   world. The mode (which lens) survives; the contents do not. */
+function switchWorkspace(id) {
+  if (id === state.ws) { state.wsOpen = false; paintSidebar(); return; }
+  state.ws = id; state.wsOpen = false;
+  state.sel = null; state.run = null; state.composer = "";
+  state.docStack = []; state.drafts = {}; state.editing = false;
+  state.view = state.mode === "agents" ? "live" : "loop";
+  loadWorkspace(id);
+  initDocs();
+  paint(); if (state.mode !== "agents") fit();
 }
 
 /* ═════════════════════════════════════════════════════════════ the loop ══
@@ -414,25 +429,29 @@ function runProc(id) {
 
 /* ══════════════════════════════════════════════════════════ list views ══ */
 
+/* list-view titles are the same words the rail uses, so a workspace names its
+   own stations once and every surface reads them the same way */
+const navLabel = (mode, view) => ((NAV[mode] || []).find((n) => n.id === view) || {}).label || view;
+
 const VIEWS = {
   runbooks: () => ({ title: "Runbooks", sub: "the processes on the lines, as files",
     rows: RUNBOOKS.map((p) => ({ t: p.name, s: `${p.from} → ${p.to} · ${p.trigger}`, r: `${p.runs} runs`, pill: p.issues.length ? `${p.issues.length} issues` : "clean", bad: p.issues.length > 2, sel: { t: "proc", id: p.id } })) }),
   skills: () => ({ title: "Skills", sub: "capabilities a process can call",
-    rows: SKILLS.concat([{ name: "read spec section", from: "-", to: "-", trigger: "called", runs: 1902, issues: [] }, { name: "frontier query", from: "-", to: "-", trigger: "called", runs: 844, issues: [] }, { name: "blast radius", from: "-", to: "-", trigger: "called", runs: 96, issues: [] }])
+    rows: SKILLS.concat(EXTRA_SKILLS)
       .map((p) => ({ t: p.name, s: `${p.trigger}`, r: `${p.runs} runs`, pill: p.broken ? "broken wire" : "clean", bad: !!p.broken, sel: p.id ? { t: "proc", id: p.id } : null })) }),
-  issues: () => ({ title: "System issues", sub: "attributed to edges, never to states",
-    rows: ISSUES.map((i) => ({ t: i.t, s: `on ${i.edge} · ${i.run}`, r: i.fix ? "fix proposed" : "", pill: i.cat, bad: i.cat === "skill-gap" || i.cat === "constraint-violation", sel: { t: "issue", id: i.id } })) }),
+  issues: () => ({ title: navLabel("system", "issues"), sub: "attributed to edges, never to states",
+    rows: ISSUES.map((i) => ({ t: i.t, s: `on ${i.edge} · ${i.run}`, r: i.fix ? "fix proposed" : "", pill: i.cat, bad: i.cat === "skill-gap" || i.cat === "constraint-violation" || i.cat === "off-brand", sel: { t: "issue", id: i.id } })) }),
   history: () => ({ title: "System version history", sub: "separate from the repo's commit log",
     rows: HISTORY.map((h) => ({ t: h.t, s: h.s, r: h.v, pill: h.who, bad: false, sel: null })) }),
-  frontier: () => ({ title: "Frontier", sub: "every need merged, no owns collision",
+  frontier: () => ({ title: navLabel("product", "frontier"), sub: COPY.frontierSub,
     rows: ITEMS.plans.filter((i) => i.d === "run").concat(ITEMS.plans.filter((i) => i.d !== "run"))
-      .map((i) => ({ t: `${i.id}  ${i.t}`, s: i.s, r: "", pill: i.d === "run" ? "buildable" : "blocked", bad: false, sel: { t: "item", id: i.id, from: "plans" } })) }),
-  slices: () => ({ title: "Slices", sub: "314 total · 273 merged · 41 planned",
+      .map((i) => ({ t: `${i.id}  ${i.t}`, s: i.s, r: "", pill: i.d === "run" ? COPY.readyWord : "blocked", bad: false, sel: { t: "item", id: i.id, from: "plans" } })) }),
+  slices: () => ({ title: navLabel("product", "slices"), sub: COPY.slicesSub,
     rows: [].concat(ITEMS.branch, ITEMS.pr, ITEMS.plans, ITEMS.merged)
-      .map((i) => ({ t: `${i.id}  ${i.t}`, s: i.s, r: "", pill: i.d === "run" ? "running" : i.d === "wait" ? "waiting" : i.d === "bad" ? "failing" : "merged", bad: i.d === "bad", sel: { t: "item", id: i.id } })) }),
-  specs: () => ({ title: "Specs", sub: "18 docs · 301 decisions · 434 citations",
+      .map((i) => ({ t: `${i.id}  ${i.t}`, s: i.s, r: "", pill: i.d === "run" ? "running" : i.d === "wait" ? "waiting" : i.d === "bad" ? "failing" : TERMS.doneLabel, bad: i.d === "bad", sel: { t: "item", id: i.id } })) }),
+  specs: () => ({ title: navLabel("product", "specs"), sub: COPY.specsSub,
     rows: ITEMS.spec.map((i) => ({ t: `${i.id}  ${i.t}`, s: i.s, r: "", pill: i.d === "bad" ? "ambiguous" : i.d === "wait" ? "gaps" : "covered", bad: i.d === "bad", sel: { t: "item", id: i.id, from: "spec" } })) }),
-  runs: () => ({ title: "Runs", sub: "what the orchestrator is holding",
+  runs: () => ({ title: navLabel("product", "runs"), sub: COPY.runsSub,
     rows: [].concat(ITEMS.branch, ITEMS.pr).map((i) => ({ t: `${i.id}  ${i.t}`, s: i.s, r: "", pill: i.d === "run" ? "running" : i.d === "wait" ? "waiting" : "failing", bad: i.d === "bad", sel: { t: "item", id: i.id } })) }),
 };
 
@@ -470,16 +489,22 @@ function paintList() {
    that session — the same thing Orca gives you, but scoped to the slice and
    wired back into the loop it belongs to. */
 
-const STATUS = {
+const STATUS_BASE = {
   running: { label: "running",  pill: "running" },
   waiting: { label: "needs you", pill: "waiting" },
   failed:  { label: "failed",    pill: "bad" },
   blocked: { label: "blocked",   pill: "waiting" },
   done:    { label: "merged",    pill: "done" },
 };
-const STATION_NAME = { branch: "Worker branch", pr: "Worker PR", merged: "Merged" };
-const worktreeOf = (r) => `../wt/${r.slice}`;
-const branchOf   = (r) => `slice/${r.slice}`;
+/* the "done" label is the workspace's own word — "merged" for a code factory,
+   "published" for a content one — read live so a switch re-labels the fleet */
+const STATUS = new Proxy(STATUS_BASE, { get: (o, k) =>
+  k === "done" ? { label: TERMS.doneLabel, pill: "done" } : o[k] });
+/* a station's display name is just its state name, so agents and the board can
+   never disagree about what "branch" is called in this workspace */
+const stationName = (id) => (stateById(id) || {}).name || id;
+const worktreeOf = (r) => `${TERMS.worktree}${r.slice}`;
+const branchOf   = (r) => `${TERMS.branchPre}${r.slice}`;
 const filesTouched = (r) => [...new Set(r.log.filter((e) => e.k === "tool" && (e.act === "Edit" || e.act === "Write")).map((e) => e.arg))];
 
 /* which runs the current agents tab is showing */
@@ -499,7 +524,7 @@ function paintAgents() {
   const SUB = {
     live:   "every harness session in flight — the status dots on the board, as the sessions behind them",
     needs:  "agents that stopped and asked you something before guessing",
-    queue:  "buildable slices the orchestrator can dispatch — every need merged, no owns collision",
+    queue:  COPY.queueSub,
     recent: "sessions that finished, newest first",
   };
 
@@ -508,9 +533,9 @@ function paintAgents() {
     const ready = ITEMS.plans.filter((i) => i.d === "run");
     body = `<div class="rgrid">${ready.map((i) => `
       <div class="rcard queue">
-        <div class="rc-top"><span class="pill plain" style="color:var(--text-2)">buildable</span></div>
+        <div class="rc-top"><span class="pill plain" style="color:var(--text-2)">${esc(COPY.readyWord)}</span></div>
         <div class="rc-h"><span class="rc-id mono">${esc(i.id)}</span><span class="rc-t">${esc(i.t)}</span></div>
-        <div class="rc-sub">${ICONS.branch} dispatch → build + self-review · sonnet</div>
+        <div class="rc-sub">${ICONS.branch} ${esc(COPY.queueChain)} · ${esc(RUN_MODEL.branch)}</div>
         <div class="rc-head">${esc(i.s)}</div>
         <button class="btn wide" data-dispatch="${esc(i.id)}" data-title="${esc(i.t)}">${ICONS.play} Dispatch to an agent</button>
       </div>`).join("")}</div>`;
@@ -542,14 +567,15 @@ function paintAgents() {
    what broke, then what is quietly running */
 const WGROUPS = [
   ["waiting", "Needs you"], ["failed", "Failed"], ["blocked", "Blocked"],
-  ["running", "Running"],  ["done", "Merged"],
+  ["running", "Running"],  ["done", null],
 ];
 function workersList(list) {
   return WGROUPS.map(([k, label]) => {
     const rs = list.filter((r) => r.status === k);
     if (!rs.length) return "";
+    const head = label || cap(TERMS.doneLabel);
     return `<div class="wgroup">
-      <div class="wgroup-h">${label}<span class="wgroup-n">${rs.length}</span></div>
+      <div class="wgroup-h">${head}<span class="wgroup-n">${rs.length}</span></div>
       <div class="wrows">${rs.map(workerRow).join("")}</div>
     </div>`;
   }).join("");
@@ -564,7 +590,7 @@ function workerRow(r) {
         <span class="nd-dot ${RUN_DOT[r.status]}"></span>
         <span class="wrow-id mono">${esc(r.slice)}</span>
         <span class="wrow-nm">${esc(r.title)}</span>
-        <span class="wrow-meta">${esc(proc ? proc.name : "")} · ${esc(runModelOf(r))} · ${esc(STATION_NAME[r.station] || r.station)}</span>
+        <span class="wrow-meta">${esc(proc ? proc.name : "")} · ${esc(runModelOf(r))} · ${esc(stationName(r.station))}</span>
       </div>
       <div class="wrow-head ${q ? "ask" : ""}">${q ? esc(q.t) : esc(r.head || "")}</div>
     </div>
@@ -635,8 +661,8 @@ function paintConsole(r) {
           ${r.status !== "done" ? `<div class="cns-prog"><div class="cns-prog-bar"><i style="width:${Math.max(4, r.pct)}%"></i></div><span>${r.pct}%</span></div>` : ""}
           <div class="rail-h">${ICONS.loop}Scope</div>
           <div class="rail-c">
-            <div class="rail-r"><span>Slice</span><b><a class="lnk" data-slice="${esc(r.slice)}" data-station="${esc(r.station)}">${esc(r.slice)} ${esc(r.title)}</a></b></div>
-            <div class="rail-r"><span>Station</span><b>${esc(STATION_NAME[r.station] || r.station)}</b></div>
+            <div class="rail-r"><span>${esc(TERMS.Unit)}</span><b><a class="lnk" data-slice="${esc(r.slice)}" data-station="${esc(r.station)}">${esc(r.slice)} ${esc(r.title)}</a></b></div>
+            <div class="rail-r"><span>Station</span><b>${esc(stationName(r.station))}</b></div>
             <div class="rail-r"><span>Process</span><b>${proc ? `<a class="lnk" data-proc="${esc(proc.id)}">${esc(proc.name)}</a>` : "—"}</b></div>
             <div class="rail-k">worktree</div>
             <div class="fields"><span class="f">${esc(worktreeOf(r))}</span></div>
@@ -689,11 +715,11 @@ function spawnRun(station, slice, title) {
   const id = "r-" + slice.replace(/\W/g, "") + "-" + (AGENTS.length);
   const r = {
     id, slice, title, station, started: "just now", elapsed: "0m", pct: 6, status: "running",
-    head: "Reading the slice and its spec section",
+    head: `Reading the ${TERMS.unit} and its ${COPY.sourceWord}`,
     log: [
-      { k: "sys", t: `Opened worktree ../wt/${slice} · branched slice/${slice} off main` },
-      { k: "sys", t: `Payload: slice ${slice}, its spec section and the decisions it cites. Nothing else in scope.` },
-      { k: "say", t: `Picked up **${title}**. Reading the slice and its \`proves\` line, then cutting the work into ordered steps before I touch a file.` },
+      { k: "sys", t: `Opened ${TERMS.worktree}${slice} · branched ${TERMS.branchPre}${slice} off ${TERMS.off}` },
+      { k: "sys", t: `Payload: ${TERMS.unit} ${slice}, its ${COPY.sourceWord} and the decisions it cites. Nothing else in scope.` },
+      { k: "say", t: `Picked up **${title}**. Reading the ${TERMS.unit} and its \`proves\` line, then cutting the work into ordered steps before I start.` },
     ],
   };
   AGENTS.unshift(r);
@@ -717,23 +743,23 @@ function answerRun(id, i) {
   const r = runById(id); if (!r || !r.question) return;
   const choice = r.question.opts[i];
   r.log.push({ k: "you", t: choice });
-  /* a tailored continuation, so the session reads like it actually acted */
-  if (/spec-ambiguity|File a/i.test(choice)) {
+  /* a tailored continuation, so the session reads like it actually acted. The
+     branches key off the shape of the answer, not the domain, so both a code
+     factory and a content one route the same way. */
+  if (/file|pause|flag|ambiguity|brief-gap/i.test(choice)) {
     r.log.push({ k: "say", t: "Filing it and pausing, rather than guessing on a `proves` line." });
-    r.log.push({ k: "tool", act: "Write", arg: `system/issues/i-${r.slice}.md`, sub: "spec-ambiguity" });
-    r.status = "blocked"; r.head = "Paused · spec-ambiguity filed";
-  } else if (/Send back/i.test(choice)) {
-    r.log.push({ k: "say", t: "Sending it back to Worker branch with the note, so it derives on read instead of caching." });
-    r.status = "done"; r.head = "Sent back to branch"; r.pct = 100; r.station = "branch";
-  } else if (/Merge/i.test(choice)) {
-    r.log.push({ k: "say", t: "Merging and stamping the sha. Logging a convention note so the cache is a deliberate call next time, not a drift." });
-    r.log.push({ k: "bash", cmd: "gh pr merge --squash", ok: true, out: `merged slice/${r.slice} → main  ${r.slice.replace(".", "")}f0` });
-    r.status = "done"; r.head = "Merged"; r.pct = 100; r.station = "merged";
+    r.log.push({ k: "tool", act: "Write", arg: `${TERMS.issueDir}${r.slice}.md`, sub: COPY.blockCat });
+    r.status = "blocked"; r.head = `Paused · ${COPY.blockCat} filed`;
+  } else if (/send back|revise|soften/i.test(choice)) {
+    r.log.push({ k: "say", t: `Sending it back to ${stationName("branch")} with the note.` });
+    r.status = "done"; r.head = `Sent back to ${stationName("branch")}`; r.pct = 100; r.station = "branch";
+  } else if (/merge|approve|publish|ship/i.test(choice)) {
+    r.log.push({ k: "say", t: `Approving and stamping it. Logging a note so this is a deliberate call next time, not a drift.` });
+    r.log.push({ k: "bash", cmd: TERMS.publishCmd, ok: true, out: TERMS.publishOut(r.slice) });
+    r.status = "done"; r.head = cap(TERMS.doneLabel); r.pct = 100; r.station = "merged";
   } else {
-    r.log.push({ k: "say", t: `Going with "${choice}". Updating restore.ts and the test to match, then re-running.` });
-    r.log.push({ k: "tool", act: "Edit", arg: "src/list/restore.ts", sub: "+9 −4" });
-    r.log.push({ k: "bash", cmd: "npm test -- undo", ok: true, out: "PASS  src/list/restore.test.tsx  (4 tests)" });
-    r.status = "running"; r.head = "Green — finishing the diff"; r.pct = Math.min(92, r.pct + 30);
+    r.log.push({ k: "say", t: `Going with "${choice}". Folding it in and re-running the checks.` });
+    r.status = "running"; r.head = "Back on it — finishing up"; r.pct = Math.min(92, r.pct + 30);
   }
   if (r.status !== "blocked") r.question = null;
   else r.question = null;
@@ -757,7 +783,9 @@ const STATE_VIEW = {
   branch: { mode: "product", view: "runs",     label: "Runs" },
   pr:     { mode: "product", view: "runs",     label: "Runs" },
   merged: { mode: "product", view: "slices",   label: "Slices" },
-  feed:   { mode: "system",  view: "issues",   label: "System issues" },
+  /* the feed station is product feedback now — a Factory concern with no
+     separate list view, so it has no "open in" target. System issues live in
+     their own System-mode list, reached from the System rail, not from here. */
 };
 
 function itemsCard(s, selId) {
@@ -777,7 +805,7 @@ function itemsCard(s, selId) {
     <div class="it-list">${rows}</div>
     <div class="it-foot">
       <span>${list.length < s.count ? `Showing ${list.length} of ${s.count}` : `All ${s.count}`}</span>
-      ${dest ? `<a class="lnk" onclick="gotoList('${dest.mode}','${dest.view}')">Open in ${esc(dest.label)}</a>` : ""}
+      ${dest ? `<a class="lnk" onclick="gotoList('${dest.mode}','${dest.view}')">Open in ${esc(navLabel(dest.mode, dest.view))}</a>` : ""}
     </div>
     ${out ? `<div class="acts-row"><button class="btn wide" onclick="runProc('${out.id}')">${ICONS.play} ${esc(out.name)} over all ${s.count}</button></div>` : ""}`);
 }
@@ -1046,6 +1074,7 @@ function promptFile(p) {
   return (p.kind === "runbook" ? "system/runbooks/" : "system/skills/") + p.id + ".md";
 }
 function initDocs() {
+  Object.keys(DOCS).forEach((k) => delete DOCS[k]);   /* a fresh corpus per workspace */
   PROCS.forEach((p) => (DOCS[promptFile(p)] = { title: p.name, body: p.prompt }));
   Object.keys(PAGES).forEach((k) => (DOCS[k] = { title: PAGES[k].title, body: PAGES[k].body }));
   /* spec sections first, so the slices that cite them link to something real */
@@ -1054,6 +1083,39 @@ function initDocs() {
       const path = itemDocPath(it, home);
       if (!DOCS[path]) DOCS[path] = { title: it.t, body: itemBody(it, home), item: { id: it.id, from: home } };
     }));
+  /* system issues are files too, but they live off the production loop — in
+     system/issues, reached from System mode, never a station on the ring */
+  ISSUES.forEach((iss) => (DOCS[TERMS.issueBase + iss.id + ".md"] = { title: iss.t, body: issueBody(iss) }));
+}
+
+/* a system issue: a miss in the loop's own process, attributed to the edge it
+   happened on. Off the ring by design — the factory produces the product; this
+   is the factory finding a bug in itself. */
+function issueBody(iss) {
+  const edge = procById(iss.edge);
+  const edgeLink = edge ? `[${edge.name}](../${promptFile(edge).replace("system/", "")})` : iss.edge;
+  const specName = (stateById("spec") || {}).name || "spec";
+  const kindWord = edge ? edge.kind : "runbook";
+  return `Category \`${iss.cat}\`, on the ${edgeLink} edge · ${iss.run}.
+
+This is a **system issue** — the loop got something wrong about *itself*, not the
+${COPY.productWord}. It lives here, off the production ring, and it is fixed by
+editing the ${kindWord} on its edge, not by shipping a ${TERMS.unit}.
+
+## What happened
+
+${iss.t}
+
+## How it gets fixed
+
+${iss.fix
+  ? `- [ ] Patch the ${kindWord} on the ${edge ? edge.name : iss.edge} edge
+- [ ] Bump the system version
+- [ ] Close this with the commit that changed the ${kindWord}`
+  : `- [ ] No fix yet — it needs a call in ${specName} first, not a prompt change`}
+
+> Three of one category on one edge is not a patch.
+> [Redraw the edge](../runbooks/triage/redraw-an-edge.md) instead.`;
 }
 
 /* ── the product corpus is markdown too ──
@@ -1066,7 +1128,7 @@ const hsh  = (s) => [...String(s)].reduce((a, c) => a + c.charCodeAt(0), 0);
 
 function itemDocPath(it, home) {
   if (home === "spec") return `docs/${it.id}-${slug(it.t)}.md`;
-  if (home === "feed") return `system/issues/${it.id.replace("#", "i")}.md`;
+  if (home === "feed") return `feedback/${it.id.replace("#", "")}.md`;
   return `slices/${it.id}.md`;          /* one slice, one file, whatever station it is at */
 }
 
@@ -1082,92 +1144,94 @@ function itemBody(it, home) {
   const st = STATES.find((x) => x.id === home);
   const n = hsh(it.id + it.t);
 
+  const B = COPY.body;
   if (home === "spec") {
     const cite = [ITEMS.plans[n % 6], ITEMS.merged[(n + 2) % 6]];
     return `## Problem
 
 **${it.t}** is the part of the product that gets described a different way every
 time somebody says it out loud. This section fixes the language, and every
-decision below is numbered so a slice can cite one rather than paraphrase it.
+decision below is numbered so a ${TERMS.unit} can cite one rather than paraphrase it.
 
 ## Decisions
 
-1. **D${180 + (n % 9)}** — the thread is the unit the UI addresses, never the message.
-2. **D${190 + (n % 7)}** — anything derivable on read is derived, never stored.
-3. **D${200 + (n % 5)}** — one owner per fact, named in this section.
+1. **D${180 + (n % 9)}** — ${B.specDecisions[0]}
+2. **D${190 + (n % 7)}** — ${B.specDecisions[1]}
+3. **D${200 + (n % 5)}** — ${B.specDecisions[2]}
 
 ## Open questions
 
-- [ ] Does the rule above survive an account with two identities?
-- [x] Is there a case where a client-side write beats the server? No, decided in D${190 + (n % 7)}.
+- [ ] ${B.specQs.open}
+- [x] ${B.specQs.done} No, decided in D${190 + (n % 7)}.
 
 ## Coverage
 
 ${it.s}. Cited by [${cite[0].id}](../slices/${cite[0].id}.md) and
 [${cite[1].id}](../slices/${cite[1].id}.md).
 
-> A section with no slice citing it is either not built or not needed. Both are
-> worth knowing, and [plan feature](../system/runbooks/plan.md) reads this line
-> before it cuts.`;
+> A ${COPY.sourceWord} with no ${TERMS.unit} citing it is either not built or not needed.
+> Both are worth knowing, and [${procById("plan").name}](../system/runbooks/plan.md)
+> reads this line before it cuts.`;
   }
 
   if (home === "feed") {
-    const iss = ISSUES.find((x) => x.id === it.id.replace("#", "i")) || ISSUES[0];
-    const edge = procById(iss.edge);
-    const edgeLink = edge ? `[${edge.name}](../${promptFile(edge).replace("system/", "")})` : iss.edge;
-    return `Category \`${iss.cat}\`, logged by [log issue](../skills/log.md) on ${iss.run}.
+    /* product feedback — about the thing the factory makes, so it stays in the
+       factory and folds back into the spec. System/process misses are a
+       different animal and live off the loop in System mode. */
+    const specName = (stateById("spec") || {}).name || "spec";
+    const logProc = procById("log");
+    return `\`${it.cat}\` · ${it.area || it.channel || ""} · logged by [${logProc.name}](../system/skills/log.md)
 
-## What happened
+## What we saw
 
-${iss.t}
+${it.report}
 
-## Where it lands
+## Where it goes
 
-On the ${edgeLink} edge. States do not fail, transitions do, so this file names
-an edge and never a state.
+Folds into **${specName}** as ${it.fold}. This is feedback about the
+${COPY.productWord}, so it stays in the factory — it sharpens the next
+${specName}, it does not touch the runbooks.
 
-## Proposed fix
+> Process misses — where the *system* got something wrong about itself — are a
+> separate queue, off this loop, in System mode under **System issues**. This
+> file is about the ${COPY.productWord}, not the machine.
 
-${iss.fix
-  ? `- [ ] Patch the runbook on that edge
-- [ ] Bump the system version
-- [ ] Close this file with the commit sha`
-  : `- [ ] No fix yet. It needs a decision on the spec first, not a prompt change.`}
+## Next
 
-> Three issues of one category on one edge is not a patch. See
-> [redrawing an edge](../runbooks/triage/redraw-an-edge.md).`;
+- [${it.fix ? "x" : " "}] ${it.fix
+  ? `Carried into ${it.fold}`
+  : "Hold — one data point is a fluke; wait for the pattern before it becomes a decision"}`;
   }
 
-  /* everything else is a slice, at one of four stations */
+  /* everything else is one unit, at one of four stations */
   const sp = specRef(n);
   const merged = home === "merged", live = home === "branch" || home === "pr";
   const tick = (done) => (done ? "x" : " ");
-  return `Slice **${it.id}** · ${st ? st.name : home} · cites
+  return `${TERMS.Unit} **${it.id}** · ${st ? st.name : home} · cites
 [${sp.id} ${sp.t}](../${sp.path}) §${1 + (n % 4)}
 
 ## Proves
 
-Opening the app and using **${it.t}** does the thing the spec says it should,
-observably, without reading the diff to know it worked.
+${B.proves(it.t)}
 
 ## Fields
 
 - \`needs\` — ${it.s.startsWith("needs") ? it.s.split("·")[0].replace("needs", "").trim() : "nothing outstanding"}
-- \`owns\` — \`src/${slug(it.t)}/*\`
+- \`owns\` — ${B.owns(slug(it.t))}
 - \`spec\` — [${sp.id} ${sp.t}](../${sp.path}) §${1 + (n % 4)}
 - \`proves\` — the sentence above
 
 ## Tasks
 
-- [${tick(true)}] Read the spec section and every decision it cites
-- [${tick(merged || live)}] Open the worktree and branch off main
-- [${tick(merged || home === "pr")}] Implement inside \`owns\` only
-- [${tick(merged || home === "pr")}] Self-review against proves, per [code review](../system/runbooks/build/code-review.md)
-- [${tick(merged)}] Raise the PR with the slice id in the title
+- [${tick(true)}] ${B.readSpec}
+- [${tick(merged || live)}] ${B.openWork}
+- [${tick(merged || home === "pr")}] ${B.implement}
+- [${tick(merged || home === "pr")}] ${B.selfReview}
+- [${tick(merged)}] ${B.raise}
 
 ## Notes
 
-${it.s}.${merged ? " Merged, so this file is history now: it stays for the citation, not for the work." : ""}`;
+${it.s}.${merged ? ` ${cap(TERMS.doneLabel)}, so this file is history now: it stays for the citation, not for the work.` : ""}`;
 }
 
 
@@ -1367,8 +1431,8 @@ function docFace(path) {
   if (isRoot) return { icon: pr.kind === "runbook" ? ICONS.book : ICONS.sparkle, kind: pr.kind,
     cls: pr.kind === "runbook" ? "rb" : "sk", tint: pr.kind === "runbook" ? "rb" : "", proc: pr, root: true };
   if (item) {
-    const kind = item.from === "spec" ? "spec" : item.from === "feed" ? "issue" : "slice";
-    return { icon: kind === "spec" ? ICONS.doc : kind === "issue" ? ICONS.flag : ICONS.list,
+    const kind = item.from === "spec" ? "spec" : item.from === "feed" ? "feedback" : "slice";
+    return { icon: kind === "spec" ? ICONS.doc : kind === "feedback" ? ICONS.flag : ICONS.list,
       kind, cls: "pgtag", tint: "", item, next: PROCS.find((x) => x.from === item.from), root: false };
   }
   return { icon: ICONS.doc, kind: "page", cls: "pgtag", tint: "", proc: pr, root: false };
