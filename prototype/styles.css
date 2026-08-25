@@ -522,9 +522,6 @@ svg { display: block; }
 .seg.mode button svg { flex: none; }
 .seg.mode button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* live dot on a slice that has a worker on it right now */
-.nd-dot.live { animation: dotlive 1.5s ease-in-out infinite; }
-@keyframes dotlive { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.55); } }
 
 /* ── the board ── */
 .agents-lv { display: flex; flex-direction: column; }
@@ -556,12 +553,12 @@ svg { display: block; }
 .wgroup-h .nd-dot { width: 7px; height: 7px; }
 .wgroup-n { font-variant-numeric: tabular-nums; }
 .wrows { display: flex; flex-direction: column; }
-.wrow { width: 100%; text-align: left; display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: start; gap: 12px; padding: 10px 12px; border-radius: 10px; }
+.wrow { width: 100%; text-align: left; display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: start; gap: 12px; padding: 10px 12px; border-radius: 10px; }
 .wrow:hover { background: var(--hover); }
 .wrow + .wrow { box-shadow: 0 -.5px 0 var(--line-soft); }
-.wrow > .nd-dot { width: 8px; height: 8px; margin-top: 7px; }
 .wrow-b { min-width: 0; }
 .wrow-t { display: flex; align-items: baseline; gap: 8px; overflow: hidden; }
+.wrow-t .nd-dot { width: 8px; height: 8px; flex: none; align-self: center; }
 .wrow-id { color: var(--text-3); font-size: 11.5px; flex: none; }
 .wrow-nm { font-size: 13.5px; font-weight: 600; letter-spacing: -.012em; flex: none; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wrow-meta { font-size: 11.5px; color: var(--text-3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

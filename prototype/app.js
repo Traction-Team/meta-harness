@@ -559,9 +559,9 @@ function workerRow(r) {
   const proc = runProcOf(r), st = STATUS[r.status], q = r.question;
   const time = r.status === "done" ? r.started : r.elapsed;
   return `<button class="wrow ${r.status}" data-run="${r.id}">
-    <span class="nd-dot ${RUN_DOT[r.status]}${r.status === "running" ? " live" : ""}"></span>
     <div class="wrow-b">
       <div class="wrow-t">
+        <span class="nd-dot ${RUN_DOT[r.status]}"></span>
         <span class="wrow-id mono">${esc(r.slice)}</span>
         <span class="wrow-nm">${esc(r.title)}</span>
         <span class="wrow-meta">${esc(proc ? proc.name : "")} · ${esc(runModelOf(r))} · ${esc(STATION_NAME[r.station] || r.station)}</span>
