@@ -1,4 +1,4 @@
-# MetaHarness
+# meta-harness
 
 System definition as **one loop**, not a canvas of everything.
 
