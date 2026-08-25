@@ -19,13 +19,13 @@ const WORKSPACES = [
       dataset and all three modes re-read it, because nothing is hard-coded to
       email — the station and edge *ids* are the skeleton, everything else is
       content. ── */
-let REPO, STATES, PROCS, BACKS, ISSUES, ITEMS, AGENTS, RUN_PROC, RUN_MODEL,
+let REPO, STATES, PROCS, BACKS, INPUTS, ISSUES, ITEMS, AGENTS, RUN_PROC, RUN_MODEL,
     PAGES, NAV, HISTORY, RUNBOOKS, SKILLS, TERMS, COPY, EXTRA_SKILLS;
 const DATASETS = {};
 
 function loadWorkspace(id) {
   const d = DATASETS[id] || DATASETS["email-agent"];
-  REPO = d.repo; STATES = d.states; PROCS = d.procs; BACKS = d.backs;
+  REPO = d.repo; STATES = d.states; PROCS = d.procs; BACKS = d.backs; INPUTS = d.inputs || [];
   ISSUES = d.issues; ITEMS = d.items; AGENTS = d.agents;
   RUN_PROC = d.runProc; RUN_MODEL = d.runModel;
   PAGES = d.pages; NAV = d.nav; HISTORY = d.history;
@@ -280,6 +280,15 @@ separate queue, off this loop, and are not in scope for this pass.
 /* the back edge everyone's real process has and nobody's diagram admits to */
 const BACKS = [
   { from: "pr", to: "branch", label: "rework", note: "34% of reviews" },
+];
+
+/* ── inputs: the raw material that flows INTO the loop from outside. A factory
+      is not one closed ring — different kinds of work enter at the edge and fan
+      into the same intake. Each feeds a state; the loop takes it from there. ── */
+const INPUTS = [
+  { id: "bugs",     to: "feed", name: "Bug reports",     sub: "from users",  icon: "flag",    count: 12 },
+  { id: "requests", to: "feed", name: "Feature requests", sub: "from users",  icon: "sparkle", count: 7  },
+  { id: "signals",  to: "feed", name: "Usage signals",    sub: "telemetry",   icon: "heat",    count: 34 },
 ];
 
 /* ── the system's own issue queue, attributed to edges, never to states ── */
@@ -805,7 +814,7 @@ const EXTRA_SKILLS = [
   { name: "blast radius",      from: "-", to: "-", trigger: "called", runs: 96,   issues: [] },
 ];
 
-return { repo: REPO, states: STATES, procs: PROCS, backs: BACKS, issues: ISSUES,
+return { repo: REPO, states: STATES, procs: PROCS, backs: BACKS, inputs: INPUTS, issues: ISSUES,
   items: ITEMS, agents: AGENTS, runProc: RUN_PROC, runModel: RUN_MODEL,
   pages: PAGES, nav: NAV, history: HISTORY, terms: TERMS, copy: COPY, extraSkills: EXTRA_SKILLS };
 }

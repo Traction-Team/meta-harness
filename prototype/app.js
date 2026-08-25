@@ -17,6 +17,7 @@ const ICONS = {
   sparkle: I(`<path d="M8 1.8l1.3 3.6L13 6.7l-3.7 1.3L8 11.6 6.7 8 3 6.7l3.7-1.3zM12.6 11l.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4-1.4-.5 1.4-.5z"/>`),
   clock:   I(`<circle cx="8" cy="8" r="6.2"/><path d="M8 4.6V8l2.3 1.5"/>`),
   robot:   I(`<rect x="2.6" y="5.4" width="10.8" height="8.2" rx="2.8"/><path d="M8 5.4V3.4"/><circle cx="8" cy="2.4" r="1"/><circle cx="6" cy="9.3" r=".95" fill="currentColor" stroke="none"/><circle cx="10" cy="9.3" r=".95" fill="currentColor" stroke="none"/>`),
+  mic:     I(`<rect x="6.1" y="1.9" width="3.8" height="7.6" rx="1.9"/><path d="M3.9 7.5a4.1 4.1 0 0 0 8.2 0M8 11.6v2.3M5.8 13.9h4.4"/>`),
   sidebar: I(`<rect x="2" y="3" width="12" height="10" rx="1.8"/><path d="M6.4 3v10"/>`),
   chevL:   I(`<path d="M10 3.2 5.6 8l4.4 4.8"/>`),
   chevR:   I(`<path d="M6 3.2 10.4 8 6 12.8"/>`),
@@ -59,13 +60,18 @@ const state = {
   /* agents mode: which run's console is open, and the box you type back with */
   run: null,                // run id, or null for the board
   composer: "",             // the un-sent line in the console
+  /* an input program opened as its own primary pane: the operator's intake
+     console, where you pour work into the loop */
+  inputOpen: null,          // input id, or null
+  inputEditing: false,      // false = use the program, true = edit its definition
+  intakeText: "",           // the un-sent message in the intake box
 };
 const PANEL_W = 412;
 
 /* one loop. There is no descending into a process any more: a process is a
    prompt, and a prompt opens as a document, not as another diagram. */
 function model() {
-  return { states: STATES, procs: PROCS, backs: BACKS };
+  return { states: STATES, procs: PROCS, backs: BACKS, inputs: (typeof INPUTS !== "undefined" && INPUTS) || [] };
 }
 const stateById = (id) => STATES.find((s) => s.id === id);
 const procById = (id) => PROCS.find((p) => p.id === id);
@@ -161,8 +167,10 @@ function paintToolbar() {
   const viewLbl = (navFor().find((n) => n.id === state.view) || {}).label || state.view;
   const r = state.run ? runById(state.run) : null;
   const doc = state.docStack[state.docStack.length - 1];
+  const inp = state.inputOpen ? inputById(state.inputOpen) : null;
   $("#crumb").innerHTML = `<span class="dim">${modeLbl}</span> › ${esc(viewLbl)}` +
     (r ? ` › <span class="dim">${esc(r.slice)} ${esc(r.title)}</span>` : "") +
+    (inp ? ` › <span class="dim">${esc(inp.name)}</span>` : "") +
     (doc ? ` › <span class="dim">${esc(docTitle(doc))}</span>` : "");
 
   const isLoop = state.view === "loop" && state.mode !== "agents";
@@ -213,6 +221,7 @@ function switchWorkspace(id) {
   state.ws = id; state.wsOpen = false;
   state.sel = null; state.run = null; state.composer = "";
   state.docStack = []; state.drafts = {}; state.editing = false;
+  state.inputOpen = null; state.inputEditing = false; state.intakeText = "";
   state.view = state.mode === "agents" ? "live" : "loop";
   loadWorkspace(id);
   initDocs();
@@ -220,49 +229,193 @@ function switchWorkspace(id) {
 }
 
 /* ═════════════════════════════════════════════════════════════ the loop ══
-   Nodes sit on an ellipse. Edges are arcs of that same ellipse, so the whole
-   thing reads as one circuit rather than a graph that happens to be round.
-   The process box sits at the middle of its arc, on the line. */
+   The six stations sit on a 2×3 rectangle, rotated so Feedback is the top-left
+   corner, and the flow runs clockwise around the perimeter. Edges walk the grid
+   as orthogonal H/V segments with rounded corners, each one picking whichever
+   sides face the target. Input programs stack above Feedback and pour down into
+   its top. The process box rides the middle of its edge. */
+
+/* where each station sits on the grid, as [col, row]. Feedback is top-left,
+   then clockwise: right across the top row, down the right column, back along
+   the bottom, up the left column. */
+const GRID = {
+  feed:   [0, 0], spec: [1, 0], plans:  [2, 0],
+  merged: [0, 1], pr:   [1, 1], branch: [2, 1],
+};
 
 function geo(m) {
-  const n = m.states.length;
   const P = state.mode === "product"
-    ? { rx: 520, ry: 330, nw: 232, nh: 178, d: 22 }
-    : { rx: 420, ry: 268, nw: 198, nh: 80, d: 17 };
-  const padX = P.nw / 2 + 46, padY = P.nh / 2 + 30;
-  return { ...P, n, W: 2 * P.rx + 2 * padX, H: 2 * P.ry + 2 * padY, cx: P.rx + padX, cy: P.ry + padY };
+    ? { nw: 232, nh: 178, gapX: 230, gapY: 175 }
+    : { nw: 198, nh: 80,  gapX: 210, gapY: 155 };
+  const pitchX = P.nw + P.gapX, pitchY = P.nh + P.gapY;
+
+  /* raw node rects, origin at Feedback's top-left */
+  const nodes = {};
+  for (const id in GRID) {
+    const [c, r] = GRID[id];
+    nodes[id] = { x: c * pitchX, y: r * pitchY, w: P.nw, h: P.nh };
+  }
+
+  /* input pills, stacked up-and-left of Feedback and pouring down into its top.
+     Their right edge sits just left of Feedback's leftmost top-port so each wire
+     leaves the pill, runs right, and drops straight in — no backtracking. */
+  const iw = 182, ih = 36, igap = 14, vGap = 54;
+  const inputs = (m.inputs || []).map((inp) => ({ ...inp, w: iw, h: ih }));
+  const stackH = inputs.length ? inputs.length * ih + (inputs.length - 1) * igap : 0;
+  const feed = nodes.feed;
+  inputs.forEach((inp, k) => {
+    inp.x = feed.x - iw + 28;
+    inp.y = feed.y - vGap - stackH + k * (ih + igap);
+  });
+
+  /* fit the world around everything, then shift so it starts at (pad, pad) */
+  const rects = [...Object.values(nodes), ...inputs];
+  const pad = 62;
+  const minX = Math.min(...rects.map((q) => q.x)), minY = Math.min(...rects.map((q) => q.y));
+  const maxX = Math.max(...rects.map((q) => q.x + q.w)), maxY = Math.max(...rects.map((q) => q.y + q.h));
+  const dx = pad - minX, dy = pad - minY;
+  rects.forEach((q) => { q.x += dx; q.y += dy; });
+
+  return { ...P, nodes, inputs, iw, ih,
+    W: maxX - minX + pad * 2, H: maxY - minY + pad * 2 };
 }
 
-const RAD = Math.PI / 180;
+/* a connection point on one of a node's four sides, at fraction f along it,
+   with the outward normal (nx,ny) that shapes the stub leaving that side. */
+function port(n, side, f) {
+  if (side === "right")  return { x: n.x + n.w,     y: n.y + n.h * f, nx:  1, ny:  0 };
+  if (side === "left")   return { x: n.x,           y: n.y + n.h * f, nx: -1, ny:  0 };
+  if (side === "top")    return { x: n.x + n.w * f, y: n.y,           nx:  0, ny: -1 };
+  return                        { x: n.x + n.w * f, y: n.y + n.h,     nx:  0, ny:  1 };  // bottom
+}
+
+/* pick which side each edge leaves and enters. Overlap-aware:
+   - boxes share a row  → straight left↔right
+   - boxes share a column → straight top↕bottom
+   - diagonal → leave along the dominant axis (biased toward top/bottom) and
+     enter the perpendicular facing side, so it reads as a clean L-elbow. */
+function pickSides(a, b) {
+  const overlapX = a.x < b.x + b.w && b.x < a.x + a.w;
+  const overlapY = a.y < b.y + b.h && b.y < a.y + a.h;
+  const dx = (b.x + b.w / 2) - (a.x + a.w / 2), dy = (b.y + b.h / 2) - (a.y + a.h / 2);
+  let horiz;
+  if (overlapY && !overlapX)      horiz = true;
+  else if (overlapX && !overlapY) horiz = false;
+  else                            horiz = Math.abs(dx) > Math.abs(dy) * 1.35;   // prefer vertical
+  if (horiz) {
+    const from = dx >= 0 ? "right" : "left";
+    const to   = overlapY ? (dx >= 0 ? "left" : "right") : (dy >= 0 ? "top" : "bottom");
+    return [from, to];
+  }
+  const from = dy >= 0 ? "bottom" : "top";
+  const to   = overlapX ? (dy >= 0 ? "top" : "bottom") : (dx >= 0 ? "left" : "right");
+  return [from, to];
+}
+
+/* resolve every edge to two ports, spreading edges that share a side so several
+   wires into one intake fan out instead of stacking on one point. */
+function routeEdges(edges, nodes) {
+  edges.forEach((e) => {
+    const [fs, ts] = pickSides(nodes[e.from], nodes[e.to]);
+    e._fs = e.fromSide || fs; e._ts = e.toSide || ts;
+  });
+  const out = {}, inn = {};
+  edges.forEach((e) => { (out[e.from + ":" + e._fs] ??= []).push(e); (inn[e.to + ":" + e._ts] ??= []).push(e); });
+  const frac = (list, e) => (list.indexOf(e) + 1) / (list.length + 1);
+  edges.forEach((e) => {
+    e._a = port(nodes[e.from], e._fs, frac(out[e.from + ":" + e._fs], e));
+    e._b = port(nodes[e.to],   e._ts, frac(inn[e.to + ":" + e._ts], e));
+  });
+}
+
+const R = 16;   // corner radius for the grid routing
+
+/* orthogonal route between the two ports: a stub out of each side, then straight
+   H/V segments meeting in the middle — an L when the sides are perpendicular,
+   a Z when they face the same axis. */
+function orthoPoints(e) {
+  const a = e._a, b = e._b, stub = 24;
+  const s0 = { x: a.x, y: a.y },                       s1 = { x: a.x + a.nx * stub, y: a.y + a.ny * stub };
+  const t1 = { x: b.x + b.nx * stub, y: b.y + b.ny * stub }, t0 = { x: b.x, y: b.y };
+  const aH = a.ny === 0, bH = b.ny === 0;              // does each port exit horizontally?
+  let mid;
+  if (aH && bH)        mid = [{ x: (s1.x + t1.x) / 2, y: s1.y }, { x: (s1.x + t1.x) / 2, y: t1.y }];
+  else if (!aH && !bH) mid = [{ x: s1.x, y: (s1.y + t1.y) / 2 }, { x: t1.x, y: (s1.y + t1.y) / 2 }];
+  else if (aH && !bH)  mid = [{ x: t1.x, y: s1.y }];
+  else                 mid = [{ x: s1.x, y: t1.y }];
+  return [s0, s1, ...mid, t1, t0];
+}
+
+/* an orthogonal polyline drawn with rounded corners, plus its halfway point so
+   the process box can ride the middle of the edge. */
+function roundedPath(raw, r) {
+  const p = [];
+  for (const q of raw) { const l = p[p.length - 1]; if (!l || Math.abs(q.x - l.x) > 0.5 || Math.abs(q.y - l.y) > 0.5) p.push(q); }
+  if (p.length < 2) return { d: "", mid: p[0] || { x: 0, y: 0 } };
+  let d = `M${p[0].x},${p[0].y}`;
+  for (let i = 1; i < p.length - 1; i++) {
+    const a = p[i - 1], c = p[i], b = p[i + 1];
+    const d1 = Math.hypot(c.x - a.x, c.y - a.y) || 1, d2 = Math.hypot(b.x - c.x, b.y - c.y) || 1;
+    const rr = Math.min(r, d1 / 2, d2 / 2);
+    const s = { x: c.x + (a.x - c.x) / d1 * rr, y: c.y + (a.y - c.y) / d1 * rr };
+    const t = { x: c.x + (b.x - c.x) / d2 * rr, y: c.y + (b.y - c.y) / d2 * rr };
+    d += ` L${s.x.toFixed(1)},${s.y.toFixed(1)} Q${c.x},${c.y} ${t.x.toFixed(1)},${t.y.toFixed(1)}`;
+  }
+  const last = p[p.length - 1];
+  d += ` L${last.x},${last.y}`;
+  let total = 0; const segs = [];
+  for (let i = 1; i < p.length; i++) { const l = Math.hypot(p[i].x - p[i - 1].x, p[i].y - p[i - 1].y); segs.push(l); total += l; }
+  let want = total / 2, mid = p[0];
+  for (let i = 1; i < p.length; i++) { if (want <= segs[i - 1]) { const f = want / (segs[i - 1] || 1); mid = { x: p[i - 1].x + (p[i].x - p[i - 1].x) * f, y: p[i - 1].y + (p[i].y - p[i - 1].y) * f }; break; } want -= segs[i - 1]; }
+  return { d, mid };
+}
+
+function edgeD(e) {
+  const { d, mid } = roundedPath(orthoPoints(e), R);
+  return { d, mx: mid.x, my: mid.y };
+}
 
 function paintLoop() {
   const m = model(), G = geo(m);
-  const step = 360 / G.n;
-  const ang = (i) => (-90 + i * step) * RAD;
-  const pt = (a, k = 1) => [G.cx + G.rx * k * Math.cos(a), G.cy + G.ry * k * Math.sin(a)];
-  const idx = {}; m.states.forEach((s, i) => (idx[s.id] = i));
+  const N = G.nodes;
+  /* one lookup that also knows the input pills, so an input→state edge routes
+     the same way a process edge does */
+  const look = { ...N };
+  G.inputs.forEach((inp) => (look[inp.id] = inp));
 
-  /* ── wires ──
-     The faint full ellipse under everything is the track. Without it the arcs
-     read as six disconnected fragments instead of one circuit. */
-  let paths = `<ellipse class="track" cx="${G.cx}" cy="${G.cy}" rx="${G.rx}" ry="${G.ry}"/>`, labels = "";
-  m.procs.forEach((p) => {
-    const a0 = ang(idx[p.from]), a1 = ang(idx[p.to]);
-    let s = a0 + G.d * RAD, e = a1 - G.d * RAD;
-    if (e < s) e += 360 * RAD;                       // the closing arc
-    const [x1, y1] = pt(s), [x2, y2] = pt(e);
-    const big = e - s > Math.PI ? 1 : 0;
-    const hot = state.heat && p.fail >= .25 ? " hot" : "";
-    const cls = p.broken ? "wire err" : "wire" + hot;
-    const mk = p.broken ? "arrowE" : (hot ? "arrowH" : "arrow");
-    paths += `<path class="${cls}" id="w-${p.id}" d="M${x1},${y1} A${G.rx},${G.ry} 0 ${big} 1 ${x2},${y2}" marker-end="url(#${mk})"/>`;
+  /* every wire the loop draws, as one list so wires sharing a side fan out
+     together: the forward processes, the input feeders, and the back edges */
+  const edges = [];
+  m.procs.forEach((p) => edges.push({ from: p.from, to: p.to, proc: p }));
+  /* push the feeders bottom-to-top so the fan into Feedback's top splays with
+     the topmost pill reaching the rightmost port — the wires never cross */
+  [...G.inputs].reverse().forEach((inp) => edges.push({ from: inp.id, to: inp.to, cls: "in", fromSide: "right", toSide: "top" }));
+  (m.backs || []).forEach((b) => edges.push({ from: b.from, to: b.to, back: true, label: b.label, fromSide: "bottom", toSide: "bottom" }));
+  routeEdges(edges, look);
+
+  /* ── wires ── */
+  let paths = "", labels = "";
+  edges.forEach((e) => {
+    const g = edgeD(e); e._g = g;
+    if (e.proc) {
+      const p = e.proc;
+      const hot = state.heat && p.fail >= .25 ? " hot" : "";
+      const cls = p.broken ? "wire err" : "wire" + hot;
+      const mk = p.broken ? "arrowE" : (hot ? "arrowH" : "arrow");
+      paths += `<path class="${cls}" id="w-${p.id}" d="${g.d}" marker-end="url(#${mk})"/>`;
+    } else if (e.back) {
+      paths += `<path class="wire back" d="${g.d}" marker-end="url(#arrowA)"/>`;
+      if (e.label) labels += `<div class="elabel" style="left:${g.mx}px;top:${g.my}px"><b>↺</b>${esc(e.label)}</div>`;
+    } else {
+      paths += `<path class="wire feed" d="${g.d}" marker-end="url(#arrowIn)"/>`;
+    }
   });
 
   /* ── nodes ── */
   let nodes = "";
-  m.states.forEach((s, i) => {
-    const [x, y] = pt(ang(i));
-    const L = x - G.nw / 2, T = y - G.nh / 2;
+  m.states.forEach((s) => {
+    const r = N[s.id]; if (!r) return;
+    const L = r.x, T = r.y;
     const sel = state.sel && state.sel.t === "node" && state.sel.id === s.id ? " sel" : "";
     const feeds = m.procs.filter((p) => p.to === s.id || p.from === s.id);
     const wrong = feeds.filter((p) => p.broken && p.from === s.id);
@@ -291,13 +444,11 @@ function paintLoop() {
     }
   });
 
-  /* ── processes: the box on the line ── */
+  /* ── processes: the box riding the middle of its edge ── */
   let procs = "";
-  m.procs.forEach((p) => {
-    const i0 = idx[p.from], i1 = idx[p.to];
-    let a0 = ang(i0) + G.d * RAD, a1 = ang(i1) - G.d * RAD;
-    if (a1 < a0) a1 += 360 * RAD;
-    const [x, y] = pt((a0 + a1) / 2);
+  edges.forEach((e) => {
+    if (!e.proc) return;
+    const p = e.proc, g = e._g;
     const sel = state.sel && state.sel.t === "proc" && state.sel.id === p.id ? " sel" : "";
     const nIssues = (p.issues || []).length;
     const inflight = stateById(p.from) ? stateById(p.from).count : 0;
@@ -305,7 +456,7 @@ function paintLoop() {
       ? (nIssues ? `<span class="pr-b ${nIssues < 3 ? "amb" : ""}">${nIssues}</span>` : "")
       : (inflight ? `<span class="pr-b amb" style="background:var(--raise);color:var(--text-2)">${inflight}</span>` : "");
     const rate = Math.round(p.fail * 100);
-    procs += `<div class="pr${sel}${p.broken ? " err" : ""}" data-proc="${p.id}" style="left:${x}px;top:${y}px;transform:translate(-50%,-50%)">
+    procs += `<div class="pr${sel}${p.broken ? " err" : ""}" data-proc="${p.id}" style="left:${g.mx}px;top:${g.my}px;transform:translate(-50%,-50%)">
       <span class="pr-k ${p.kind === "runbook" ? "rb" : ""}">${p.kind === "runbook" ? ICONS.book : ICONS.sparkle}</span>
       <span class="pr-t">${esc(p.name)}</span>
       ${badge}
@@ -314,19 +465,33 @@ function paintLoop() {
     </div>`;
   });
 
+  /* ── inputs: compact program pills stacked above Feedback ──
+     Not part of the ring — these are the raw kinds of work entering the factory.
+     Each pours down into Feedback's top, so several inputs visibly fan into one
+     intake. Position and routing come from geo(); here we just draw the pills. */
+  let inlets = "";
+  G.inputs.forEach((inp) => {
+    const open = state.inputOpen === inp.id ? " open" : "";
+    inlets += `<div class="nd-in${open}" data-input="${inp.id}" style="left:${inp.x}px;top:${inp.y}px;width:${inp.w}px;height:${inp.h}px">
+      <span class="nd-in-i">${ICONS[inp.icon]}</span>
+      <span class="nd-in-t">${esc(inp.name)}</span>
+      <button class="pr-run nd-in-run" data-inrun="${inp.id}" title="Open ${esc(inp.name)}">${ICONS.play}</button>
+    </div>`;
+  });
+
   $("#main").innerHTML = `
     <div class="lp" id="lp">
       <div class="lp-world" id="world" style="width:${G.W}px;height:${G.H}px">
         <svg class="lp-svg" width="${G.W}" height="${G.H}">
           <defs>
-            ${["arrow:var(--wire)", "arrowA:var(--accent)", "arrowE:var(--red)", "arrowH:var(--amber)", "arrowS:var(--wire)"]
+            ${["arrow:var(--wire)", "arrowA:var(--accent)", "arrowE:var(--red)", "arrowH:var(--amber)", "arrowS:var(--wire)", "arrowIn:var(--accent)"]
               .map((d) => { const [id, c] = d.split(":");
                 return `<marker id="${id}" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                   <path d="M0,1 L9,5 L0,9 z" style="fill:${c}${id === "arrowS" ? ";opacity:.62" : ""}"/></marker>`; }).join("")}
           </defs>
           ${paths}
         </svg>
-        ${nodes}${procs}${labels}
+        ${nodes}${procs}${inlets}${labels}
       </div>
       <div class="lp-tools">
         <button class="ico" id="zOut">${ICONS.minus}</button>
@@ -353,10 +518,25 @@ function wireLoop() {
   world.querySelectorAll("[data-proc]").forEach((el) => {
     el.onclick = (e) => {
       if (e.target.closest("[data-run]")) return;
+      /* in System (design) mode a process is a runbook you edit, so one click
+         opens its prompt — the same pane as "Edit prompt" on the floating card,
+         which still floats beside it. Elsewhere a click just selects. */
+      if (state.mode === "system") { openEditor(el.dataset.proc); return; }
       state.sel = { t: "proc", id: el.dataset.proc }; paint();
     };
     /* double-click goes straight to the prompt, since that is what a process is */
     el.ondblclick = () => { state.sel = { t: "proc", id: el.dataset.proc }; openEditor(el.dataset.proc); };
+  });
+  /* an input program: the play button opens its intake console in any mode; in
+     System mode clicking the pill body opens it too (it is a runbook you tune) */
+  world.querySelectorAll("[data-inrun]").forEach((el) => {
+    el.onclick = (e) => { e.stopPropagation(); openInputConsole(el.dataset.inrun); };
+  });
+  world.querySelectorAll("[data-input]").forEach((el) => {
+    el.onclick = (e) => {
+      if (e.target.closest("[data-inrun]")) return;
+      if (state.mode === "system") openInputConsole(el.dataset.input);
+    };
   });
   world.querySelectorAll("[data-run]").forEach((el) => {
     el.onclick = (e) => { e.stopPropagation(); runProc(el.dataset.run); };
@@ -704,7 +884,7 @@ function paintConsole(r) {
 }
 
 function openRun(id) {
-  state.mode = "agents"; state.run = id; state.composer = ""; state.docStack = [];
+  state.mode = "agents"; state.run = id; state.composer = ""; state.docStack = []; state.inputOpen = null;
   if (state.view === "queue") state.view = "live";
   paint();
 }
@@ -821,7 +1001,7 @@ function openItemDoc(id, from) {
   const path = itemDocPath(it, home);
   if (!DOCS[path]) DOCS[path] = { title: it.t, body: itemBody(it, home), item: { id, from: home } };
   state.sel = { t: "item", id, from: home };
-  state.docStack = [path]; state.editing = false;
+  state.docStack = [path]; state.editing = false; state.inputOpen = null;
   paint();
 }
 
@@ -1029,7 +1209,7 @@ document.addEventListener("click", () => { if (state.wsOpen) { state.wsOpen = fa
 window.addEventListener("resize", () => { if (state.view === "loop") fit(); });
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    if (state.docStack.length) closeEditor();      /* the sheet first */
+    if (state.docStack.length || state.inputOpen) closeEditor();      /* the sheet first */
     else if (state.run) { state.run = null; state.composer = ""; paint(); }   /* then the console */
     else { state.sel = null; paint(); }            /* then the panel */
   }
@@ -1441,6 +1621,7 @@ function docFace(path) {
 function paintEditor() {
   const host = $("#overlay");
   if (!host) return;
+  if (state.inputOpen) { paintInputConsole(host); return; }
   const path = state.docStack[state.docStack.length - 1];
   if (!path || !DOCS[path]) { host.className = "ov-wrap"; host.innerHTML = ""; return; }
 
@@ -1551,9 +1732,123 @@ function crumbHTML() {
 
 function openEditor(id) {
   const p = procById(id); if (!p) return;
+  state.inputOpen = null;
   state.docStack = [promptFile(p)]; state.editing = false;
   if (!state.sel || state.sel.t !== "proc" || state.sel.id !== id) state.sel = { t: "proc", id };
   paint();
+}
+
+/* ══════════════════════════════════════════════════ the intake console ══
+   An input is not a station but a little program the operator runs to pour work
+   into the loop. Opened, it takes over the primary pane as a console: a big
+   message box with an AI chat bar, plus the program's own definition to tune. */
+
+const inputById = (id) => (INPUTS || []).find((x) => x.id === id);
+
+/* a default definition so the program reads like the runbooks do. Cached on the
+   input so an edit sticks for the session. */
+function inputProgram(inp) {
+  if (inp.prompt) return inp.prompt;
+  const to = stateById(inp.to);
+  inp.prompt = `## What this is
+
+**${inp.name}** is an intake program. It takes ${inp.sub}, structures each item,
+and drops it into **${to ? to.name : inp.to}** as a feedback item the loop triages.
+
+## How it runs
+
+- [ ] Take the operator's message, a pasted report, or a polled source
+- [ ] Classify it — bug, regression, request, paper-cut, praise → category
+- [ ] Name the area of the product it touches → area
+- [ ] File it into ${to ? to.name : inp.to} with a \`fold\` line → ${to ? to.glob : inp.to}
+
+## Rules
+
+1. One item per report. Split anything that names two separate problems.
+2. Never invent a severity the reporter did not state.`;
+  return inp.prompt;
+}
+
+function openInputConsole(id) {
+  const inp = inputById(id); if (!inp) return;
+  if (state.inputOpen !== id) { state.intakeText = ""; state.inputEditing = false; }
+  state.inputOpen = id;
+  state.docStack = []; state.editing = false; state.sel = null;
+  paint();
+}
+
+/* pour the operator's message into the loop. In the prototype this just moves
+   the counters — the item lands in the target station and the intake clears. */
+function sendInput(id) {
+  const inp = inputById(id); if (!inp) return;
+  const text = (state.intakeText || "").trim(); if (!text) return;
+  inp.count = (inp.count || 0) + 1;
+  const st = stateById(inp.to); if (st) st.count += 1;
+  state.intakeText = "";
+  toast(`Filed into ${st ? st.name : inp.to} · ${inp.name}`);
+  paint();
+}
+
+function paintInputConsole(host) {
+  const inp = inputById(state.inputOpen);
+  if (!inp) { host.className = "ov-wrap"; host.innerHTML = ""; state.inputOpen = null; return; }
+  const to = stateById(inp.to);
+  const dest = esc(to ? to.name : inp.to);
+
+  host.className = "ov-wrap open";
+  host.style.right = "0px";
+  host.innerHTML = `
+    <div class="ov-card intake">
+      <header class="ov-h">
+        <span class="pr-k">${ICONS[inp.icon]}</span>
+        <div class="ov-ht">
+          <div class="ov-name">${esc(inp.name)}<span class="tagm sk">input</span></div>
+          <div class="ov-file mono">feeds → ${dest} · ${esc(inp.sub)}</div>
+        </div>
+        <div class="seg ov-seg" id="inSeg">
+          <button data-m="use" class="${state.inputEditing ? "" : "on"}">${ICONS.play}Use</button>
+          <button data-m="edit" class="${state.inputEditing ? "on" : ""}">${ICONS.pencil}Program</button>
+        </div>
+        <button class="ico" id="inX" title="Close (Esc)">${ICONS.x}</button>
+      </header>
+
+      <div class="ov-b intake-b">
+        ${state.inputEditing
+          ? `<textarea class="ov-edit mono" id="inTa" spellcheck="false">${esc(inputProgram(inp))}</textarea>`
+          : `<div class="intake-scroll">
+              <div class="intake-lead">A little program you run to pour work into <b>${dest}</b>.
+                Paste a report, describe it, or dictate — it lands as an item the loop will triage.</div>
+              <div class="intake-field">
+                <textarea id="intakeTa" placeholder="Describe what happened, paste a report, or dictate it…">${esc(state.intakeText)}</textarea>
+                <div class="intake-bar">
+                  <button class="intake-mic" id="intakeMic" title="Dictate">${ICONS.mic}</button>
+                  <span class="intake-hint">${ICONS.sparkle}<span>AI structures it into ${dest}</span></span>
+                  <button class="btn pri intake-send" id="intakeSend">${ICONS.play}Send in</button>
+                </div>
+              </div>
+              <div class="intake-foot">Enter to send · Shift+Enter for a new line</div>
+            </div>`}
+      </div>
+    </div>`;
+
+  $("#inX").onclick = (e) => { e.stopPropagation(); closeEditor(); };
+  $("#inSeg").querySelectorAll("button").forEach((b) => (b.onclick = () => {
+    state.inputEditing = b.dataset.m === "edit"; paintEditor();
+    const t = $("#inTa") || $("#intakeTa"); if (t) t.focus();
+  }));
+
+  const eta = $("#inTa");
+  if (eta) eta.oninput = () => { inp.prompt = eta.value; };
+
+  const mta = $("#intakeTa");
+  if (mta) {
+    const grow = () => { mta.style.height = "auto"; mta.style.height = Math.min(240, mta.scrollHeight) + "px"; };
+    mta.oninput = () => { state.intakeText = mta.value; grow(); };
+    mta.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendInput(inp.id); } };
+    grow(); mta.focus();
+  }
+  const mic = $("#intakeMic"); if (mic) mic.onclick = () => toast("Dictation is a stub in the prototype");
+  const send = $("#intakeSend"); if (send) send.onclick = () => sendInput(inp.id);
 }
 
 function openDoc(path) {
@@ -1566,8 +1861,9 @@ function openDoc(path) {
 }
 
 function closeEditor(quiet) {
-  if (!state.docStack.length) return;
+  if (!state.docStack.length && !state.inputOpen) return;
   state.docStack = []; state.editing = false;
+  state.inputOpen = null; state.inputEditing = false;
   if (!quiet) paint();
 }
 
