@@ -43,7 +43,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 const state = {
-  mode: "system",           // system | product
+  mode: "system",           // system | product | agents
   view: "loop",
   sel: null,                // { t, id }
   heat: true,
@@ -55,6 +55,9 @@ const state = {
   docStack: [],             // markdown pages, deepest last
   drafts: {},               // path -> unsaved text
   editing: false,           // false = read, true = write
+  /* agents mode: which run's console is open, and the box you type back with */
+  run: null,                // run id, or null for the board
+  composer: "",             // the un-sent line in the console
 };
 const PANEL_W = 412;
 
@@ -67,6 +70,32 @@ const stateById = (id) => STATES.find((s) => s.id === id);
 const procById = (id) => PROCS.find((p) => p.id === id);
 const issueById = (id) => ISSUES.find((i) => i.id === id);
 const brokenProcs = () => PROCS.filter((p) => p.broken);
+
+/* ── agents: runs are the truth behind the status dots ── */
+const runById = (id) => AGENTS.find((r) => r.id === id);
+const runsForSlice = (id) => AGENTS.filter((r) => r.slice === id && r.status !== "done");
+const runProcOf = (r) => procById(RUN_PROC[r.station]);   // the edge this run executes
+const runModelOf = (r) => RUN_MODEL[r.station] || "sonnet";
+/* a run's status maps onto the same four dots Product mode already draws, so
+   the ring and the fleet never disagree about a slice */
+const RUN_DOT = { running: "run", waiting: "wait", failed: "bad", blocked: "ok", done: "ok" };
+const dotForItem = (id, fallback) => {
+  const rs = runsForSlice(id);
+  return rs.length ? RUN_DOT[rs[0].status] : fallback;
+};
+
+/* the agents rail, with counts read live off the fleet */
+function agentsNav() {
+  const n = (f) => AGENTS.filter(f).length;
+  const buildable = ITEMS.plans.filter((i) => i.d === "run").length;
+  return [
+    { id: "live",   label: "Live",      icon: "robot", n: n((r) => r.status === "running" || r.status === "waiting" || r.status === "failed") },
+    { id: "needs",  label: "Needs you", icon: "flag",  n: n((r) => r.status === "waiting"), loud: true },
+    { id: "queue",  label: "Queue",     icon: "list",  n: buildable },
+    { id: "recent", label: "Recent",    icon: "clock", n: n((r) => r.status === "done") },
+  ];
+}
+const navFor = () => (state.mode === "agents" ? agentsNav() : NAV[state.mode]);
 
 /* ────────────────────────────────────────────────────────────── chrome ── */
 
@@ -100,18 +129,21 @@ function paintSidebar() {
     $("#wsNew").onclick = () => { state.wsOpen = false; paintSidebar(); toast("New product workspace"); };
   }
 
-  $("#modeSeg").innerHTML = ["system", "product"]
+  const MODE_ICON = { system: ICONS.wrench, product: ICONS.list, agents: ICONS.robot };
+  const MODE_LBL  = { system: "System", product: "Factory", agents: "Agents" };
+  $("#modeSeg").innerHTML = ["system", "product", "agents"]
     .map((m) => `<button data-mode="${m}" class="${state.mode === m ? "on" : ""}">
-      ${m === "system" ? ICONS.wrench : ICONS.list}${m === "system" ? "System" : "Product"}</button>`).join("");
+      ${MODE_ICON[m]}<span>${MODE_LBL[m]}</span></button>`).join("");
   $("#modeSeg").querySelectorAll("button").forEach((b) => (b.onclick = () => setMode(b.dataset.mode)));
 
-  $("#sideNav").innerHTML = `<div class="rsec">${state.mode === "system" ? "Definition" : "Work"}</div>` +
-    NAV[state.mode].map((n) => `
-      <button class="snav ${state.view === n.id ? "active" : ""}" data-view="${n.id}">
+  const rsec = state.mode === "system" ? "Definition" : state.mode === "agents" ? "Fleet" : "Work";
+  $("#sideNav").innerHTML = `<div class="rsec">${rsec}</div>` +
+    navFor().map((n) => `
+      <button class="snav ${state.view === n.id && !state.run ? "active" : ""}" data-view="${n.id}">
         ${ICONS[n.icon]}<span>${n.label}</span>
-        ${n.n != null ? `<span class="snav-n ${n.loud ? "loud" : ""}">${n.n}</span>` : ""}
+        ${n.n != null ? `<span class="snav-n ${n.loud && n.n ? "loud" : ""}">${n.n}</span>` : ""}
       </button>`).join("");
-  $("#sideNav").querySelectorAll("button").forEach((b) => (b.onclick = () => { state.view = b.dataset.view; state.sel = null; paint(); }));
+  $("#sideNav").querySelectorAll("button").forEach((b) => (b.onclick = () => { state.view = b.dataset.view; state.sel = null; state.run = null; paint(); }));
 
   $("#sideNavFoot").innerHTML = `
     <button class="snav" id="navGraph">${ICONS.sparkle}<span>Graph queries</span></button>
@@ -124,13 +156,15 @@ function paintToolbar() {
   $("#tbNav").innerHTML =
     `<button class="ico dim">${ICONS.chevL}</button><button class="ico dim">${ICONS.chevR}</button>`;
 
-  const modeLbl = state.mode === "system" ? "System" : "Product";
-  const viewLbl = (NAV[state.mode].find((n) => n.id === state.view) || {}).label || state.view;
+  const modeLbl = state.mode === "system" ? "System" : state.mode === "agents" ? "Agents" : "Factory";
+  const viewLbl = (navFor().find((n) => n.id === state.view) || {}).label || state.view;
+  const r = state.run ? runById(state.run) : null;
   const doc = state.docStack[state.docStack.length - 1];
   $("#crumb").innerHTML = `<span class="dim">${modeLbl}</span> › ${esc(viewLbl)}` +
+    (r ? ` › <span class="dim">${esc(r.slice)} ${esc(r.title)}</span>` : "") +
     (doc ? ` › <span class="dim">${esc(docTitle(doc))}</span>` : "");
 
-  const isLoop = state.view === "loop";
+  const isLoop = state.view === "loop" && state.mode !== "agents";
   $("#tbActs").innerHTML = (isLoop ? `
     <button class="tb-btn ${state.heat ? "on" : ""}" id="heatBtn">${ICONS.heat}Heat</button>
     <span class="tb-div"></span>` : "") + `
@@ -144,21 +178,30 @@ function paintToolbar() {
 
 function paintStrip() {
   const bad = brokenProcs();
+  const live = AGENTS.filter((r) => r.status === "running").length;
+  const waiting = AGENTS.filter((r) => r.status === "waiting").length;
   $("#stripLeft").textContent = state.mode === "system"
     ? `${REPO.name} · system ${REPO.sysVersion} · 6 runbooks, 12 skills, ${ISSUES.length} open issues`
+    : state.mode === "agents"
+    ? `${REPO.name} · ${live} agents running · ${waiting} waiting on you · ${AGENTS.filter((r) => r.status === "failed").length} failed`
     : `${REPO.name} · ${REPO.branch} · 314 slices · 436 needs · 301 decisions`;
   const chip = $("#lintChip");
   chip.className = "strip-guard" + (bad.length ? " bad" : "");
   chip.textContent = bad.length ? `${bad.length} broken wire` : "Contracts clean";
-  chip.onclick = () => { if (bad.length) { state.mode = "system"; state.view = "loop"; closeEditor(true); state.sel = { t: "proc", id: bad[0].id }; paint(); } };
-  $("#modeChip").innerHTML = `${state.mode === "system" ? ICONS.wrench : ICONS.list}${state.mode === "system" ? "System mode" : "Product mode"}`;
-  $("#modeChip").onclick = () => setMode(state.mode === "system" ? "product" : "system");
+  chip.onclick = () => { if (bad.length) { state.mode = "system"; state.view = "loop"; state.run = null; closeEditor(true); state.sel = { t: "proc", id: bad[0].id }; paint(); } };
+  const MODE_ICON = { system: ICONS.wrench, product: ICONS.list, agents: ICONS.robot };
+  const MODE_LBL  = { system: "System mode", product: "Factory mode", agents: "Agents mode" };
+  $("#modeChip").innerHTML = `${MODE_ICON[state.mode]}${MODE_LBL[state.mode]}`;
+  const NEXT = { system: "product", product: "agents", agents: "system" };
+  $("#modeChip").onclick = () => setMode(NEXT[state.mode]);
 }
 
 function setMode(m) {
   if (state.mode === m) return;
-  state.mode = m; state.view = "loop"; state.sel = null; closeEditor(true);
-  paint(); fit();
+  state.mode = m;
+  state.view = m === "agents" ? "live" : "loop";
+  state.sel = null; state.run = null; closeEditor(true);
+  paint(); if (m !== "agents") fit();
 }
 
 /* ═════════════════════════════════════════════════════════════ the loop ══
@@ -212,8 +255,9 @@ function paintLoop() {
     if (state.mode === "product") {
       const rows = (ITEMS[s.id] || []).slice(0, 4).map((it) => {
         const isel = state.sel && state.sel.t === "item" && state.sel.id === it.id ? " sel" : "";
+        const live = runsForSlice(it.id).length ? " live" : "";
         return `<div class="nd-row${isel}" data-item="${it.id}" data-state="${s.id}">
-          <span class="nd-dot ${it.d}"></span>
+          <span class="nd-dot ${dotForItem(it.id, it.d)}${live}"></span>
           <span class="nd-id">${esc(it.id)}</span>
           <span class="nd-nm">${esc(it.t)}</span></div>`;
       }).join("");
@@ -419,6 +463,283 @@ function paintList() {
   });
 }
 
+/* ═══════════════════════════════════════════════════════════ agents ══
+   The third mode. System designs the loop and Product reads what sits at each
+   station; Agents watches the harness sessions actually walking things along
+   the edges. A run is one Claude Code session on one slice, and the console is
+   that session — the same thing Orca gives you, but scoped to the slice and
+   wired back into the loop it belongs to. */
+
+const STATUS = {
+  running: { label: "running",  pill: "running" },
+  waiting: { label: "needs you", pill: "waiting" },
+  failed:  { label: "failed",    pill: "bad" },
+  blocked: { label: "blocked",   pill: "waiting" },
+  done:    { label: "merged",    pill: "done" },
+};
+const STATION_NAME = { branch: "Worker branch", pr: "Worker PR", merged: "Merged" };
+const worktreeOf = (r) => `../wt/${r.slice}`;
+const branchOf   = (r) => `slice/${r.slice}`;
+const filesTouched = (r) => [...new Set(r.log.filter((e) => e.k === "tool" && (e.act === "Edit" || e.act === "Write")).map((e) => e.arg))];
+
+/* which runs the current agents tab is showing */
+function agentsForView() {
+  const order = { waiting: 0, failed: 1, running: 2, blocked: 3, done: 4 };
+  const live = AGENTS.filter((r) => r.status !== "done");
+  if (state.view === "needs")  return AGENTS.filter((r) => r.status === "waiting");
+  if (state.view === "recent") return AGENTS.filter((r) => r.status === "done");
+  if (state.view === "queue")  return [];    // queue is buildable slices, not runs
+  return live.sort((a, b) => order[a.status] - order[b.status]);   // "live"
+}
+
+function paintAgents() {
+  if (state.run && runById(state.run)) { paintConsole(runById(state.run)); return; }
+
+  const nav = agentsNav().find((n) => n.id === state.view) || { label: "Live" };
+  const SUB = {
+    live:   "every harness session in flight — the status dots on the board, as the sessions behind them",
+    needs:  "agents that stopped and asked you something before guessing",
+    queue:  "buildable slices the orchestrator can dispatch — every need merged, no owns collision",
+    recent: "sessions that finished, newest first",
+  };
+
+  let body;
+  if (state.view === "queue") {
+    const ready = ITEMS.plans.filter((i) => i.d === "run");
+    body = `<div class="rgrid">${ready.map((i) => `
+      <div class="rcard queue">
+        <div class="rc-top"><span class="pill plain" style="color:var(--text-2)">buildable</span></div>
+        <div class="rc-h"><span class="rc-id mono">${esc(i.id)}</span><span class="rc-t">${esc(i.t)}</span></div>
+        <div class="rc-sub">${ICONS.branch} dispatch → build + self-review · sonnet</div>
+        <div class="rc-head">${esc(i.s)}</div>
+        <button class="btn wide" data-dispatch="${esc(i.id)}" data-title="${esc(i.t)}">${ICONS.play} Dispatch to an agent</button>
+      </div>`).join("")}</div>`;
+  } else {
+    const list = agentsForView();
+    body = list.length
+      ? workersList(list)
+      : `<div class="blank">${ICONS.robot}<h2>Nothing here</h2><p>${state.view === "needs"
+          ? "No agent is waiting on you. When one stops to ask something, it shows up here first."
+          : "No sessions in this state right now."}</p></div>`;
+  }
+
+  $("#main").innerHTML = `
+    <div class="lv agents-lv">
+      <div class="lv-head">
+        <span class="lv-title">${esc(nav.label)}</span>
+        <span class="lv-sub">${esc(SUB[state.view] || "")}</span>
+      </div>
+      ${body}
+    </div>`;
+
+  $("#main").querySelectorAll("[data-run]").forEach((el) =>
+    (el.onclick = () => openRun(el.dataset.run)));
+  $("#main").querySelectorAll("[data-dispatch]").forEach((el) =>
+    (el.onclick = (e) => { e.stopPropagation(); spawnRun("branch", el.dataset.dispatch, el.dataset.title); }));
+}
+
+/* the fleet as a list, grouped by status: the ones that need you first, then
+   what broke, then what is quietly running */
+const WGROUPS = [
+  ["waiting", "Needs you"], ["failed", "Failed"], ["blocked", "Blocked"],
+  ["running", "Running"],  ["done", "Merged"],
+];
+function workersList(list) {
+  return WGROUPS.map(([k, label]) => {
+    const rs = list.filter((r) => r.status === k);
+    if (!rs.length) return "";
+    return `<div class="wgroup">
+      <div class="wgroup-h">${label}<span class="wgroup-n">${rs.length}</span></div>
+      <div class="wrows">${rs.map(workerRow).join("")}</div>
+    </div>`;
+  }).join("");
+}
+
+function workerRow(r) {
+  const proc = runProcOf(r), st = STATUS[r.status], q = r.question;
+  const time = r.status === "done" ? r.started : r.elapsed;
+  return `<button class="wrow ${r.status}" data-run="${r.id}">
+    <span class="nd-dot ${RUN_DOT[r.status]}${r.status === "running" ? " live" : ""}"></span>
+    <div class="wrow-b">
+      <div class="wrow-t">
+        <span class="wrow-id mono">${esc(r.slice)}</span>
+        <span class="wrow-nm">${esc(r.title)}</span>
+        <span class="wrow-meta">${esc(proc ? proc.name : "")} · ${esc(runModelOf(r))} · ${esc(STATION_NAME[r.station] || r.station)}</span>
+      </div>
+      <div class="wrow-head ${q ? "ask" : ""}">${q ? esc(q.t) : esc(r.head || "")}</div>
+    </div>
+    <div class="wrow-r">
+      <span class="wrow-time mono">${ICONS.clock}${esc(time)}</span>
+      <span class="pill ${st.pill} plain">${st.label}</span>
+    </div>
+  </button>`;
+}
+
+/* ── the console: one run, as a live session you can talk to ── */
+
+function logLine(e, r) {
+  if (e.k === "sys")  return `<div class="ln ln-sys">${esc(e.t)}</div>`;
+  if (e.k === "say")  return `<div class="ln ln-say">${e.t.split("\n\n").map((p) => `<p>${mdi(p, null)}</p>`).join("")}</div>`;
+  if (e.k === "you")  return `<div class="ln ln-you"><span>${mdi(e.t, null)}</span></div>`;
+  if (e.k === "ask")  return `<div class="ln ln-say ask"><p>${mdi(e.t, null)}</p></div>`;
+  if (e.k === "tool") return `<div class="ln ln-tool"><span class="tl-act">${esc(e.act)}</span>
+      <span class="tl-arg mono">${esc(e.arg)}</span>${e.sub ? `<span class="tl-sub mono">${esc(e.sub)}</span>` : ""}</div>`;
+  if (e.k === "bash") return `<div class="ln ln-bash ${e.ok ? "" : "bad"}">
+      <div class="bsh-cmd mono">$ ${esc(e.cmd)}</div>
+      ${e.out ? `<pre class="bsh-out mono">${esc(e.out)}</pre>` : ""}</div>`;
+  return "";
+}
+
+function paintConsole(r) {
+  const proc = runProcOf(r), st = STATUS[r.status], q = r.question;
+  const kIcon = proc && proc.kind === "runbook" ? ICONS.book : ICONS.sparkle;
+  const files = filesTouched(r);
+  const from = proc ? stateById(proc.from) : null, to = proc ? stateById(proc.to) : null;
+
+  const composer = q
+    ? `<div class="cns-ask">
+        <div class="cns-ask-t">${ICONS.flag}<span>${esc(q.t)}</span></div>
+        ${q.opts ? `<div class="cns-opts">${q.opts.map((o, i) =>
+          `<button class="btn opt" data-answer="${i}">${esc(o)}</button>`).join("")}</div>` : ""}
+      </div>
+      <div class="cns-box">
+        <textarea id="cnsTa" placeholder="…or reply in your own words" rows="1">${esc(state.composer)}</textarea>
+        <button class="btn pri" id="cnsSend">${ICONS.play}Send</button>
+      </div>`
+    : r.status === "done"
+    ? `<div class="cns-done">${ICONS.check}<span>Session finished · ${esc(r.head)}</span></div>`
+    : `<div class="cns-box">
+        <textarea id="cnsTa" placeholder="Steer ${esc(r.slice)} — ask, correct, or add a constraint" rows="1">${esc(state.composer)}</textarea>
+        <button class="btn pri" id="cnsSend">${ICONS.play}Send</button>
+      </div>`;
+
+  $("#main").innerHTML = `
+    <div class="cns">
+      <header class="cns-h">
+        <button class="ico" id="cnsBack" title="Back to the fleet (Esc)">${ICONS.chevL}</button>
+        <span class="pr-k">${ICONS.robot}</span>
+        <div class="cns-ht">
+          <div class="cns-name"><span class="mono cns-slice">${esc(r.slice)}</span> ${esc(r.title)}
+            <span class="pill ${st.pill}">${st.label}</span></div>
+          <div class="cns-file mono">${esc(branchOf(r))} · ${esc(runModelOf(r))} · ${esc(proc ? proc.name : "")}</div>
+        </div>
+        <span class="cns-time mono">${ICONS.clock}${esc(r.elapsed)}</span>
+      </header>
+
+      <div class="cns-b">
+        <div class="cns-feed" id="cnsFeed">
+          ${r.log.map((e) => logLine(e, r)).join("")}
+          ${r.status === "running" ? `<div class="ln ln-live">${ICONS.robot}<span>${esc(r.head)}<i class="caret"></i></span></div>` : ""}
+        </div>
+        <aside class="cns-rail">
+          ${r.status !== "done" ? `<div class="cns-prog"><div class="cns-prog-bar"><i style="width:${Math.max(4, r.pct)}%"></i></div><span>${r.pct}%</span></div>` : ""}
+          <div class="rail-h">${ICONS.loop}Scope</div>
+          <div class="rail-c">
+            <div class="rail-r"><span>Slice</span><b><a class="lnk" data-slice="${esc(r.slice)}" data-station="${esc(r.station)}">${esc(r.slice)} ${esc(r.title)}</a></b></div>
+            <div class="rail-r"><span>Station</span><b>${esc(STATION_NAME[r.station] || r.station)}</b></div>
+            <div class="rail-r"><span>Process</span><b>${proc ? `<a class="lnk" data-proc="${esc(proc.id)}">${esc(proc.name)}</a>` : "—"}</b></div>
+            <div class="rail-k">worktree</div>
+            <div class="fields"><span class="f">${esc(worktreeOf(r))}</span></div>
+          </div>
+
+          ${proc ? `
+          <div class="rail-h mt">${ICONS.gate}Contract</div>
+          <div class="rail-c">
+            <div class="rail-k">reads from ${esc(from ? from.name : proc.from)}</div>
+            <div class="fields">${proc.reads.map((f) => `<span class="f ${from && from.shape.includes(f) ? "ok" : "no"}">${esc(f)}</span>`).join("")}</div>
+            <div class="rail-k">writes into ${esc(to ? to.name : proc.to)}</div>
+            <div class="fields">${proc.writes.map((f) => `<span class="f ${to && to.shape.includes(f) ? "ok" : "no"}">${esc(f)}</span>`).join("")}</div>
+          </div>` : ""}
+
+          <div class="rail-h mt">${ICONS.doc}Files touched<span class="rail-n">${files.length}</span></div>
+          ${files.length ? `<div class="fields col">${files.map((f) => `<span class="f">${esc(f)}</span>`).join("")}</div>`
+            : `<div class="rail-empty">Nothing written yet.</div>`}
+        </aside>
+      </div>
+
+      <footer class="cns-f">${composer}</footer>
+    </div>`;
+
+  const feed = $("#cnsFeed"); if (feed) feed.scrollTop = feed.scrollHeight;
+  $("#cnsBack").onclick = () => { state.run = null; state.composer = ""; paint(); };
+  $("#main").querySelectorAll("[data-slice]").forEach((el) =>
+    (el.onclick = () => openItemDoc(el.dataset.slice)));
+  $("#main").querySelectorAll("[data-proc]").forEach((el) =>
+    (el.onclick = () => openEditor(el.dataset.proc)));
+  $("#main").querySelectorAll("[data-answer]").forEach((el) =>
+    (el.onclick = () => answerRun(r.id, +el.dataset.answer)));
+  const ta = $("#cnsTa");
+  if (ta) {
+    ta.oninput = () => { state.composer = ta.value; ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; };
+    ta.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendToRun(r.id); } };
+    ta.focus();
+  }
+  const send = $("#cnsSend"); if (send) send.onclick = () => sendToRun(r.id);
+}
+
+function openRun(id) {
+  state.mode = "agents"; state.run = id; state.composer = ""; state.docStack = [];
+  if (state.view === "queue") state.view = "live";
+  paint();
+}
+
+/* dispatch a fresh session onto a buildable slice — the orchestrator opening a
+   worktree and handing an agent the payload, live */
+function spawnRun(station, slice, title) {
+  const id = "r-" + slice.replace(/\W/g, "") + "-" + (AGENTS.length);
+  const r = {
+    id, slice, title, station, started: "just now", elapsed: "0m", pct: 6, status: "running",
+    head: "Reading the slice and its spec section",
+    log: [
+      { k: "sys", t: `Opened worktree ../wt/${slice} · branched slice/${slice} off main` },
+      { k: "sys", t: `Payload: slice ${slice}, its spec section and the decisions it cites. Nothing else in scope.` },
+      { k: "say", t: `Picked up **${title}**. Reading the slice and its \`proves\` line, then cutting the work into ordered steps before I touch a file.` },
+    ],
+  };
+  AGENTS.unshift(r);
+  toast(`Dispatched ${slice} to a ${runModelOf(r)} agent`);
+  openRun(id);
+}
+
+/* you, typing back into a live session */
+function sendToRun(id) {
+  const r = runById(id), text = (state.composer || "").trim();
+  if (!r || !text) return;
+  r.log.push({ k: "you", t: text });
+  r.log.push({ k: "say", t: `Got it — taking that on. ${r.status === "waiting" ? "Resuming from where I stopped." : "Folding it into the current step."}` });
+  if (r.status === "waiting") { r.status = "running"; r.question = null; r.head = "Resuming the build"; r.pct = Math.min(96, r.pct + 6); }
+  state.composer = "";
+  paint();
+}
+
+/* answering the pending question with one of its one-tap options */
+function answerRun(id, i) {
+  const r = runById(id); if (!r || !r.question) return;
+  const choice = r.question.opts[i];
+  r.log.push({ k: "you", t: choice });
+  /* a tailored continuation, so the session reads like it actually acted */
+  if (/spec-ambiguity|File a/i.test(choice)) {
+    r.log.push({ k: "say", t: "Filing it and pausing, rather than guessing on a `proves` line." });
+    r.log.push({ k: "tool", act: "Write", arg: `system/issues/i-${r.slice}.md`, sub: "spec-ambiguity" });
+    r.status = "blocked"; r.head = "Paused · spec-ambiguity filed";
+  } else if (/Send back/i.test(choice)) {
+    r.log.push({ k: "say", t: "Sending it back to Worker branch with the note, so it derives on read instead of caching." });
+    r.status = "done"; r.head = "Sent back to branch"; r.pct = 100; r.station = "branch";
+  } else if (/Merge/i.test(choice)) {
+    r.log.push({ k: "say", t: "Merging and stamping the sha. Logging a convention note so the cache is a deliberate call next time, not a drift." });
+    r.log.push({ k: "bash", cmd: "gh pr merge --squash", ok: true, out: `merged slice/${r.slice} → main  ${r.slice.replace(".", "")}f0` });
+    r.status = "done"; r.head = "Merged"; r.pct = 100; r.station = "merged";
+  } else {
+    r.log.push({ k: "say", t: `Going with "${choice}". Updating restore.ts and the test to match, then re-running.` });
+    r.log.push({ k: "tool", act: "Edit", arg: "src/list/restore.ts", sub: "+9 −4" });
+    r.log.push({ k: "bash", cmd: "npm test -- undo", ok: true, out: "PASS  src/list/restore.test.tsx  (4 tests)" });
+    r.status = "running"; r.head = "Green — finishing the diff"; r.pct = Math.min(92, r.pct + 30);
+  }
+  if (r.status !== "blocked") r.question = null;
+  else r.question = null;
+  paint();
+}
+
 /* ══════════════════════════════════════════════════════════ inspector ══ */
 
 function card(title, acts, body) {
@@ -446,7 +767,7 @@ function itemsCard(s, selId) {
   const rows = list.map((it) => `
     <button class="it-row ${selId === it.id ? "sel" : ""}" data-q="${esc((it.id + " " + it.t + " " + it.s).toLowerCase())}"
       onclick="selectItem('${it.id}','${s.id}')" ondblclick="openItemDoc('${it.id}','${s.id}')">
-      <span class="nd-dot ${it.d}"></span>
+      <span class="nd-dot ${dotForItem(it.id, it.d)}${runsForSlice(it.id).length ? " live" : ""}"></span>
       <span class="it-id mono">${esc(it.id)}</span>
       <span class="it-b"><span class="it-t">${esc(it.t)}</span><span class="it-s">${esc(it.s)}</span></span>
     </button>`).join("");
@@ -490,6 +811,8 @@ function filterItems(inp) {
 
 function paintPanels() {
   const P = $("#panels"), s = state.sel;
+  /* agents mode has no floating inspector — the console carries its own rail */
+  if (state.mode === "agents") { P.classList.remove("open"); P.innerHTML = ""; return; }
   P.classList.toggle("open", !!s);
   if (!s) return;                                   /* nothing selected, nothing floats */
 
@@ -644,7 +967,9 @@ function itemPanel(sel) {
           ["Shape", st ? st.shape.join(", ") : "—"]])}
     <div class="acts-row">
       <button class="btn pri" onclick="openItemDoc('${it.id}','${from}')">${ICONS.doc} Open file</button>
-      ${out ? `<button class="btn" onclick="runProc('${out.id}')">${ICONS.play} ${esc(out.name)}</button>` : ""}
+      ${runsForSlice(it.id).length
+        ? `<button class="btn" onclick="openRun('${runsForSlice(it.id)[0].id}')">${ICONS.robot} Open worker</button>`
+        : out ? `<button class="btn" onclick="runProc('${out.id}')">${ICONS.play} ${esc(out.name)}</button>` : ""}
     </div>`);
 }
 
@@ -654,12 +979,13 @@ function paint() {
   const was = state.panelOpen;
   state.panelOpen = !!state.sel;
   paintSidebar(); paintToolbar(); paintStrip();
-  if (state.view === "loop") paintLoop(); else paintList();
+  if (state.mode === "agents") paintAgents();
+  else if (state.view === "loop") paintLoop(); else paintList();
   /* the list gives up the room the panel needs; the loop keeps it and re-fits */
-  $("#main").classList.toggle("inset", state.view !== "loop" && !!state.sel);
+  $("#main").classList.toggle("inset", state.mode !== "agents" && state.view !== "loop" && !!state.sel);
   paintPanels(); paintEditor();
   /* the panels changed the room the loop has to live in, so give it back */
-  if (state.view === "loop" && was !== state.panelOpen) requestAnimationFrame(() => fit(true));
+  if (state.mode !== "agents" && state.view === "loop" && was !== state.panelOpen) requestAnimationFrame(() => fit(true));
 }
 
 function toast(msg) {
@@ -675,8 +1001,9 @@ document.addEventListener("click", () => { if (state.wsOpen) { state.wsOpen = fa
 window.addEventListener("resize", () => { if (state.view === "loop") fit(); });
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    if (state.docStack.length) closeEditor();      /* the sheet first, then the panel */
-    else { state.sel = null; paint(); }
+    if (state.docStack.length) closeEditor();      /* the sheet first */
+    else if (state.run) { state.run = null; state.composer = ""; paint(); }   /* then the console */
+    else { state.sel = null; paint(); }            /* then the panel */
   }
   if ((e.metaKey || e.ctrlKey) && e.key === "s" && state.docStack.length) { e.preventDefault(); saveEditor(); }
   if (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") return;
@@ -691,6 +1018,15 @@ window.addEventListener("keydown", (e) => {
   }
   if (e.key === "1") setMode("system");
   if (e.key === "2") setMode("product");
+  if (e.key === "3") setMode("agents");
+
+  /* in a run console, up/down walk the fleet just like the file sheet walks a
+     station list */
+  if ((e.key === "ArrowDown" || e.key === "ArrowUp") && state.mode === "agents" && state.run && !state.docStack.length) {
+    const list = agentsForView(), i = list.findIndex((r) => r.id === state.run);
+    const j = clamp(i + (e.key === "ArrowDown" ? 1 : -1), 0, list.length - 1);
+    if (i >= 0 && j !== i) { e.preventDefault(); openRun(list[j].id); }
+  }
 });
 
 /* ══════════════════════════════════════════════════ the prompt sheet ══
@@ -957,6 +1293,7 @@ function railHTML(path) {
   const item = DOCS[path] && DOCS[path].item;
   const home = item ? stateById(item.from) : null;
   const next = item ? PROCS.find((x) => x.from === item.from) : null;
+  const sliceRuns = item ? runsForSlice(item.id) : [];
   const rec = item ? (ITEMS[item.from] || []).find((x) => x.id === item.id) : null;
   const tasks = parseTasks(src), done = tasks.filter((t) => t.done).length;
   const kids = childPages(path);
@@ -999,6 +1336,17 @@ function railHTML(path) {
         <div class="fields"><span class="f">${esc(path)}</span></div>
       </div>` : ""}
 
+    ${item ? `
+      <div class="rail-h mt">${ICONS.robot}Workers<span class="rail-n">${sliceRuns.length}</span></div>
+      ${sliceRuns.length ? `<div class="rail-runs">${sliceRuns.map((r) => `
+        <button class="rail-run ${r.status}" data-openrun="${r.id}">
+          <span class="nd-dot ${RUN_DOT[r.status]}"></span>
+          <span class="rr-b"><span class="rr-t">${esc(runProcOf(r) ? runProcOf(r).name : "")}</span>
+            <span class="rr-s mono">${esc(r.elapsed)} · ${esc(STATUS[r.status].label)}</span></span>
+          <span class="pg-c">${ICONS.chevR}</span></button>`).join("")}</div>`
+        : `<div class="rail-empty">No agent is live on this slice. Its next process is
+            <b>${next ? esc(next.name) : "—"}</b>.</div>`}` : ""}
+
     ${root && p ? `
       <div class="rail-h mt">${ICONS.gate}Contract</div>
       <div class="rail-c">
@@ -1040,7 +1388,7 @@ function paintEditor() {
 
   /* the sheet stops where the side card starts, so both are readable at once */
   host.className = "ov-wrap open";
-  host.style.right = state.sel ? (PANEL_W - 6) + "px" : "0px";
+  host.style.right = (state.sel && state.mode !== "agents") ? (PANEL_W - 6) + "px" : "0px";
   host.innerHTML = `
     <div class="ov-card">
       <header class="ov-h">
@@ -1099,6 +1447,7 @@ function paintEditor() {
   wireCard();
   function wireCard() {
   card.querySelectorAll("[data-href]").forEach((el) => (el.onclick = (e) => { e.preventDefault(); openDoc(el.dataset.href); }));
+  card.querySelectorAll("[data-openrun]").forEach((el) => (el.onclick = (e) => { e.preventDefault(); closeEditor(true); openRun(el.dataset.openrun); }));
   card.querySelectorAll("[data-ck]").forEach((el) => (el.onclick = (e) => { e.stopPropagation(); toggleTask(path, +el.dataset.ck); }));
   card.querySelectorAll("[data-crumb]").forEach((el) => (el.onclick = () => {
     state.docStack = state.docStack.slice(0, +el.dataset.crumb + 1); state.editing = false; paintEditor(); paintToolbar();

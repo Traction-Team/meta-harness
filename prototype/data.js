@@ -326,6 +326,168 @@ const PANEL_MAX = 40;
   });
 })();
 
+/* ══════════════════════════════════════════════════════════════ agents ══
+   The third reading of the same ring. System mode designs the loop, Product
+   mode reads what is sitting at each station, and Agents mode watches the
+   harness sessions actually moving things along the edges.
+
+   A run is one Claude Code (or other harness) session, dispatched by the
+   orchestrator, sitting on one slice at one station and executing the process
+   on the edge out of it. This list is the truth behind the status dots: a slice
+   glows green in Product mode because an agent is live on it right now, amber
+   because that agent stopped to ask you something, red because it broke. Every
+   dot you have been looking at is a reading of one of these. */
+
+const RUN_PROC  = { branch: "build",  pr: "review", merged: "review" };
+const RUN_MODEL = { branch: "sonnet", pr: "opus",   merged: "opus" };
+
+/* the transcript vocabulary, kept tiny so a run reads like a real session:
+   sys  — orchestrator/system line (dim)
+   say  — the agent talking
+   tool — a tool call: act + arg + optional sub (diffstat, result)
+   bash — a command and its output, ok=false paints it red
+   you  — you, typing back into the session
+   ask  — the agent is blocked on you; opts are one-tap answers            */
+
+const AGENTS = [
+  {
+    id: "r-144", slice: "1.44", title: "bulk bar over list", station: "branch",
+    started: "14m ago", elapsed: "14m", pct: 62, status: "running",
+    head: "Wiring archive + label actions",
+    log: [
+      { k: "sys",  t: "Opened worktree ../wt/1.44 · branched slice/1.44 off main" },
+      { k: "sys",  t: "Payload: slice 1.44, spec 01 §2, decisions D183 D194. Nothing else in scope." },
+      { k: "say",  t: "Building the bulk action bar that appears over the thread list once rows are selected. Reading the `proves` line first, then cutting the work into ordered steps." },
+      { k: "tool", act: "Write", arg: "../wt/1.44/TODO.md", sub: "5 steps" },
+      { k: "say",  t: "Starting from selection state, since the bar is driven by it — nothing renders until at least one row is checked." },
+      { k: "tool", act: "Edit", arg: "src/list/useSelection.ts", sub: "+38 −4" },
+      { k: "tool", act: "Edit", arg: "src/list/BulkBar.tsx", sub: "+112 −0" },
+      { k: "bash", cmd: "npm test -- bulk", ok: true, out: "PASS  src/list/BulkBar.test.tsx  (6 tests, 0.8s)" },
+      { k: "say",  t: "Bar renders and the count is live. Wiring the archive and label actions next, then I self-review the diff against `proves` before I raise the PR." },
+      { k: "tool", act: "Edit", arg: "src/list/BulkBar.tsx", sub: "+46 −8" },
+    ],
+  },
+  {
+    id: "r-145", slice: "1.45", title: "settings rail search", station: "branch",
+    started: "6m ago", elapsed: "6m", pct: 34, status: "running",
+    head: "Reading the settings tree before I touch it",
+    log: [
+      { k: "sys",  t: "Opened worktree ../wt/1.45 · branched slice/1.45 off main" },
+      { k: "say",  t: "Adding a filter field to the settings rail. Mapping the tree first so the match highlights the right nodes." },
+      { k: "tool", act: "Read", arg: "src/settings/rail.tsx" },
+      { k: "tool", act: "Edit", arg: "src/settings/RailSearch.tsx", sub: "+58 −0" },
+    ],
+  },
+  {
+    id: "r-149", slice: "1.49", title: "toast undo path", station: "branch",
+    started: "22m ago", elapsed: "22m", pct: 40, status: "waiting",
+    head: "Stopped on a spec ambiguity",
+    question: {
+      t: "When a thread is un-archived by undo, should the list scroll back to it, or stay where it is?",
+      opts: ["Scroll back to the restored thread", "Stay put, just re-insert the row", "File a spec-ambiguity issue and pause"],
+    },
+    log: [
+      { k: "sys",  t: "Opened worktree ../wt/1.49 · branched slice/1.49 off main" },
+      { k: "say",  t: "Building the undo path for the toast that shows after archive. The `proves` line says undo restores the thread to its exact prior position in the list." },
+      { k: "tool", act: "Edit", arg: "src/toast/UndoToast.tsx", sub: "+74 −2" },
+      { k: "tool", act: "Edit", arg: "src/list/restore.ts", sub: "+51 −0" },
+      { k: "bash", cmd: "npm test -- undo", ok: false, out: "FAIL  src/list/restore.test.tsx\n  ● restores scroll anchor after undo\n    expected list index 12, received 0" },
+      { k: "say",  t: "The failing test asserts undo restores the scroll anchor, but the spec section for 1.49 never says whether the list scrolls back to the restored thread or stays put. The two readings contradict and I will not guess on a `proves` line." },
+      { k: "ask",  t: "When a thread is un-archived by undo, should the list scroll back to it, or stay where it is?" },
+    ],
+  },
+  {
+    id: "r-150", slice: "1.50", title: "model switcher pop", station: "branch",
+    started: "3m ago", elapsed: "3m", pct: 20, status: "running",
+    head: "Sketching the popover shell",
+    log: [
+      { k: "sys",  t: "Opened worktree ../wt/1.50 · branched slice/1.50 off main" },
+      { k: "say",  t: "Building the model switcher popover off the strip chip. Shell and open/close first, then the list." },
+      { k: "tool", act: "Edit", arg: "src/strip/ModelPop.tsx", sub: "+40 −0" },
+    ],
+  },
+  {
+    id: "r-153", slice: "1.53", title: "calendar day popover", station: "branch",
+    started: "31m ago", elapsed: "31m", pct: 74, status: "running",
+    head: "Self-reviewing the diff against proves",
+    log: [
+      { k: "sys",  t: "Opened worktree ../wt/1.53 · branched slice/1.53 off main" },
+      { k: "say",  t: "Day popover for the calendar strip. Five files, all inside owns." },
+      { k: "tool", act: "Edit", arg: "src/cal/DayPopover.tsx", sub: "+96 −4" },
+      { k: "tool", act: "Edit", arg: "src/cal/positioning.ts", sub: "+44 −2" },
+      { k: "bash", cmd: "npm test -- calendar", ok: true, out: "PASS  src/cal/DayPopover.test.tsx  (9 tests, 1.1s)" },
+      { k: "say",  t: "Green. Re-reading the diff file by file against the review checklist before I raise." },
+    ],
+  },
+  {
+    id: "r-155", slice: "1.55", title: "list send button", station: "branch",
+    started: "1m ago", elapsed: "1m", pct: 90, status: "running",
+    head: "One file, raising the PR shortly",
+    log: [
+      { k: "sys",  t: "Opened worktree ../wt/1.55 · branched slice/1.55 off main" },
+      { k: "tool", act: "Edit", arg: "src/list/SendButton.tsx", sub: "+22 −1" },
+      { k: "bash", cmd: "npm test -- send", ok: true, out: "PASS  (2 tests)" },
+    ],
+  },
+  {
+    id: "r-141", slice: "1.41", title: "draft skeleton stages", station: "pr",
+    started: "8m ago", elapsed: "8m", pct: 55, status: "running",
+    head: "Reviewing the diff against proves",
+    log: [
+      { k: "sys",  t: "Reviewing PR slice/1.41 · checks green" },
+      { k: "say",  t: "Read `proves`, now walking the diff. Skeleton stages match the three the spec names. Checking every changed path sits inside owns." },
+      { k: "tool", act: "Read", arg: "src/compose/DraftStages.tsx" },
+    ],
+  },
+  {
+    id: "r-138", slice: "1.38", title: "company card people strip", station: "pr",
+    started: "3h ago", elapsed: "3h", pct: 80, status: "waiting",
+    head: "Waiting on a merge call",
+    question: {
+      t: "The diff caches a derived people-count on the company record. Merge it, or send back to derive on read?",
+      opts: ["Send back — derive on read", "Merge — the cache is fine here"],
+    },
+    log: [
+      { k: "sys",  t: "Reviewing PR slice/1.38 · checks green · waiting on you" },
+      { k: "say",  t: "Read `proves`, then the diff. Scope is clean — every changed path sits inside owns. One thing gives me pause." },
+      { k: "tool", act: "Read", arg: "src/company/PeopleStrip.tsx" },
+      { k: "say",  t: "The strip derives the people list from messages on read, which matches D191. But it also caches the count on the company record — exactly the second-source-of-truth the review checklist keeps catching. It may be an intentional perf call, so I am not merging or rejecting on my own." },
+      { k: "ask",  t: "The diff caches a derived people-count on the company record. Merge it, or send back to derive on read?" },
+    ],
+  },
+  {
+    id: "r-142", slice: "1.42", title: "avatar list variant", station: "pr",
+    started: "18m ago", elapsed: "18m", pct: 55, status: "failed",
+    head: "Check failing · typecheck red",
+    log: [
+      { k: "sys",  t: "Opened worktree ../wt/1.42 · branched slice/1.42 off main" },
+      { k: "say",  t: "Building the avatar list variant." },
+      { k: "tool", act: "Edit", arg: "src/list/AvatarRow.tsx", sub: "+64 −12" },
+      { k: "bash", cmd: "npm run check", ok: false, out: "✗ typecheck  src/list/AvatarRow.tsx:38\n  Property 'initials' does not exist on type 'Contact'" },
+      { k: "say",  t: "Typecheck is red — `Contact` has no `initials` field. That is derived elsewhere and I should not be reaching for it here. This needs a decision on where initials come from before I can go further, so I am pausing rather than inventing a field." },
+    ],
+  },
+  /* just finished — these are the "Recent" tab, and the freshest merged rows */
+  {
+    id: "r-137", slice: "1.37", title: "reading pane hairlines", station: "merged",
+    started: "2h ago", elapsed: "19m", pct: 100, status: "done", head: "Merged · a91f3c2",
+    log: [
+      { k: "sys",  t: "Reviewing PR slice/1.37" },
+      { k: "say",  t: "Proves demonstrated, scope clean, conventions hold. Merging and stamping the sha." },
+      { k: "bash", cmd: "gh pr merge --squash", ok: true, out: "merged slice/1.37 → main  a91f3c2" },
+    ],
+  },
+  {
+    id: "r-136", slice: "1.36", title: "sidebar label twisty", station: "merged",
+    started: "4h ago", elapsed: "24m", pct: 100, status: "done", head: "Merged · 7d20e18",
+    log: [
+      { k: "sys",  t: "Reviewing PR slice/1.36" },
+      { k: "say",  t: "Clean. Merged and logged a convention-drift note on the twisty naming so the rule exists next time." },
+      { k: "bash", cmd: "gh pr merge --squash", ok: true, out: "merged slice/1.36 → main  7d20e18" },
+    ],
+  },
+];
+
 /* ── nested pages. `system/runbooks/build.md` owns everything under
       `system/runbooks/build/`, and the parent reaches a child with an ordinary
       relative markdown link. The path is the hierarchy: nothing else stores it. ── */
@@ -518,6 +680,14 @@ const NAV = {
     { id: "slices",  label: "Slices",      icon: "list",  n: 314 },
     { id: "specs",   label: "Specs",       icon: "doc",   n: 18 },
     { id: "runs",    label: "Runs",        icon: "robot", n: 6 },
+  ],
+  /* agents mode: counts are computed live off AGENTS in agentsNav(), so the
+     `n` here is only a fallback if the list is empty. */
+  agents: [
+    { id: "live",   label: "Live",       icon: "robot" },
+    { id: "needs",  label: "Needs you",  icon: "flag",   loud: true },
+    { id: "queue",  label: "Queue",      icon: "list" },
+    { id: "recent", label: "Recent",     icon: "clock" },
   ],
 };
 

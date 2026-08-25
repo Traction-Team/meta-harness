@@ -36,6 +36,12 @@ No build step and no dependencies. It does **not** run from `file://`, it needs
 the server. Bump the `?v=` query on the three assets in `index.html` after
 editing or the browser serves stale JS.
 
+It has three modes, switched top-left: **System** (the loop as a definition),
+**Factory** (the same ring as a live board of lists), and **Agents** (the fleet
+of harness sessions running against the slices — a console per run, the Orca
+role). The Factory status dots are a reading of that fleet. See
+[`prototype.md`](prototype.md) for every surface and gesture.
+
 Tokens, window chrome, sidebar, cards and pills are copied from
 `~/Dev/email-agent/poc` so the two prototypes read as one family.
 

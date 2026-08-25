@@ -29,8 +29,20 @@ loop itself. That single arrow is the self-improvement moat.
   past ~50 nodes, so the 314-slice product corpus must not be one. The system is
   6-10 nodes by construction, so a diagram is exactly right. Same reasoning,
   opposite conclusion per mode.
-- **The System | Product switcher stays top-left**, under the workspace. Same
-  ring in both modes. Product mode shows lists as nodes, not one node per item.
+- **The switcher stays top-left**, under the workspace. It now carries three:
+  **System | Factory | Agents** (ids still `system` / `product` / `agents`; only
+  the labels changed — went System/Product → Factory/Assets/Workers → landed on
+  System/Factory/Agents). System and Factory are the same ring read two ways
+  (definition vs. board of lists). Agents drops the ring entirely.
+- **Agents mode is the third leg: orchestration, not description.** This is the
+  Orca role — the live harness sessions walking slices along the edges. A board
+  (a status-grouped list: needs-you / failed / blocked / running) over a console
+  that is the session itself: transcript, a composer to steer it, one-tap answers
+  to its blocking questions, and a rail linking back to the slice and the prompt.
+- **The status dots are now a reading of the fleet, not decoration.** `AGENTS` is
+  the source; `runsForSlice` / `dotForItem` derive the Factory dots from it, so
+  the ring and the fleet can never disagree about a slice. That seam (real
+  wiring, faked fleet) is where execution plugs in later.
 - **Sub-loops are cut.** Descending from a process into a nested loop was
   disorienting. Depth lives in nested documents instead.
 - **Tasks are markdown checkboxes**, not a bespoke syntax, and the task rail is
@@ -67,7 +79,10 @@ agent's experiment, unrelated to this work.
 ## Open threads
 
 - Does the play button belong on the lines, or is the loop a static definition
-  surface with execution elsewhere? Asked Sebastian, not yet answered.
+  surface with execution elsewhere? Leaning toward the latter now that **Agents
+  mode is the execution home** — the ring stays a definition/board, the fleet is
+  where runs actually live. Play buttons still exist on the lines as a dispatch
+  shortcut, but they hand off into Agents mode.
 - Layout is a forced ring over a DAG with back-edges. Fine at 6 nodes, unproven
   when a real system has skips and parallel paths.
 - Source of truth must move to the real markdown files, with canvas layout as
