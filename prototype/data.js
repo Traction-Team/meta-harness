@@ -145,6 +145,9 @@ does not own, stop and file a \`spec-ambiguity\` issue naming the path.
     id: "review", from: "pr", to: "merged", name: "review", kind: "runbook",
     trigger: "on arrival", runner: "opus · human gate", runs: 301, fail: .34, median: "6m",
     reads: ["diff", "checks", "reviewer"], writes: ["slice", "sha", "shipped_at"],
+    /* writesTo is a path, not a field: what this process puts into the corpus on
+       its way past. The inward spoke is derived from this line, never drawn. */
+    writesTo: [{ glob: "docs/**/*.md", what: "spec sync", note: "merging rewrites the § it implemented, so the spec tracks what shipped" }],
     issues: ["i2", "i4", "i5", "i8", "i10", "i12"],
     prompt: `## Context
 
@@ -169,6 +172,7 @@ Nothing else is in scope.
     id: "log", from: "merged", to: "feed", name: "log issue", kind: "skill",
     trigger: "after every run", runner: "haiku", runs: 308, fail: .04, median: "40s",
     reads: ["transcript", "sha"], writes: ["category", "edge", "run", "proposed_fix"],
+    writesTo: [{ glob: "system/issues/*.md", what: "issue file", note: "one file per issue, naming the edge it happened on" }],
     issues: [], broken: "reads `transcript`, which the Merged shape does not define",
     prompt: `## Context
 
@@ -194,6 +198,8 @@ Categories: \`skill-gap\`, \`spec-ambiguity\`, \`review-miss\`,
     id: "triage", from: "feed", to: "spec", name: "triage", kind: "runbook",
     trigger: "manual · weekly", runner: "you", runs: 21, fail: .05, median: "3m",
     reads: ["category", "proposed_fix"], writes: ["constraints[]", "decisions[]"],
+    /* the moat, and it is a write, not an arrow */
+    writesTo: [{ glob: "system/loop.md", what: "redraw", note: "system defects rewrite the loop itself: states, edges, contracts" }],
     issues: ["i6"], self: true,
     prompt: `## Context
 
@@ -221,9 +227,61 @@ diagram allowed to write to the diagram.
 ];
 
 /* the back edge everyone's real process has and nobody's diagram admits to */
-const BACKS = [
-  { from: "pr", to: "branch", label: "rework", note: "34% of reviews" },
+/* ══════════════════════════════════════════ the loop is not a clean circle ══
+
+   Two different kinds of line got conflated in v1, and splitting them is the
+   whole fix.
+
+   A TRANSITION moves an artifact. It leaves one state and arrives at another,
+   and conservation holds. Most of them lie on the rim; the ones that do not are
+   PATHS below, drawn as chords.
+
+   An EMISSION moves nothing. A process writes a fact into a corpus, and some
+   state's predicate happens to read that corpus later. `merged updates the
+   spec` is this, not a transition: the slice does not leave Merged to become a
+   spec. Drawing it as a flow arrow is a category error, which is why the old
+   centre hub never read right. Emissions point INWARD, to CORPORA.
+
+   Nothing here is hand-drawn. Emissions derive from each process's writesTo
+   glob; paths derive from watching files change which predicate they match. ── */
+
+/* the interior of the ring. Not routing space: the corpus. */
+const CORPORA = [
+  { id: "cdocs",  name: "Spec corpus",     glob: "docs/**/*.md",       icon: "doc",    count: 370,
+    readBy: ["spec"],
+    note: "Shipped behaviour is written back here. The Product spec state is a predicate over this, so the spec node changes without anything moving around the ring." },
+  { id: "cissue", name: "Issue log",        glob: "system/issues/*.md", icon: "flag",   count: 12,
+    readBy: ["feed"],
+    note: "Every issue names the edge it happened on. The Feedback state is this corpus read as a queue." },
+  { id: "cloop",  name: "Loop definition",  glob: "system/loop.md",     icon: "wrench", count: 1,
+    readBy: [], self: true,
+    note: "The diagram you are looking at, as a file. One edge in the loop writes here. That is the arrow nobody else has, and it is a spoke, not an arc." },
 ];
+
+/* observed transitions that are not on the rim.
+   share  = fraction of traffic leaving `from` that takes this path
+   drawn  = is it part of the definition, or did we only ever watch it happen
+   Retrograde paths render inside the ring (slower), forward skips outside
+   (faster), and stroke weight is share, so the rim stays the thick line. */
+const PATHS = [
+  { id: "x1", from: "pr", to: "branch", kind: "rework", share: .34, runs: 118, since: "12 wks", drawn: true,
+    name: "kick back", proc: "review",
+    note: "Review sends the diff back rather than merging it. Known, drawn, and at 34% it is not an exception any more." },
+
+  { id: "x2", from: "merged", to: "plans", kind: "rework", share: .27, runs: 74, since: "12 wks", drawn: false,
+    name: "follow-on work", proc: null,
+    note: "Building slice n reveals slice n+1. The slice is written straight into slices/ as planned, without passing through the spec. Nobody drew this edge; it is 27% of what leaves Merged." },
+
+  { id: "x3", from: "feed", to: "plans", kind: "skip", share: .12, runs: 31, since: "12 wks", drawn: false,
+    name: "hotfix cut", proc: null,
+    note: "An issue becomes a slice directly, skipping Product spec. Fine for defects, and a governance hole for anything that is really a feature." },
+
+  { id: "x4", from: "branch", to: "merged", kind: "skip", share: .04, runs: 11, since: "12 wks", drawn: false,
+    name: "straight to main", proc: null,
+    note: "A branch merged with no PR and therefore no review. Small, and the one on this list you probably want to make impossible rather than draw." },
+];
+
+const BACKS = PATHS;
 
 /* ── the system's own issue queue, attributed to edges, never to states ── */
 const ISSUES = [

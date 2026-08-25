@@ -47,6 +47,11 @@ const state = {
   view: "loop",
   sel: null,                // { t, id }
   heat: true,
+  /* show a path only if it carries at least this much of the traffic leaving
+     its source. 100 = the idealised circle you drew. 0 = everything that has
+     ever actually happened. Honesty is a dial, not a toggle. */
+  thresh: 100,
+  writes: true,             // the inward spokes and the corpus in the middle
   zoom: 1, px: 0, py: 0,
   ws: "email-agent", wsOpen: false,
   panelOpen: false,
@@ -61,12 +66,35 @@ const PANEL_W = 412;
 /* one loop. There is no descending into a process any more: a process is a
    prompt, and a prompt opens as a document, not as another diagram. */
 function model() {
-  return { states: STATES, procs: PROCS, backs: BACKS };
+  return { states: STATES, procs: PROCS, paths: PATHS, corpora: CORPORA };
 }
 const stateById = (id) => STATES.find((s) => s.id === id);
 const procById = (id) => PROCS.find((p) => p.id === id);
 const issueById = (id) => ISSUES.find((i) => i.id === id);
+const pathById = (id) => PATHS.find((p) => p.id === id);
+const corpusById = (id) => CORPORA.find((c) => c.id === id);
 const brokenProcs = () => PROCS.filter((p) => p.broken);
+
+/* a path is worth drawing into the definition once it stops being an
+   exception. Same number as the hot-edge threshold, on purpose. */
+const PROMOTE = .25;
+const visiblePaths = () => PATHS.filter((p) => p.share * 100 >= state.thresh);
+const undrawn = () => PATHS.filter((p) => !p.drawn);
+const shouldDraw = () => PATHS.filter((p) => !p.drawn && p.share >= PROMOTE);
+
+/* Emissions are never authored. Every process declares the paths it writes to,
+   every corpus declares its glob, and the spoke is whatever matches. Delete a
+   writesTo line and the spoke goes with it. */
+function emissions() {
+  const out = [];
+  PROCS.forEach((p) => (p.writesTo || []).forEach((w) => {
+    const c = CORPORA.find((c) => c.glob === w.glob);
+    if (c) out.push({ id: `${p.id}~${c.id}`, proc: p, corpus: c, what: w.what, note: w.note });
+  }));
+  return out;
+}
+const emissionById = (id) => emissions().find((e) => e.id === id);
+const emitsInto = (cid) => emissions().filter((e) => e.corpus.id === cid);
 
 /* ────────────────────────────────────────────────────────────── chrome ── */
 
@@ -131,11 +159,35 @@ function paintToolbar() {
     (doc ? ` › <span class="dim">${esc(docTitle(doc))}</span>` : "");
 
   const isLoop = state.view === "loop";
+  const nVis = visiblePaths().length;
+  /* the honesty dial. 100% is the circle you drew, 0% is everything that has
+     ever happened, and dragging between them animates one into the other. */
   $("#tbActs").innerHTML = (isLoop ? `
     <button class="tb-btn ${state.heat ? "on" : ""}" id="heatBtn">${ICONS.heat}Heat</button>
+    <button class="tb-btn ${state.writes ? "on" : ""}" id="wrBtn">${ICONS.doc}Writes</button>
+    <span class="tb-div"></span>
+    <span class="tb-sl" title="Show paths carrying at least this share of the traffic">
+      <span class="tb-sl-l">Paths ≥</span>
+      <input type="range" id="thSl" min="0" max="100" step="1" value="${state.thresh}">
+      <span class="tb-sl-v">${state.thresh}%</span>
+      <span class="tb-sl-n ${nVis ? "on" : ""}">${nVis ? `${nVis} off-rim` : "clean circle"}</span>
+    </span>
     <span class="tb-div"></span>` : "") + `
     <button class="ico" id="themeBtn" title="Theme">${ICONS.moon}</button>`;
-  if (isLoop) $("#heatBtn").onclick = () => { state.heat = !state.heat; paint(); };
+  if (isLoop) {
+    $("#heatBtn").onclick = () => { state.heat = !state.heat; paint(); };
+    $("#wrBtn").onclick = () => { state.writes = !state.writes; paint(); };
+    /* repaint the canvas only while dragging, or the slider loses the pointer */
+    $("#thSl").oninput = (e) => {
+      state.thresh = +e.target.value;
+      $(".tb-sl-v").textContent = `${state.thresh}%`;
+      const n = visiblePaths().length;
+      const chip = $(".tb-sl-n");
+      chip.textContent = n ? `${n} off-rim` : "clean circle";
+      chip.classList.toggle("on", !!n);
+      paintLoop();
+    };
+  }
   $("#themeBtn").onclick = () => {
     const dark = document.documentElement.dataset.theme === "dark";
     document.documentElement.dataset.theme = dark ? "light" : "dark";
@@ -148,8 +200,23 @@ function paintStrip() {
     ? `${REPO.name} · system ${REPO.sysVersion} · 6 runbooks, 12 skills, ${ISSUES.length} open issues`
     : `${REPO.name} · ${REPO.branch} · 314 slices · 436 needs · 301 decisions`;
   const chip = $("#lintChip");
+  const due = shouldDraw();
   chip.className = "strip-guard" + (bad.length ? " bad" : "");
   chip.textContent = bad.length ? `${bad.length} broken wire` : "Contracts clean";
+  /* the diff between the loop you drew and the loop that runs */
+  const dchip = $("#driftChip");
+  if (dchip) {
+    dchip.className = "strip-guard drift" + (due.length ? " warn" : "");
+    dchip.textContent = undrawn().length
+      ? `${undrawn().length} undrawn path${undrawn().length > 1 ? "s" : ""}${due.length ? ` · ${due.length} over ${Math.round(PROMOTE * 100)}%` : ""}`
+      : "Drawn matches observed";
+    dchip.onclick = () => {
+      const t = due[0] || undrawn()[0]; if (!t) return;
+      state.mode = "system"; state.view = "loop"; closeEditor(true);
+      state.thresh = Math.min(state.thresh, Math.round(t.share * 100));
+      state.sel = { t: "path", id: t.id }; paint();
+    };
+  }
   chip.onclick = () => { if (bad.length) { state.mode = "system"; state.view = "loop"; closeEditor(true); state.sel = { t: "proc", id: bad[0].id }; paint(); } };
   $("#modeChip").innerHTML = `${state.mode === "system" ? ICONS.wrench : ICONS.list}${state.mode === "system" ? "System mode" : "Product mode"}`;
   $("#modeChip").onclick = () => setMode(state.mode === "system" ? "product" : "system");
@@ -171,7 +238,8 @@ function geo(m) {
   const P = state.mode === "product"
     ? { rx: 520, ry: 330, nw: 232, nh: 178, d: 22 }
     : { rx: 420, ry: 268, nw: 198, nh: 80, d: 17 };
-  const padX = P.nw / 2 + 46, padY = P.nh / 2 + 30;
+  /* the extra room is for the skip arcs, which ride outside the rim */
+  const padX = P.nw / 2 + 46 + 36, padY = P.nh / 2 + 30 + 36;
   return { ...P, n, W: 2 * P.rx + 2 * padX, H: 2 * P.ry + 2 * padY, cx: P.rx + padX, cy: P.ry + padY };
 }
 
@@ -255,19 +323,89 @@ function paintLoop() {
     </div>`;
   });
 
+  /* ── chords: transitions that do not lie on the rim ──
+     Direction carries the meaning. A skip runs with the flow and rides OUTSIDE
+     the ring because it is the faster route; a rework runs against it and rides
+     INSIDE because it is the slower one. Stroke weight is traffic share, so the
+     rim stays the thick line and the thing still reads as a circle from across
+     the room. Dotted (not dashed) means observed but never drawn: long red
+     dashes already mean broken wire and that signal is not for sharing. */
+  let chords = "", chordLbls = "";
+  visiblePaths().forEach((p) => {
+    const a0 = ang(idx[p.from]);
+    let d = ang(idx[p.to]) - a0;
+    while (d <= 0.001) d += 360 * RAD;              // forward sweep
+    if (p.kind !== "skip") d -= 360 * RAD;          // rework runs backwards
+    const a1 = a0 + d, mid = a0 + d / 2, out = p.kind === "skip";
+    /* A lane, not a bow. The path rides a concentric ellipse the whole way, so
+       it clears the station boxes instead of cutting through them, and it keeps
+       the rim's own visual language. The longer a rework reaches, the tighter
+       the lane it takes, which also stops two chords over the same mid-angle
+       landing on top of each other. */
+    const reach = Math.abs(d) / Math.PI;
+    const k = out ? 1.22 : .82 - .14 * reach;
+    const [x1, y1] = pt(a0, k), [x2, y2] = pt(a1, k);
+    /* long chords slide their chip round the lane so it does not stack */
+    const far = reach > .6;
+    const lAng = mid + (far ? Math.sign(d) * 28 * RAD : 0);
+    const [lx, ly] = pt(lAng, k - (far && !out ? .10 : 0));
+    const big = Math.abs(d) > Math.PI ? 1 : 0, sweep = d > 0 ? 1 : 0;
+    const due = !p.drawn && p.share >= PROMOTE;
+    const sel = state.sel && state.sel.t === "path" && state.sel.id === p.id ? " sel" : "";
+    chords += `<path class="chord ${p.drawn ? "drawn" : "obs"}${due ? " due" : ""}${sel}" id="x-${p.id}"
+      style="stroke-width:${(1 + p.share * 7).toFixed(2)}px"
+      d="M${x1},${y1} A${(G.rx * k).toFixed(1)},${(G.ry * k).toFixed(1)} 0 ${big} ${sweep} ${x2},${y2}"
+      marker-end="url(#${due ? "arrowH" : "arrowT"})"/>`;
+    chordLbls += `<div class="chl ${p.drawn ? "drawn" : "obs"}${due ? " due" : ""}${sel}" data-path="${p.id}"
+      style="left:${lx}px;top:${ly}px"><span class="chl-n">${esc(p.name)}</span><span class="chl-p">${Math.round(p.share * 100)}%</span></div>`;
+  });
+
+  /* ── the middle ──
+     The interior is not routing space, it is the corpus. A process that writes
+     a fact rather than moving an artifact draws a short spoke inward instead of
+     a long arc back round the rim. `merged updates the spec` is one of these,
+     and so is the one edge that rewrites the loop itself — which finally has a
+     picture, because the centre is a place rather than a node in the flow. */
+  let spokes = "", corpus = "";
+  if (state.writes) {
+    const CW = 178, CH = 34, gap = 9, n = m.corpora.length;
+    const top = G.cy - (n * CH + (n - 1) * gap) / 2;
+    const at = {};
+    m.corpora.forEach((c, i) => { at[c.id] = [G.cx, top + i * (CH + gap) + CH / 2]; });
+
+    emissions().forEach((e) => {
+      let b0 = ang(idx[e.proc.from]) + G.d * RAD, b1 = ang(idx[e.proc.to]) - G.d * RAD;
+      if (b1 < b0) b1 += 360 * RAD;
+      const [sx, sy] = pt((b0 + b1) / 2);
+      const [ex, ey] = at[e.corpus.id];
+      const sel = state.sel && state.sel.t === "emit" && state.sel.id === e.id ? " sel" : "";
+      spokes += `<path class="spoke${e.corpus.self ? " self" : ""}${sel}" d="M${sx},${sy} L${ex},${ey}"/>
+        <circle class="spoke-d${sel}" cx="${sx}" cy="${sy}" r="2.6"/>`;
+    });
+
+    corpus = `<div class="cor-cap" style="left:${G.cx}px;top:${top - 20}px">written into</div>`;
+    m.corpora.forEach((c) => {
+      const [x, y] = at[c.id];
+      const sel = state.sel && state.sel.t === "corpus" && state.sel.id === c.id ? " sel" : "";
+      corpus += `<div class="cor${c.self ? " self" : ""}${sel}" data-corpus="${c.id}"
+        style="left:${x}px;top:${y}px;width:${CW}px;height:${CH}px">
+        ${ICONS[c.icon]}<span class="cor-t">${esc(c.name)}</span><span class="cor-n">${c.count}</span></div>`;
+    });
+  }
+
   $("#main").innerHTML = `
     <div class="lp" id="lp">
       <div class="lp-world" id="world" style="width:${G.W}px;height:${G.H}px">
         <svg class="lp-svg" width="${G.W}" height="${G.H}">
           <defs>
-            ${["arrow:var(--wire)", "arrowA:var(--accent)", "arrowE:var(--red)", "arrowH:var(--amber)", "arrowS:var(--wire)"]
+            ${["arrow:var(--wire)", "arrowA:var(--accent)", "arrowE:var(--red)", "arrowH:var(--amber)", "arrowS:var(--wire)", "arrowT:var(--wire)"]
               .map((d) => { const [id, c] = d.split(":");
                 return `<marker id="${id}" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                   <path d="M0,1 L9,5 L0,9 z" style="fill:${c}${id === "arrowS" ? ";opacity:.62" : ""}"/></marker>`; }).join("")}
           </defs>
-          ${paths}
+          ${paths}${spokes}${chords}
         </svg>
-        ${nodes}${procs}${labels}
+        ${nodes}${procs}${corpus}${chordLbls}${labels}
       </div>
       <div class="lp-tools">
         <button class="ico" id="zOut">${ICONS.minus}</button>
@@ -302,6 +440,12 @@ function wireLoop() {
   world.querySelectorAll("[data-run]").forEach((el) => {
     el.onclick = (e) => { e.stopPropagation(); runProc(el.dataset.run); };
   });
+  world.querySelectorAll("[data-path]").forEach((el) => {
+    el.onclick = (e) => { e.stopPropagation(); state.sel = { t: "path", id: el.dataset.path }; paint(); };
+  });
+  world.querySelectorAll("[data-corpus]").forEach((el) => {
+    el.onclick = (e) => { e.stopPropagation(); state.sel = { t: "corpus", id: el.dataset.corpus }; paint(); };
+  });
 
   $("#zIn").onclick = () => zoomBy(1.18);
   $("#zOut").onclick = () => zoomBy(1 / 1.18);
@@ -310,7 +454,7 @@ function wireLoop() {
   /* pan on the background, zoom under the cursor */
   let down = null;
   lp.addEventListener("mousedown", (e) => {
-    if (e.target.closest(".nd, .pr, .lp-tools")) return;
+    if (e.target.closest(".nd, .pr, .cor, .chl, .lp-tools")) return;
     down = { x: e.clientX, y: e.clientY, px: state.px, py: state.py };
     lp.classList.add("drag");
   });
@@ -501,6 +645,8 @@ function paintPanels() {
     : s.t === "issue" ? issuePanel(issueById(s.id))
     /* the item's own details live in the file that is already open in the main
        pane, so the panel is only the list you navigate with */
+    : s.t === "path"   ? pathPanel(pathById(s.id))
+    : s.t === "corpus" ? corpusPanel(corpusById(s.id))
     : s.t === "item"  ? (inProduct && home ? itemsCard(home, s.id) : itemPanel(s))
     : "";
 
@@ -609,6 +755,71 @@ function procPanel(p) {
       <button class="btn pri" onclick="runProc('${p.id}')">${ICONS.play} Run now</button>
       <button class="btn" onclick="openEditor('${p.id}')">${ICONS.pencil} Edit prompt</button>
     </div>`);
+}
+
+/* ═════════════════════════════════════════════════════════ off-rim paths ══ */
+
+function drawPath(id) {
+  const p = pathById(id); if (!p) return;
+  p.drawn = true;
+  state.thresh = Math.min(state.thresh, Math.round(p.share * 100));
+  paint();
+  toast(`${p.name} is part of the definition now. system/loop.md bumped to v42.`);
+}
+function undrawPath(id) {
+  const p = pathById(id); if (!p) return;
+  p.drawn = false; paint();
+  toast(`${p.name} dropped back to observed-only.`);
+}
+
+function pathPanel(p) {
+  if (!p) return "";
+  const src = stateById(p.from), dst = stateById(p.to);
+  const pct = Math.round(p.share * 100);
+  const due = !p.drawn && p.share >= PROMOTE;
+  const geoNote = p.kind === "skip"
+    ? "Runs with the flow, so it is drawn outside the rim: this is the faster route."
+    : "Runs against the flow, so it is drawn inside the rim: this is the slower route.";
+  return card("Path", `<span class="tagm ${p.kind === "skip" ? "sk" : "rb"}">${esc(p.kind)}</span>`, `
+    <div class="c-n">${esc(p.name)}</div>
+    <div class="c-r">${esc(src ? src.name : p.from)} → ${esc(dst ? dst.name : p.to)}</div>
+    ${kv([["Share", `<b>${pct}%</b> of what leaves ${esc(src ? src.name : p.from)}`],
+          ["Observed", `${p.runs} times over ${esc(p.since)}`],
+          ["In the definition", p.drawn
+            ? `<span style="color:var(--green)">drawn</span>`
+            : `<span style="color:var(--amber)">observed only</span>`],
+          ["Attributed to", p.proc ? esc((procById(p.proc) || {}).name || p.proc) : `<span style="color:var(--text-3)">no process</span>`]])}
+    <div class="c-r" style="margin-top:2px">${esc(p.note)}</div>
+    <div class="c-r dimr">${esc(geoNote)}</div>
+    ${due ? `<div class="due-note">Over ${Math.round(PROMOTE * 100)}%. At this weight it is not an exception, it is a main line that nobody drew.
+      Either draw it, or make it impossible.</div>` : ""}
+    <div class="acts-row">
+      ${p.drawn
+        ? `<button class="btn" onclick="undrawPath('${p.id}')">Undraw</button>`
+        : `<button class="btn pri" onclick="drawPath('${p.id}')">Draw into the loop</button>`}
+      <button class="btn ghost" onclick="toast('Filed against triage. It is the edge that redraws the loop.')">File to triage</button>
+    </div>`) +
+  card("How this was found", "", `<div class="c-r">Nobody drew this line. A state is a predicate, so the harness can watch a file
+    stop matching <span class="mono">${esc(src ? src.glob : "")}</span> and start matching
+    <span class="mono">${esc(dst ? dst.glob : "")}</span>. ${p.drawn
+      ? "This one is in the definition, so the observed traffic just keeps its weight honest."
+      : "No edge in the definition connects those two, so the loop found a path through itself that you did not put there."}</div>`);
+}
+
+function corpusPanel(c) {
+  if (!c) return "";
+  const ems = emitsInto(c.id);
+  const readers = (c.readBy || []).map(stateById).filter(Boolean);
+  return card("Corpus", `<span class="tagm sk">write target</span>`, `
+    <div class="c-n">${esc(c.name)}</div>
+    <div class="c-r mono">${esc(c.glob)}</div>
+    ${kv([["Files", `${c.count}`],
+          ["Written by", ems.length ? ems.map((e) => `<a class="lnk" onclick="state.sel={t:'proc',id:'${e.proc.id}'};paint()">${esc(e.proc.name)}</a>`).join(", ") : `<span style="color:var(--text-3)">nothing</span>`],
+          ["Read by", readers.length ? readers.map((s) => `<a class="lnk" onclick="state.sel={t:'node',id:'${s.id}'};paint()">${esc(s.name)}</a>`).join(", ") : `<span style="color:var(--text-3)">no state</span>`]])}
+    <div class="c-r">${esc(c.note)}</div>`) +
+  card("Why it is a spoke", "", `<div class="c-r">Nothing moves along these lines. ${ems.length ? esc(ems[0].proc.name) : "A process"} writes a fact
+    here and the artifact stays where it was, so an arrow round the rim would be a lie about flow. The spokes are not drawn by hand either:
+    each one is a <span class="mono">writesTo</span> on a process matched against this glob. Delete the contract line and the spoke goes with it.</div>`);
 }
 
 function issuePanel(i) {

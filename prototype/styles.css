@@ -257,6 +257,76 @@ svg { display: block; }
 .pr-bar i.hi { background: var(--red); }
 .pr-bar i.lo { background: var(--green); }
 
+/* ═══════════════════════════════════════ the loop is not a clean circle ══
+   Three visual languages, kept apart on purpose:
+     rim   solid, thick        an artifact changes state, on the main line
+     chord curved, weighted    an artifact changes state, off the main line
+     spoke straight, hairline  nothing moves; a process writes into the corpus
+   Dotted (1 5) means observed but never drawn. Long dashes stay reserved for
+   a broken contract, which is the one signal that must not be diluted. */
+
+.chord { fill: none; stroke: var(--wire); stroke-linecap: round; opacity: .5; cursor: pointer; }
+.chord.drawn { opacity: .62; }
+.chord.obs   { stroke-dasharray: 1 5; opacity: .5; }
+.chord.due   { stroke: var(--amber); opacity: .85; }
+.chord.sel   { stroke: var(--accent); opacity: 1; }
+
+/* the chip that sits on a chord, so the share is readable without hovering */
+.chl { position: absolute; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 5px;
+  height: 21px; padding: 0 6px 0 7px; border-radius: 7px; white-space: nowrap; cursor: pointer;
+  background: var(--card); border: .5px solid var(--line); box-shadow: 0 0 0 2.5px var(--win), var(--card-shadow); }
+.chl:hover { border-color: rgba(128,128,138,.45); }
+.chl-n { font-size: 10.5px; font-weight: 550; color: var(--text-2); }
+.chl-p { font-size: 10px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--text-3);
+  background: var(--raise); border-radius: 20px; padding: 0 5px; }
+.chl.obs { border-style: dashed; }
+.chl.obs .chl-n { color: var(--text-3); }
+.chl.due { border-color: var(--amber); border-style: solid; }
+.chl.due .chl-n { color: var(--amber); }
+.chl.due .chl-p { background: var(--amber-dim); color: var(--amber); }
+.chl.sel { border-color: var(--accent); box-shadow: 0 0 0 2.5px var(--win), 0 0 0 5.5px var(--accent-dim), var(--card-shadow); }
+
+/* ── emissions: the interior is the corpus, not routing space ── */
+.spoke { fill: none; stroke: var(--wire); stroke-width: 1; opacity: .3; }
+.spoke.self { stroke: var(--accent); opacity: .45; }
+.spoke.sel { stroke: var(--accent); opacity: .9; stroke-width: 1.6; }
+.spoke-d { fill: var(--wire); opacity: .4; }
+.spoke-d.sel { fill: var(--accent); opacity: 1; }
+
+.cor-cap { position: absolute; transform: translate(-50%, -50%); font-size: 10px; font-weight: 600;
+  letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); opacity: .8; }
+.cor { position: absolute; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 8px;
+  padding: 0 10px; border-radius: 9px; cursor: pointer; background: var(--card);
+  border: .5px solid var(--line); box-shadow: var(--card-shadow); }
+.cor svg { color: var(--text-3); flex: none; }
+.cor:hover { border-color: rgba(128,128,138,.4); }
+.cor-t { font-size: 11.5px; font-weight: 550; color: var(--text-2); }
+.cor-n { margin-left: auto; font-size: 10.5px; font-weight: 600; color: var(--text-3);
+  background: var(--raise); border-radius: 20px; padding: 1px 6px; font-variant-numeric: tabular-nums; }
+/* the loop definition is itself a file in the corpus. That is the moat, and it
+   is a write, not an arrow. */
+.cor.self { border-color: var(--accent); background: var(--accent-dim); }
+.cor.self .cor-t, .cor.self svg { color: var(--accent); }
+.cor.sel { border-color: var(--accent); box-shadow: var(--card-shadow), 0 0 0 3px var(--accent-dim); }
+
+/* ── the honesty dial in the toolbar ── */
+.tb-sl { display: flex; align-items: center; gap: 7px; padding: 0 2px; }
+.tb-sl-l { font-size: 11.5px; color: var(--text-2); font-weight: 500; }
+.tb-sl input[type=range] { -webkit-appearance: none; appearance: none; width: 104px; height: 3px;
+  border-radius: 3px; background: var(--line); cursor: pointer; }
+.tb-sl input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px;
+  border-radius: 50%; background: var(--card); border: .5px solid rgba(0,0,0,.2); box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+.tb-sl-v { font-size: 11px; font-weight: 620; font-variant-numeric: tabular-nums; color: var(--text-2); width: 30px; }
+.tb-sl-n { font-size: 10.5px; font-weight: 550; color: var(--text-3); background: var(--raise);
+  border-radius: 20px; padding: 1px 7px; }
+.tb-sl-n.on { color: var(--amber); background: var(--amber-dim); }
+
+.strip-guard.drift { cursor: pointer; }
+.strip-guard.drift.warn { color: var(--amber); }
+.due-note { margin-top: 8px; padding: 7px 9px; border-radius: 8px; background: var(--amber-dim);
+  color: var(--amber); font-size: 11.5px; line-height: 1.45; font-weight: 500; }
+.c-r.dimr { color: var(--text-3); margin-top: 4px; }
+
 /* ── the hub: the thing the loop can rewrite ── */
 .hub { position: absolute; border-radius: 14px; background: var(--card); border: .5px solid var(--line); box-shadow: var(--card-shadow); padding: 12px 14px; text-align: center; }
 .hub-t { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); }
