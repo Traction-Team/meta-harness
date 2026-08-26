@@ -48,7 +48,6 @@ const state = {
   mode: "system",           // system | product | agents
   view: "loop",
   sel: null,                // { t, id }
-  heat: true,
   zoom: 1, px: 0, py: 0,
   ws: "email-agent", wsOpen: false,
   panelOpen: false,
@@ -153,9 +152,7 @@ function paintSidebar() {
   $("#sideNav").querySelectorAll("button").forEach((b) => (b.onclick = () => { state.view = b.dataset.view; state.sel = null; state.run = null; paint(); }));
 
   $("#sideNavFoot").innerHTML = `
-    <button class="snav" id="navGraph">${ICONS.sparkle}<span>Graph queries</span></button>
     <button class="snav" id="navSet">${ICONS.gate}<span>Integrations</span></button>`;
-  $("#navGraph").onclick = () => toast("Blast radius, coverage gaps, collisions");
   $("#navSet").onclick = () => toast("Orca · GitHub · Linear");
 }
 
@@ -173,12 +170,8 @@ function paintToolbar() {
     (inp ? ` › <span class="dim">${esc(inp.name)}</span>` : "") +
     (doc ? ` › <span class="dim">${esc(docTitle(doc))}</span>` : "");
 
-  const isLoop = state.view === "loop" && state.mode !== "agents";
-  $("#tbActs").innerHTML = (isLoop ? `
-    <button class="tb-btn ${state.heat ? "on" : ""}" id="heatBtn">${ICONS.heat}Heat</button>
-    <span class="tb-div"></span>` : "") + `
+  $("#tbActs").innerHTML = `
     <button class="ico" id="themeBtn" title="Theme">${ICONS.moon}</button>`;
-  if (isLoop) $("#heatBtn").onclick = () => { state.heat = !state.heat; paint(); };
   $("#themeBtn").onclick = () => {
     const dark = document.documentElement.dataset.theme === "dark";
     document.documentElement.dataset.theme = dark ? "light" : "dark";
@@ -190,7 +183,7 @@ function paintStrip() {
   const live = AGENTS.filter((r) => r.status === "running").length;
   const waiting = AGENTS.filter((r) => r.status === "waiting").length;
   $("#stripLeft").textContent = state.mode === "system"
-    ? `${REPO.name} · system ${REPO.sysVersion} · ${REPO.runbooksN} runbooks, ${REPO.skillsN} skills, ${ISSUES.length} open ${COPY.issuesWord}`
+    ? `${REPO.name} · system ${REPO.sysVersion} · ${REPO.runbooksN + (typeof INPUTS !== "undefined" ? INPUTS.length : 0)} programs, ${REPO.skillsN} skills, ${ISSUES.length} open ${COPY.issuesWord}`
     : state.mode === "agents"
     ? `${REPO.name} · ${live} agents running · ${waiting} waiting on you · ${AGENTS.filter((r) => r.status === "failed").length} failed`
     : `${REPO.name} · ${REPO.branch} · ${COPY.productStat}`;
@@ -399,9 +392,8 @@ function paintLoop() {
     const g = edgeD(e); e._g = g;
     if (e.proc) {
       const p = e.proc;
-      const hot = state.heat && p.fail >= .25 ? " hot" : "";
-      const cls = p.broken ? "wire err" : "wire" + hot;
-      const mk = p.broken ? "arrowE" : (hot ? "arrowH" : "arrow");
+      const cls = p.broken ? "wire err" : "wire";
+      const mk = p.broken ? "arrowE" : "arrow";
       paths += `<path class="${cls}" id="w-${p.id}" d="${g.d}" marker-end="url(#${mk})"/>`;
     } else if (e.back) {
       paths += `<path class="wire back" d="${g.d}" marker-end="url(#arrowA)"/>`;
@@ -455,13 +447,14 @@ function paintLoop() {
     const badge = state.mode === "system"
       ? (nIssues ? `<span class="pr-b ${nIssues < 3 ? "amb" : ""}">${nIssues}</span>` : "")
       : (inflight ? `<span class="pr-b amb" style="background:var(--raise);color:var(--text-2)">${inflight}</span>` : "");
-    const rate = Math.round(p.fail * 100);
+    /* System mode is where you design the program, so its action is Edit (opens
+       the prompt in write mode); Factory mode is where you run it, so it is Play. */
+    const isSys = state.mode === "system";
     procs += `<div class="pr${sel}${p.broken ? " err" : ""}" data-proc="${p.id}" style="left:${g.mx}px;top:${g.my}px;transform:translate(-50%,-50%)">
       <span class="pr-k ${p.kind === "runbook" ? "rb" : ""}">${p.kind === "runbook" ? ICONS.book : ICONS.sparkle}</span>
       <span class="pr-t">${esc(p.name)}</span>
       ${badge}
-      <button class="pr-run" data-run="${p.id}" title="Run over ${inflight} items">${ICONS.play}</button>
-      ${state.heat ? `<span class="pr-bar"><i class="${rate >= 25 ? "hi" : rate >= 10 ? "" : "lo"}" style="width:${Math.max(3, rate)}%"></i></span>` : ""}
+      <button class="pr-run" data-${isSys ? "edit" : "run"}="${p.id}" title="${isSys ? "Edit program" : `Run over ${inflight} items`}">${isSys ? ICONS.pencil : ICONS.play}</button>
     </div>`;
   });
 
@@ -472,10 +465,12 @@ function paintLoop() {
   let inlets = "";
   G.inputs.forEach((inp) => {
     const open = state.inputOpen === inp.id ? " open" : "";
+    /* same split as the process boxes: System edits the intake program, Factory runs it. */
+    const isSys = state.mode === "system";
     inlets += `<div class="nd-in${open}" data-input="${inp.id}" style="left:${inp.x}px;top:${inp.y}px;width:${inp.w}px;height:${inp.h}px">
       <span class="nd-in-i">${ICONS[inp.icon]}</span>
       <span class="nd-in-t">${esc(inp.name)}</span>
-      <button class="pr-run nd-in-run" data-inrun="${inp.id}" title="Open ${esc(inp.name)}">${ICONS.play}</button>
+      <button class="pr-run nd-in-run" data-${isSys ? "inedit" : "inrun"}="${inp.id}" title="${isSys ? `Edit ${esc(inp.name)}` : `Open ${esc(inp.name)}`}">${isSys ? ICONS.pencil : ICONS.play}</button>
     </div>`;
   });
 
@@ -484,7 +479,7 @@ function paintLoop() {
       <div class="lp-world" id="world" style="width:${G.W}px;height:${G.H}px">
         <svg class="lp-svg" width="${G.W}" height="${G.H}">
           <defs>
-            ${["arrow:var(--wire)", "arrowA:var(--accent)", "arrowE:var(--red)", "arrowH:var(--amber)", "arrowS:var(--wire)", "arrowIn:var(--accent)"]
+            ${["arrow:var(--wire)", "arrowA:var(--accent)", "arrowE:var(--red)", "arrowS:var(--wire)", "arrowIn:var(--accent)"]
               .map((d) => { const [id, c] = d.split(":");
                 return `<marker id="${id}" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                   <path d="M0,1 L9,5 L0,9 z" style="fill:${c}${id === "arrowS" ? ";opacity:.62" : ""}"/></marker>`; }).join("")}
@@ -517,7 +512,7 @@ function wireLoop() {
   });
   world.querySelectorAll("[data-proc]").forEach((el) => {
     el.onclick = (e) => {
-      if (e.target.closest("[data-run]")) return;
+      if (e.target.closest("[data-run],[data-edit]")) return;
       /* in System (design) mode a process is a runbook you edit, so one click
          opens its prompt — the same pane as "Edit prompt" on the floating card,
          which still floats beside it. Elsewhere a click just selects. */
@@ -532,14 +527,20 @@ function wireLoop() {
   world.querySelectorAll("[data-inrun]").forEach((el) => {
     el.onclick = (e) => { e.stopPropagation(); openInputConsole(el.dataset.inrun); };
   });
+  world.querySelectorAll("[data-inedit]").forEach((el) => {
+    el.onclick = (e) => { e.stopPropagation(); openInputConsole(el.dataset.inedit, true); };
+  });
   world.querySelectorAll("[data-input]").forEach((el) => {
     el.onclick = (e) => {
-      if (e.target.closest("[data-inrun]")) return;
+      if (e.target.closest("[data-inrun],[data-inedit]")) return;
       if (state.mode === "system") openInputConsole(el.dataset.input);
     };
   });
   world.querySelectorAll("[data-run]").forEach((el) => {
     el.onclick = (e) => { e.stopPropagation(); runProc(el.dataset.run); };
+  });
+  world.querySelectorAll("[data-edit]").forEach((el) => {
+    el.onclick = (e) => { e.stopPropagation(); openEditor(el.dataset.edit, true); };
   });
 
   $("#zIn").onclick = () => zoomBy(1.18);
@@ -614,9 +615,10 @@ function runProc(id) {
 const navLabel = (mode, view) => ((NAV[mode] || []).find((n) => n.id === view) || {}).label || view;
 
 const VIEWS = {
-  runbooks: () => ({ title: "Runbooks", sub: "the processes on the lines, as files",
-    rows: RUNBOOKS.map((p) => ({ t: p.name, s: `${p.from} → ${p.to} · ${p.trigger}`, r: `${p.runs} runs`, pill: p.issues.length ? `${p.issues.length} issues` : "clean", bad: p.issues.length > 2, sel: { t: "proc", id: p.id } })) }),
-  skills: () => ({ title: "Skills", sub: "capabilities a process can call",
+  programs: () => ({ title: "Programs", sub: "the instructions on the lines — runbooks, plus the intake programs that pour work into the loop",
+    rows: RUNBOOKS.map((p) => ({ t: p.name, s: `${p.from} → ${p.to} · ${p.trigger}`, r: `${p.runs} runs`, pill: p.issues.length ? `${p.issues.length} issues` : "clean", bad: p.issues.length > 2, sel: { t: "proc", id: p.id } }))
+      .concat((typeof INPUTS !== "undefined" ? INPUTS : []).map((inp) => ({ t: inp.name, s: `intake → ${inp.to} · ${inp.sub}`, r: `${inp.count} waiting`, pill: "intake", bad: false, sel: { t: "input", id: inp.id } }))) }),
+  skills: () => ({ title: "Skills", sub: "capabilities a program can call",
     rows: SKILLS.concat(EXTRA_SKILLS)
       .map((p) => ({ t: p.name, s: `${p.trigger}`, r: `${p.runs} runs`, pill: p.broken ? "broken wire" : "clean", bad: !!p.broken, sel: p.id ? { t: "proc", id: p.id } : null })) }),
   issues: () => ({ title: navLabel("system", "issues"), sub: "attributed to edges, never to states",
@@ -656,6 +658,7 @@ function paintList() {
     b.onclick = () => {
       const s = v.rows[k].sel;
       if (s && s.t === "item") { openItemDoc(s.id, s.from); return; }   /* a file opens as a file */
+      if (s && s.t === "input") { openInputConsole(s.id); return; }     /* an intake program opens its console */
       state.sel = s; paint();
     };
     b.ondblclick = () => { const s = v.rows[k].sel; if (s && s.t === "proc") openEditor(s.id); };
@@ -1730,10 +1733,10 @@ function crumbHTML() {
   }).join("");
 }
 
-function openEditor(id) {
+function openEditor(id, edit = false) {
   const p = procById(id); if (!p) return;
   state.inputOpen = null;
-  state.docStack = [promptFile(p)]; state.editing = false;
+  state.docStack = [promptFile(p)]; state.editing = !!edit;
   if (!state.sel || state.sel.t !== "proc" || state.sel.id !== id) state.sel = { t: "proc", id };
   paint();
 }
@@ -1769,9 +1772,10 @@ and drops it into **${to ? to.name : inp.to}** as a feedback item the loop triag
   return inp.prompt;
 }
 
-function openInputConsole(id) {
+function openInputConsole(id, edit = false) {
   const inp = inputById(id); if (!inp) return;
-  if (state.inputOpen !== id) { state.intakeText = ""; state.inputEditing = false; }
+  if (state.inputOpen !== id) state.intakeText = "";
+  state.inputEditing = !!edit;
   state.inputOpen = id;
   state.docStack = []; state.editing = false; state.sel = null;
   paint();

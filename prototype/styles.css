@@ -141,10 +141,6 @@ svg { display: block; }
 #crumb { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #crumb .dim { color: var(--text-3); }
 .tb-acts { margin-left: auto; display: flex; align-items: center; gap: 1px; }
-.tb-div { width: .5px; height: 18px; background: var(--line); margin: 0 7px; }
-.tb-btn { height: 25px; padding: 0 10px; border-radius: 7px; font-size: 12px; display: flex; align-items: center; gap: 6px; color: var(--text-2); border: .5px solid var(--line); }
-.tb-btn:hover { background: var(--hover); color: var(--text); }
-.tb-btn.on { color: var(--accent); border-color: transparent; background: var(--accent-dim); }
 
 .canvas { flex: 1; position: relative; overflow: hidden; }
 .col-main { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden;
@@ -209,7 +205,6 @@ svg { display: block; }
 .wire.soft { stroke: var(--wire); stroke-width: 1.4; stroke-dasharray: 5 5; opacity: .62; }
 .wire.self { stroke: var(--accent); stroke-width: 1.6; stroke-dasharray: 4 5; }
 .wire.err  { stroke: var(--red); stroke-width: 1.7; stroke-dasharray: 7 4; }
-.wire.hot  { stroke: var(--amber); }
 .wire.lit  { stroke: var(--accent); stroke-width: 2.4; }
 .wire.feed { stroke: var(--accent); stroke-width: 1.7; opacity: .5; }
 .wire.back { stroke: var(--accent); stroke-width: 1.6; stroke-dasharray: 6 5; opacity: .6; }
@@ -295,11 +290,6 @@ svg { display: block; }
 .pr:hover .pr-run { color: var(--accent); background: var(--accent-dim); }
 /* the rate bar under the box — the telemetry that stops the diagram being a
    file browser with lines drawn on it */
-.pr-bar { position: absolute; left: 8px; right: 8px; bottom: -6px; height: 2.5px; border-radius: 2px; background: var(--line); overflow: hidden; }
-.pr-bar i { display: block; height: 100%; background: var(--amber); }
-.pr-bar i.hi { background: var(--red); }
-.pr-bar i.lo { background: var(--green); }
-
 /* ── the hub: the thing the loop can rewrite ── */
 .hub { position: absolute; border-radius: 14px; background: var(--card); border: .5px solid var(--line); box-shadow: var(--card-shadow); padding: 12px 14px; text-align: center; }
 .hub-t { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); }

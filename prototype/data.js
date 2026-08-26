@@ -739,7 +739,7 @@ the prompt again just spreads the same failure thinner.
 const NAV = {
   system: [
     { id: "loop",    label: "The loop",    icon: "loop" },
-    { id: "runbooks",label: "Runbooks",    icon: "book",  n: 6 },
+    { id: "programs",label: "Programs",    icon: "book",  n: 9 },
     { id: "skills",  label: "Skills",      icon: "sparkle", n: 12 },
     { id: "issues",  label: "System issues", icon: "flag", n: 12, loud: true },
     { id: "history", label: "Version history", icon: "clock", n: 41 },
@@ -1386,7 +1386,7 @@ at the end. Two promises in one post is the drift
 const NAV = {
   system: [
     { id: "loop",    label: "The loop",    icon: "loop" },
-    { id: "runbooks",label: "Runbooks",    icon: "book",  n: 6 },
+    { id: "programs",label: "Programs",    icon: "book",  n: 6 },
     { id: "skills",  label: "Skills",      icon: "sparkle", n: 9 },
     { id: "issues",  label: "System issues", icon: "flag", n: 10, loud: true },
     { id: "history", label: "Version history", icon: "clock", n: 27 },
