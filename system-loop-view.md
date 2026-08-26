@@ -38,21 +38,32 @@ product and right for the system.
        |  [review]
        v
   merged
-       |  [log issue]
+       |  [log feedback]
        v
-  feedback / issues
-       |  [triage]
-       +---> back to product spec        (product defects)
-       +---> back to THE LOOP ITSELF     (system defects)
+  feedback
+       |  [triage]           (product feedback → sharpens the spec)
+       +---> back to product spec
+       .
+  defects (off the ring)     (system defects → a new version of the loop)
+       |  [plan a change]
+       +---> THE LOOP ITSELF, reworked and switched over
 ```
 
-The second return edge is the whole product. `triage` writes into the diagram
-you are looking at. One edge in the loop mutates the loop. Every other tool has
-the first arrow. Nobody has the second.
+The second return is the whole product. The loop does not just make things, it
+feeds back into itself. Every other tool has the first arrow — feedback that
+sharpens the thing being built. Nobody has the second — feedback that rewrites
+the machine. The two are kept apart at the point of logging: **product**
+feedback folds into the spec (via `triage`) and sharpens the next thing built;
+**system** defects leave the ring entirely and fold into the loop itself,
+changing how the next thing is built.
 
 The drawing of that second arrow (a dashed self-edge into a hub in the centre)
-was built and then removed for being confusing. The idea stands, the picture
-does not. It needs a treatment that is not an arrow.
+was built and then removed for being confusing. The idea stands, the picture did
+not — and it now has one. The treatment that is not an arrow is a **version
+lifecycle**: system defects accumulate, you fold a batch into a planned version,
+a system agent reworks the affected edges in a branch, and a switchover flips the
+running factory onto it. The loop rewrites itself by shipping a new version of
+itself. See `system-versioning.md`.
 
 ## Node = state, defined by a predicate
 
@@ -92,25 +103,28 @@ is a compile step for your program. An open input is the exception on purpose: i
 is runtime data, so it cannot be checked — which is exactly what an entry point
 should be.
 
-## Issues attach to edges, not nodes
+## Defects attach to edges, not nodes
 
-Clean taxonomy split:
-
-- **Edge defects** = program quality. skill-gap, review-miss, convention-drift.
-  These land on the program box. A red count on `review` means that program is
-  leaking.
-- **Node defects** = artifact quality. spec-ambiguity, missing field, stale doc.
-  These land on the state.
+A **defect** is friction the factory logs about its own wiring as it runs —
+program quality, not artifact quality. skill-gap, review-miss, convention-drift,
+spec-ambiguity, constraint-violation. Each lands on the program box it happened
+on. A red count on `review` means that program is leaking.
 
 States do not fail. Transitions fail. So the failure heat map lives on the lines,
 and the loop view immediately shows you which transition burns the most retries.
-That is the self-improvement queue rendered spatially instead of as a list.
+That is the self-improvement queue rendered spatially instead of as a list — and
+what a **version** drains when you fold a batch of defects into a rework. See
+`system-versioning.md`.
+
+(Artifact-quality problems — a genuinely ambiguous spec section, a missing field
+— are a *product* concern. They show on the artifact and fold into the spec via
+`triage`, not into the loop. Do not confuse them with the defect queue above.)
 
 ## Interactions
 
 - Click node -> floating panel: the predicate, the shape, and throughput. In
   Product mode, also the full list of what is sitting there.
-- Click program box -> floating panel: trigger, runner, contracts, issues,
+- Click program box -> floating panel: trigger, runner, contracts, defects,
   send-back rate.
 - Open a program -> its instructions as a full-page document, laid over the loop,
   with its tasks and contract in a rail beside it.

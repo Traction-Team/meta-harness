@@ -16,7 +16,7 @@ editor and lose nothing but the drawing.
 | skill | `system/skills/<id>.md` | full-page sheet |
 | slice | `slices/<id>.md` | full-page sheet |
 | spec section | `docs/<id>-<slug>.md` | full-page sheet |
-| system issue | `system/issues/<id>.md` | full-page sheet |
+| defect | `system/defects/<id>.md` | full-page sheet |
 | nested page | `<parent-without-.md>/<name>.md` | full-page sheet |
 
 One sheet renders all of them. It does not branch on type beyond a glyph, a
@@ -80,8 +80,11 @@ Build plans    slices/*.md · status=planned
 Worker branch  git · worktrees/*
 Worker PR      gh · pr head:slice/*
 Merged         slices/*.md · status=merged
-Feedback       system/issues/*.md
+Feedback       feedback/*.md
 ```
+
+(Feedback is *product* feedback, on the ring. System **defects** are a separate
+off-loop queue, `system/defects/*.md` — see *Defects attach to edges* below.)
 
 Two consequences worth keeping:
 
@@ -149,18 +152,49 @@ with lines drawn on it.
 > direction, not yet the build. Layout (positions, zoom) stays metadata beside
 > the corpus regardless; it is the *topology* that would move into the files.
 
-## Issues attach to edges
+## Defects attach to edges
 
-`system/issues/i3.md` names the edge it happened on, never a state. States do not
-fail, transitions do. An issue with no edge is an observation, and observations
-are noise.
+`system/defects/i3.md` names the edge it happened on, never a state. States do
+not fail, transitions do. A defect with no edge is an observation, and
+observations are noise. A defect is about the **factory** — the friction an agent
+hit in how the loop is wired — not about the product, which is separate feedback
+that folds into the spec.
 
 Categories in use: `skill-gap`, `spec-ambiguity`, `review-miss`,
 `constraint-violation`, `convention-drift`.
 
-Three issues of one category on one edge is not a patch. It means the edge is
+Three defects of one category on one edge is not a patch. It means the edge is
 drawn wrong and wants redrawing, which is the one operation that changes the
 diagram itself.
+
+(The prototype still stores these under `system/issues/` and the code array is
+`ISSUES`; "defect" is the settled word, the path lags like the runbook one.)
+
+## Versions: how defects fold back into the loop
+
+A defect is not patched where it lands. It is folded, with a batch of others,
+into a new **version** of the system. A version is the set of programs,
+contracts and edges that define the loop, and the factory carries a version of
+itself (`v41`) the way the product carries a git sha.
+
+The lifecycle is a branch of the whole system: plan a change (fold the fixable
+defects), a system agent reworks the affected edges in a branch off the running
+loop, promote, then a switchover pauses the fleet, migrates what is in flight,
+and flips live onto the new version. The defects the version addressed close
+against the redraw, not against a patch, and **version history**
+(`system/versions/*` — a log separate from the repo's commit log) records the
+switch. The full model is `system-versioning.md`.
+
+Two things follow for the document model:
+
+- **A version is a branch, not a file edit.** The rework happens off the running
+  loop, so the live programs are never half-changed. This is the same reason
+  layout and telemetry stay out of the documents: the loop has to stay
+  diffable and reviewable, and a version is exactly a diff of it.
+- **A redraw bumps the minor, a patch bumps the point.** The granularity of a
+  change is carried in the version number, and a redraw — splitting an edge,
+  moving a boundary, re-typing a contract — is the change that needs the full
+  switchover, because it changes the contracts work is dispatched under.
 
 ## What the files do not hold
 

@@ -26,7 +26,7 @@ agent's experiment and is not part of this work.
 | `index.html` | shell markup: sidebar, toolbar, canvas, overlay mount, panels, strip |
 | `styles.css` | tokens copied verbatim from `~/Dev/email-agent/poc`, then everything for the loop, panels and sheet |
 | `data.js` | `STATES`, `PROCS`, `INPUTS`, `ITEMS`, `ISSUES`, `AGENTS`, `PAGES`, `WORKSPACES`, `NAV`, `HISTORY` (`PROCS` + `INPUTS` are both programs; see the naming note in `document-model.md`) |
-| `app.js` | icons, state, the loop renderer, list views, panels, the sheet, the markdown renderer, the agents board + console |
+| `app.js` | icons, state, the loop renderer, list views, panels, the sheet, the markdown renderer, the agents board + console, the version pill / card + switchover flow, the ask bar + system-agent chat |
 
 Theme, window chrome, sidebar, toolbar, cards, pills and segmented controls are
 lifted from the email-agent prototype so the two read as one family.
@@ -39,7 +39,9 @@ building; you pick that before you pick how you are working on it. Internally th
 three mode ids are still `system` / `product` / `agents`; only the labels moved.
 
 - **System mode.** The ring as a **definition**. Nodes show the predicate that
-  defines the state and its count; programs show issue counts and failure heat.
+  defines the state and its count; programs show defect counts and failure heat.
+  This mode also carries the factory's own version control — the version pill,
+  the version card, and the ask bar — covered under *System versioning* below.
 - **Factory mode.** The same ring, same edges, but each node is a **list** of
   what is sitting at that station right now. This is the board — working *in* the
   system rather than on it.
@@ -103,7 +105,7 @@ The **program** box sits at the middle of its edge, **on the line**. It carries:
 - a glyph for a runbook-style program (purple) or a skill-tagged one (green) —
   that `kind` split is legacy, see *Programs and skills* in `document-model.md`
 - the program name
-- a badge: open issues in System mode, items waiting in Factory mode
+- a badge: open defects in System mode, items waiting in Factory mode
 - a play button, which runs it over whatever is in the upstream state
 - a failure-rate bar underneath, when Heat is on
 
@@ -135,6 +137,63 @@ prototype stub, nothing is persisted, and the mic is a stub too. In System mode,
 clicking any program box — not just an input — opens its document as well, the
 same as *Edit prompt* on the floating card.
 
+## System versioning
+
+The factory keeps a version of itself, and System mode is where you move it
+forward. The full model is `system-versioning.md`; this is the surface.
+
+**The version pill** pins to the top-left of the System canvas: `Factory v41`,
+a `Live` / `Planned` tag, and the open-defect count as a red badge. Its dropdown
+switches the canvas between the **live** loop and a **planned** rework, and
+carries *Plan a change · N defects* and *Version history*. On the planned view,
+the edges the version reworks are marked with a Δ and an accent ring, so the diff
+reads on the loop itself.
+
+**The defect badge** sits at the bottom of the strip, where "N broken wire" used
+to. It is the open-defect count in a colored circle; clicking it opens the
+**Defects list** (the old "System issues" page, renamed) and floats the version
+card in beside it. The version number moved off the strip and up into the pill.
+
+**The version card** is the floating panel that drives the change. It shows the
+live version, the program / skill / defect counts, and the change-management
+flow, which walks these stages:
+
+- **plan** — no change in flight; a button folds the fixable defects into a fresh
+  version.
+- **building** — a system agent reworks the affected edges in a branch
+  (`system/v42`); an indeterminate bar, and the change as a diff list (each row
+  an edge + the defect it closes, click to jump to that edge on the canvas).
+- **ready** — the rework is done; **Promote** or **Discard**.
+- **switchover** — promoting runs a three-step checklist (pause the fleet,
+  migrate what is in flight, flip live → v42) with a toast per step.
+- then it flips: live becomes v42, the folded defects close, and version history
+  gains an entry.
+
+Defects are attributed to edges and reframed as friction the factory logs about
+its own wiring — the **Defect card** (select a defect) names the edge, offers
+*Go to the edge* and *Fold into next version*, and says whether it is open,
+folded into the planned version, or closed by a shipped one.
+
+## The ask bar and the system agent
+
+A clean System canvas floats one thing at the bottom center: an **ask bar** with
+a robot glyph, a placeholder (*"Ask your agent to change the system, or ask about
+it…"*), and an up-arrow send. It shows **only when the canvas is clean** — no
+sheet, console, inspector, version card, or chat open. It clears the zoom
+cluster on the left.
+
+Submitting opens a **primary-pane chat** with the system agent, reusing the
+Agents console surface: your message as a bubble, the agent's reply, a rail with
+system context and *Try asking* suggestion chips, and a composer. The replies are
+keyword-aware and **wired back into the version flow** — asking to clean up the
+`review-miss` defects offers *Open defects* and *Plan a change · N defects*;
+clicking *Plan a change* closes the chat and hands you to the version card,
+mid-flow. A question about the system can end in a promotable change.
+
+Everything here is faked: the replies are canned and keyword-matched, the system
+agent's "build" is a 1.7s timer, and the switchover is three scripted toasts.
+Nothing reworks a real runbook yet.
+
 ## Floating panels
 
 The canvas runs full width and the panels float over it, so the dot grid keeps
@@ -147,16 +206,16 @@ What the panel holds, by selection:
 |---|---|
 | state, System mode | State card: predicate, shape, arrives/leaves by, **Throughput** |
 | state, Product mode | State card **and** `In <state>` list |
-| program | Process card: trigger, runner, median, runs, prompt link, issues, contract, send-back rate |
-| issue | Issue card plus "why it lands here" |
+| program | Process card: trigger, runner, median, runs, prompt link, defects, contract, send-back rate |
+| defect | Defect card (edge, source run, status) plus "why it lands here", and *Fold into next version* |
 | item, Product mode | `In <state>` list only, because the item's own detail is the file already open in the main pane |
 
 **Throughput** is the block that stops the state card being a label: median time
 in that state, an eight-week sparkline (amber rising, green falling), slowest
 10%, oldest item, and in/out per week with a growing / steady / draining chip.
 The flow number is the useful one. Wherever `in` runs ahead of `out` is the
-loop's bottleneck. Feedback sits at +2/wk, so issues are being logged faster
-than they are closed.
+loop's bottleneck. Feedback sits at +2/wk, so items are arriving faster than the
+weekly triage folds them out.
 
 The `In <state>` card is Product mode's see-all: a filter field, the full
 scrollable list, `Showing 40 of 273 · Open in Slices`, and a `<process> over all
@@ -176,13 +235,13 @@ panel starts so both are readable at once. There is no scrim. The wrapper is
 Layout: header, then a two-column body of document plus rail, then a footer.
 
 - **Header.** Glyph, title, kind tag (`runbook` / `skill` / `slice` / `spec` /
-  `issue` / `page`), an `unsaved` chip when dirty, the path crumb, a Read/Edit
+  `defect` / `page`), an `unsaved` chip when dirty, the path crumb, a Read/Edit
   segmented control, and close.
 - **Document.** Rendered markdown in Read, a plain mono textarea in Edit. The
   renderer handles headings, bold, inline code, links, blockquotes, ordered and
   unordered lists, fenced code, `$VARS`, and checkboxes.
 - **Rail.** Tasks, Pages, and then either the **Contract** (for a program) or
-  **Where it sits** (for a slice, spec section or issue: station, next
+  **Where it sits** (for a slice, spec section or defect: station, next
   process, status, the station's shape, the file path).
 - **Footer.** Version and run stats, or station and id for an item. Revert, Run,
   Save.
@@ -208,11 +267,16 @@ is clickable.
 | click a Pages row | open that nested page |
 | click a checkbox | rewrite that line in the file, mark dirty |
 | click a list-view row (item) | open that file |
-| click a list-view row (process/issue) | select it, panel opens |
+| click a list-view row (process/defect) | select it, panel opens |
 | click an agent row / card | open its console |
 | click a Workers row in a slice's rail | open that run's console |
 | type in the console composer, Enter | steer the session; a pending question offers one-tap answers |
-| Escape | close the sheet; then the console; then the panel |
+| click the version pill | open its dropdown: switch live / planned, plan a change |
+| click the strip defect badge | open the Defects list, float the version card in |
+| click a change row in the version card | jump to that edge on the planned canvas |
+| type in the ask bar, up-arrow / Enter | open a chat with the system agent |
+| click a chat action (Plan a change / Open defects) | hand off into the version flow |
+| Escape | close the sheet; then the chat; then the version card; then the console; then the panel |
 | Arrow up / down, file open | walk the station list beside it |
 | Arrow up / down, console open | walk the fleet |
 | Cmd-S | save the open file |
@@ -222,7 +286,9 @@ is clickable.
 
 `data.js` is shaped on the real email-agent corpus: 370 docs, 314 slices, 436
 `needs` edges, 301 decisions. Six states, six programs on the ring, three input
-programs feeding Feedback, twelve system issues.
+programs feeding Feedback, twelve defects (eight with a proposed fix, the batch a
+planned version folds in). Version state (live version, the planned rework, which
+defects each version closes) is held per-workspace in `app.js`, not in `data.js`.
 
 `ITEMS` is padded with plausible history to `PANEL_MAX = 40` per station so the
 node counts are not lying. Past 40 the panel hands off to the matching list view
@@ -232,8 +298,8 @@ rather than pretending a floating card should hold 273 rows.
 load from three sources: program bodies become their root file, `PAGES` supplies
 handwritten nested pages, and every entry in `ITEMS` gets a document generated
 from a template in `itemBody()`. That is 133 documents, and every cross-link
-between them resolves: slice to spec section, slice to `code-review.md`, issue to
-the program on its edge, spec section to the slices citing it.
+between them resolves: slice to spec section, slice to `code-review.md`, defect
+to the program on its edge, spec section to the slices citing it.
 
 ## What is real and what is faked
 
@@ -248,6 +314,11 @@ Faked, and honest about it:
 - Run buttons toast and light the wire; nothing executes
 - the whole Agents fleet: `AGENTS` transcripts are canned, typing back appends a
   scripted continuation, Dispatch fabricates a run. No harness is driven yet.
+- the version flow: planning folds the fixable defects, but the system agent's
+  "build" is a timer, the switchover is three scripted toasts, and no runbook is
+  actually reworked. Promoting does close the folded defects and write a version
+  history entry, in memory.
+- the system-agent chat: replies are canned and keyword-matched
 - saving writes to memory, not to disk
 - `New page under x.md` toasts
 
@@ -258,9 +329,11 @@ off the fleet (`runsForSlice`, `dotForItem`) is real; the fleet behind it is not
 
 1. Layout is a forced ring over a DAG with back-edges. Fine at six nodes,
    unproven when a real system has skips and parallel paths.
-2. "One edge rewrites the loop" is the moat and has no UI representation since
-   the self-edge and hub were removed for being confusing. It needs a different
-   treatment than an arrow.
+2. "One edge rewrites the loop" is the moat, and it now has a UI: **system
+   versioning** (the pill, the version card, the switchover) is the treatment
+   that replaced the removed self-edge and hub. Resolved in surface; still faked
+   underneath — see the honest problems in `system-versioning.md` (migration is
+   hand-waved, one planned version at a time, no defect-selection surface).
 3. A shared page can only have one parent. See the known limit in
    `document-model.md`.
 4. Source of truth must move to the actual markdown files, with canvas layout as

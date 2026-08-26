@@ -8,6 +8,7 @@ Continuation of the `meta-harness` project (see
 | Doc | Holds |
 |---|---|
 | `system-loop-view.md` | **why**: system mode is one loop, nodes are states, edges are programs |
+| `system-versioning.md` | **why, part two**: defects, and the loop that rewrites itself into a new version |
 | `document-model.md` | **the model**: paths, nesting, checkboxes, predicates, contracts. Survives the prototype |
 | `prototype.md` | **what is built**: how to run it, every surface, every gesture, what is faked |
 
@@ -19,10 +20,13 @@ which makes them countable, which makes the same ring both the definition and a
 live board. Edges are **programs** — a program is a set of instructions for doing
 something in the factory, sitting on the line as a box. Because a program
 declares its inputs and output against the node shapes, the whole system is
-statically checkable: a broken wire is caught before dispatch. Issues attach to
-edges, never to states, because states do not fail and transitions do. One
-program, `triage`, writes back into the loop itself. That single arrow is the
-self-improvement moat.
+statically checkable: a broken wire is caught before dispatch. **Defects** attach
+to edges, never to states, because states do not fail and transitions do. One
+program, `triage`, folds *product* feedback into the spec; **system versioning**
+folds *system* defects back into the loop itself — the factory keeps a version of
+itself, and a promoted change reworks the edges those defects sit on, then
+switches the running fleet over. That second return is the self-improvement moat,
+and versioning is finally its UI.
 
 ## Decisions worth not relitigating
 
@@ -64,7 +68,30 @@ self-improvement moat.
 - **In Product mode an item is a file**, so one click opens it and the panel
   holds only the station list, as the navigator.
 - The self-edge and centre hub that drew "one edge rewrites the loop" were built
-  and removed for being confusing. Idea stands, picture does not.
+  and removed for being confusing. Idea stands, and it now has a picture:
+  **system versioning** (below), not an arrow.
+- **System versioning is the treatment for the moat.** The factory keeps a
+  version of itself (`v41`). Defects — friction the factory logs about its own
+  wiring, attributed to edges — accumulate off the running loop. You fold the
+  fixable batch into a **planned version**; a system agent reworks the affected
+  edges in a branch (`system/v42`), off the running loop; you **promote**, and a
+  **switchover** pauses the fleet, migrates what is in flight, and flips live onto
+  the new version. Defects close against the redraw, not a patch. Full model in
+  `system-versioning.md`. Surface: a **version pill** (top-left of the System
+  canvas, live version + defect badge, switch canvas live/planned, reworked edges
+  marked Δ), a **version card** (drives plan → build → ready → promote →
+  switchover), and the strip's old "broken wire" chip is now the **defect badge**
+  that opens the Defects list + the card.
+- **"System issues" renamed to "Defects."** The word settled on *defect* for a
+  logged friction item; the concept is unchanged (edge-attributed, categories
+  skill-gap / review-miss / etc.). Code still uses `ISSUES` and stores under
+  `system/issues/`; path/name lag like the runbooks one.
+- **The ask bar opens a chat with the system agent.** A clean System canvas
+  floats an up-arrow ask bar (only when nothing is drilled into); submitting opens
+  a primary-pane chat that reuses the Agents console surface. Its replies are
+  keyword-matched and wired into the version flow — asking to clean up defects
+  offers *Plan a change*, which hands off to the version card. Scoped to System
+  mode. Replies are canned; not a real model.
 
 ## The prototype
 
@@ -84,7 +111,13 @@ agent's experiment, unrelated to this work.
 
 - REPL `page` has no `setViewportSize` / `setExtraHTTPHeaders`.
 - Background servers via `nohup ... &` in the Bash tool hang the tool call. The
-  server still starts; verify with `curl` in a follow-up call.
+  server still starts; verify with `curl` in a follow-up call. `(python3 -m
+  http.server 8777 >/dev/null 2>&1 &)` in a subshell is the pattern that works.
+- Aside `repl` cannot open `file://` ("no local file access"); serve the
+  prototype over http and hit `localhost`. Screenshots must stay inside the
+  session dir (`./artifacts`), `--session <id>` is ignored (a fresh timestamped
+  session is made each run), so grab shots afterward from the newest
+  `~/.aside/u/0/sessions/*/artifacts/`.
 - Patching template-literal-heavy JS through the REPL fights the escaping. Use
   `edit_file` with exact text for anything containing backticks.
 
@@ -109,3 +142,10 @@ agent's experiment, unrelated to this work.
   target; code lags on purpose.
 - A nested page has exactly one parent, but `code-review.md` is wanted by two
   edges. If shared pages are common, nesting is the wrong primitive for them.
+- Versioning's honest gaps (see `system-versioning.md`): migration of in-flight
+  work is hand-waved (one line, three toasts); the model assumes one planned
+  version at a time (overlapping reworks would need a version tree, not a line);
+  there is no surface for choosing *which* defects a version takes on (it folds
+  every one with a proposed fix); and defects have no lifecycle beyond
+  open / closed-by-a-version. Also: minor-vs-point bumps (redraw vs patch) are
+  described but the prototype only does whole-number bumps.

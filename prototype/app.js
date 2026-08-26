@@ -114,9 +114,18 @@ function agentsNav() {
     { id: "recent", label: "Recent",    icon: "clock", n: n((r) => r.status === "done") },
   ];
 }
+/* Factory mode's rail is just the loop's nodes: the Board, then one list per
+   station, each badged with how many things are sitting there right now. Built
+   from STATES so every workspace reads its own station names and counts, rather
+   than a hand-curated set of cross-cutting views. */
+function productNav() {
+  return [{ id: "loop", label: "Board", icon: "loop" }].concat(
+    STATES.map((s) => ({ id: s.id, label: s.name, icon: s.icon, n: s.count })));
+}
 const navFor = () =>
   state.mode === "agents" ? agentsNav()
   : state.mode === "system" ? NAV.system.map((n) => (n.id === "issues" ? { ...n, n: openDefects().length } : n))
+  : state.mode === "product" ? productNav()
   : NAV[state.mode];
 
 /* ══════════════════════════════════════════════ system version control ══
@@ -1085,8 +1094,36 @@ const VIEWS = {
     rows: [].concat(ITEMS.branch, ITEMS.pr).map((i) => ({ t: `${i.id}  ${i.t}`, s: i.s, r: "", pill: i.d === "run" ? "running" : i.d === "wait" ? "waiting" : "failing", bad: i.d === "bad", sel: { t: "item", id: i.id } })) }),
 };
 
+/* each Factory node is now its own nav item, so selecting one lists what is
+   sitting at that station. The pill reads the item's status dot the way that
+   station means it: a plan is buildable or blocked, a PR running or failing, a
+   spec covered or ambiguous, everything in Merged simply done. */
+const STATION_PILL = {
+  spec:   (it) => ({ pill: it.d === "bad" ? "ambiguous" : it.d === "wait" ? "gaps" : "covered", bad: it.d === "bad" }),
+  plans:  (it) => ({ pill: it.d === "run" ? COPY.readyWord : "blocked", bad: false }),
+  branch: (it) => ({ pill: it.d === "run" ? "running" : it.d === "wait" ? "waiting" : "failing", bad: it.d === "bad" }),
+  pr:     (it) => ({ pill: it.d === "run" ? "running" : it.d === "wait" ? "waiting" : "failing", bad: it.d === "bad" }),
+  merged: (it) => ({ pill: TERMS.doneLabel, bad: false }),
+  feed:   (it) => ({ pill: it.cat || "feedback", bad: it.d === "bad" }),
+};
+
+function stationView(id) {
+  const s = stateById(id);
+  if (!s) return { title: id, sub: "", rows: [] };
+  const list = ITEMS[id] || [];
+  const pillOf = STATION_PILL[id] || ((it) => ({ pill: it.d === "bad" ? "failing" : "ok", bad: it.d === "bad" }));
+  return {
+    title: s.name,
+    sub: list.length < s.count ? `showing ${list.length} of ${s.count} · ${s.glob}` : `${s.count} · ${s.glob}`,
+    rows: list.map((it) => {
+      const p = pillOf(it);
+      return { t: `${it.id}  ${it.t}`, s: it.s, r: "", pill: p.pill, bad: p.bad, sel: { t: "item", id: it.id, from: id } };
+    }),
+  };
+}
+
 function paintList() {
-  const v = VIEWS[state.view]();
+  const v = (VIEWS[state.view] || (() => stationView(state.view)))();
   $("#main").innerHTML = `
     <div class="lv">
       <div class="lv-head"><span class="lv-title">${esc(v.title)}</span><span class="lv-sub">${esc(v.sub)}</span></div>
@@ -1406,23 +1443,15 @@ const kv = (rows) => `<div class="kv">${rows.map(([k, v]) => `<div class="kv-r">
 
 
 /* Product mode's node card shows four rows and a "N more" that used to lead
-   nowhere. This is where the rest live. System mode keeps its node panel clean:
-   there a state is a predicate, not a pile of things. */
-const STATE_VIEW = {
-  spec:   { mode: "product", view: "specs",    label: "Specs" },
-  plans:  { mode: "product", view: "frontier", label: "Frontier" },
-  branch: { mode: "product", view: "runs",     label: "Runs" },
-  pr:     { mode: "product", view: "runs",     label: "Runs" },
-  merged: { mode: "product", view: "slices",   label: "Slices" },
-  /* the feed station is product feedback now — a Factory concern with no
-     separate list view, so it has no "open in" target. System issues live in
-     their own System-mode list, reached from the System rail, not from here. */
-};
+   nowhere. The rest live in the station's own Factory list view (see the `dest`
+   link in itemsCard). System mode keeps its node panel clean: there a state is a
+   predicate, not a pile of things. */
 
 function itemsCard(s, selId) {
   const list = ITEMS[s.id] || [];
   const out = PROCS.find((p) => p.from === s.id);
-  const dest = STATE_VIEW[s.id];
+  /* every station is now its own Factory list, so "open in" always resolves */
+  const dest = { mode: "product", view: s.id, label: s.name };
   const rows = list.map((it) => `
     <button class="it-row ${selId === it.id ? "sel" : ""}" data-q="${esc((it.id + " " + it.t + " " + it.s).toLowerCase())}"
       onclick="selectItem('${it.id}','${s.id}')" ondblclick="openItemDoc('${it.id}','${s.id}')">
@@ -1436,7 +1465,7 @@ function itemsCard(s, selId) {
     <div class="it-list">${rows}</div>
     <div class="it-foot">
       <span>${list.length < s.count ? `Showing ${list.length} of ${s.count}` : `All ${s.count}`}</span>
-      ${dest ? `<a class="lnk" onclick="gotoList('${dest.mode}','${dest.view}')">Open in ${esc(navLabel(dest.mode, dest.view))}</a>` : ""}
+      ${dest ? `<a class="lnk" onclick="gotoList('${dest.mode}','${dest.view}')">Open in ${esc(dest.label)}</a>` : ""}
     </div>
     ${out ? `<div class="acts-row"><button class="btn wide" onclick="runProc('${out.id}')">${ICONS.play} ${esc(out.name)} over all ${s.count}</button></div>` : ""}`);
 }
