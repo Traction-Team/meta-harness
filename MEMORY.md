@@ -11,6 +11,7 @@ Continuation of the `meta-harness` project (see
 | `system-versioning.md` | **why, part two**: defects, and the loop that rewrites itself into a new version |
 | `document-model.md` | **the model**: paths, nesting, checkboxes, predicates, contracts. Survives the prototype |
 | `prototype.md` | **what is built**: how to run it, every surface, every gesture, what is faked |
+| `research/orca-evaluation.md` | **the execution decision**: why we wrap Claude Code ourselves instead of building on Orca |
 
 ## The idea in one paragraph
 
@@ -50,8 +51,9 @@ and versioning is finally its UI.
   the labels changed — went System/Product → Factory/Assets/Workers → landed on
   System/Factory/Agents). System and Factory are the same ring read two ways
   (definition vs. board of lists). Agents drops the ring entirely.
-- **Agents mode is the third leg: orchestration, not description.** This is the
-  Orca role — the live harness sessions walking slices along the edges. A board
+- **Agents mode is the third leg: orchestration, not description.** The live
+  harness sessions walking slices along the edges — the role a tool like Orca
+  plays, which we now build ourselves (see the decision below). A board
   (a status-grouped list: needs-you / failed / blocked / running) over a console
   that is the session itself: transcript, a composer to steer it, one-tap answers
   to its blocking questions, and a rail linking back to the slice and the prompt.
@@ -59,6 +61,41 @@ and versioning is finally its UI.
   the source; `runsForSlice` / `dotForItem` derive the Factory dots from it, so
   the ring and the fleet can never disagree about a slice. That seam (real
   wiring, faked fleet) is where execution plugs in later.
+- **We wrap Claude Code ourselves. We do not build on Orca.** Settled 26 Aug
+  2026 after reading the source; full workings in `research/orca-evaluation.md`.
+  Orca is MIT and excellent, but it is 1.55M non-test lines, five months old,
+  ~100 PRs/day, and **exposes no importable library** — using its orchestration
+  means running a 300 MB Electron app and shelling out to the `orca` binary.
+  The deciding reason is not size though: Orca's orchestration is *imperative*
+  (a coordinator LLM calls `task-create` then `worker-start` at run time,
+  ephemeral per-run DAG) where ours is *declarative* (predicates over the repo,
+  typed program contracts, statically checkable before dispatch). Sitting on it
+  would make Orca's Run/Task/Dispatch the source of truth for execution instead
+  of the loop. We read it as a spec and copy the model.
+- **Worker chat is the Agent SDK, not a PTY.** The factory needs a console where
+  you watch a worker and talk to it mid-task. Orca does this asymmetrically —
+  it tails Claude's own JSONL transcript at
+  `~/.claude/projects/<encoded-cwd>/<session>.jsonl` for the read model, and
+  puppets keystrokes into a PTY running the real TUI for the write model —
+  because it must support 25+ agent CLIs whose only common denominator is a
+  terminal. We only target Claude Code, so we use the supported path instead:
+  `@anthropic-ai/claude-agent-sdk` in **streaming input mode**. One long-lived
+  `query()` per worker, an async generator as the composer, a typed message
+  stream to render, `interrupt()` to stop, and `canUseTool` as the **decision
+  gate** — the blocked/needs-you state comes for free rather than being a
+  protocol we invent. Cost of this: we are Claude-Code-only, accepted knowingly.
+- **Taken from Orca as a spec, not a dependency:** the Run / Task / **Dispatch**
+  split (a dispatch is *one attempt*, which is what makes retries and stale
+  completions safe), `worker_done` requiring an explicit outcome, ack-until-
+  processed message delivery, heartbeats plus stale-dispatch warnings, and
+  escalation/question as first-class message types (they are the needs-you
+  column). Not built: terminal emulator, editor, embedded Chromium, SSH, mobile,
+  account switching, non-Claude adapters, federation.
+- **The event log is the source of truth for a dispatch, never process memory.**
+  This is the mitigation for the one place the decision hurts: `orca-runtime.ts`
+  is 41k lines mostly because crash recovery and resume of long-running agent
+  processes is genuinely hard. A dispatch must be reconstructable from the log
+  alone. Get this seam right from the first commit or expect a rewrite.
 - **Sub-loops are cut.** Descending from a program into a nested loop was
   disorienting. Depth lives in nested documents instead.
 - **Tasks are markdown checkboxes**, not a bespoke syntax, and the task rail is
@@ -128,6 +165,15 @@ agent's experiment, unrelated to this work.
   mode is the execution home** — the ring stays a definition/board, the fleet is
   where runs actually live. Play buttons still exist on the lines as a dispatch
   shortcut, but they hand off into Agents mode.
+- The Agents console is still faked. The wrapper described in
+  `research/orca-evaluation.md` is the thing that makes it real: an SDK worker
+  per dispatch, an event log, a block renderer (text / thinking / tool-use /
+  tool-result + diff cards). Which auth path workers run under — subscription
+  login vs `ANTHROPIC_API_KEY` under `--bare` — is a cost decision to make
+  deliberately, not by accident.
+- Revisit the Orca decision only if Stably ships the orchestration layer as a
+  standalone importable package, if we need three or more agent CLIs, or if
+  remote/multi-machine workers stop being hypothetical.
 - Layout is a forced ring over a DAG with back-edges. Fine at 6 nodes, unproven
   when a real system has skips and parallel paths.
 - Source of truth must move to the real markdown files, with canvas layout as

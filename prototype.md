@@ -47,7 +47,10 @@ three mode ids are still `system` / `product` / `agents`; only the labels moved.
   system rather than on it.
 - **Agents mode.** No ring. This is the **fleet**: the harness sessions actually
   walking things along the edges. It is where the meta-harness stops describing
-  the loop and starts orchestrating it — the role Orca plays today.
+  the loop and starts orchestrating it. The fleet is faked here; when it is real
+  it runs on our own thin Claude Code wrapper — one Agent SDK session per
+  dispatch — rather than on Orca. See
+  [`research/orca-evaluation.md`](research/orca-evaluation.md).
 
 System and Factory are two readings of one diagram. Agents is the third leg: the
 same slices, seen as the live sessions running against them.
