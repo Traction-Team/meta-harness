@@ -741,7 +741,7 @@ const NAV = {
     { id: "loop",    label: "The loop",    icon: "loop" },
     { id: "programs",label: "Programs",    icon: "book",  n: 9 },
     { id: "skills",  label: "Skills",      icon: "sparkle", n: 12 },
-    { id: "issues",  label: "System issues", icon: "flag", n: 12, loud: true },
+    { id: "issues",  label: "Defects",      icon: "flag", n: 12, loud: true },
     { id: "history", label: "Version history", icon: "clock", n: 41 },
   ],
   product: [
@@ -1388,7 +1388,7 @@ const NAV = {
     { id: "loop",    label: "The loop",    icon: "loop" },
     { id: "programs",label: "Programs",    icon: "book",  n: 6 },
     { id: "skills",  label: "Skills",      icon: "sparkle", n: 9 },
-    { id: "issues",  label: "System issues", icon: "flag", n: 10, loud: true },
+    { id: "issues",  label: "Defects",      icon: "flag", n: 10, loud: true },
     { id: "history", label: "Version history", icon: "clock", n: 27 },
   ],
   product: [

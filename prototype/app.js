@@ -64,6 +64,13 @@ const state = {
   inputOpen: null,          // input id, or null
   inputEditing: false,      // false = use the program, true = edit its definition
   intakeText: "",           // the un-sent message in the intake box
+  /* the factory versions itself. Defects pile up off the running loop; you fold
+     them into a planned version, a system agent reworks the loop in a branch,
+     then you promote and switch the running fleet over. Flow is per-workspace,
+     because each factory is on its own version. */
+  sysFlow: {},              // ws id -> { view, live, planned }
+  verMenuOpen: false,       // the version pill's dropdown
+  verCardOpen: false,       // the floating version card
 };
 const PANEL_W = 412;
 
@@ -101,7 +108,111 @@ function agentsNav() {
     { id: "recent", label: "Recent",    icon: "clock", n: n((r) => r.status === "done") },
   ];
 }
-const navFor = () => (state.mode === "agents" ? agentsNav() : NAV[state.mode]);
+const navFor = () =>
+  state.mode === "agents" ? agentsNav()
+  : state.mode === "system" ? NAV.system.map((n) => (n.id === "issues" ? { ...n, n: openDefects().length } : n))
+  : NAV[state.mode];
+
+/* ══════════════════════════════════════════════ system version control ══
+   The factory keeps a version of itself. As it runs, it logs **defects** — not
+   product feedback, but friction in its own wiring: a skill it is missing, an
+   edge that keeps letting the same miss through, a contract two decisions both
+   claim. Those are the ISSUES, attributed to edges. You let them accumulate,
+   then fold them into a **planned version**: a system agent reworks the loop in
+   its own branch, you promote it, and a switchover phase pauses the running
+   fleet, migrates it, and flips live onto the new version. */
+
+/* every logged defect that a version has not yet closed */
+const openDefects = () => ISSUES.filter((i) => !i.closedBy);
+/* the ones with a proposed fix — the change a planned version folds in */
+const foldableDefects = () => openDefects().filter((i) => i.fix);
+const bumpV = (v) => "v" + ((parseInt(String(v).replace(/^v/, ""), 10) || 0) + 1);
+
+/* per-workspace flow, seeded lazily off the repo's current version */
+function sysFlow() {
+  let f = state.sysFlow[state.ws];
+  if (!f) f = state.sysFlow[state.ws] = { view: "live", live: null, planned: null };
+  return f;
+}
+const liveVersion = () => sysFlow().live || REPO.sysVersion;
+/* which loop the canvas is reading — the live one, or the planned rework */
+const sysViewing  = () => (sysFlow().planned && sysFlow().view === "planned" ? "planned" : "live");
+/* the proc ids a planned version reworks, so the canvas can mark those edges */
+function changedEdges() {
+  const p = sysFlow().planned;
+  return p ? new Set(p.changes.map((c) => c.edge)) : new Set();
+}
+
+/* ── plan a change: fold every foldable defect into a fresh version and hand it
+      to a system agent, which reworks the loop in a branch ── */
+function planChange() {
+  const f = sysFlow();
+  if (f.planned) { f.view = "planned"; state.verCardOpen = true; paint(); return; }
+  const folded = foldableDefects();
+  if (!folded.length) { toast("No defects with a proposed fix to fold in"); return; }
+  const v = bumpV(liveVersion());
+  f.planned = {
+    v, stage: "building", who: "system agent", branch: `${REPO.name} · system/${v}`,
+    addresses: folded.map((i) => i.id),
+    changes: folded.map((i) => ({ edge: i.edge, cat: i.cat, t: i.t, id: i.id })),
+  };
+  f.view = "planned";
+  state.verCardOpen = true;
+  toast(`Planned ${v} · a system agent is reworking ${f.planned.changes.length} edges`);
+  /* the agent works the branch, then marks it ready */
+  clearTimeout(f._t);
+  f._t = setTimeout(() => {
+    if (f.planned && f.planned.stage === "building") { f.planned.stage = "ready"; paintVersion(); }
+  }, 1700);
+  paint();
+}
+
+function discardChange() {
+  const f = sysFlow();
+  clearTimeout(f._t);
+  f.planned = null; f.view = "live";
+  toast("Discarded the planned version");
+  paint();
+}
+
+/* ── promote: run the switchover. Pause the running fleet, migrate what is in
+      flight to the new contracts, then flip live onto the new version ── */
+function promoteChange() {
+  const f = sysFlow();
+  if (!f.planned || f.planned.stage !== "ready") return;
+  f.planned.stage = "switchover";
+  f.planned.sw = { step: 0 };
+  const running = AGENTS.filter((r) => r.status === "running").length;
+  const inflight = AGENTS.filter((r) => r.status === "running" || r.status === "waiting").length;
+  const steps = [
+    `Pausing ${running} running agents`,
+    `Migrating ${inflight} in-flight ${TERMS.units} to ${f.planned.v} contracts`,
+    `Flipping live → ${f.planned.v}`,
+  ];
+  const step = (i) => {
+    if (!f.planned || f.planned.stage !== "switchover") return;
+    f.planned.sw.step = i;
+    if (i < steps.length) { toast(steps[i]); paintVersion(); setTimeout(() => step(i + 1), 900); }
+    else finishSwitchover();
+  };
+  step(0);
+  paint();
+}
+
+function finishSwitchover() {
+  const f = sysFlow();
+  const p = f.planned; if (!p) return;
+  const from = liveVersion();
+  /* the folded defects close against the redraw, not against a patch */
+  p.addresses.forEach((id) => { const i = issueById(id); if (i) i.closedBy = p.v; });
+  HISTORY.unshift({ v: p.v, t: `switched ${from} → ${p.v}: reworked ${p.changes.length} edges`,
+    s: `closed ${p.addresses.length} defects · just now`, who: "system agent" });
+  f.live = p.v; f.planned = null; f.view = "live";
+  toast(`Now running on ${p.v} · ${p.addresses.length} defects closed`);
+  paint();
+}
+
+function setSysView(v) { sysFlow().view = v; state.verMenuOpen = false; paint(); }
 
 /* ────────────────────────────────────────────────────────────── chrome ── */
 
@@ -179,23 +290,176 @@ function paintToolbar() {
 }
 
 function paintStrip() {
-  const bad = brokenProcs();
   const live = AGENTS.filter((r) => r.status === "running").length;
   const waiting = AGENTS.filter((r) => r.status === "waiting").length;
+  /* the version has moved up into the pill on the canvas, so the strip no longer
+     repeats it — just what the factory is made of */
   $("#stripLeft").textContent = state.mode === "system"
-    ? `${REPO.name} · system ${REPO.sysVersion} · ${REPO.runbooksN + (typeof INPUTS !== "undefined" ? INPUTS.length : 0)} programs, ${REPO.skillsN} skills, ${ISSUES.length} open ${COPY.issuesWord}`
+    ? `${REPO.name} · ${REPO.runbooksN + (typeof INPUTS !== "undefined" ? INPUTS.length : 0)} programs, ${REPO.skillsN} skills`
     : state.mode === "agents"
     ? `${REPO.name} · ${live} agents running · ${waiting} waiting on you · ${AGENTS.filter((r) => r.status === "failed").length} failed`
     : `${REPO.name} · ${REPO.branch} · ${COPY.productStat}`;
+  /* the old "broken wire" chip is now the defect count: a count badge that opens
+     the Defects list and floats the version card in beside it */
+  const nd = openDefects().length;
   const chip = $("#lintChip");
-  chip.className = "strip-guard" + (bad.length ? " bad" : "");
-  chip.textContent = bad.length ? `${bad.length} broken wire` : "Contracts clean";
-  chip.onclick = () => { if (bad.length) { state.mode = "system"; state.view = "loop"; state.run = null; closeEditor(true); state.sel = { t: "proc", id: bad[0].id }; paint(); } };
+  chip.className = "strip-defects" + (nd ? " bad" : "");
+  chip.innerHTML = `<span class="def-badge">${nd}</span>${nd === 1 ? "defect" : "defects"}`;
+  chip.title = nd ? "Defects logged against the running loop" : "No open defects";
+  chip.onclick = () => openDefectsList();
   const MODE_ICON = { system: ICONS.wrench, product: ICONS.list, agents: ICONS.robot };
   const MODE_LBL  = { system: "System mode", product: "Factory mode", agents: "Agents mode" };
   $("#modeChip").innerHTML = `${MODE_ICON[state.mode]}${MODE_LBL[state.mode]}`;
   const NEXT = { system: "product", product: "agents", agents: "system" };
   $("#modeChip").onclick = () => setMode(NEXT[state.mode]);
+}
+
+/* clicking the defect badge takes you to the Defects list and floats the
+   version card in beside it — the two are read together */
+function openDefectsList() {
+  state.mode = "system"; state.view = "issues"; state.run = null; state.sel = null;
+  state.verCardOpen = true; closeEditor(true); paint();
+}
+function gotoDefects() { openDefectsList(); }
+/* a change row jumps to the edge it reworks, on the planned loop */
+function selectEdge(id) {
+  state.mode = "system"; state.view = "loop"; closeEditor(true);
+  if (sysFlow().planned) sysFlow().view = "planned";
+  state.sel = { t: "proc", id }; paint();
+}
+
+const defectCatClass = (c) =>
+  c === "skill-gap" || c === "constraint-violation" ? "gap" : c === "spec-ambiguity" ? "amb" : "drift";
+const STAGE_LABEL = { building: "building", ready: "ready to promote", switchover: "switching over" };
+
+/* ══════════════════════════════════════════════ the version pill + card ══
+   Pinned top-left of the system canvas: the version the factory is on, the open
+   defect count, and a dropdown to switch the canvas between the live loop and a
+   planned rework. The card that floats in beside it is where you drive the
+   change: fold defects → agent builds → promote → switch over. */
+function paintVersion() {
+  const host = $("#verLayer");
+  const f = sysFlow(), planned = f.planned, viewing = sysViewing();
+  const showPill = state.mode === "system" && state.view === "loop" && !state.run;
+  const showCard = state.mode === "system" && state.verCardOpen;
+  host.classList.toggle("on", showPill || showCard);
+  if (!showPill && !showCard) { host.innerHTML = ""; return; }
+
+  const nd = openDefects().length;
+  host.innerHTML = (showPill ? verPill(f, planned, viewing, nd) : "") + (showCard ? verCard(f, planned, viewing, nd) : "");
+
+  if (showPill) {
+    $("#verPill").onclick = (e) => { e.stopPropagation(); state.verMenuOpen = !state.verMenuOpen; paintVersion(); };
+    const menu = $("#verMenu");
+    if (menu) {
+      menu.onclick = (e) => e.stopPropagation();
+      menu.querySelectorAll("[data-sysview]").forEach((b) => (b.onclick = () => setSysView(b.dataset.sysview)));
+      const plan = $("#verPlan"); if (plan) plan.onclick = () => { state.verMenuOpen = false; planChange(); };
+      const open = $("#verOpenChange"); if (open) open.onclick = () => { state.verMenuOpen = false; state.verCardOpen = true; paint(); };
+      const hist = $("#verHist"); if (hist) hist.onclick = () => { state.verMenuOpen = false; state.view = "history"; state.sel = null; paint(); };
+    }
+  }
+  const cx = $("#verCardX"); if (cx) cx.onclick = () => { state.verCardOpen = false; paintVersion(); };
+}
+
+function verPill(f, planned, viewing, nd) {
+  const cur = viewing === "planned" ? planned.v : liveVersion();
+  const tag = viewing === "planned" ? "Planned" : "Live";
+  const menu = state.verMenuOpen ? `
+    <div class="ver-menu" id="verMenu">
+      <div class="ver-menu-h">System version</div>
+      <button class="ver-mopt ${viewing === "live" ? "on" : ""}" data-sysview="live">
+        <b>${esc(liveVersion())}</b><span>Live · running now</span>${viewing === "live" ? `<i class="ver-mtick">${ICONS.tick}</i>` : ""}
+      </button>
+      ${planned ? `<button class="ver-mopt ${viewing === "planned" ? "on" : ""}" data-sysview="planned">
+        <b>${esc(planned.v)}</b><span>Planned · ${STAGE_LABEL[planned.stage]}</span>${viewing === "planned" ? `<i class="ver-mtick">${ICONS.tick}</i>` : ""}
+      </button>` : ""}
+      <div class="side-sep"></div>
+      ${planned
+        ? `<button class="ver-mact" id="verOpenChange">${ICONS.wrench}<span>Open change ${esc(planned.v)}</span></button>`
+        : `<button class="ver-mact ${foldableDefects().length ? "" : "dim"}" id="verPlan">${ICONS.wrench}<span>Plan a change${foldableDefects().length ? ` · ${foldableDefects().length} defects` : ""}</span></button>`}
+      <button class="ver-mact" id="verHist">${ICONS.clock}<span>Version history</span></button>
+    </div>` : "";
+  return `<div class="ver-pill-wrap">
+    <button class="ver-pill ${viewing === "planned" ? "planned" : ""} ${state.verMenuOpen ? "open" : ""}" id="verPill">
+      ${ICONS.wrench}<span class="ver-pill-l">Factory</span><b class="ver-pill-v">${esc(cur)}</b>
+      <span class="ver-tag ${viewing === "planned" ? "plan" : ""}">${tag}</span>
+      ${nd ? `<span class="ver-def" title="${nd} defects">${nd}</span>` : ""}
+      <span class="ver-chev">${ICONS.chevD}</span>
+    </button>${menu}
+  </div>`;
+}
+
+function verDiff(planned) {
+  return `<div class="ver-difflist">${planned.changes.map((c) => {
+    const p = procById(c.edge);
+    return `<button class="ver-diff" onclick="selectEdge('${c.edge}')">
+      <span class="ver-diff-top">
+        <span class="ver-diff-e">${ICONS.wrench}<span>${esc(p ? p.name : c.edge)}</span></span>
+        <span class="cat ${defectCatClass(c.cat)}">${esc(c.cat)}</span>
+      </span>
+      <span class="ver-diff-t">${esc(c.t)}</span>
+    </button>`;
+  }).join("")}</div>`;
+}
+
+function verCard(f, planned, viewing, nd) {
+  const next = bumpV(liveVersion());
+  let flow;
+  if (!planned) {
+    flow = `
+      <div class="sub-h">Plan a change</div>
+      <div class="ver-lead">Fold the open defects into a new version. A system agent reworks the loop in a branch off the running one; you promote it once it is ready.</div>
+      <button class="btn wide pri ${foldableDefects().length ? "" : "off"}" ${foldableDefects().length ? "" : "disabled"} onclick="planChange()">
+        ${ICONS.wrench} Plan ${esc(next)} from ${foldableDefects().length} defects</button>`;
+  } else {
+    const stagePill = planned.stage === "building" ? `<span class="pill running">building</span>`
+      : planned.stage === "ready" ? `<span class="pill ready">ready</span>`
+      : `<span class="pill waiting">switching over</span>`;
+    const previewBtn = `<button class="btn" onclick="setSysView('${viewing === "planned" ? "live" : "planned"}')">${viewing === "planned" ? "View live loop" : "Preview on canvas"}</button>`;
+    let body;
+    if (planned.stage === "building") {
+      body = `<div class="ver-bar indet"><i></i></div>
+        <div class="ver-lead">A system agent is reworking ${planned.changes.length} edges. It closes ${planned.addresses.length} defects.</div>
+        <div class="sub-h">The change · ${esc(liveVersion())} → ${esc(planned.v)}</div>${verDiff(planned)}
+        <div class="acts-row">${previewBtn}<button class="btn ghost" onclick="discardChange()">Discard</button></div>`;
+    } else if (planned.stage === "ready") {
+      body = `<div class="ver-lead">The rework is ready. Promoting runs the switchover: it pauses the running fleet, migrates what is in flight, then flips live onto ${esc(planned.v)}.</div>
+        <div class="sub-h">The change · ${esc(liveVersion())} → ${esc(planned.v)}</div>${verDiff(planned)}
+        <div class="acts-row"><button class="btn pri" onclick="promoteChange()">${ICONS.play} Promote ${esc(planned.v)}</button>${previewBtn}</div>
+        <div class="acts-row"><button class="btn ghost wide" onclick="discardChange()">Discard change</button></div>`;
+    } else {
+      const steps = [
+        `Pause the running fleet`,
+        `Migrate in-flight ${TERMS.units} to ${esc(planned.v)} contracts`,
+        `Flip live → ${esc(planned.v)}`,
+      ];
+      const at = planned.sw ? planned.sw.step : 0;
+      body = `<div class="ver-lead">Switching the fleet over. This is the only moment the loop is paused.</div>
+        <div class="ver-sw">${steps.map((s, i) => `
+          <div class="ver-sw-row ${at > i ? "done" : at === i ? "active" : ""}">
+            <span class="ver-sw-dot">${at > i ? ICONS.tick : ""}</span><span>${s}</span>
+          </div>`).join("")}</div>`;
+    }
+    flow = `<div class="ver-plan">
+      <div class="ver-plan-h"><b>${esc(planned.v)}</b><span class="ver-tag plan">Planned</span><span style="margin-left:auto">${stagePill}</span></div>
+      <div class="ver-branch mono">${esc(planned.branch)}</div>
+      ${body}</div>`;
+  }
+
+  return `<div class="ver-card">
+    <div class="card-h"><span class="card-t">System version</span>
+      <span class="card-a"><button class="pnl-x" id="verCardX" title="Close">${ICONS.x}</button></span></div>
+    <div class="card-b">
+      <div class="ver-now"><div class="ver-now-v">${esc(liveVersion())}<span class="ver-tag">Live</span></div>
+        <div class="ver-now-s">${esc(REPO.name)} · running now</div></div>
+      ${kv([["Programs", `${REPO.runbooksN + (typeof INPUTS !== "undefined" ? INPUTS.length : 0)}`],
+            ["Skills", `${REPO.skillsN}`],
+            ["Open defects", nd ? `<a class="lnk" onclick="gotoDefects()">${nd} logged against the loop</a>` : `<span style="color:var(--text-3)">none</span>`]])}
+      <div class="ver-sep"></div>
+      ${flow}
+    </div>
+  </div>`;
 }
 
 function setMode(m) {
@@ -437,10 +701,15 @@ function paintLoop() {
   });
 
   /* ── processes: the box riding the middle of its edge ── */
+  /* when the canvas is previewing a planned version, the edges that version
+     reworks are marked, so the diff reads on the loop itself */
+  const planPreview = state.mode === "system" && sysViewing() === "planned";
+  const reworked = planPreview ? changedEdges() : new Set();
   let procs = "";
   edges.forEach((e) => {
     if (!e.proc) return;
     const p = e.proc, g = e._g;
+    const chg = reworked.has(p.id) ? " changed" : "";
     const sel = state.sel && state.sel.t === "proc" && state.sel.id === p.id ? " sel" : "";
     const nIssues = (p.issues || []).length;
     const inflight = stateById(p.from) ? stateById(p.from).count : 0;
@@ -450,9 +719,10 @@ function paintLoop() {
     /* System mode is where you design the program, so its action is Edit (opens
        the prompt in write mode); Factory mode is where you run it, so it is Play. */
     const isSys = state.mode === "system";
-    procs += `<div class="pr${sel}${p.broken ? " err" : ""}" data-proc="${p.id}" style="left:${g.mx}px;top:${g.my}px;transform:translate(-50%,-50%)">
+    procs += `<div class="pr${sel}${chg}${p.broken ? " err" : ""}" data-proc="${p.id}" style="left:${g.mx}px;top:${g.my}px;transform:translate(-50%,-50%)">
       <span class="pr-k ${p.kind === "runbook" ? "rb" : ""}">${p.kind === "runbook" ? ICONS.book : ICONS.sparkle}</span>
       <span class="pr-t">${esc(p.name)}</span>
+      ${chg ? `<span class="pr-chg">Δ</span>` : ""}
       ${badge}
       <button class="pr-run" data-${isSys ? "edit" : "run"}="${p.id}" title="${isSys ? "Edit program" : `Run over ${inflight} items`}">${isSys ? ICONS.pencil : ICONS.play}</button>
     </div>`;
@@ -621,8 +891,8 @@ const VIEWS = {
   skills: () => ({ title: "Skills", sub: "capabilities a program can call",
     rows: SKILLS.concat(EXTRA_SKILLS)
       .map((p) => ({ t: p.name, s: `${p.trigger}`, r: `${p.runs} runs`, pill: p.broken ? "broken wire" : "clean", bad: !!p.broken, sel: p.id ? { t: "proc", id: p.id } : null })) }),
-  issues: () => ({ title: navLabel("system", "issues"), sub: "attributed to edges, never to states",
-    rows: ISSUES.map((i) => ({ t: i.t, s: `on ${i.edge} · ${i.run}`, r: i.fix ? "fix proposed" : "", pill: i.cat, bad: i.cat === "skill-gap" || i.cat === "constraint-violation" || i.cat === "off-brand", sel: { t: "issue", id: i.id } })) }),
+  issues: () => ({ title: navLabel("system", "issues"), sub: "friction the factory logs about its own wiring as it runs — attributed to edges, never to states",
+    rows: openDefects().map((i) => ({ t: i.t, s: `on ${i.edge} · ${i.run}`, r: i.fix ? "fix proposed" : "", pill: i.cat, bad: i.cat === "skill-gap" || i.cat === "constraint-violation" || i.cat === "off-brand", sel: { t: "issue", id: i.id } })) }),
   history: () => ({ title: "System version history", sub: "separate from the repo's commit log",
     rows: HISTORY.map((h) => ({ t: h.t, s: h.s, r: h.v, pill: h.who, bad: false, sel: null })) }),
   frontier: () => ({ title: navLabel("product", "frontier"), sub: COPY.frontierSub,
@@ -1147,16 +1417,23 @@ function procPanel(p) {
 
 function issuePanel(i) {
   const p = PROCS.find((x) => x.id === i.edge);
-  return card("System issue", `<span class="cat ${i.cat === "skill-gap" ? "gap" : i.cat === "spec-ambiguity" ? "amb" : "drift"}">${esc(i.cat)}</span>`, `
+  const f = sysFlow(), inPlan = f.planned && f.planned.addresses.includes(i.id);
+  const foldBtn = i.closedBy
+    ? `<button class="btn ghost" disabled>Closed by ${esc(i.closedBy)}</button>`
+    : inPlan
+    ? `<button class="btn" onclick="state.verCardOpen=true;paint()">In planned ${esc(f.planned.v)}</button>`
+    : `<button class="btn ghost" onclick="planChange()">${i.fix ? "Fold into next version" : "No fix yet"}</button>`;
+  return card("Defect", `<span class="cat ${defectCatClass(i.cat)}">${esc(i.cat)}</span>`, `
     <div class="c-n" style="font-size:14px;line-height:1.45">${esc(i.t)}</div>
-    ${kv([["On edge", p ? esc(p.name) : esc(i.edge)], ["From", esc(i.run)], ["Fix", i.fix ? "proposed" : "none yet"], ["Category", esc(i.cat)]])}
+    ${kv([["On edge", p ? esc(p.name) : esc(i.edge)], ["From", esc(i.run)],
+          ["Fix", i.fix ? "proposed" : "none yet"], ["Status", i.closedBy ? `closed by ${esc(i.closedBy)}` : inPlan ? `folded into ${esc(f.planned.v)}` : "open"]])}
     <div class="acts-row">
       <button class="btn" onclick="state.mode='system';state.view='loop';state.sel={t:'proc',id:'${i.edge}'};paint()">Go to the edge</button>
-      <button class="btn ghost" onclick="toast('Patched. System bumped to v42.')">Patch</button>
+      ${foldBtn}
     </div>`) +
-  card("Why it lands here", "", `<div class="c-r">States do not fail. Transitions do. This issue is attributed
-    to <b>${p ? esc(p.name) : esc(i.edge)}</b>, so the failure shows up on the line in the loop view rather than
-    in a flat backlog nobody reads.</div>`);
+  card("Why it lands here", "", `<div class="c-r">States do not fail. Transitions do. This defect is attributed
+    to <b>${p ? esc(p.name) : esc(i.edge)}</b>, so the friction shows up on the line in the loop view rather than
+    in a flat backlog nobody reads. A version folds it in by reworking that edge, not by patching a prompt.</div>`);
 }
 
 function itemHome(sel) {
@@ -1194,7 +1471,10 @@ function paint() {
   else if (state.view === "loop") paintLoop(); else paintList();
   /* the list gives up the room the panel needs; the loop keeps it and re-fits */
   $("#main").classList.toggle("inset", state.mode !== "agents" && state.view !== "loop" && !!state.sel);
-  paintPanels(); paintEditor();
+  /* over a list, the version card gets its own room on the left so it never
+     lands on top of the rows; over the loop it just floats on the dot grid */
+  $("#main").classList.toggle("card-left", state.verCardOpen && state.mode === "system" && state.view !== "loop");
+  paintPanels(); paintVersion(); paintEditor();
   /* the panels changed the room the loop has to live in, so give it back */
   if (state.mode !== "agents" && state.view === "loop" && was !== state.panelOpen) requestAnimationFrame(() => fit(true));
 }
@@ -1208,11 +1488,16 @@ function toast(msg) {
 }
 
 $("#sideToggle").onclick = () => { $(".win").classList.toggle("narrow"); setTimeout(() => fit(true), 60); };
-document.addEventListener("click", () => { if (state.wsOpen) { state.wsOpen = false; paintSidebar(); } });
+document.addEventListener("click", () => {
+  if (state.wsOpen) { state.wsOpen = false; paintSidebar(); }
+  if (state.verMenuOpen) { state.verMenuOpen = false; paintVersion(); }
+});
 window.addEventListener("resize", () => { if (state.view === "loop") fit(); });
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    if (state.docStack.length || state.inputOpen) closeEditor();      /* the sheet first */
+    if (state.verMenuOpen) { state.verMenuOpen = false; paintVersion(); }   /* the version dropdown */
+    else if (state.docStack.length || state.inputOpen) closeEditor();      /* the sheet */
+    else if (state.verCardOpen) { state.verCardOpen = false; paintVersion(); }   /* the version card */
     else if (state.run) { state.run = null; state.composer = ""; paint(); }   /* then the console */
     else { state.sel = null; paint(); }            /* then the panel */
   }
@@ -1667,7 +1952,7 @@ function paintEditor() {
       <footer class="ov-f">
         <span class="ov-meta">${face.item
           ? `${esc(stateById(face.item.from) ? stateById(face.item.from).name : face.item.from)} · ${esc(face.item.id)}`
-          : p ? `${REPO.sysVersion} · ${p.runs} runs · ${rate}% send-back · ${esc(p.runner)}` : REPO.sysVersion}</span>
+          : p ? `${liveVersion()} · ${p.runs} runs · ${rate}% send-back · ${esc(p.runner)}` : liveVersion()}</span>
         <span class="ov-sp"></span>
         ${dirty ? `<button class="btn ghost" id="ovRevert">Revert</button>` : ""}
         ${face.item && face.next
