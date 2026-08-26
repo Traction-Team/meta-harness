@@ -85,7 +85,9 @@ Each **program** box holds:
 - **inputs**: each one *bound* to a source state (it reads that state's shape —
   the wire in) or *open* (filled by the operator or a calling agent at run time).
 - **output**: the shape it must produce in the target state — the wire out.
-- **trigger**: manual, on-arrival, batch or scheduled.
+- **trigger**: when it fires — **manual**, **event** (on-arrival, on-ship),
+  **clock** (every 1h, weekly), or **backpressure**: a predicate over the states'
+  counts, like `branch < 3 and plans > 0`. See *The trigger paces the loop*.
 - **runner**: which agent, and whether there is a human gate.
 - **skills it calls**: the capabilities the body reaches for — browser use, a
   query. A skill is a tool, not a step, so it is never an edge of its own.
@@ -102,6 +104,22 @@ does not define, that is a broken wire, surfaced before a single agent runs. Tha
 is a compile step for your program. An open input is the exception on purpose: it
 is runtime data, so it cannot be checked — which is exactly what an entry point
 should be.
+
+## The trigger paces the loop
+
+A trigger says when a program fires, and the values that earn their keep are the
+ones that read the board back. Because a state is countable, a **backpressure**
+trigger is just a predicate over those counts: `dispatch` fires while `branch < 3
+and plans > 0` — hold three slices in flight, and only when work is waiting. A
+program gated that way is **self-clocking**. It fires as fast as the stations
+downstream drain and no faster, so there is no interval to pick; the loop paces
+itself against real throughput. That is a Kanban WIP limit, written on the edge
+instead of pencilled on a column.
+
+The operator is never locked out. Whatever a program's trigger, the play button on
+its line fires it by hand — the pace is automatic, sending one more is manual. So
+managing throughput is not a dial to tune; it is a WIP limit on the edges plus a
+person who can always push one more through.
 
 ## Defects attach to edges, not nodes
 

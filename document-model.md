@@ -152,6 +152,38 @@ with lines drawn on it.
 > direction, not yet the build. Layout (positions, zoom) stays metadata beside
 > the corpus regardless; it is the *topology* that would move into the files.
 
+## The trigger is when the program fires
+
+Inputs and output say what a program reads and writes. The **trigger** says *when
+it runs*. It is the third field at the head of the file, and today the prototype
+shows it as a label (`on arrival`, `after every ship`, `weekly`) wired to nothing.
+
+A trigger is one of:
+
+- **manual** — a person fires it. `plan` and `triage` are manual.
+- **event** — it fires when something lands: `on arrival` (a document reached the
+  source state), `on ship` (a slice merged).
+- **clock** — a cadence: `every 1h`, `weekly`.
+- **backpressure** — a predicate over the counts the states already expose.
+  `dispatch` fires while `branch < 3 and plans > 0`: keep three slices in flight,
+  and only while work is waiting.
+
+Backpressure is the one that earns its keep. Because states are countable, a WIP
+limit is just a predicate over them, and a program gated that way is
+**self-clocking**: it fires exactly as fast as the stations downstream drain and
+no faster. There is no interval to tune — the loop finds its own tick rate against
+real throughput. The Kanban ring already had WIP limits latent in it; the trigger
+is where they get written down.
+
+Whatever the trigger, the play button on the edge still fires the program by hand.
+Automation sets the pace; the operator can always send one more.
+
+> **Not yet the build.** The triggers are still labels. Evaluating them — an
+> orchestrator that reads the counts on a tick and fires the programs whose
+> predicate is met — is the direction, the same as deriving the graph from inputs.
+> One difference: a trigger is checked at run time against live counts, not
+> statically against shapes.
+
 ## Defects attach to edges
 
 `system/defects/i3.md` names the edge it happened on, never a state. States do
