@@ -4,20 +4,28 @@ System definition as **one loop**, not a canvas of everything.
 
 Nodes are **states**, defined by a predicate over the repo
 (`slices/*.md where status=planned`). That makes them countable, which makes the
-same ring both the definition and a live board. Edges are **processes**, and the
-process sits on the line as a box holding a runbook or skill.
+same ring both the definition and a live board. Edges are **programs** — a
+program is a set of instructions for doing something in the factory, and it sits
+on the line as a box.
 
-Because a process declares what it reads and writes against the node shapes, the
+A program declares typed **inputs** and an **output**. An input is *bound* to a
+state (it reads that state — the wire in) or *open* (the caller fills it at run
+time). A program whose input is open is an intake the operator or an agent
+fills, drawn as a pill rather than a box. A **skill** is a different thing again:
+a capability a program calls from its body — browser use, a query — never a node
+or an edge.
+
+Because a program's inputs and output are typed against the node shapes, the
 whole system is statically checkable: a broken wire is caught before dispatch.
 Issues attach to edges, never to states, because states do not fail and
-transitions do. One edge, `triage`, writes back into the loop itself.
+transitions do. One program, `triage`, writes back into the loop itself.
 
 ## Read these first
 
 | Doc | Holds |
 |---|---|
-| [`system-loop-view.md`](system-loop-view.md) | **why**: system mode is one loop, nodes are states, edges are processes |
-| [`document-model.md`](document-model.md) | **the model**: paths, nesting, checkboxes, predicates, contracts. Survives the prototype |
+| [`system-loop-view.md`](system-loop-view.md) | **why**: system mode is one loop, nodes are states, edges are programs |
+| [`document-model.md`](document-model.md) | **the model**: paths, nesting, checkboxes, predicates, programs vs skills, contracts. Survives the prototype |
 | [`prototype.md`](prototype.md) | **what is built**: how to run it, every surface, every gesture, what is faked |
 | [`MEMORY.md`](MEMORY.md) | working memory: decisions not worth relitigating, quirks, open threads |
 

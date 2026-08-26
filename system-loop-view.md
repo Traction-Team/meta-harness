@@ -10,14 +10,16 @@ and those two disagree, they are right and this one is history.
 
 System mode is not a canvas of everything. It is **one loop**.
 
-Nodes are **states**. Edges are **processes**. The process sits on the line as a
-small clickable box. Click it and you get its numbers; open it and you get the
-runbook or skill prompt that drives the transition, as a full-page document.
+Nodes are **states**. Edges are **programs** — a program is a set of instructions
+for doing something in the factory, and it sits on the line as a small clickable
+box. Click it and you get its numbers; open it and you get its instructions, as a
+full-page document. A **skill** is a separate thing: a capability a program calls
+(browser use, a query), never an edge of its own.
 
 This resolves the earlier "not a canvas" position. Canvases collapse past ~50
 nodes, which is why the *product* corpus (314 slices) must not be a canvas. But
 the *system* is 6-10 nodes by construction. A loop with eight states and eight
-processes is exactly the size a diagram is good at. Canvas is wrong for the
+programs is exactly the size a diagram is good at. Canvas is wrong for the
 product and right for the system.
 
 ## The default loop
@@ -64,29 +66,38 @@ A node is not a document. It is a set: a glob, a folder, or a query.
 A node also carries a **shape**: the template/schema that artifacts in that state
 must satisfy (e.g. slices need `needs` / `owns` / `spec` / `proves`).
 
-## Edge = process, and the edge is the typed part
+## Edge = program, and the wiring is the typed part
 
-Each process box holds:
+Each **program** box holds:
 
-- **prompt**: the runbook or skill markdown. This is what opens when you open
-  the process.
-- **input contract**: which fields it reads from the source node's shape.
-- **output contract**: what shape it must produce in the target node.
+- **body**: the instructions — prose and checkboxes — that open when you open it.
+- **inputs**: each one *bound* to a source state (it reads that state's shape —
+  the wire in) or *open* (filled by the operator or a calling agent at run time).
+- **output**: the shape it must produce in the target state — the wire out.
 - **trigger**: manual, on-arrival, batch or scheduled.
 - **runner**: which agent, and whether there is a human gate.
+- **skills it calls**: the capabilities the body reaches for — browser use, a
+  query. A skill is a tool, not a step, so it is never an edge of its own.
 - **telemetry**: runs, retries, failure rate, median duration.
 
-Because inputs and outputs are typed against node shapes, the system is
-**statically checkable**. If an edge reads a field the source node's shape does
-not define, that is a broken wire, surfaced before a single agent runs. That is
-a compile step for your process. Nobody has that either.
+The **bound / open** split is the whole trick. A program with a bound input is a
+transition, drawn as a box on a line. A program whose input is open is an entry
+point — the operator's intake pill, or a skill-like helper an agent calls — drawn
+off the ring. Same primitive, wired two ways.
+
+Because bound inputs and the output are typed against node shapes, the system is
+**statically checkable**. If a bound input reads a field the source node's shape
+does not define, that is a broken wire, surfaced before a single agent runs. That
+is a compile step for your program. An open input is the exception on purpose: it
+is runtime data, so it cannot be checked — which is exactly what an entry point
+should be.
 
 ## Issues attach to edges, not nodes
 
 Clean taxonomy split:
 
-- **Edge defects** = process quality. skill-gap, review-miss, convention-drift.
-  These land on the process box. A red count on `review` means that runbook is
+- **Edge defects** = program quality. skill-gap, review-miss, convention-drift.
+  These land on the program box. A red count on `review` means that program is
   leaking.
 - **Node defects** = artifact quality. spec-ambiguity, missing field, stale doc.
   These land on the state.
@@ -99,18 +110,19 @@ That is the self-improvement queue rendered spatially instead of as a list.
 
 - Click node -> floating panel: the predicate, the shape, and throughput. In
   Product mode, also the full list of what is sitting there.
-- Click process box -> floating panel: trigger, runner, contracts, issues,
+- Click program box -> floating panel: trigger, runner, contracts, issues,
   send-back rate.
-- Open a process -> the prompt as a full-page document, laid over the loop, with
-  its tasks and contract in a rail beside it.
-- Play button **on the line** -> run this process now over whatever is sitting in
-  the source node.
+- Open a program -> its instructions as a full-page document, laid over the loop,
+  with its tasks and contract in a rail beside it.
+- Play button **on the line** -> run this program now over whatever is sitting in
+  the source node. An intake pill's play button opens its console instead, where
+  the operator fills the program's open input by hand.
 
-The payoff: the diagram is executable. You are not drawing your process, you are
-wiring it, and the run buttons are on the edges.
+The payoff: the diagram is executable. You are not drawing your programs, you are
+wiring them, and the run buttons are on the edges.
 
-**Sub-loops were tried and cut.** Double-clicking a process used to descend into
-a nested loop, C4's nesting pattern applied to processes. In practice it was
+**Sub-loops were tried and cut.** Double-clicking a program used to descend into
+a nested loop, C4's nesting pattern applied to programs. In practice it was
 disorienting: you lost the one ring you came for. Depth now lives in the
 documents instead, where a runbook nests child pages under it, which gives the
 same decomposition without a second diagram to hold in your head.
@@ -129,13 +141,13 @@ same decomposition without a second diagram to hold in your head.
 3. **Source of truth must be the files.** Runbooks are markdown in `system/`.
    The canvas is a projection; layout is metadata. If the diagram owns the truth
    you get the Bubble problem: unversionable, undiffable, unreviewable.
-4. **The killer risk.** If a process box is just a prompt file with no contract
+4. **The killer risk.** If a program box is just a prompt file with no contract
    and no telemetry, the whole diagram degrades into a pretty file browser. The
    visual only earns its keep if edges carry contracts and run stats. Visual
    without telemetry is decoration.
 
 ## Lint rule worth having
 
-States are nouns, processes are verbs. If you cannot name an edge with a verb
-phrase, it is not a process, it is a state you forgot to model. If you cannot
-name a node with a noun, it is a process you drew in the wrong place.
+States are nouns, programs are verbs. If you cannot name an edge with a verb
+phrase, it is not a program, it is a state you forgot to model. If you cannot
+name a node with a noun, it is a program you drew in the wrong place.

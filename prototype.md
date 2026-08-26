@@ -25,7 +25,7 @@ agent's experiment and is not part of this work.
 |---|---|
 | `index.html` | shell markup: sidebar, toolbar, canvas, overlay mount, panels, strip |
 | `styles.css` | tokens copied verbatim from `~/Dev/email-agent/poc`, then everything for the loop, panels and sheet |
-| `data.js` | `STATES`, `PROCS`, `ITEMS`, `ISSUES`, `AGENTS`, `PAGES`, `WORKSPACES`, `NAV`, `HISTORY` |
+| `data.js` | `STATES`, `PROCS`, `INPUTS`, `ITEMS`, `ISSUES`, `AGENTS`, `PAGES`, `WORKSPACES`, `NAV`, `HISTORY` (`PROCS` + `INPUTS` are both programs; see the naming note in `document-model.md`) |
 | `app.js` | icons, state, the loop renderer, list views, panels, the sheet, the markdown renderer, the agents board + console |
 
 Theme, window chrome, sidebar, toolbar, cards, pills and segmented controls are
@@ -39,7 +39,7 @@ building; you pick that before you pick how you are working on it. Internally th
 three mode ids are still `system` / `product` / `agents`; only the labels moved.
 
 - **System mode.** The ring as a **definition**. Nodes show the predicate that
-  defines the state and its count; processes show issue counts and failure heat.
+  defines the state and its count; programs show issue counts and failure heat.
 - **Factory mode.** The same ring, same edges, but each node is a **list** of
   what is sitting at that station right now. This is the board — working *in* the
   system rather than on it.
@@ -78,39 +78,62 @@ transcript-plus-rail:
 - **Composer.** Type back to steer it. When the agent is blocked, its question
   surfaces above the box with one-tap answer options; answering (or typing)
   continues the session.
-- **Rail.** Progress, the slice (opens its file), the process (opens its
-  prompt), the worktree, the read/write contract, and the files touched.
+- **Rail.** Progress, the slice (opens its file), the program (opens its
+  document), the worktree, the read/write contract, and the files touched.
 
 The link runs both ways. A slice's file rail has a **Workers** section listing
 the runs on it; the Factory item panel gained an **Open worker** button. So you
 can go slice → runs against it → into the session, and back out from the console
-to the slice or the runbook prompt.
+to the slice or the program's document.
 
 Everything here is faked: the transcripts are canned, typing back appends a
 scripted continuation, and Dispatch fabricates a run. Nothing executes yet.
 
 ## The loop
 
-Nodes sit on an ellipse and edges are arcs of that same ellipse, so it reads as
-one circuit rather than a graph that happens to be round. A faint full ellipse
-runs underneath; without it the arcs read as six disconnected fragments.
+The six stations sit on a 2×3 rectangle, rotated so Feedback is the top-left
+corner, and the flow runs clockwise around the perimeter. Edges walk the grid as
+orthogonal H/V segments with rounded corners; each one picks whichever sides face
+its target, so a moved node re-routes its wires. (This replaced an earlier
+ellipse-with-arcs layout; the reference it was ported from is
+`canvas-lab/index.html`.)
 
-The process box sits at the middle of its arc, **on the line**. It carries:
+The **program** box sits at the middle of its edge, **on the line**. It carries:
 
-- a glyph for runbook (purple) or skill (green)
-- the process name
-- a badge: open issues in System mode, items waiting in Product mode
+- a glyph for a runbook-style program (purple) or a skill-tagged one (green) —
+  that `kind` split is legacy, see *Programs and skills* in `document-model.md`
+- the program name
+- a badge: open issues in System mode, items waiting in Factory mode
 - a play button, which runs it over whatever is in the upstream state
 - a failure-rate bar underneath, when Heat is on
 
 Broken wires render red and dashed. Hot edges (failure rate ≥ 25%) render amber.
+The one back-edge (`rework`, PR → branch) dips below the bottom row as a dashed
+accent line.
 
 Pan by dragging the background, zoom with the wheel under the cursor, or use the
 zoom cluster bottom-left. The loop re-fits itself when a panel opens or closes.
 
-**There are no sub-loops.** Double-clicking a process used to descend into a
-nested loop. It was confusing and it is gone: a process is a prompt, so
-double-clicking opens the prompt as a document instead.
+**There are no sub-loops.** Double-clicking a program used to descend into a
+nested loop. It was confusing and it is gone: a program is a document, so
+double-clicking opens it as one instead.
+
+### Input programs
+
+Above Feedback sit the **input programs** — compact pills (icon + name + a play
+button) that pour outside work into the loop: bug reports, feature requests,
+usage signals. They are programs like any other, set apart only by an **open
+input**: nothing upstream feeds them, so the operator does. Their wires fan down
+into Feedback's top without crossing.
+
+The play button (in any mode), or clicking the pill in System mode, opens the
+program's **intake console** as the primary pane: a large message box with an AI
+chat bar (a mic and a Send button), and a **Use / Program** toggle — *Use* to
+file something into the loop, *Program* to read and edit the instructions behind
+it. Sending bumps the target station's count and clears the box; it is a
+prototype stub, nothing is persisted, and the mic is a stub too. In System mode,
+clicking any program box — not just an input — opens its document as well, the
+same as *Edit prompt* on the floating card.
 
 ## Floating panels
 
@@ -124,7 +147,7 @@ What the panel holds, by selection:
 |---|---|
 | state, System mode | State card: predicate, shape, arrives/leaves by, **Throughput** |
 | state, Product mode | State card **and** `In <state>` list |
-| process | Process card: trigger, runner, median, runs, prompt link, issues, contract, send-back rate |
+| program | Process card: trigger, runner, median, runs, prompt link, issues, contract, send-back rate |
 | issue | Issue card plus "why it lands here" |
 | item, Product mode | `In <state>` list only, because the item's own detail is the file already open in the main pane |
 
@@ -158,8 +181,8 @@ Layout: header, then a two-column body of document plus rail, then a footer.
 - **Document.** Rendered markdown in Read, a plain mono textarea in Edit. The
   renderer handles headings, bold, inline code, links, blockquotes, ordered and
   unordered lists, fenced code, `$VARS`, and checkboxes.
-- **Rail.** Tasks, Pages, and then either the **Contract** (for a runbook or
-  skill) or **Where it sits** (for a slice, spec section or issue: station, next
+- **Rail.** Tasks, Pages, and then either the **Contract** (for a program) or
+  **Where it sits** (for a slice, spec section or issue: station, next
   process, status, the station's shape, the file path).
 - **Footer.** Version and run stats, or station and id for an item. Revert, Run,
   Save.
@@ -175,9 +198,12 @@ is clickable.
 |---|---|
 | click state node | select it, panel opens |
 | click item row (Product) | **open that file** in the sheet, `In <state>` list floats beside it |
-| click process box | select it, Process card opens |
-| double-click process box | open its prompt in the sheet |
+| click program box (Factory) | select it, Process card opens |
+| click program box (System) | open its document, the card floats beside it |
+| double-click program box | open its document in the sheet |
 | `Edit prompt` on the Process card | same |
+| click an input pill's play button | open its intake console (any mode) |
+| click an input pill (System) | open its intake console |
 | click a markdown link to a file we hold | open it in the sheet, push a crumb |
 | click a Pages row | open that nested page |
 | click a checkbox | rewrite that line in the file, mark dirty |
@@ -195,18 +221,19 @@ is clickable.
 ## Data
 
 `data.js` is shaped on the real email-agent corpus: 370 docs, 314 slices, 436
-`needs` edges, 301 decisions. Six states, six processes, twelve system issues.
+`needs` edges, 301 decisions. Six states, six programs on the ring, three input
+programs feeding Feedback, twelve system issues.
 
 `ITEMS` is padded with plausible history to `PANEL_MAX = 40` per station so the
 node counts are not lying. Past 40 the panel hands off to the matching list view
 rather than pretending a floating card should hold 273 rows.
 
 `DOCS` in `app.js` is the flat `path -> {title, body, item?}` store, built at
-load from three sources: process prompts become their root file, `PAGES` supplies
+load from three sources: program bodies become their root file, `PAGES` supplies
 handwritten nested pages, and every entry in `ITEMS` gets a document generated
 from a template in `itemBody()`. That is 133 documents, and every cross-link
 between them resolves: slice to spec section, slice to `code-review.md`, issue to
-the runbook on its edge, spec section to the slices citing it.
+the program on its edge, spec section to the slices citing it.
 
 ## What is real and what is faked
 

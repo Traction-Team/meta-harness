@@ -12,7 +12,7 @@ editor and lose nothing but the drawing.
 
 | Thing | Lives at | Opened as |
 |---|---|---|
-| runbook | `system/runbooks/<id>.md` | full-page sheet |
+| program | `system/programs/<id>.md` | full-page sheet |
 | skill | `system/skills/<id>.md` | full-page sheet |
 | slice | `slices/<id>.md` | full-page sheet |
 | spec section | `docs/<id>-<slug>.md` | full-page sheet |
@@ -20,8 +20,12 @@ editor and lose nothing but the drawing.
 | nested page | `<parent-without-.md>/<name>.md` | full-page sheet |
 
 One sheet renders all of them. It does not branch on type beyond a glyph, a
-tag word, and which process the Run button fires. That is the test of whether
+tag word, and which program the Run button fires. That is the test of whether
 the model holds: if a new kind of document needs new UI, the model has leaked.
+
+(The prototype still stores programs under `system/runbooks/` and tags some of
+them `skill`; that is legacy naming, cleaned up under *Programs and skills*
+below and tracked in `MEMORY.md`.)
 
 ## Nesting: the file name minus `.md` is the folder
 
@@ -90,23 +94,60 @@ Two consequences worth keeping:
 Each state also carries a **shape**: the fields documents in that state must
 have. `slices` need `id`, `needs[]`, `owns[]`, `spec`, `proves`.
 
-## Processes are typed against the shapes
+## Programs and skills
 
-A process (the box on the edge) declares what it reads from the source state and
-what it writes into the target state:
+A **program** is a set of instructions for doing something in the factory — the
+box on an edge. It is a markdown document: a body of prose and checkboxes over a
+head of metadata. Today's *runbooks* and the *intake* pills are the same thing;
+both are programs.
+
+A **skill** is not. A skill is a capability a program calls from its body —
+browser use, a frontier query, a blast-radius lookup. It enhances what a program
+can do; it is never a state, an edge, or a program. This is the same sense as a
+Claude Code skill, and skills live at `system/skills/<id>.md` so a program can
+link to one like any other page.
+
+Rule of thumb: a program *does a step of the work*; a skill *is a tool the step
+reaches for*.
+
+## Inputs and output are the typed part
+
+A program declares its **inputs** and its **output**. This is the metadata that
+sits at the head of the file, the way a skill declares its own:
 
 ```
 build + self-review
-  reads   slice, branch, agent      from Worker branch
-  writes  slice, diff, checks, reviewer   into Worker PR
+  input   work   from Worker branch   fields slice, branch, agent
+  output         into Worker PR        fields slice, diff, checks, reviewer
 ```
 
-If a process reads a field the source shape does not define, that is a **broken
-wire** and it is caught before dispatch, not after a bad run. The prototype ships
-one on purpose: `log issue` reads `transcript`, which `Merged` does not define.
+An input is one of two kinds:
 
-This is the compile step for a process. Without it the diagram is a file browser
+- **bound** — it reads a state. That binding *is* the wire into the program, so
+  the graph is drawn from the inputs rather than stored beside them. `build`
+  binds to Worker branch, so an edge runs from Worker branch into it.
+- **open** — nothing is bound, so whoever runs the program supplies it. An
+  operator fills it by hand (the intake pill above Feedback), or a calling agent
+  passes it in. An open input is what lets a program be an entry point instead of
+  a transition.
+
+The output names the state the program writes into — the wire out.
+
+Because a bound input and the output are typed against the node shapes, the
+system is **statically checkable**. If a bound input reads a field the source
+shape does not define, that is a **broken wire**, caught before dispatch, not
+after a bad run. The prototype ships one on purpose: `log issue` reads
+`transcript`, which `Merged` does not define. An **open** input is runtime data
+and cannot be checked — which is exactly what an entry point should be.
+
+This is the compile step for a program. Without it the diagram is a file browser
 with lines drawn on it.
+
+> **Where the wiring lives.** Today the edges are an explicit list the app reads.
+> Putting each program's inputs and output in its own front matter — so the graph
+> is *derived* from the documents the way nesting is derived from paths — is the
+> direction, not yet the build. Layout (positions, zoom) stays metadata beside
+> the corpus regardless; it is the *topology* that would move into the files.
 
 ## Issues attach to edges
 
