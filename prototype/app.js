@@ -31,6 +31,7 @@ const ICONS = {
   sun:     I(`<circle cx="8" cy="8" r="3.1"/><path d="M8 1.4v1.3M8 13.3v1.3M14.6 8h-1.3M2.7 8H1.4M12.7 3.3l-.9.9M4.2 11.8l-.9.9M12.7 12.7l-.9-.9M4.2 4.2l-.9-.9"/>`),
   x:       I(`<path d="M4 4l8 8M12 4l-8 8"/>`, 13),
   plus:    I(`<path d="M8 3.4v9.2M3.4 8h9.2"/>`, 14),
+  up:      I(`<path d="M8 13V3.5M4 7.4 8 3.4l4 4"/>`, 15),
   minus:   I(`<path d="M3.4 8h9.2"/>`, 14),
   fit:     I(`<path d="M2.6 6V3.4a.8.8 0 0 1 .8-.8H6M10 2.6h2.6a.8.8 0 0 1 .8.8V6M13.4 10v2.6a.8.8 0 0 1-.8.8H10M6 13.4H3.4a.8.8 0 0 1-.8-.8V10"/>`, 14),
   heat:    I(`<path d="M8 1.9c2.2 2.5 1 3.9.4 4.6-1 1.2-1.4 2-1.4 2.9a2.6 2.6 0 0 0 5.2 0c0-.7-.2-1.2-.5-1.7 1.6 1 2.5 2.5 2.5 4A5.8 5.8 0 0 1 2.4 12c0-3.4 2-5 3.2-6.6C6.7 4 7.8 2.9 8 1.9z"/>`, 15),
@@ -71,6 +72,11 @@ const state = {
   sysFlow: {},              // ws id -> { view, live, planned }
   verMenuOpen: false,       // the version pill's dropdown
   verCardOpen: false,       // the floating version card
+  /* the ask bar floats at the bottom of a clean canvas; submitting it opens a
+     primary-pane chat with the system agent, which can change the loop or
+     answer questions about how it is wired */
+  chat: { open: false, log: [], text: "" },
+  askText: "",              // the un-sent line in the floating ask bar
 };
 const PANEL_W = 412;
 
@@ -122,6 +128,8 @@ const navFor = () =>
    its own branch, you promote it, and a switchover phase pauses the running
    fleet, migrates it, and flips live onto the new version. */
 
+/* the same "programs" count the strip and rail use: runbooks plus intake programs */
+const programCount = () => REPO.runbooksN + (typeof INPUTS !== "undefined" ? INPUTS.length : 0);
 /* every logged defect that a version has not yet closed */
 const openDefects = () => ISSUES.filter((i) => !i.closedBy);
 /* the ones with a proposed fix — the change a planned version folds in */
@@ -213,6 +221,175 @@ function finishSwitchover() {
 }
 
 function setSysView(v) { sysFlow().view = v; state.verMenuOpen = false; paint(); }
+
+/* ══════════════════════════════════════════════ the ask bar + agent chat ══
+   A clean system canvas invites one thing: tell the agent what to change. The
+   bar floats at the bottom, and submitting it opens a primary-pane chat with
+   the system agent — the same agent that reworks the loop into a new version.
+   Its answers dovetail back into that flow: it offers to plan a change, open
+   the defects, or read the version history. */
+
+/* the bar only shows when the canvas is clean — nothing drilled into, no sheet,
+   console, chat, inspector, or version card covering it */
+function askBarVisible() {
+  return state.mode === "system" && state.view === "loop"
+    && !state.chat.open && !state.docStack.length && !state.inputOpen
+    && !state.run && !state.sel && !state.verCardOpen;
+}
+
+function paintAsk() {
+  const host = $("#askLayer");
+  if (!host) return;
+  if (!askBarVisible()) { host.classList.remove("on"); host.innerHTML = ""; return; }
+  host.classList.add("on");
+  host.innerHTML = `
+    <form class="askbar" id="askForm">
+      <span class="askbar-i">${ICONS.robot}</span>
+      <textarea id="askTa" rows="1" placeholder="Ask your agent to change the system, or ask about it…">${esc(state.askText)}</textarea>
+      <button type="submit" class="askbar-send" id="askSend" title="Ask (Enter)" ${state.askText.trim() ? "" : "disabled"}>${ICONS.up}</button>
+    </form>`;
+  const ta = $("#askTa"), send = $("#askSend");
+  const grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 132) + "px"; };
+  ta.oninput = () => { state.askText = ta.value; send.disabled = !ta.value.trim(); grow(); };
+  ta.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitAsk(); } };
+  $("#askForm").onsubmit = (e) => { e.preventDefault(); submitAsk(); };
+  grow();
+}
+
+function submitAsk() {
+  const text = (state.askText || "").trim();
+  if (!text) return;
+  state.askText = "";
+  openSysChat(text);
+}
+
+/* the agent's reply — canned but plausible, and wired to the real version flow
+   so a "clean up the defects" ask ends in a promotable change */
+function agentReply(text) {
+  const t = text.toLowerCase();
+  const nd = openDefects().length, fold = foldableDefects().length;
+  const planAct = fold ? [{ label: `Plan a change · ${fold} defects`, act: "plan" }] : [];
+  if (/defect|friction|wir|broken|miss|drift|gap|clean ?up|tech debt/.test(t)) {
+    return { text: `The loop has logged **${nd} open defects** against its own wiring — the cluster is on the \`review\` and \`build\` edges. ${fold ? `${fold} of them carry a proposed fix, so I can fold those into a new version and rework those edges.` : `None have a proposed fix yet, so they need a decision before I can rework the edge.`}`,
+      actions: [{ label: "Open defects", act: "defects" }, ...planAct] };
+  }
+  if (/version|change|promote|rework|redraw|upgrade|switch|bump/.test(t)) {
+    return { text: `I can rework the loop in a branch off **${liveVersion()}**${fold ? `, folding in the ${fold} fixable defects` : ""}, then hand it back for you to promote. Promoting runs the switchover — it pauses the fleet, migrates what is in flight, then flips live onto the new version.`,
+      actions: fold ? [{ label: "Plan a change", act: "plan" }] : [{ label: "See version history", act: "history" }] };
+  }
+  if (/skill|add|new (program|runbook)|can't|cannot|unable/.test(t)) {
+    return { text: `Adding a capability is a change to the system, so it goes through a version: I draft the skill on its edge, wire its contract, and raise it as a bump that reviews before it is live. Nothing changes on the running loop until you promote.`,
+      actions: [{ label: "Plan a change", act: "plan" }] };
+  }
+  if (/why|how|explain|what|send.?back|slow|bottleneck/.test(t)) {
+    return { text: `Reading the loop for **${REPO.name}**: six stations, ${programCount()} programs, ${nd} open defects. The \`review\` edge sends back the most — that is the human gate, not the checks. Ask me to rework any edge and I will draft the change as a version bump.`,
+      actions: planAct };
+  }
+  return { text: `I am looking at the whole loop for **${REPO.name}** — ${programCount()} programs, ${REPO.skillsN} skills, ${nd} open defects. Tell me what to change and I will rework the affected edges in a branch off ${liveVersion()}, or ask me anything about how it is wired.`,
+    actions: planAct };
+}
+
+function openSysChat(seed) {
+  state.chat.open = true; state.chat.text = "";
+  state.docStack = []; state.inputOpen = null; state.run = null; state.sel = null;
+  state.verCardOpen = false; state.verMenuOpen = false;
+  if (seed && seed.trim()) {
+    const text = seed.trim();
+    state.chat.log.push({ role: "you", text });
+    const rep = agentReply(text);
+    state.chat.log.push({ role: "agent", text: rep.text, actions: rep.actions });
+  } else if (!state.chat.log.length) {
+    state.chat.log.push({ role: "agent",
+      text: `I am your **system agent** for ${REPO.name}. I can change how the factory is wired — rework an edge, add a skill, fold defects into a new version — or just answer questions about the loop.` });
+  }
+  paint();
+}
+
+function sendSysChat(seed) {
+  const text = (seed != null ? seed : state.chat.text || "").trim();
+  if (!text) return;
+  state.chat.log.push({ role: "you", text });
+  const rep = agentReply(text);
+  state.chat.text = "";
+  state.chat.log.push({ role: "agent", text: rep.text, actions: rep.actions });
+  paint();
+}
+
+function chatAct(act) {
+  state.chat.open = false;
+  if (act === "plan") planChange();
+  else if (act === "defects") openDefectsList();
+  else if (act === "history") { state.mode = "system"; state.view = "history"; state.sel = null; paint(); }
+  else paint();
+}
+
+const CHAT_SUGGEST = [
+  "Clean up the review-miss defects",
+  "Add a skill so self-review can run the app",
+  "Why does the review edge send so much back?",
+  "Plan the next version",
+];
+
+function chatLine(e) {
+  if (e.role === "you") return `<div class="ln ln-you"><span>${mdi(e.text, null)}</span></div>`;
+  return `<div class="ln ln-say"><p>${mdi(e.text, null)}</p>${
+    e.actions && e.actions.length
+      ? `<div class="chat-acts">${e.actions.map((a) => `<button class="btn opt" data-chatact="${a.act}">${esc(a.label)}</button>`).join("")}</div>`
+      : ""}</div>`;
+}
+
+function paintSysChat() {
+  const nd = openDefects().length;
+  $("#main").innerHTML = `
+    <div class="cns syschat">
+      <header class="cns-h">
+        <button class="ico" id="chatBack" title="Back to the canvas (Esc)">${ICONS.chevL}</button>
+        <span class="pr-k">${ICONS.robot}</span>
+        <div class="cns-ht">
+          <div class="cns-name">System agent<span class="pill running">live</span></div>
+          <div class="cns-file mono">${esc(REPO.name)} · ${esc(liveVersion())} · ${programCount()} programs · ${nd} defects</div>
+        </div>
+      </header>
+
+      <div class="cns-b">
+        <div class="cns-feed chat-feed" id="chatFeed">
+          ${state.chat.log.map(chatLine).join("")}
+        </div>
+        <aside class="cns-rail">
+          <div class="rail-h">${ICONS.loop}The system</div>
+          <div class="rail-c">
+            <div class="rail-r"><span>Version</span><b>${esc(liveVersion())}</b></div>
+            <div class="rail-r"><span>Programs</span><b>${REPO.runbooksN + (typeof INPUTS !== "undefined" ? INPUTS.length : 0)}</b></div>
+            <div class="rail-r"><span>Skills</span><b>${REPO.skillsN}</b></div>
+            <div class="rail-r"><span>Open defects</span><b>${nd}</b></div>
+          </div>
+          <div class="rail-h mt">${ICONS.sparkle}Try asking</div>
+          <div class="chat-suggest">
+            ${CHAT_SUGGEST.map((s) => `<button class="chat-sg" data-ask="${esc(s)}">${esc(s)}</button>`).join("")}
+          </div>
+        </aside>
+      </div>
+
+      <footer class="cns-f">
+        <div class="cns-box">
+          <textarea id="chatTa" placeholder="Ask your agent to change the system, or ask about it…" rows="1">${esc(state.chat.text)}</textarea>
+          <button class="btn pri" id="chatSend">${ICONS.up}Send</button>
+        </div>
+      </footer>
+    </div>`;
+
+  const feed = $("#chatFeed"); if (feed) feed.scrollTop = feed.scrollHeight;
+  $("#chatBack").onclick = () => { state.chat.open = false; paint(); };
+  $("#main").querySelectorAll("[data-chatact]").forEach((el) => (el.onclick = () => chatAct(el.dataset.chatact)));
+  $("#main").querySelectorAll("[data-ask]").forEach((el) => (el.onclick = () => sendSysChat(el.dataset.ask)));
+  const ta = $("#chatTa");
+  if (ta) {
+    ta.oninput = () => { state.chat.text = ta.value; ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; };
+    ta.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendSysChat(); } };
+    ta.focus();
+  }
+  const send = $("#chatSend"); if (send) send.onclick = () => sendSysChat();
+}
 
 /* ────────────────────────────────────────────────────────────── chrome ── */
 
@@ -340,7 +517,7 @@ const STAGE_LABEL = { building: "building", ready: "ready to promote", switchove
 function paintVersion() {
   const host = $("#verLayer");
   const f = sysFlow(), planned = f.planned, viewing = sysViewing();
-  const showPill = state.mode === "system" && state.view === "loop" && !state.run;
+  const showPill = state.mode === "system" && state.view === "loop" && !state.run && !state.chat.open;
   const showCard = state.mode === "system" && state.verCardOpen;
   host.classList.toggle("on", showPill || showCard);
   if (!showPill && !showCard) { host.innerHTML = ""; return; }
@@ -466,7 +643,7 @@ function setMode(m) {
   if (state.mode === m) return;
   state.mode = m;
   state.view = m === "agents" ? "live" : "loop";
-  state.sel = null; state.run = null; closeEditor(true);
+  state.sel = null; state.run = null; state.chat.open = false; closeEditor(true);
   paint(); if (m !== "agents") fit();
 }
 
@@ -477,6 +654,7 @@ function switchWorkspace(id) {
   if (id === state.ws) { state.wsOpen = false; paintSidebar(); return; }
   state.ws = id; state.wsOpen = false;
   state.sel = null; state.run = null; state.composer = "";
+  state.chat = { open: false, log: [], text: "" }; state.askText = "";
   state.docStack = []; state.drafts = {}; state.editing = false;
   state.inputOpen = null; state.inputEditing = false; state.intakeText = "";
   state.view = state.mode === "agents" ? "live" : "loop";
@@ -1467,16 +1645,18 @@ function paint() {
   const was = state.panelOpen;
   state.panelOpen = !!state.sel;
   paintSidebar(); paintToolbar(); paintStrip();
-  if (state.mode === "agents") paintAgents();
+  const chat = state.chat.open && state.mode === "system";
+  if (chat) paintSysChat();
+  else if (state.mode === "agents") paintAgents();
   else if (state.view === "loop") paintLoop(); else paintList();
   /* the list gives up the room the panel needs; the loop keeps it and re-fits */
-  $("#main").classList.toggle("inset", state.mode !== "agents" && state.view !== "loop" && !!state.sel);
+  $("#main").classList.toggle("inset", !chat && state.mode !== "agents" && state.view !== "loop" && !!state.sel);
   /* over a list, the version card gets its own room on the left so it never
      lands on top of the rows; over the loop it just floats on the dot grid */
   $("#main").classList.toggle("card-left", state.verCardOpen && state.mode === "system" && state.view !== "loop");
-  paintPanels(); paintVersion(); paintEditor();
+  paintPanels(); paintVersion(); paintAsk(); paintEditor();
   /* the panels changed the room the loop has to live in, so give it back */
-  if (state.mode !== "agents" && state.view === "loop" && was !== state.panelOpen) requestAnimationFrame(() => fit(true));
+  if (!chat && state.mode !== "agents" && state.view === "loop" && was !== state.panelOpen) requestAnimationFrame(() => fit(true));
 }
 
 function toast(msg) {
@@ -1497,6 +1677,7 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (state.verMenuOpen) { state.verMenuOpen = false; paintVersion(); }   /* the version dropdown */
     else if (state.docStack.length || state.inputOpen) closeEditor();      /* the sheet */
+    else if (state.chat.open) { state.chat.open = false; paint(); }        /* the agent chat */
     else if (state.verCardOpen) { state.verCardOpen = false; paintVersion(); }   /* the version card */
     else if (state.run) { state.run = null; state.composer = ""; paint(); }   /* then the console */
     else { state.sel = null; paint(); }            /* then the panel */
