@@ -84,6 +84,33 @@ and versioning is finally its UI.
   stream to render, `interrupt()` to stop, and `canUseTool` as the **decision
   gate** — the blocked/needs-you state comes for free rather than being a
   protocol we invent. Cost of this: we are Claude-Code-only, accepted knowingly.
+  (Correction to an earlier note: Orca's *primary* surface is the real TUI in a
+  PTY. Its native chat is a view mode on a terminal tab, behind an experimental
+  flag, for only 5 of its 25+ agents. Their own `STA-1860` comment — pasting an
+  `AskUserQuestion` label committed the *wrong* option because the selector is
+  digit-driven — is the sharpest argument against driving an agent by PTY.)
+- **The session is the durable object; the transport is swappable.** This is what
+  makes jump-in/jump-out work, and it nearly reversed the decision before we
+  found it. An Agent SDK session is an ordinary Claude Code session on disk:
+  SDK/`-p` sessions are hidden from the picker and `--continue`, but
+  `claude --resume <session-id>` opens one in the **full interactive TUI** from
+  any directory, and `claude -p --resume <id>` pushes a follow-up into a session
+  you drove by hand. So a dispatch stores a session ID, and *take over* is:
+  stop the SDK worker → mark `operator-held` → open a terminal running
+  `claude --resume <id>` → hand back, SDK reattaches to the same ID. Hard
+  invariant: **single writer per session**. Two attachments without forking
+  interleave into one transcript and corrupt it.
+- **A terminal in the worktree is orthogonal and we build it anyway.** Running
+  the dev server, tests, git, poking the product — none of that depends on how
+  the agent is driven. `node-pty` + `xterm.js`, not Orca's Ghostty-class WebGL
+  terminal with infinite splits.
+- **A dispatch is a container, not a claim of autonomy.** Real work is
+  interleaved: you watch, you jump in, you take the wheel, you hand back. The
+  loop only asserts a start state, a program, and an end state — it says nothing
+  about who holds the keyboard in between. So **needs-you is a spectrum**, from
+  "answer this question" through "review this diff" to "I'm taking over for
+  twenty minutes", and `operator-held` is a first-class dispatch state beside
+  running / blocked / failed.
 - **Taken from Orca as a spec, not a dependency:** the Run / Task / **Dispatch**
   split (a dispatch is *one attempt*, which is what makes retries and stale
   completions safe), `worker_done` requiring an explicit outcome, ack-until-
@@ -174,6 +201,16 @@ agent's experiment, unrelated to this work.
 - Revisit the Orca decision only if Stably ships the orchestration layer as a
   standalone importable package, if we need three or more agent CLIs, or if
   remote/multi-machine workers stop being hypothetical.
+- Claude Code is growing its own orchestration from below — of its 44 tools,
+  `Agent`, `Workflow`, `SendMessage`/`ListAgents` (cross-session messaging),
+  `TaskCreate`/`TaskList`/`TaskUpdate`, `CronCreate` and `ScheduleWakeup` are all
+  orchestration primitives. Still per-session and imperative, so it does not
+  threaten a declarative loop over repo state, but "the layer below might eat
+  this" belongs beside the Orca revisit triggers.
+- Unresolved in the takeover flow: what the operator sees *while* a dispatch is
+  `operator-held`. No live co-viewing exists (SDK drives or TUI drives, never
+  both), so the console needs a defined state for "you have the wheel, watch the
+  terminal" rather than showing a stale block stream.
 - Layout is a forced ring over a DAG with back-edges. Fine at 6 nodes, unproven
   when a real system has skips and parallel paths.
 - Source of truth must move to the real markdown files, with canvas layout as

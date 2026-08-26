@@ -116,7 +116,28 @@ look, because Orca solved a harder problem than ours."
 
 ### How Orca does it
 
-Orca's native chat is **asymmetric**, and the trick is worth knowing:
+**Correction (26 Aug, after seeing it running).** An earlier draft of this doc
+led with Orca's native chat view. That was the wrong emphasis. **Orca's answer
+is the terminal.** The primary surface is a real PTY running the real `claude`
+TUI through their terminal emulator — ASCII robot, `bypass permissions
+(shift+tab to cycle)`, `/clear to save 196.4k tokens`, all of it verbatim and
+nothing reinterpreted.
+
+The native chat described below is a *view mode toggled on a terminal tab*, it
+sits behind a Settings → Experimental flag, and it only works for five agent
+identities out of the 25+ Orca supports. From `native-chat-availability.ts`:
+
+```ts
+if (input.experimentalNativeChatEnabled !== true) return false
+if (input.contentType !== 'terminal') return false
+```
+
+and `NATIVE_CHAT_SUPPORTED_AGENTS` is `claude`, `openclaude`, `codex`, `grok`,
+`omp`. Hence exactly four transcript decoders in the repo. Gemini and the rest
+never qualify.
+
+So Orca ships **two** readings of one session, and the mechanism below is the
+second one:
 
 **Reading — it never parses the agent's stdout.** It tails the JSONL transcript
 that Claude Code already writes to disk, at
@@ -146,6 +167,23 @@ fragility you would expect from puppeting a TUI.
 They pay that because they support 25+ agent CLIs whose only common denominator
 is "runs in a terminal, writes a transcript somewhere." **We do not have that
 constraint.**
+
+One detail from their code is the best single argument against driving an agent
+through a PTY. In `native-chat-agent-support.ts`:
+
+```
+/** True when the agent renders a digit-commit question selector that ignores
+ *  typed label text (pasting "Blue" + Enter commits the highlighted FIRST
+ *  option — STA-1860): Claude's AskUserQuestion and Codex 0.145's
+ *  request_user_input card both behave this way, so answers must be delivered
+ *  as per-option keystrokes. Other agents commit a pasted answer. */
+```
+
+A filed bug: answering an `AskUserQuestion` by pasting the option label
+silently committed **the wrong option**, because the selector is digit-driven
+and ignores typed text. That is exactly our "one-tap answers to blocking
+questions" feature. Through a PTY it is a bug farm. Through `canUseTool` it is
+a function that returns a value.
 
 ### How we should do it
 
@@ -188,6 +226,61 @@ the Agents console already fakes.
 Claude-Code-only. Multi-agent support later would mean either a second adapter
 or falling back to Orca's PTY-plus-transcript approach. We are accepting that.
 Supporting 25 agent CLIs is Orca's business, not ours.
+
+### Jumping in and out is the normal case, not the escape hatch
+
+The objection that nearly reversed this decision: real work is **interleaved**.
+You do not hand a task to an agent and collect the result. You watch it, run
+the product, run commands, take the wheel, hand it back. A model that only
+offers "supervised dispatch with a typed contract" is describing a workflow
+nobody actually has. Orca's terminal-first design is honest about this, and an
+SDK-only console looked like it was not.
+
+The fact that resolves it: **the session is the durable object, and the
+transport is swappable.** A session started by the Agent SDK is an ordinary
+Claude Code session on disk. Per the sessions docs, SDK and `-p` sessions are
+kept out of the picker and out of `--continue`, but *"you can still resume one
+by passing its session ID to `claude --resume <session-id>`"*, from any
+directory. The reverse also works: `claude -p --resume <id>` pushes a follow-up
+into a session you have been driving by hand.
+
+So the dispatch record stores the **session ID**, and taking the wheel becomes a
+supported gesture rather than a limitation:
+
+1. Operator hits *take over* on a dispatch.
+2. Factory stops the SDK worker and marks the dispatch `operator-held`.
+3. We open a terminal in that worktree running `claude --resume <session-id>`.
+   Full TUI, full fidelity, the same conversation.
+4. On hand-back, the SDK reattaches to the same session ID and the dispatch
+   continues. Everything done by hand is already in the transcript.
+
+Two separate needs were being conflated, and only one of them is about
+transport:
+
+| Need | Depends on SDK vs PTY? |
+|---|---|
+| A terminal *beside* the agent — dev server, tests, poking the product, git | **No.** Orthogonal. `node-pty` + `xterm.js` in the worktree, cheap, built regardless. We do not need Orca's Ghostty-class WebGL terminal with infinite splits. |
+| Taking the wheel *on the agent's own conversation* | **No, given the above.** Solved by session ID. |
+
+What we genuinely still give up:
+
+- **No live co-viewing.** The SDK drives or the TUI drives, not both at once,
+  so "watch the raw TUI while it works" is not available.
+- **Takeover is a mode switch, not instant.** Stop the worker, resume in a
+  terminal. Small but real friction.
+- **The factory must hold a single-writer lock on the session.** The docs are
+  explicit that resuming the same session in two terminals without forking
+  interleaves both streams into one transcript. An SDK worker and a human
+  terminal on the same session ID at once would corrupt the conversation. This
+  is a hard invariant, not a nicety.
+
+**What this changes in the product model.** A dispatch is a *container* for a
+piece of work, not a claim that the agent does it alone. The loop says the work
+has a defined start state, a program, and an end state; it says nothing about
+who holds the keyboard in between. That makes needs-you a **spectrum** rather
+than a binary — from "answer this one question" through "review this diff" to
+"I am taking over for twenty minutes" — and `operator-held` is a first-class
+dispatch state alongside running / blocked / failed.
 
 Two smaller caveats worth recording:
 
