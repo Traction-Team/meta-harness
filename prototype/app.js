@@ -526,7 +526,8 @@ const STAGE_LABEL = { building: "building", ready: "ready to promote", switchove
 function paintVersion() {
   const host = $("#verLayer");
   const f = sysFlow(), planned = f.planned, viewing = sysViewing();
-  const showPill = state.mode === "system" && state.view === "loop" && !state.run && !state.chat.open;
+  const showPill = state.mode === "system" && state.view === "loop" && !state.run && !state.chat.open
+    && !state.docStack.length && !state.inputOpen;
   const showCard = state.mode === "system" && state.verCardOpen;
   host.classList.toggle("on", showPill || showCard);
   if (!showPill && !showCard) { host.innerHTML = ""; return; }
@@ -1499,21 +1500,29 @@ function filterItems(inp) {
 
 function paintPanels() {
   const P = $("#panels"), s = state.sel;
-  /* agents mode has no floating inspector — the console carries its own rail */
-  if (state.mode === "agents") { P.classList.remove("open"); P.innerHTML = ""; return; }
-  P.classList.toggle("open", !!s);
-  if (!s) return;                                   /* nothing selected, nothing floats */
+  const path = state.docStack[state.docStack.length - 1];
+  P.classList.toggle("document-open", !!path);
+  /* The console carries its own rail until a document takes over the canvas. */
+  if (state.mode === "agents" && !path) { P.classList.remove("open"); P.innerHTML = ""; return; }
+  P.classList.toggle("open", !!s || !!path);
+  if (!s && !path) { P.innerHTML = ""; return; }
 
   const inProduct = state.mode === "product";
-  const home = s.t === "item" ? stateById(itemHome(s)) : null;
-  P.innerHTML =
+  const home = s && s.t === "item" ? stateById(itemHome(s)) : null;
+  P.innerHTML = (s ? (
       s.t === "node"  ? nodePanel(stateById(s.id)) + (inProduct && stateById(s.id) ? itemsCard(stateById(s.id)) : "")
     : s.t === "proc"  ? procPanel(procById(s.id))
     : s.t === "issue" ? issuePanel(issueById(s.id))
     /* the item's own details live in the file that is already open in the main
        pane, so the panel is only the list you navigate with */
     : s.t === "item"  ? (inProduct && home ? itemsCard(home, s.id) : itemPanel(s))
-    : "";
+    : "") : "") + (path ? docSupportCard(path) : "");
+
+  P.querySelectorAll("[data-href]").forEach((el) => (el.onclick = (e) => {
+    e.preventDefault(); openDoc(el.dataset.href);
+  }));
+  const pgNew = P.querySelector("#pgNew");
+  if (pgNew) pgNew.onclick = () => toast(`New page under ${fileOf(path)}`);
 
   /* one dismiss, on the first card, so the panels read as transient */
   /* keep the row you are reading visible in the list you are steering with */
@@ -1521,7 +1530,7 @@ function paintPanels() {
   if (cur) cur.scrollIntoView({ block: "nearest" });
 
   const first = P.querySelector(".card-a");
-  if (first) {
+  if (first && (!s || s.t !== "proc")) {
     const x = document.createElement("button");
     x.className = "pnl-x"; x.title = "Close (Esc)"; x.innerHTML = ICONS.x;
     x.onclick = () => { state.sel = null; closeEditor(true); paint(); };
@@ -2028,35 +2037,15 @@ function md(src, from) {
   return out;
 }
 
-/* ── the rail: the checkboxes pulled out, the pages underneath, the contract ── */
-
-function railHTML(path) {
-  const src = docBody(path), p = procOfDoc(path), root = p && promptFile(p) === path;
-  const item = DOCS[path] && DOCS[path].item;
-  const home = item ? stateById(item.from) : null;
-  const next = item ? PROCS.find((x) => x.from === item.from) : null;
-  const sliceRuns = item ? runsForSlice(item.id) : [];
-  const rec = item ? (ITEMS[item.from] || []).find((x) => x.id === item.id) : null;
-  const tasks = parseTasks(src), done = tasks.filter((t) => t.done).length;
+/* Pages and the root contract stay nearby as a floating card. Tasks only appear
+   once, in the markdown document itself. */
+function docSupportCard(path) {
+  const p = procOfDoc(path), root = p && promptFile(p) === path;
   const kids = childPages(path);
   const from = p ? stateById(p.from) : null, to = p ? stateById(p.to) : null;
-  const waiting = from ? from.count : 0;
-  const open = tasks.length - done;
 
-  const tasksHTML = tasks.length ? `<ul class="rail-tasks">${tasks.map((t) => `
-    <li data-rt="${t.i}" class="${t.done ? "done" : ""}">
-      <button class="ck sm${t.done ? " on" : ""}" data-ck="${t.ln}">${t.done ? ICONS.tick : ""}</button>
-      <span class="tk-t">${mdi(t.t, path)}${t.emits ? `<span class="tk-e mono">→ ${esc(t.emits)}</span>` : ""}</span></li>`).join("")}</ul>
-    ${root ? `<div class="rail-note">${open} open × ${waiting} waiting in ${esc(from ? from.name : "")}
-      = <b>${open * waiting}</b> on the next run</div>` : ""}`
-    : `<div class="rail-empty">No checkboxes in this page yet. Any
-        <code>- [ ] line</code> in the body becomes a task.</div>`;
-
-  return `
-    <div class="rail-h">${ICONS.task}Tasks<span class="rail-n">${done}/${tasks.length}</span></div>
-    ${tasksHTML}
-
-    <div class="rail-h mt">${ICONS.doc}Pages<span class="rail-n">${kids.length}</span></div>
+  return card("Pages & contract", "", `
+    <div class="rail-h">${ICONS.doc}Pages<span class="rail-n">${kids.length}</span></div>
     ${kids.length ? `<div class="rail-pages">${kids.map((k) => {
       const kt = parseTasks(docBody(k));
       return `<button class="pg" data-href="${esc(k)}">
@@ -2066,29 +2055,6 @@ function railHTML(path) {
       : `<div class="rail-empty">Nothing nested under this file yet.</div>`}
     <button class="pg new" id="pgNew">${ICONS.plus}New page under ${esc(fileOf(path))}</button>
 
-    ${item ? `
-      <div class="rail-h mt">${ICONS.loop}Where it sits</div>
-      <div class="rail-c">
-        <div class="rail-r"><span>Station</span><b>${esc(home ? home.name : item.from)}</b></div>
-        <div class="rail-r"><span>Next</span><b>${next ? esc(next.name) : "nothing after this"}</b></div>
-        ${rec ? `<div class="rail-r"><span>Status</span><b>${esc(rec.s)}</b></div>` : ""}
-        <div class="rail-k">shape of ${esc(home ? home.name : item.from)}</div>
-        <div class="fields">${(home ? home.shape : []).map((f) => `<span class="f">${esc(f)}</span>`).join("")}</div>
-        <div class="rail-k">the file</div>
-        <div class="fields"><span class="f">${esc(path)}</span></div>
-      </div>` : ""}
-
-    ${item ? `
-      <div class="rail-h mt">${ICONS.robot}Workers<span class="rail-n">${sliceRuns.length}</span></div>
-      ${sliceRuns.length ? `<div class="rail-runs">${sliceRuns.map((r) => `
-        <button class="rail-run ${r.status}" data-openrun="${r.id}">
-          <span class="nd-dot ${RUN_DOT[r.status]}"></span>
-          <span class="rr-b"><span class="rr-t">${esc(runProcOf(r) ? runProcOf(r).name : "")}</span>
-            <span class="rr-s mono">${esc(r.elapsed)} · ${esc(STATUS[r.status].label)}</span></span>
-          <span class="pg-c">${ICONS.chevR}</span></button>`).join("")}</div>`
-        : `<div class="rail-empty">No agent is live on this slice. Its next process is
-            <b>${next ? esc(next.name) : "—"}</b>.</div>`}` : ""}
-
     ${root && p ? `
       <div class="rail-h mt">${ICONS.gate}Contract</div>
       <div class="rail-c">
@@ -2097,7 +2063,8 @@ function railHTML(path) {
         <div class="rail-k">writes into ${esc(to ? to.name : p.to)}</div>
         <div class="fields">${p.writes.map((f) => `<span class="f ${to && to.shape.includes(f) ? "ok" : "no"}">${esc(f)}</span>`).join("")}</div>
         ${p.broken ? `<div class="rail-bad">Broken wire: ${esc(p.broken)}</div>` : ""}
-      </div>` : ""}`;
+      </div>` : `<div class="rail-h mt">${ICONS.gate}Contract</div>
+        <div class="rail-empty">The contract is defined on the parent program.</div>`}`);
 }
 
 /* The sheet does not care what kind of file it is holding. It needs a glyph, a
@@ -2129,9 +2096,9 @@ function paintEditor() {
   const from = p ? stateById(p.from) : null, to = p ? stateById(p.to) : null;
   const rate = p ? Math.round(p.fail * 100) : 0;
 
-  /* the sheet stops where the side card starts, so both are readable at once */
+  /* The document becomes the canvas; inspectors continue to float above it. */
   host.className = "ov-wrap open";
-  host.style.right = (state.sel && state.mode !== "agents") ? (PANEL_W - 6) + "px" : "0px";
+  host.style.right = "0px";
   host.innerHTML = `
     <div class="ov-card">
       <header class="ov-h">
@@ -2156,7 +2123,6 @@ function paintEditor() {
             ? `<textarea class="ov-edit mono" id="ovTa" spellcheck="false">${esc(src)}</textarea>`
             : `<article class="md">${md(src, path)}</article>`}
         </div>
-        <aside class="ov-rail" id="ovRail">${railHTML(path)}</aside>
       </div>
 
       <footer class="ov-f">
@@ -2174,40 +2140,29 @@ function paintEditor() {
 
   const card = host.querySelector(".ov-card");
   $("#ovX").onclick = (e) => { e.stopPropagation(); closeEditor(); };
-  if (state.docStack.length > 1) $("#ovBack").onclick = () => { state.docStack.pop(); state.editing = false; paintEditor(); paintToolbar(); };
+  if (state.docStack.length > 1) $("#ovBack").onclick = () => { state.docStack.pop(); state.editing = false; paintPanels(); paintEditor(); paintToolbar(); };
   const runId = face.item && face.next ? face.next.id : p ? p.id : null;
   if (runId) $("#ovRun").onclick = () => runProc(runId);
   $("#ovSave").onclick = () => saveEditor();
   if (dirty) $("#ovRevert").onclick = () => { delete state.drafts[path]; paintEditor(); };
-  $("#pgNew").onclick = () => toast(`New page under ${fileOf(path)}`);
   $("#ovSeg").querySelectorAll("button").forEach((b) => (b.onclick = () => {
     state.editing = b.dataset.m === "write"; paintEditor();
     const ta = $("#ovTa"); if (ta) ta.focus();
   }));
 
-  /* wired in one pass: every markdown link to a file we hold, every page row
-     in the rail, and every checkbox, wherever it happens to be drawn */
+  /* Wire markdown links and checkboxes in the page. */
   wireCard();
   function wireCard() {
   card.querySelectorAll("[data-href]").forEach((el) => (el.onclick = (e) => { e.preventDefault(); openDoc(el.dataset.href); }));
-  card.querySelectorAll("[data-openrun]").forEach((el) => (el.onclick = (e) => { e.preventDefault(); closeEditor(true); openRun(el.dataset.openrun); }));
   card.querySelectorAll("[data-ck]").forEach((el) => (el.onclick = (e) => { e.stopPropagation(); toggleTask(path, +el.dataset.ck); }));
   card.querySelectorAll("[data-crumb]").forEach((el) => (el.onclick = () => {
-    state.docStack = state.docStack.slice(0, +el.dataset.crumb + 1); state.editing = false; paintEditor(); paintToolbar();
+    state.docStack = state.docStack.slice(0, +el.dataset.crumb + 1); state.editing = false; paintPanels(); paintEditor(); paintToolbar();
   }));
-  card.querySelectorAll("[data-rt]").forEach((el) => {
-    const tgt = $(`#ovDoc [data-tk="${el.dataset.rt}"]`);
-    el.onmouseenter = () => { el.classList.add("hi"); if (tgt) tgt.classList.add("hi"); };
-    el.onmouseleave = () => { el.classList.remove("hi"); if (tgt) tgt.classList.remove("hi"); };
-    el.onclick = (e) => { if (!e.target.closest("[data-ck]") && tgt) tgt.scrollIntoView({ block: "center", behavior: "smooth" }); };
-  });
   }
 
   const ta = $("#ovTa");
   if (ta) ta.oninput = () => {
     state.drafts[path] = ta.value;
-    $("#ovRail").innerHTML = railHTML(path);
-    wireCard();
     if (isDirty(path) !== dirty) {
       const c = ta.selectionStart, top = ta.scrollTop;
       paintEditor();
@@ -2356,7 +2311,7 @@ function openDoc(path) {
   if (at >= 0) state.docStack = state.docStack.slice(0, at + 1);   /* going back up the chain */
   else state.docStack.push(path);
   state.editing = false;
-  paintEditor(); paintToolbar();
+  paintPanels(); paintEditor(); paintToolbar();
 }
 
 function closeEditor(quiet) {
