@@ -12,11 +12,11 @@ const WORKSPACES = [
 ];
 
 /* ── the whole bet of this thing: every workspace is the SAME six-station loop,
-      read three ways. A software factory and a content factory are the same
+      read two ways. A software factory and a content factory are the same
       machine — only the names on the stations, the things sitting at them, and
       the vocabulary change. Each builder below returns one full dataset; the
       globals the app reads are just whichever dataset is active. Swap the
-      dataset and all three modes re-read it, because nothing is hard-coded to
+      dataset and both modes re-read it, because nothing is hard-coded to
       email — the station and edge *ids* are the skeleton, everything else is
       content. ── */
 let REPO, STATES, PROCS, BACKS, INPUTS, ISSUES, ITEMS, AGENTS, RUN_PROC, RUN_MODEL,
@@ -397,9 +397,8 @@ padStations(STATES, ITEMS, PANEL_MAX,
     "error state for", "density toggle on"]);
 
 /* ══════════════════════════════════════════════════════════════ agents ══
-   The third reading of the same ring. System mode designs the loop, Product
-   mode reads what is sitting at each station, and Agents mode watches the
-   harness sessions actually moving things along the edges.
+   Factory mode reads what is sitting at each station and watches the harness
+   sessions actually moving those artifacts along the edges.
 
    A run is one Claude Code (or other harness) session, dispatched by the
    orchestrator, sitting on one slice at one station and executing the process
@@ -750,14 +749,6 @@ const NAV = {
     { id: "slices",  label: "Slices",      icon: "list",  n: 314 },
     { id: "specs",   label: "Specs",       icon: "doc",   n: 18 },
     { id: "runs",    label: "Runs",        icon: "robot", n: 6 },
-  ],
-  /* agents mode: counts are computed live off AGENTS in agentsNav(), so the
-     `n` here is only a fallback if the list is empty. */
-  agents: [
-    { id: "live",   label: "Live",       icon: "robot" },
-    { id: "needs",  label: "Needs you",  icon: "flag",   loud: true },
-    { id: "queue",  label: "Queue",      icon: "list" },
-    { id: "recent", label: "Recent",     icon: "clock" },
   ],
 };
 
@@ -1397,12 +1388,6 @@ const NAV = {
     { id: "slices",  label: "Pieces",      icon: "list",  n: 242 },
     { id: "specs",   label: "Strategy",    icon: "doc",   n: 12 },
     { id: "runs",    label: "In production", icon: "robot", n: 5 },
-  ],
-  agents: [
-    { id: "live",   label: "Live",       icon: "robot" },
-    { id: "needs",  label: "Needs you",  icon: "flag",   loud: true },
-    { id: "queue",  label: "Queue",      icon: "list" },
-    { id: "recent", label: "Recent",     icon: "clock" },
   ],
 };
 

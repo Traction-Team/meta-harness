@@ -46,7 +46,7 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 const cap = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
 
 const state = {
-  mode: "system",           // system | product | agents
+  mode: "system",           // system | product
   view: "loop",
   sel: null,                // { t, id }
   zoom: 1, px: 0, py: 0,
@@ -57,9 +57,10 @@ const state = {
   docStack: [],             // markdown pages, deepest last
   drafts: {},               // path -> unsaved text
   editing: false,           // false = read, true = write
-  /* agents mode: which run's console is open, and the box you type back with */
+  /* a Factory worker console, and the box you type back with */
   run: null,                // run id, or null for the board
   composer: "",             // the un-sent line in the console
+  fleetSize: {},            // ws id -> configured agent capacity
   /* an input program opened as its own primary pane: the operator's intake
      console, where you pour work into the loop */
   inputOpen: null,          // input id, or null
@@ -95,6 +96,10 @@ const runById = (id) => AGENTS.find((r) => r.id === id);
 const runsForSlice = (id) => AGENTS.filter((r) => r.slice === id && r.status !== "done");
 const runProcOf = (r) => procById(RUN_PROC[r.station]);   // the edge this run executes
 const runModelOf = (r) => RUN_MODEL[r.station] || "sonnet";
+const liveAgents = () => AGENTS.filter((r) => r.status !== "done");
+const fleetSize = () => state.fleetSize[state.ws] ?? (state.fleetSize[state.ws] = liveAgents().length);
+const agentName = (r) => `Agent ${String(AGENTS.indexOf(r) + 1).padStart(2, "0")}`;
+const agentHue = (r) => (AGENTS.indexOf(r) * 47 + 205) % 360;
 /* a run's status maps onto the same four dots Product mode already draws, so
    the ring and the fleet never disagree about a slice */
 const RUN_DOT = { running: "run", waiting: "wait", failed: "bad", blocked: "ok", done: "ok" };
@@ -103,30 +108,43 @@ const dotForItem = (id, fallback) => {
   return rs.length ? RUN_DOT[rs[0].status] : fallback;
 };
 
-/* the agents rail, with counts read live off the fleet */
+/* worker views, with counts read live off the fleet */
 function agentsNav() {
   const n = (f) => AGENTS.filter(f).length;
   const buildable = ITEMS.plans.filter((i) => i.d === "run").length;
   return [
-    { id: "live",   label: "Live",      icon: "robot", n: n((r) => r.status === "running" || r.status === "waiting" || r.status === "failed") },
     { id: "needs",  label: "Needs you", icon: "flag",  n: n((r) => r.status === "waiting"), loud: true },
     { id: "queue",  label: "Queue",     icon: "list",  n: buildable },
     { id: "recent", label: "Recent",    icon: "clock", n: n((r) => r.status === "done") },
   ];
+}
+
+function scaleFleet(delta) {
+  const busy = liveAgents().length;
+  const next = clamp(fleetSize() + delta, 1, 32);
+  if (next === fleetSize()) return;
+  state.fleetSize[state.ws] = next;
+  const draining = Math.max(0, busy - next);
+  toast(draining
+    ? `${next} agents after ${draining} ${draining === 1 ? "session finishes" : "sessions finish"}`
+    : `${next} agents available to the factory`);
+  paint();
 }
 /* Factory mode's rail is just the loop's nodes: the Board, then one list per
    station, each badged with how many things are sitting there right now. Built
    from STATES so every workspace reads its own station names and counts, rather
    than a hand-curated set of cross-cutting views. */
 function productNav() {
-  return [{ id: "loop", label: "Board", icon: "loop" }].concat(
-    STATES.map((s) => ({ id: s.id, label: s.name, icon: s.icon, n: s.count })));
+  return [{ id: "loop", label: "Board", icon: "loop" }, { section: "Workers" }]
+    .concat(agentsNav(), [{ section: "Artifacts" }],
+      STATES.map((s) => ({ id: s.id, label: s.name, icon: s.icon, n: s.count })));
 }
 const navFor = () =>
-  state.mode === "agents" ? agentsNav()
-  : state.mode === "system" ? NAV.system.map((n) => (n.id === "issues" ? { ...n, n: openDefects().length } : n))
+  state.mode === "system" ? NAV.system.map((n) => (n.id === "issues" ? { ...n, n: openDefects().length } : n))
   : state.mode === "product" ? productNav()
   : NAV[state.mode];
+
+const factoryCanvas = () => state.mode === "product" && (state.view === "loop" || state.view === "needs");
 
 /* ══════════════════════════════════════════════ system version control ══
    The factory keeps a version of itself. As it runs, it logs **defects** — not
@@ -432,21 +450,24 @@ function paintSidebar() {
     $("#wsNew").onclick = () => { state.wsOpen = false; paintSidebar(); toast("New product workspace"); };
   }
 
-  const MODE_ICON = { system: ICONS.wrench, product: ICONS.list, agents: ICONS.robot };
-  const MODE_LBL  = { system: "System", product: "Factory", agents: "Agents" };
-  $("#modeSeg").innerHTML = ["system", "product", "agents"]
+  const MODE_ICON = { system: ICONS.wrench, product: ICONS.list };
+  const MODE_LBL  = { system: "System", product: "Factory" };
+  $("#modeSeg").innerHTML = ["system", "product"]
     .map((m) => `<button data-mode="${m}" class="${state.mode === m ? "on" : ""}">
       ${MODE_ICON[m]}<span>${MODE_LBL[m]}</span></button>`).join("");
   $("#modeSeg").querySelectorAll("button").forEach((b) => (b.onclick = () => setMode(b.dataset.mode)));
 
-  const rsec = state.mode === "system" ? "Definition" : state.mode === "agents" ? "Fleet" : "Work";
+  const rsec = state.mode === "system" ? "Definition" : "Factory";
   $("#sideNav").innerHTML = `<div class="rsec">${rsec}</div>` +
-    navFor().map((n) => `
+    navFor().map((n) => n.section ? `<div class="rsec sub">${n.section}</div>` : `
       <button class="snav ${state.view === n.id && !state.run ? "active" : ""}" data-view="${n.id}">
         ${ICONS[n.icon]}<span>${n.label}</span>
         ${n.n != null ? `<span class="snav-n ${n.loud && n.n ? "loud" : ""}">${n.n}</span>` : ""}
       </button>`).join("");
-  $("#sideNav").querySelectorAll("button").forEach((b) => (b.onclick = () => { state.view = b.dataset.view; state.sel = null; state.run = null; paint(); }));
+  $("#sideNav").querySelectorAll("button").forEach((b) => (b.onclick = () => {
+    state.view = b.dataset.view; state.sel = null; state.run = null; paint();
+    if (factoryCanvas()) requestAnimationFrame(() => fit(true));
+  }));
 
   $("#sideNavFoot").innerHTML = `
     <button class="snav" id="navSet">${ICONS.gate}<span>Integrations</span></button>`;
@@ -457,7 +478,7 @@ function paintToolbar() {
   $("#tbNav").innerHTML =
     `<button class="ico dim">${ICONS.chevL}</button><button class="ico dim">${ICONS.chevR}</button>`;
 
-  const modeLbl = state.mode === "system" ? "System" : state.mode === "agents" ? "Agents" : "Factory";
+  const modeLbl = state.mode === "system" ? "System" : "Factory";
   const viewLbl = (navFor().find((n) => n.id === state.view) || {}).label || state.view;
   const r = state.run ? runById(state.run) : null;
   const doc = state.docStack[state.docStack.length - 1];
@@ -482,9 +503,7 @@ function paintStrip() {
      repeats it — just what the factory is made of */
   $("#stripLeft").textContent = state.mode === "system"
     ? `${REPO.name} · ${REPO.runbooksN + (typeof INPUTS !== "undefined" ? INPUTS.length : 0)} programs, ${REPO.skillsN} skills`
-    : state.mode === "agents"
-    ? `${REPO.name} · ${live} agents running · ${waiting} waiting on you · ${AGENTS.filter((r) => r.status === "failed").length} failed`
-    : `${REPO.name} · ${REPO.branch} · ${COPY.productStat}`;
+    : `${REPO.name} · ${REPO.branch} · ${live} agents running · ${waiting} waiting on you · ${AGENTS.filter((r) => r.status === "failed").length} failed`;
   /* the old "broken wire" chip is now the defect count: a count badge that opens
      the Defects list and floats the version card in beside it */
   const nd = openDefects().length;
@@ -493,10 +512,10 @@ function paintStrip() {
   chip.innerHTML = `<span class="def-badge">${nd}</span>${nd === 1 ? "defect" : "defects"}`;
   chip.title = nd ? "Defects logged against the running loop" : "No open defects";
   chip.onclick = () => openDefectsList();
-  const MODE_ICON = { system: ICONS.wrench, product: ICONS.list, agents: ICONS.robot };
-  const MODE_LBL  = { system: "System mode", product: "Factory mode", agents: "Agents mode" };
+  const MODE_ICON = { system: ICONS.wrench, product: ICONS.list };
+  const MODE_LBL  = { system: "System mode", product: "Factory mode" };
   $("#modeChip").innerHTML = `${MODE_ICON[state.mode]}${MODE_LBL[state.mode]}`;
-  const NEXT = { system: "product", product: "agents", agents: "system" };
+  const NEXT = { system: "product", product: "system" };
   $("#modeChip").onclick = () => setMode(NEXT[state.mode]);
 }
 
@@ -652,9 +671,9 @@ function verCard(f, planned, viewing, nd) {
 function setMode(m) {
   if (state.mode === m) return;
   state.mode = m;
-  state.view = m === "agents" ? "live" : "loop";
+  state.view = "loop";
   state.sel = null; state.run = null; state.chat.open = false; closeEditor(true);
-  paint(); if (m !== "agents") fit();
+  paint(); requestAnimationFrame(() => fit(true));
 }
 
 /* the whole app re-reads one active dataset, so switching workspace is: swap the
@@ -667,10 +686,10 @@ function switchWorkspace(id) {
   state.chat = { open: false, log: [], text: "" }; state.askText = "";
   state.docStack = []; state.drafts = {}; state.editing = false;
   state.inputOpen = null; state.inputEditing = false; state.intakeText = "";
-  state.view = state.mode === "agents" ? "live" : "loop";
+  state.view = "loop";
   loadWorkspace(id);
   initDocs();
-  paint(); if (state.mode !== "agents") fit();
+  paint(); requestAnimationFrame(() => fit(true));
 }
 
 /* ═════════════════════════════════════════════════════════════ the loop ══
@@ -690,7 +709,7 @@ const GRID = {
 
 function geo(m) {
   const P = state.mode === "product"
-    ? { nw: 232, nh: 178, gapX: 230, gapY: 175 }
+    ? { nw: 232, nh: 178, gapX: 280, gapY: 330 }
     : { nw: 198, nh: 80,  gapX: 210, gapY: 155 };
   const pitchX = P.nw + P.gapX, pitchY = P.nh + P.gapY;
 
@@ -844,7 +863,11 @@ function paintLoop() {
     const g = edgeD(e); e._g = g;
     if (e.proc) {
       const p = e.proc;
-      const cls = p.broken ? "wire err" : "wire";
+      const procRuns = factoryCanvas() ? liveAgents().filter((r) => runProcOf(r) && runProcOf(r).id === p.id) : [];
+      const runCls = procRuns.some((r) => r.status === "waiting") ? " agent-wire attention"
+        : procRuns.some((r) => r.status === "failed") ? " agent-wire failing"
+        : procRuns.length ? " agent-wire active" : "";
+      const cls = (p.broken ? "wire err" : "wire") + runCls;
       const mk = p.broken ? "arrowE" : "arrow";
       paths += `<path class="${cls}" id="w-${p.id}" d="${g.d}" marker-end="url(#${mk})"/>`;
     } else if (e.back) {
@@ -907,12 +930,21 @@ function paintLoop() {
     /* System mode is where you design the program, so its action is Edit (opens
        the prompt in write mode); Factory mode is where you run it, so it is Play. */
     const isSys = state.mode === "system";
-    procs += `<div class="pr${sel}${chg}${p.broken ? " err" : ""}" data-proc="${p.id}" style="left:${g.mx}px;top:${g.my}px;transform:translate(-50%,-50%)">
+    const assigned = factoryCanvas()
+      ? liveAgents().filter((r) => runProcOf(r) && runProcOf(r).id === p.id && (state.view !== "needs" || r.status === "waiting"))
+      : [];
+    const attention = assigned.some((r) => r.status === "waiting") ? " attention" : assigned.some((r) => r.status === "failed") ? " failing" : "";
+    const agentRows = assigned.map((r) => `<button class="agent-run ${r.status}" data-run="${r.id}" title="Open ${esc(agentName(r))}">
+      <span class="agent-avatar" style="--agent-h:${agentHue(r)}" aria-hidden="true"></span>
+      <span class="agent-work"><b>${esc(agentName(r))}</b><span><span class="mono">${esc(r.slice)}</span> ${esc(r.title)}</span><small>${esc(r.question ? r.question.t : r.head || "Working")}</small></span>
+      <span class="nd-dot ${RUN_DOT[r.status]}"></span>
+    </button>`).join("");
+    procs += `<div class="pr${factoryCanvas() ? ` agent-proc${assigned.length ? " staffed" : ""}` : ""}${attention}${sel}${chg}${p.broken ? " err" : ""}" data-proc="${p.id}" style="left:${g.mx}px;top:${g.my}px;transform:translate(-50%,-50%)">
       <span class="pr-k ${p.kind === "runbook" ? "rb" : ""}">${p.kind === "runbook" ? ICONS.book : ICONS.sparkle}</span>
       <span class="pr-t">${esc(p.name)}</span>
       ${chg ? `<span class="pr-chg">Δ</span>` : ""}
-      ${badge}
-      <button class="pr-run" data-${isSys ? "edit" : "run"}="${p.id}" title="${isSys ? "Edit program" : `Run over ${inflight} items`}">${isSys ? ICONS.pencil : ICONS.play}</button>
+      ${factoryCanvas() ? `<span class="agent-proc-count">${assigned.length}</span>` : badge}
+      ${factoryCanvas() ? `<div class="agent-runs">${agentRows || `<span class="agent-empty">${state.view === "needs" ? "No attention needed" : "No agent assigned"}</span>`}</div>` : `<button class="pr-run" data-${isSys ? "edit" : "run"}="${p.id}" title="${isSys ? "Edit program" : `Run over ${inflight} items`}">${isSys ? ICONS.pencil : ICONS.play}</button>`}
     </div>`;
   });
 
@@ -934,6 +966,7 @@ function paintLoop() {
 
   $("#main").innerHTML = `
     <div class="lp" id="lp">
+      ${factoryCanvas() ? fleetControl() : ""}
       <div class="lp-world" id="world" style="width:${G.W}px;height:${G.H}px">
         <svg class="lp-svg" width="${G.W}" height="${G.H}">
           <defs>
@@ -959,6 +992,11 @@ function paintLoop() {
 
 function wireLoop() {
   const lp = $("#lp"), world = $("#world");
+
+  const fleetDown = $("#fleetDown"), fleetUp = $("#fleetUp"), fleetAlert = $("#fleetAlert");
+  if (fleetDown) fleetDown.onclick = () => scaleFleet(-1);
+  if (fleetUp) fleetUp.onclick = () => scaleFleet(1);
+  if (fleetAlert) fleetAlert.onclick = () => { state.view = "needs"; paint(); requestAnimationFrame(() => fit(true)); };
 
   world.querySelectorAll("[data-node]").forEach((el) => {
     el.onclick = (e) => { if (e.target.closest("[data-item]")) return; state.sel = { t: "node", id: el.dataset.node }; paint(); };
@@ -995,7 +1033,11 @@ function wireLoop() {
     };
   });
   world.querySelectorAll("[data-run]").forEach((el) => {
-    el.onclick = (e) => { e.stopPropagation(); runProc(el.dataset.run); };
+    el.onclick = (e) => {
+      e.stopPropagation();
+      if (state.mode === "product" && runById(el.dataset.run)) openRun(el.dataset.run);
+      else runProc(el.dataset.run);
+    };
   });
   world.querySelectorAll("[data-edit]").forEach((el) => {
     el.onclick = (e) => { e.stopPropagation(); openEditor(el.dataset.edit, true); };
@@ -1055,6 +1097,29 @@ function fit(anim) {
   state.zoom = z;
   state.px = (w - G.W * z) / 2;
   state.py = (r.height - G.H * z) / 2;
+  applyTransform(anim);
+}
+
+/* Selecting something on the canvas moves it into the centre of the space left
+   beside the inspector. Keep enough of the loop around it to preserve context. */
+function focusSelected(anim) {
+  const lp = $("#lp");
+  if (!lp || !state.sel || (state.sel.t !== "node" && state.sel.t !== "proc")) return;
+  const el = state.sel.t === "node"
+    ? lp.querySelector(`[data-node="${state.sel.id}"]`)
+    : lp.querySelector(`[data-proc="${state.sel.id}"]`);
+  if (!el) return;
+
+  const r = lp.getBoundingClientRect();
+  const worldRect = $("#world").getBoundingClientRect();
+  const elRect = el.getBoundingClientRect();
+  const roomW = r.width - (state.panelOpen ? PANEL_W - 22 : 0);
+  const cx = (elRect.left + elRect.width / 2 - worldRect.left) / state.zoom;
+  const cy = (elRect.top + elRect.height / 2 - worldRect.top) / state.zoom;
+  const closer = state.mode === "product" ? .98 : 1.08;
+  state.zoom = clamp(Math.max(state.zoom, closer), .5, 1.2);
+  state.px = roomW / 2 - cx * state.zoom;
+  state.py = r.height / 2 - cy * state.zoom;
   applyTransform(anim);
 }
 
@@ -1151,12 +1216,10 @@ function paintList() {
   });
 }
 
-/* ═══════════════════════════════════════════════════════════ agents ══
-   The third mode. System designs the loop and Product reads what sits at each
-   station; Agents watches the harness sessions actually walking things along
-   the edges. A run is one Claude Code session on one slice, and the console is
-   that session — the same thing Orca gives you, but scoped to the slice and
-   wired back into the loop it belongs to. */
+/* ═══════════════════════════════════════════════════════════ workers ══
+   Factory shows both the artifacts at each station and the harness sessions
+   walking them along the programs between those stations. A run is one session
+   on one slice; its console stays scoped to that slice and its place in the loop. */
 
 const STATUS_BASE = {
   running: { label: "running",  pill: "running" },
@@ -1189,7 +1252,9 @@ function agentsForView() {
 function paintAgents() {
   if (state.run && runById(state.run)) { paintConsole(runById(state.run)); return; }
 
-  const nav = agentsNav().find((n) => n.id === state.view) || { label: "Live" };
+  if (state.view === "needs") { paintLoop(); return; }
+
+  const nav = agentsNav().find((n) => n.id === state.view) || { label: "Workers" };
   const SUB = {
     live:   "every harness session in flight — the status dots on the board, as the sessions behind them",
     needs:  "agents that stopped and asked you something before guessing",
@@ -1230,6 +1295,27 @@ function paintAgents() {
     (el.onclick = () => openRun(el.dataset.run)));
   $("#main").querySelectorAll("[data-dispatch]").forEach((el) =>
     (el.onclick = (e) => { e.stopPropagation(); spawnRun("branch", el.dataset.dispatch, el.dataset.title); }));
+}
+
+function fleetControl() {
+  const busy = liveAgents().length, size = fleetSize();
+  const waiting = AGENTS.filter((r) => r.status === "waiting").length;
+  const failed = AGENTS.filter((r) => r.status === "failed").length;
+  const available = Math.max(0, size - busy), draining = Math.max(0, busy - size);
+  const status = draining ? `${draining} draining after current work` : `${busy} busy · ${available} available`;
+  return `<div class="fleet-control">
+    <div class="fleet-copy">
+      <span class="fleet-k">Factory agents</span>
+      <strong>${size}</strong>
+      <span class="fleet-status">${status}</span>
+    </div>
+    <div class="fleet-stepper" aria-label="Factory agent capacity">
+      <button id="fleetDown" title="Scale down">${ICONS.minus}</button>
+      <span>${size}</span>
+      <button id="fleetUp" title="Scale up">${ICONS.plus}</button>
+    </div>
+    ${waiting || failed ? `<button class="fleet-alert" id="fleetAlert">${ICONS.flag}<span>${waiting ? `${waiting} ${waiting === 1 ? "question" : "questions"}` : ""}${waiting && failed ? " · " : ""}${failed ? `${failed} failed` : ""}</span></button>` : `<span class="fleet-clear">${ICONS.check}No questions</span>`}
+  </div>`;
 }
 
 /* the fleet as a list, grouped by status: the ones that need you first, then
@@ -1311,7 +1397,7 @@ function paintConsole(r) {
   $("#main").innerHTML = `
     <div class="cns">
       <header class="cns-h">
-        <button class="ico" id="cnsBack" title="Back to the fleet (Esc)">${ICONS.chevL}</button>
+        <button class="ico" id="cnsBack" title="Back to Factory (Esc)">${ICONS.chevL}</button>
         <span class="pr-k">${ICONS.robot}</span>
         <div class="cns-ht">
           <div class="cns-name"><span class="mono cns-slice">${esc(r.slice)}</span> ${esc(r.title)}
@@ -1373,8 +1459,8 @@ function paintConsole(r) {
 }
 
 function openRun(id) {
-  state.mode = "agents"; state.run = id; state.composer = ""; state.docStack = []; state.inputOpen = null;
-  if (state.view === "queue") state.view = "live";
+  state.mode = "product"; state.run = id; state.sel = null; state.composer = ""; state.docStack = []; state.inputOpen = null;
+  if (state.view === "queue") state.view = "loop";
   paint();
 }
 
@@ -1502,8 +1588,6 @@ function paintPanels() {
   const P = $("#panels"), s = state.sel;
   const path = state.docStack[state.docStack.length - 1];
   P.classList.toggle("document-open", !!path);
-  /* The console carries its own rail until a document takes over the canvas. */
-  if (state.mode === "agents" && !path) { P.classList.remove("open"); P.innerHTML = ""; return; }
   P.classList.toggle("open", !!s || !!path);
   if (!s && !path) { P.innerHTML = ""; return; }
 
@@ -1530,7 +1614,7 @@ function paintPanels() {
   if (cur) cur.scrollIntoView({ block: "nearest" });
 
   const first = P.querySelector(".card-a");
-  if (first && (!s || s.t !== "proc")) {
+  if (first && (!s || s.t !== "proc" || inProduct)) {
     const x = document.createElement("button");
     x.className = "pnl-x"; x.title = "Close (Esc)"; x.innerHTML = ICONS.x;
     x.onclick = () => { state.sel = null; closeEditor(true); paint(); };
@@ -1685,16 +1769,20 @@ function paint() {
   paintSidebar(); paintToolbar(); paintStrip();
   const chat = state.chat.open && state.mode === "system";
   if (chat) paintSysChat();
-  else if (state.mode === "agents") paintAgents();
-  else if (state.view === "loop") paintLoop(); else paintList();
+  else if (state.run || (state.mode === "product" && (state.view === "queue" || state.view === "recent"))) paintAgents();
+  else if (state.view === "loop" || factoryCanvas()) paintLoop(); else paintList();
   /* the list gives up the room the panel needs; the loop keeps it and re-fits */
-  $("#main").classList.toggle("inset", !chat && state.mode !== "agents" && state.view !== "loop" && !!state.sel);
+  $("#main").classList.toggle("inset", !chat && state.view !== "loop" && !factoryCanvas() && !!state.sel);
   /* over a list, the version card gets its own room on the left so it never
      lands on top of the rows; over the loop it just floats on the dot grid */
   $("#main").classList.toggle("card-left", state.verCardOpen && state.mode === "system" && state.view !== "loop");
   paintPanels(); paintVersion(); paintAsk(); paintEditor();
-  /* the panels changed the room the loop has to live in, so give it back */
-  if (!chat && state.mode !== "agents" && state.view === "loop" && was !== state.panelOpen) requestAnimationFrame(() => fit(true));
+  /* Selection gets a closer contextual frame; closing the inspector restores
+     the whole-loop overview. */
+  if (!chat && (state.view === "loop" || factoryCanvas())) {
+    if (state.panelOpen && state.sel) requestAnimationFrame(() => focusSelected(true));
+    else if (was !== state.panelOpen) requestAnimationFrame(() => fit(true));
+  }
 }
 
 function toast(msg) {
@@ -1710,7 +1798,7 @@ document.addEventListener("click", () => {
   if (state.wsOpen) { state.wsOpen = false; paintSidebar(); }
   if (state.verMenuOpen) { state.verMenuOpen = false; paintVersion(); }
 });
-window.addEventListener("resize", () => { if (state.view === "loop") fit(); });
+window.addEventListener("resize", () => { if (state.view === "loop" || factoryCanvas()) fit(); });
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (state.verMenuOpen) { state.verMenuOpen = false; paintVersion(); }   /* the version dropdown */
@@ -1733,11 +1821,10 @@ window.addEventListener("keydown", (e) => {
   }
   if (e.key === "1") setMode("system");
   if (e.key === "2") setMode("product");
-  if (e.key === "3") setMode("agents");
 
   /* in a run console, up/down walk the fleet just like the file sheet walks a
      station list */
-  if ((e.key === "ArrowDown" || e.key === "ArrowUp") && state.mode === "agents" && state.run && !state.docStack.length) {
+  if ((e.key === "ArrowDown" || e.key === "ArrowUp") && state.mode === "product" && state.run && !state.docStack.length) {
     const list = agentsForView(), i = list.findIndex((r) => r.id === state.run);
     const j = clamp(i + (e.key === "ArrowDown" ? 1 : -1), 0, list.length - 1);
     if (i >= 0 && j !== i) { e.preventDefault(); openRun(list[j].id); }
@@ -2102,7 +2189,9 @@ function paintEditor() {
   host.innerHTML = `
     <div class="ov-card">
       <header class="ov-h">
-        ${state.docStack.length > 1 ? `<button class="ico" id="ovBack" title="Back">${ICONS.chevL}</button>` : ""}
+        ${face.item
+          ? `<button class="ico" id="ovBack" title="Back to Factory (Esc)">${ICONS.chevL}</button>`
+          : state.docStack.length > 1 ? `<button class="ico" id="ovBack" title="Back">${ICONS.chevL}</button>` : ""}
         <span class="pr-k ${face.tint}">${face.icon}</span>
         <div class="ov-ht">
           <div class="ov-name">${esc(docTitle(path))}
@@ -2114,7 +2203,7 @@ function paintEditor() {
           <button data-m="read" class="${state.editing ? "" : "on"}">${ICONS.eye}Read</button>
           <button data-m="write" class="${state.editing ? "on" : ""}">${ICONS.pencil}Edit</button>
         </div>
-        <button class="ico" id="ovX" title="Close (Esc)">${ICONS.x}</button>
+        ${face.item ? "" : `<button class="ico" id="ovX" title="Close (Esc)">${ICONS.x}</button>`}
       </header>
 
       <div class="ov-b">
@@ -2139,8 +2228,10 @@ function paintEditor() {
     </div>`;
 
   const card = host.querySelector(".ov-card");
-  $("#ovX").onclick = (e) => { e.stopPropagation(); closeEditor(); };
-  if (state.docStack.length > 1) $("#ovBack").onclick = () => { state.docStack.pop(); state.editing = false; paintPanels(); paintEditor(); paintToolbar(); };
+  const close = $("#ovX");
+  if (close) close.onclick = (e) => { e.stopPropagation(); closeEditor(); };
+  if (face.item) $("#ovBack").onclick = () => closeEditor();
+  else if (state.docStack.length > 1) $("#ovBack").onclick = () => { state.docStack.pop(); state.editing = false; paintPanels(); paintEditor(); paintToolbar(); };
   const runId = face.item && face.next ? face.next.id : p ? p.id : null;
   if (runId) $("#ovRun").onclick = () => runProc(runId);
   $("#ovSave").onclick = () => saveEditor();

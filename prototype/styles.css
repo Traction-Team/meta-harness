@@ -123,6 +123,7 @@ svg { display: block; }
 .snav-n.loud { color: #fff; background: var(--red); border-radius: 9px; min-width: 18px; height: 17px; padding: 0 5px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; }
 .side-sep { height: .5px; background: var(--line); margin: 8px 14px; }
 .rsec { padding: 12px 8px 5px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); }
+.rsec.sub { padding-top: 10px; }
 .side-fill { flex: 1; min-height: 0; }
 .side-foot { flex: none; padding: 6px 8px 10px; border-top: .5px solid var(--line); }
 
@@ -540,7 +541,7 @@ svg { display: block; }
    The fleet. A board of run cards, and behind any one of them a console that is
    the harness session itself — scoped to the slice, wired back to the loop. */
 
-/* the mode switcher now carries three, so let the labels flex and clip */
+/* let the mode labels flex and clip in a narrow sidebar */
 .seg.mode button { padding: 0 4px; gap: 4px; }
 .seg.mode button svg { flex: none; }
 .seg.mode button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -590,6 +591,62 @@ svg { display: block; }
 .wrow-r { display: flex; align-items: center; gap: 12px; flex: none; margin-top: 1px; }
 .wrow-time { color: var(--text-3); display: inline-flex; align-items: center; gap: 4px; }
 .wrow-time svg { width: 12px; height: 12px; }
+
+/* ── the factory floor: agents occupy the program they are executing on the
+      line between artifact-state lists ── */
+.wire.agent-wire { transition: stroke .2s, opacity .2s; }
+.wire.agent-wire.active { stroke: var(--green); opacity: .55; }
+.wire.agent-wire.attention { stroke: var(--amber); stroke-width: 2.3; }
+.wire.agent-wire.failing { stroke: var(--red); stroke-width: 2.3; stroke-dasharray: 6 4; }
+
+.pr.agent-proc { width: 156px; height: auto; min-height: 34px; padding: 6px 8px; display: grid;
+  grid-template-columns: 15px minmax(0,1fr) auto; gap: 0 6px; cursor: default; }
+.pr.agent-proc.staffed { width: 244px; }
+.pr.agent-proc.attention { border-color: color-mix(in srgb, var(--amber) 55%, transparent); box-shadow: 0 0 0 3px var(--win), 0 0 0 6px var(--amber-dim), var(--card-shadow); }
+.pr.agent-proc.failing { border-color: color-mix(in srgb, var(--red) 50%, transparent); }
+.agent-proc .pr-t { overflow: hidden; text-overflow: ellipsis; }
+.agent-proc-count { min-width: 17px; height: 17px; padding: 0 5px; display: grid; place-items: center;
+  border-radius: 20px; background: var(--raise); color: var(--text-2); font-size: 10.5px; font-weight: 650; }
+.agent-runs { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+.agent-run { width: 100%; min-width: 0; display: grid; grid-template-columns: 26px minmax(0,1fr) 7px;
+  align-items: center; gap: 7px; padding: 5px 6px; border-radius: 8px; text-align: left; background: var(--raise); }
+.agent-run:hover { background: var(--accent-dim); }
+.agent-run.waiting { background: var(--amber-dim); }
+.agent-run.failed { background: var(--red-dim); }
+.agent-avatar { width: 26px; height: 26px; border-radius: 8px; position: relative; flex: none;
+  background: linear-gradient(145deg, hsl(var(--agent-h) 72% 65%), hsl(var(--agent-h) 62% 48%));
+  border: .5px solid hsl(var(--agent-h) 50% 40% / .28); box-shadow: inset 0 1px 0 rgba(255,255,255,.2); }
+.agent-avatar::before, .agent-avatar::after { content: ""; position: absolute; top: 8px; width: 4px; height: 7px;
+  border-radius: 4px; background: rgba(255,255,255,.96); box-shadow: 0 .5px 1px rgba(0,0,0,.1); }
+.agent-avatar::before { left: 6px; }
+.agent-avatar::after { right: 6px; }
+.agent-work { min-width: 0; display: grid; grid-template-columns: auto minmax(0,1fr); align-items: baseline; gap: 1px 6px; }
+.agent-work b { font-size: 10.5px; font-weight: 650; white-space: nowrap; }
+.agent-work > span { min-width: 0; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-work > span .mono { font-size: 9.5px; color: var(--text-3); margin-right: 3px; }
+.agent-work small { grid-column: 1 / -1; min-width: 0; color: var(--text-3); font-size: 9.5px; line-height: 1.25;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-run.waiting .agent-work small { color: var(--amber); }
+.agent-run.failed .agent-work small { color: var(--red); }
+.agent-empty { color: var(--text-3); font-size: 10.5px; padding: 1px 2px 2px; text-align: center; }
+
+.fleet-control { position: absolute; z-index: 8; top: 14px; left: 14px; display: flex; align-items: center; gap: 12px;
+  padding: 7px 8px 7px 11px; border-radius: 12px; background: color-mix(in srgb, var(--card) 88%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(1.5); backdrop-filter: blur(18px) saturate(1.5);
+  border: .5px solid var(--line); box-shadow: var(--card-shadow); cursor: default; }
+.fleet-copy { display: grid; grid-template-columns: auto auto; align-items: baseline; gap: 0 7px; }
+.fleet-k { color: var(--text-2); font-size: 11px; font-weight: 600; }
+.fleet-copy strong { font-size: 16px; line-height: 1; font-variant-numeric: tabular-nums; }
+.fleet-status { grid-column: 1 / -1; color: var(--text-3); font-size: 10px; white-space: nowrap; }
+.fleet-stepper { display: flex; align-items: center; height: 28px; border: .5px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--card); }
+.fleet-stepper button { width: 28px; height: 28px; display: grid; place-items: center; color: var(--text-2); }
+.fleet-stepper button:hover { background: var(--hover); color: var(--text); }
+.fleet-stepper span { min-width: 28px; text-align: center; border-inline: .5px solid var(--line); font-size: 11.5px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.fleet-alert, .fleet-clear { height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 9px; border-radius: 8px; font-size: 11px; white-space: nowrap; }
+.fleet-alert { color: var(--amber); background: var(--amber-dim); }
+.fleet-alert:hover { box-shadow: inset 0 0 0 .5px var(--amber); }
+.fleet-alert svg, .fleet-clear svg { width: 13px; height: 13px; }
+.fleet-clear { color: var(--green); }
 
 /* ── the console ── */
 .cns { flex: 1; min-height: 0; display: flex; flex-direction: column; }
