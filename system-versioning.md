@@ -28,6 +28,13 @@ phase pauses the fleet, migrates what is in flight, and flips live onto the new
 version. The factory keeps a version of itself, and defects are the pressure
 that moves it forward.
 
+The accepted runtime in
+[`research/agent-runtime-architecture.md`](research/agent-runtime-architecture.md)
+owns these operations. System rework is a normal daemon-owned dispatch bound to
+the planned version and its contracts. Pause, migration, promotion, and the live
+flip are coordinator commands recorded in the event log; the UI only renders
+their progress.
+
 ## Defect ≠ product feedback
 
 Two return edges leave Feedback, and keeping them apart is the whole point.
@@ -65,6 +72,9 @@ The factory keeps a version of itself, `v41`. This is not the product's git
 history; it is the version of the **system** — the set of programs, contracts
 and edges that define the loop. Every promoted change bumps it, and the bumps
 are recorded in **version history**, separate from the repo's commit log.
+Promoted version files under `system/versions/*` hold declarative history. The
+event log records the operational plan, build, promotion, and switchover facts.
+The live pointer changes only after a successful switchover event is committed.
 
 Defects do not get patched one at a time on the live loop. Patching the same
 prompt again just spreads the same failure thinner. Instead they are folded, in
@@ -97,16 +107,19 @@ a batch, into a new version.
 1. **Accumulate.** Defects pile up off the running loop. The version pill shows
    the live version and the open-defect count.
 2. **Plan a change.** Fold every defect that carries a proposed fix into a fresh
-   version. A **system agent** reworks the affected edges in a branch named for
-   the version (`system/v42`), touching only the system, never the running loop.
-   The change is a diff: which edges get reworked, and which defect each closes.
+   version. A **system agent** runs as a daemon-owned dispatch in a branch named
+   for the version (`system/v42`), bound to that version's contracts and touching
+   only the system, never the running loop. The change is a diff: which edges get
+   reworked, and which defect each closes.
 3. **Build.** The agent works the branch. While it builds, the running factory
    keeps shipping on the old version — the rework is off to the side.
 4. **Ready.** The agent hands the version back when the rework is done. Promotion
    is a human gate, the same way a review is.
-5. **Promote → switchover.** Promoting runs the switchover, the only moment the
-   loop is paused: pause the running fleet, migrate what is in flight to the new
-   contracts, then flip the live pointer onto the new version.
+5. **Promote → switchover.** Promoting asks the coordinator to run the
+   switchover, the only moment the loop is paused: pause the running fleet,
+   migrate what is in flight to the new contracts, then flip the live pointer
+   onto the new version. Each step is committed as an event before the UI
+   reports it complete.
 6. **Live.** The defects the version addressed close against the redraw. Version
    history gains an entry naming the switch and the defects it closed. The
    factory is now running on the new version, and the pressure that moved it is
@@ -164,7 +177,9 @@ for point-patches-without-switchover is not built yet.
    is one line here and three faked toasts in the prototype. In reality, moving a
    half-built slice from an old contract to a new one is the hard part, and some
    slices will have to be paused or restarted rather than migrated. The UI shows
-   the phase; it does not yet show a slice that could not make the jump.
+   the phase; it does not yet show a slice that could not make the jump. The real
+   design must also handle daemon recovery, lost dispatches, operator-held
+   sessions, and attempts still bound to the old version.
 2. **One planned version at a time.** The model assumes a single branch in
    flight. Two overlapping reworks — one on `review`, one on `build` — would need
    the version graph to be a tree, not a line, and the canvas to diff more than

@@ -47,10 +47,12 @@ three mode ids are still `system` / `product` / `agents`; only the labels moved.
   system rather than on it.
 - **Agents mode.** No ring. This is the **fleet**: the harness sessions actually
   walking things along the edges. It is where the meta-harness stops describing
-  the loop and starts orchestrating it. The fleet is faked here; when it is real
-  it runs on our own thin Claude Code wrapper — one Agent SDK session per
-  dispatch — rather than on Orca. See
-  [`research/orca-evaluation.md`](research/orca-evaluation.md).
+  the loop and starts orchestrating it. The fleet is faked here; the accepted
+  runtime uses a separate local daemon to run each harness's real CLI in a
+  managed PTY and own worktrees, leases, the event log, and recovery. Factory MCP
+  carries structured questions and completion; ACP is capability-negotiated per
+  adapter. See
+  [`research/agent-runtime-architecture.md`](research/agent-runtime-architecture.md).
 
 System and Factory are two readings of one diagram. Agents is the third leg: the
 same slices, seen as the live sessions running against them.
@@ -58,41 +60,54 @@ same slices, seen as the live sessions running against them.
 ## Agents mode
 
 The status dots you see all over Factory mode (green running, amber waiting, red
-failed) were faked telemetry. They are now a **reading of the fleet** — a slice
-glows because a real run object says so — and Agents mode is where those runs
-live.
+failed) were faked telemetry. In this prototype they are a **reading of the
+fleet fixtures**. In the target runtime, both dots and Agents rows are projections
+of durable dispatch events, not mutable run objects, process state, or terminal
+output.
 
 The sidebar rail has four tabs, with live counts:
 
-- **Live** — every session in flight, as a **status-grouped list**: *Needs you*
-  first, then *Failed*, *Blocked*, *Running*. Each row is a slice + title, the
-  process · model · station, its current activity (or its question, in amber),
-  and elapsed time + a status pill.
-- **Needs you** — only the sessions that stopped to ask you something.
-- **Queue** — buildable slices the orchestrator can dispatch, as cards with a
-  **Dispatch** button that spawns a fresh session and drops you into it.
+- **Live** — every session in flight, grouped for display: *Needs you*
+  (`needs-you`, `needs-terminal`, `operator-held`), *Failed* (`failed`, `lost`),
+  *Blocked* (`blocked`), then *Running* (`starting`, `running`). Each row is a
+  slice + title, program · harness · station, current activity, elapsed time,
+  status, and the adapter capabilities relevant to interaction.
+- **Needs you** — clarification/review questions, native permission prompts,
+  terminal-only interactions, and operator-held work.
+- **Queue** — buildable slices the factory daemon can dispatch, as cards with a
+  **Dispatch** button that creates an explicit attempt and drops you into it.
 - **Recent** — sessions that finished, newest first.
 
-Clicking a row opens the **console**: that session, as a session. Header carries
-the slice, branch, model, process and elapsed time. The body is a two-column
-transcript-plus-rail:
+Clicking a row opens the **dispatch console**. The target surface separates
+durable factory activity from the native terminal rather than pretending one
+generic chat UI can represent every harness. The header carries the slice,
+branch, harness, program, elapsed time, and **Open terminal**. The body is a
+two-column activity-plus-rail view:
 
-- **Transcript.** System lines, the agent talking, tool calls with diffstats,
-  bash blocks (red on failure), your own messages as bubbles, and a blinking
-  cursor while it works.
-- **Composer.** Type back to steer it. When the agent is blocked, its question
-  surfaces above the box with one-tap answer options; answering (or typing)
-  continues the session.
+- **Activity.** Durable status, reports, questions, answers, completion,
+  artifacts, and defects. Typed model/tool/diff blocks appear only when supplied
+  by Factory MCP, ACP, or a harness-specific read adapter; terminal bytes are not
+  treated as semantic events.
+- **Question controls.** Factory MCP or ACP questions surface with one-tap
+  answers. Native permission prompts become `needs-terminal` unless an adapter
+  supplies structured permission events.
+- **Terminal.** **Open terminal** attaches xterm.js to the existing daemon-owned
+  PTY and gives exact native-TUI visibility and control. Closing the view leaves
+  the CLI running. A structured composer appears only for adapters that reliably
+  support prompt turns; it is not the universal steering path.
 - **Rail.** Progress, the slice (opens its file), the program (opens its
   document), the worktree, the read/write contract, and the files touched.
 
 The link runs both ways. A slice's file rail has a **Workers** section listing
 the runs on it; the Factory item panel gained an **Open worker** button. So you
-can go slice → runs against it → into the session, and back out from the console
-to the slice or the program's document.
+can go slice → runs against it → into its structured activity or exact live
+terminal, and back out to the slice or the program's document.
 
 Everything here is faked: the transcripts are canned, typing back appends a
 scripted continuation, and Dispatch fabricates a run. Nothing executes yet.
+The real Dispatch action binds an item, program revision, source and target
+states, system version, contract revision, harness adapter, permission profile,
+capability snapshot, worktree, and attempt number before launch.
 
 ## The loop
 
@@ -109,7 +124,8 @@ The **program** box sits at the middle of its edge, **on the line**. It carries:
   that `kind` split is legacy, see *Programs and skills* in `document-model.md`
 - the program name
 - a badge: open defects in System mode, items waiting in Factory mode
-- a play button, which runs it over whatever is in the upstream state
+- a play button, which asks the daemon to select eligible upstream items,
+  validate their contracts, and create explicit dispatch attempts
 - a failure-rate bar underneath, when Heat is on
 
 Broken wires render red and dashed. Hot edges (failure rate ≥ 25%) render amber.
@@ -163,12 +179,14 @@ flow, which walks these stages:
 
 - **plan** — no change in flight; a button folds the fixable defects into a fresh
   version.
-- **building** — a system agent reworks the affected edges in a branch
-  (`system/v42`); an indeterminate bar, and the change as a diff list (each row
-  an edge + the defect it closes, click to jump to that edge on the canvas).
+- **building** — a system agent runs as an ordinary daemon-owned dispatch and
+  reworks the affected edges in a branch (`system/v42`); an indeterminate bar,
+  and the change as a diff list (each row an edge + the defect it closes, click
+  to jump to that edge on the canvas).
 - **ready** — the rework is done; **Promote** or **Discard**.
-- **switchover** — promoting runs a three-step checklist (pause the fleet,
-  migrate what is in flight, flip live → v42) with a toast per step.
+- **switchover** — promoting asks the coordinator to run and record a three-step
+  checklist (pause the fleet, migrate what is in flight, flip live → v42), with
+  the UI projecting each committed step.
 - then it flips: live becomes v42, the folded defects close, and version history
   gains an entry.
 
@@ -209,7 +227,7 @@ What the panel holds, by selection:
 |---|---|
 | state, System mode | State card: predicate, shape, arrives/leaves by, **Throughput** |
 | state, Product mode | State card **and** `In <state>` list |
-| program | Process card: trigger, runner, median, runs, prompt link, defects, contract, send-back rate |
+| program | Process card: trigger, adapter/capability policy, median, runs, prompt link, defects, contract, send-back rate |
 | defect | Defect card (edge, source run, status) plus "why it lands here", and *Fold into next version* |
 | item, Product mode | `In <state>` list only, because the item's own detail is the file already open in the main pane |
 
@@ -273,7 +291,9 @@ is clickable.
 | click a list-view row (process/defect) | select it, panel opens |
 | click an agent row / card | open its console |
 | click a Workers row in a slice's rail | open that run's console |
-| type in the console composer, Enter | steer the session; a pending question offers one-tap answers |
+| answer a structured question | return the answer through Factory MCP or ACP |
+| click Open terminal | attach to the existing native CLI PTY; closing it leaves the dispatch running |
+| type in a capability-gated composer | steer adapters that expose reliable structured prompt turns |
 | click the version pill | open its dropdown: switch live / planned, plan a change |
 | click the strip defect badge | open the Defects list, float the version card in |
 | click a change row in the version card | jump to that edge on the planned canvas |
@@ -316,7 +336,9 @@ Faked, and honest about it:
 - all telemetry (runs, failure rates, dwell, sparklines)
 - Run buttons toast and light the wire; nothing executes
 - the whole Agents fleet: `AGENTS` transcripts are canned, typing back appends a
-  scripted continuation, Dispatch fabricates a run. No harness is driven yet.
+  scripted continuation, Dispatch fabricates a run. No harness is driven yet;
+  there is no daemon, event store, PTY registry, adapter, Factory MCP server, or
+  live-terminal attachment.
 - the version flow: planning folds the fixable defects, but the system agent's
   "build" is a timer, the switchover is three scripted toasts, and no runbook is
   actually reworked. Promoting does close the folded defects and write a version
@@ -339,5 +361,9 @@ off the fleet (`runsForSlice`, `dotForItem`) is real; the fleet behind it is not
    hand-waved, one planned version at a time, no defect-selection surface).
 3. A shared page can only have one parent. See the known limit in
    `document-model.md`.
-4. Source of truth must move to the actual markdown files, with canvas layout as
-   metadata beside them.
+4. Source of truth for system definition must move to the actual markdown files,
+   with canvas layout as metadata beside them. Runtime dispatch state belongs in
+   the separate event log described in `research/agent-runtime-architecture.md`.
+5. Agents mode still needs the accepted runtime's daemon, event schema and
+   reducers, PTY registry, adapter/capability model, Factory MCP server,
+   single-writer leases, live-terminal attachment, and recovery.

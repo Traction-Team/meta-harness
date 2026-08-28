@@ -3,10 +3,15 @@
 Working note, 2026-08-25. The part of this project that has to survive even if
 the prototype is thrown away.
 
-The harness has no database. Every object it shows is a markdown file in the
-repo, and every relationship between objects is either a path or an ordinary
-markdown link. If the UI burned down tomorrow you could keep working in a text
-editor and lose nothing but the drawing.
+The **declarative system model** has no database. Programs, skills, slices,
+specs, defects, predicates, contracts, and versions are repository files, and
+their relationships are paths or ordinary markdown links. If the UI burned down
+tomorrow, the definition would remain usable in a text editor.
+
+Runtime objects are different. Dispatch attempts, questions, answers, reports,
+heartbeats, terminal/session references, and status transitions live in the
+factory event log and appear in the UI as projections. See
+[`research/agent-runtime-architecture.md`](research/agent-runtime-architecture.md).
 
 ## Everything is a file
 
@@ -178,11 +183,10 @@ is where they get written down.
 Whatever the trigger, the play button on the edge still fires the program by hand.
 Automation sets the pace; the operator can always send one more.
 
-> **Not yet the build.** The triggers are still labels. Evaluating them — an
-> orchestrator that reads the counts on a tick and fires the programs whose
-> predicate is met — is the direction, the same as deriving the graph from inputs.
-> One difference: a trigger is checked at run time against live counts, not
-> statically against shapes.
+> **Not yet built in the prototype.** In the accepted runtime, the factory daemon
+> evaluates triggers against live counts and appends a dispatch-created event
+> before launching work. One difference remains: a trigger is checked at run
+> time against live counts, not statically against shapes.
 
 ## Defects attach to edges
 
@@ -236,6 +240,7 @@ Two things the UI needs that do not belong in the documents:
   metadata beside the corpus, never inside it. If the diagram owns the truth you
   get the Bubble problem: unversionable, undiffable, unreviewable.
 - **Telemetry.** Runs, failure rate, median duration, dwell time per state. This
-  comes from run records, not from markdown. The prototype fakes it, but the
+  is materialized from the factory dispatch event log, not from markdown,
+  terminal bytes, or mutable process state. The prototype fakes it, but the
   shape of the need is real: an edge with no run stats cannot be trusted and the
   visual stops earning its keep.

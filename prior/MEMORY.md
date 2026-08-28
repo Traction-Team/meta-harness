@@ -1,5 +1,10 @@
 # Meta-Harness project memory
 
+**Archived project memory.** This records the 24 Aug 2026 product shape and is
+not current guidance. The mode count and external-orchestrator boundary are
+superseded by `../MEMORY.md` and
+`../research/agent-runtime-architecture.md`.
+
 ## What this is
 
 A product concept for a bimodal desktop app (system mode + product mode) that

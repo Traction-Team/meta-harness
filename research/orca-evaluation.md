@@ -4,12 +4,18 @@ Researched 26 Aug 2026. Sources are a full clone of `stablyai/orca` at
 `933345d` (25 Aug 2026), the Orca docs at onorca.dev, and the Claude Agent SDK
 docs.
 
-**Verdict: take from it, do not build on it.** We write a thin wrapper around
-Claude Code ourselves. Orca becomes a reference implementation we read, not a
-dependency we ship. The reasoning is below, and the decisive part is not the
-size — it is that Orca's orchestration model is imperative where ours is
-declarative, and adopting it would make Orca's Run/Task/Dispatch the source of
-truth for execution instead of the loop.
+**Verdict: take from it, do not build on it.** Orca becomes a reference
+implementation we read, not a dependency we ship. The reasoning is below, and
+the decisive part is not the size: Orca's orchestration model is imperative
+where ours is declarative, and adopting it would make Orca's Run/Task/Dispatch
+the source of truth for execution instead of the loop.
+
+**Runtime update, 26 Aug 2026:** the Claude-Code-only Agent SDK recommendation
+in this document has been superseded by
+[`agent-runtime-architecture.md`](agent-runtime-architecture.md). The current
+accepted architecture is PTY-native agents owned by a separate daemon, Factory
+MCP as the common control plane, and capability-negotiated ACP. The Orca
+evaluation and rejection stand; only the runtime we build ourselves has changed.
 
 ---
 
@@ -70,8 +76,9 @@ done`, over a SQLite mailbox with FIFO delivery and explicit ack. There is DAG
 convergence, escalation triage, stale-dispatch detection, and federation for
 remote workers.
 
-Compare that to our Agents board (needs-you / failed / blocked / running). Same
-shape. `escalation` and `question` *are* needs-you.
+Compare that to the prototype's first Agents board (needs-you / failed / blocked
+/ running). The accepted status model is richer, but `escalation` and `question`
+still map naturally to needs-you events.
 
 It is all reachable from a CLI:
 
@@ -165,11 +172,13 @@ document the bugs this caused. There is a note in the composer that the PTY
 fragility you would expect from puppeting a TUI.
 
 They pay that because they support 25+ agent CLIs whose only common denominator
-is "runs in a terminal, writes a transcript somewhere." **We do not have that
-constraint.**
+is "runs in a terminal, writes a transcript somewhere." Meta Factories now has
+an explicit multi-harness requirement, although it does not need Orca's full
+application scope or transcript view for every harness.
 
-One detail from their code is the best single argument against driving an agent
-through a PTY. In `native-chat-agent-support.ts`:
+One detail from their code is the best single argument against using a PTY as the
+**structured control plane**. It is not an argument against running the native
+agent in a PTY. In `native-chat-agent-support.ts`:
 
 ```
 /** True when the agent renders a digit-commit question selector that ignores
@@ -179,15 +188,22 @@ through a PTY. In `native-chat-agent-support.ts`:
  *  as per-option keystrokes. Other agents commit a pasted answer. */
 ```
 
-A filed bug: answering an `AskUserQuestion` by pasting the option label
-silently committed **the wrong option**, because the selector is digit-driven
-and ignores typed text. That is exactly our "one-tap answers to blocking
-questions" feature. Through a PTY it is a bug farm. Through `canUseTool` it is
-a function that returns a value.
+A filed bug: answering an `AskUserQuestion` by pasting the option label silently
+committed **the wrong option**, because the selector is digit-driven and ignores
+typed text. That is exactly our "one-tap answers to blocking questions" feature.
+The accepted architecture keeps the real CLI in the PTY but routes dependable
+questions through Factory MCP or negotiated ACP instead of simulating selector
+keystrokes.
 
-### How we should do it
+### Superseded recommendation: Claude Agent SDK wrapper
 
-We only target Claude Code, so we can use the supported programmatic path: the
+This section is retained only as decision history. It was rejected when
+multi-harness support and exact live-native-terminal access became explicit
+requirements. The accepted replacement is
+[`agent-runtime-architecture.md`](agent-runtime-architecture.md).
+
+The earlier assumption was that we only targeted Claude Code, so we could use the
+supported programmatic path: the
 **Agent SDK in streaming input mode** (`@anthropic-ai/claude-agent-sdk`). Per
 the docs it "allows the agent to operate as a long lived process that takes in
 user input, handles interruptions, surfaces permission requests, and handles
@@ -222,12 +238,11 @@ cards, tool-result and diff cards — over our own event log. That is real work,
 but it is ordinary UI work against a typed stream, and it is the same surface
 the Agents console already fakes.
 
-**The tradeoff, stated honestly:** taking the SDK path means we are
+**The rejected tradeoff:** taking the SDK path means we are
 Claude-Code-only. Multi-agent support later would mean either a second adapter
-or falling back to Orca's PTY-plus-transcript approach. We are accepting that.
-Supporting 25 agent CLIs is Orca's business, not ours.
+or falling back to a PTY approach. We no longer accept that restriction.
 
-### Jumping in and out is the normal case, not the escape hatch
+### What the superseded takeover design taught us
 
 The objection that nearly reversed this decision: real work is **interleaved**.
 You do not hand a task to an agent and collect the result. You watch it, run
@@ -236,16 +251,16 @@ offers "supervised dispatch with a typed contract" is describing a workflow
 nobody actually has. Orca's terminal-first design is honest about this, and an
 SDK-only console looked like it was not.
 
-The fact that resolves it: **the session is the durable object, and the
-transport is swappable.** A session started by the Agent SDK is an ordinary
+The SDK proposal tried to resolve this by treating the session as the durable
+object and swapping transports. A session started by the Agent SDK is an ordinary
 Claude Code session on disk. Per the sessions docs, SDK and `-p` sessions are
 kept out of the picker and out of `--continue`, but *"you can still resume one
 by passing its session ID to `claude --resume <session-id>`"*, from any
 directory. The reverse also works: `claude -p --resume <id>` pushes a follow-up
 into a session you have been driving by hand.
 
-So the dispatch record stores the **session ID**, and taking the wheel becomes a
-supported gesture rather than a limitation:
+In that rejected design, the dispatch record stored the **session ID**, and
+taking the wheel required a mode switch:
 
 1. Operator hits *take over* on a dispatch.
 2. Factory stops the SDK worker and marks the dispatch `operator-held`.
@@ -254,25 +269,27 @@ supported gesture rather than a limitation:
 4. On hand-back, the SDK reattaches to the same session ID and the dispatch
    continues. Everything done by hand is already in the transcript.
 
-Two separate needs were being conflated, and only one of them is about
-transport:
+The accepted PTY-native design is simpler while the process is alive: the daemon
+already owns the real native CLI. **Open terminal** attaches xterm.js to the
+existing PTY; closing the view leaves the process running. No SDK stop/resume
+handoff occurs. ACP-to-native-TUI handoff remains a separate, capability-gated
+flow for adapters that can prove session continuity.
 
-| Need | Depends on SDK vs PTY? |
+Two separate terminal needs remain:
+
+| Need | Accepted handling |
 |---|---|
-| A terminal *beside* the agent — dev server, tests, poking the product, git | **No.** Orthogonal. `node-pty` + `xterm.js` in the worktree, cheap, built regardless. We do not need Orca's Ghostty-class WebGL terminal with infinite splits. |
-| Taking the wheel *on the agent's own conversation* | **No, given the above.** Solved by session ID. |
+| A terminal *beside* the agent — dev server, tests, poking the product, git | An ordinary sidecar PTY in the same worktree. |
+| Taking the wheel *on the agent's own conversation* | Attach to the dispatch's existing PTY. ACP mode exposes a handoff only when the adapter advertises it. |
 
-What we genuinely still give up:
+The SDK design would have given up:
 
-- **No live co-viewing.** The SDK drives or the TUI drives, not both at once,
-  so "watch the raw TUI while it works" is not available.
+- **No live co-viewing.** The SDK drives or the TUI drives, not both at once.
 - **Takeover is a mode switch, not instant.** Stop the worker, resume in a
   terminal. Small but real friction.
-- **The factory must hold a single-writer lock on the session.** The docs are
-  explicit that resuming the same session in two terminals without forking
-  interleaves both streams into one transcript. An SDK worker and a human
-  terminal on the same session ID at once would corrupt the conversation. This
-  is a hard invariant, not a nicety.
+- **The factory must hold a single-writer lock on the session.** This lesson
+  survives. In the accepted runtime, the daemon assigns an explicit lease to the
+  factory or operator so two inputs cannot corrupt one conversation.
 
 **What this changes in the product model.** A dispatch is a *container* for a
 piece of work, not a claim that the agent does it alone. The loop says the work
@@ -282,7 +299,7 @@ than a binary — from "answer this one question" through "review this diff" to
 "I am taking over for twenty minutes" — and `operator-held` is a first-class
 dispatch state alongside running / blocked / failed.
 
-Two smaller caveats worth recording:
+Two historical Claude-adapter caveats worth recording:
 
 - The SDK spawns the same `claude` binary underneath, so Claude Code still has
   to be installed and authenticated on the host.
@@ -299,41 +316,46 @@ two, and copying the model costs nothing:
 
 | Take | Where | Why |
 |---|---|---|
-| Run / Task / **Dispatch** split | `orchestration/types.ts` | A dispatch being *one attempt* is the thing that makes retries and stale completions safe. Do this from day one. |
-| `worker_done` requires an outcome | orchestration CLI docs | Forces failure to be reported, not inferred from a dead process. |
+| One-attempt **Dispatch** invariant | `orchestration/types.ts` | Makes retries and stale completions safe without adopting Orca's Task graph. Do this from day one. |
+| `worker_done` requires an outcome | orchestration CLI docs | Inspires `factory.complete`: failure is reported explicitly, then validated against the factory contract. |
 | Ack-until-processed delivery | `db/messages` | Replay the same batch until acked. Makes a crashed coordinator recoverable. |
 | Heartbeats + stale-dispatch warnings | `coordinator-task-dispatch.ts` | The only honest way to tell "working" from "hung". |
-| Decision gates | `coordinator-decision-gates.ts` | Maps onto `canUseTool` for us. |
+| Decision gates | `coordinator-decision-gates.ts` | Maps onto `factory.ask`, plus ACP elicitation or permission events where negotiated. |
 | Escalation / question as first-class | `types.ts` | These are our needs-you column. |
-| Transcript-tailing as a *fallback* | `native-chat/` | If we ever need a non-SDK agent, this is the pattern. Note the path-encoding traps. |
+| Transcript-tailing as an optional read model | `native-chat/` | Can enrich activity for a specific harness, but never supplies authoritative questions, completion, or status. |
 
 ## 5. What we deliberately do not build
 
-Terminal emulator. File editor. Embedded Chromium. SSH remoting. Mobile app.
-Account switching and usage tracking. Adapters for agents other than Claude
-Code. Federation across machines.
+Terminal emulator from scratch. Complete coding harnesses. Embedded Chromium.
+SSH remoting. Mobile app. Account switching and usage tracking. Federation
+across machines. We do build small launch/resume/capability adapters and
+integrate public PTY and terminal-renderer packages.
 
 Every one of these is why Orca is 1.5M lines. None of them is why our thing is
 interesting.
 
 ## 6. Where this decision hurts
 
-Being straight about the risk: the reason `orca-runtime.ts` is 41k lines is
-crash recovery, resume, and mid-flight state for long-running agent processes.
-That is genuinely hard and a hand-rolled version will hurt around month three.
+Being straight about the risk: Orca's large runtime illustrates how much
+complexity accumulates around crash recovery, resume, and mid-flight state for
+long-running agent processes, even though that file also covers broader
+application concerns.
 
-Mitigation: treat the event log as the source of truth from the first commit,
-never in-memory process state. A dispatch must be reconstructable from the log
-alone. If we get that seam right the rest is recoverable; if we get it wrong we
-will be rewriting.
+Mitigation: repository programs, predicates, and contracts remain authoritative
+for system definition, while the dispatch event log is authoritative for runtime
+lifecycle. Never derive either from in-memory process state. A dispatch must be
+reconstructable from the log alone. If we get that seam right the rest is
+recoverable; if we get it wrong we will be rewriting.
 
 ## 7. Revisit triggers
 
-Reopen this decision if any of these become true:
+Reopen the Orca dependency decision if either becomes true:
 
 - Stably ships the orchestration layer as a standalone importable package.
-- We need three or more agent CLIs, not just Claude Code.
 - We need remote/multi-machine workers and federation stops being hypothetical.
+
+Runtime architecture revisit triggers now live in
+[`agent-runtime-architecture.md`](agent-runtime-architecture.md).
 
 ## Sources
 

@@ -88,6 +88,7 @@ function model() {
 }
 const stateById = (id) => STATES.find((s) => s.id === id);
 const procById = (id) => PROCS.find((p) => p.id === id);
+const endpointName = (id) => stateById(id)?.name || procById(id)?.name || id;
 const issueById = (id) => ISSUES.find((i) => i.id === id);
 const brokenProcs = () => PROCS.filter((p) => p.broken);
 
@@ -731,6 +732,21 @@ function geo(m) {
     nodes[id] = { x: c * pitchX, y: r * pitchY, w: P.nw, h: P.nh };
   }
 
+  /* Gates are endpoints on the wire. Place each one between its source and
+     destination states so programs can route to the gate by id. */
+  const gates = {};
+  m.procs.filter((p) => p.kind === "gate").forEach((gate) => {
+    const incoming = m.procs.find((p) => p.kind !== "gate" && p.to === gate.id);
+    const from = nodes[incoming ? incoming.from : gate.from], to = nodes[gate.to];
+    if (!from || !to) return;
+    const w = 54, h = 54;
+    gates[gate.id] = {
+      x: ((from.x + from.w / 2) + (to.x + to.w / 2)) / 2 - w / 2,
+      y: ((from.y + from.h / 2) + (to.y + to.h / 2)) / 2 - h / 2,
+      w, h,
+    };
+  });
+
   /* input pills, stacked up-and-left of Feedback and pouring down into its top.
      Their right edge sits just left of Feedback's leftmost top-port so each wire
      leaves the pill, runs right, and drops straight in — no backtracking. */
@@ -744,14 +760,14 @@ function geo(m) {
   });
 
   /* fit the world around everything, then shift so it starts at (pad, pad) */
-  const rects = [...Object.values(nodes), ...inputs];
+  const rects = [...Object.values(nodes), ...Object.values(gates), ...inputs];
   const pad = 62;
   const minX = Math.min(...rects.map((q) => q.x)), minY = Math.min(...rects.map((q) => q.y));
   const maxX = Math.max(...rects.map((q) => q.x + q.w)), maxY = Math.max(...rects.map((q) => q.y + q.h));
   const dx = pad - minX, dy = pad - minY;
   rects.forEach((q) => { q.x += dx; q.y += dy; });
 
-  return { ...P, nodes, inputs, iw, ih,
+  return { ...P, nodes, gates, inputs, iw, ih,
     W: maxX - minX + pad * 2, H: maxY - minY + pad * 2 };
 }
 
@@ -855,13 +871,20 @@ function paintLoop() {
   const N = G.nodes;
   /* one lookup that also knows the input pills, so an input→state edge routes
      the same way a process edge does */
-  const look = { ...N };
+  const look = { ...N, ...G.gates };
   G.inputs.forEach((inp) => (look[inp.id] = inp));
 
   /* every wire the loop draws, as one list so wires sharing a side fan out
      together: the forward processes, the input feeders, and the back edges */
   const edges = [];
-  m.procs.forEach((p) => edges.push({ from: p.from, to: p.to, proc: p }));
+  m.procs.filter((p) => p.kind !== "gate").forEach((p) => edges.push({ from: p.from, to: p.to, proc: p }));
+  m.procs.filter((p) => p.kind === "gate").forEach((gate) => {
+    if (!G.gates[gate.id]) return;
+    if (!m.procs.some((p) => p.kind !== "gate" && p.to === gate.id)) {
+      edges.push({ from: gate.from, to: gate.id, gateWire: true });
+    }
+    edges.push({ from: gate.id, to: gate.to, gateWire: true });
+  });
   /* push the feeders bottom-to-top so the fan into Feedback's top splays with
      the topmost pill reaching the rightmost port — the wires never cross */
   [...G.inputs].reverse().forEach((inp) => edges.push({ from: inp.id, to: inp.to, cls: "in", fromSide: "right", toSide: "top" }));
@@ -881,6 +904,8 @@ function paintLoop() {
       const cls = (p.broken ? "wire err" : "wire") + runCls;
       const mk = p.broken ? "arrowE" : "arrow";
       paths += `<path class="${cls}" id="w-${p.id}" d="${g.d}" marker-end="url(#${mk})"/>`;
+    } else if (e.gateWire) {
+      paths += `<path class="wire" d="${g.d}" marker-end="url(#arrow)"/>`;
     } else if (e.back) {
       paths += `<path class="wire back" d="${g.d}" marker-end="url(#arrowA)"/>`;
       if (e.label) labels += `<div class="elabel" style="left:${g.mx}px;top:${g.my}px"><b>↺</b>${esc(e.label)}</div>`;
@@ -945,16 +970,7 @@ function paintLoop() {
       ? liveAgents().filter((r) => runProcOf(r) && runProcOf(r).id === p.id && (state.view !== "needs" || r.status === "waiting"))
       : [];
     const attention = assigned.some((r) => r.status === "waiting") ? " attention" : assigned.some((r) => r.status === "failed") ? " failing" : "";
-    const face = procFace(p), gate = p.kind === "gate";
-    if (gate) {
-      procs += `<div class="pr gate${attention}${sel}${chg}${p.broken ? " err" : ""}" data-proc="${p.id}" style="left:${g.mx}px;top:${g.my}px;transform:translate(-50%,-50%)">
-        <span class="gate-label"><b>${esc(p.name)}</b><small>${esc(p.assignee.name)} · ${esc(p.assignee.type)} · ${esc(p.decision)}</small></span>
-        <span class="gate-mark" aria-hidden="true"><i></i><i></i><b></b></span>
-        ${factoryCanvas() ? `<span class="gate-count">${assigned.length}</span>` : badge}
-        ${factoryCanvas() ? "" : `<button class="pr-run gate-action" data-edit="${p.id}" title="Edit gate">${ICONS.pencil}</button>`}
-      </div>`;
-      return;
-    }
+    const face = procFace(p);
     const agentRows = assigned.map((r) => `<button class="agent-run ${r.status}" data-run="${r.id}" title="Open ${esc(agentName(r))}">
       <span class="agent-avatar" style="--agent-h:${agentHue(r)}" aria-hidden="true"></span>
       <span class="agent-work"><b>${esc(agentName(r))}</b><span><span class="mono">${esc(r.slice)}</span> ${esc(r.title)}</span><small>${esc(r.question ? r.question.t : r.head || "Working")}</small></span>
@@ -962,10 +978,29 @@ function paintLoop() {
     </button>`).join("");
     procs += `<div class="pr${factoryCanvas() ? ` agent-proc${assigned.length ? " staffed" : ""}` : ""}${attention}${sel}${chg}${p.broken ? " err" : ""}" data-proc="${p.id}" style="left:${g.mx}px;top:${g.my}px;transform:translate(-50%,-50%)">
       <span class="pr-k ${face.tint}">${face.icon}</span>
-      <span class="pr-copy"><span class="pr-t">${esc(p.name)}</span>${gate ? `<small>${esc(p.assignee.name)} · ${esc(p.assignee.type)} · ${esc(p.decision)}</small>` : ""}</span>
+      <span class="pr-copy"><span class="pr-t">${esc(p.name)}</span></span>
       ${chg ? `<span class="pr-chg">Δ</span>` : ""}
       ${factoryCanvas() ? `<span class="agent-proc-count">${assigned.length}</span>` : badge}
-      ${factoryCanvas() ? `<div class="agent-runs">${agentRows || `<span class="agent-empty">${state.view === "needs" ? "No attention needed" : "No agent assigned"}</span>`}</div>` : `<button class="pr-run" data-${isSys ? "edit" : "run"}="${p.id}" title="${isSys ? `Edit ${gate ? "gate" : "program"}` : `Run over ${inflight} items`}">${isSys ? ICONS.pencil : ICONS.play}</button>`}
+      ${factoryCanvas() ? `<div class="agent-runs">${agentRows || `<span class="agent-empty">${state.view === "needs" ? "No attention needed" : "No agent assigned"}</span>`}</div>` : `<button class="pr-run" data-${isSys ? "edit" : "run"}="${p.id}" title="${isSys ? "Edit program" : `Run over ${inflight} items`}">${isSys ? ICONS.pencil : ICONS.play}</button>`}
+    </div>`;
+  });
+
+  m.procs.filter((p) => p.kind === "gate").forEach((p) => {
+    const r = G.gates[p.id]; if (!r) return;
+    const chg = reworked.has(p.id) ? " changed" : "";
+    const sel = state.sel && state.sel.t === "proc" && state.sel.id === p.id ? " sel" : "";
+    const nIssues = (p.issues || []).length;
+    const badge = state.mode === "system" && nIssues
+      ? `<span class="pr-b ${nIssues < 3 ? "amb" : ""}">${nIssues}</span>` : "";
+    const assigned = factoryCanvas()
+      ? liveAgents().filter((run) => runProcOf(run) && runProcOf(run).id === p.id && (state.view !== "needs" || run.status === "waiting"))
+      : [];
+    const attention = assigned.some((run) => run.status === "waiting") ? " attention" : assigned.some((run) => run.status === "failed") ? " failing" : "";
+    procs += `<div class="pr gate${attention}${sel}${chg}${p.broken ? " err" : ""}" data-proc="${p.id}" style="left:${r.x + r.w / 2}px;top:${r.y + r.h / 2}px;transform:translate(-50%,-50%)">
+      <span class="gate-label"><b>${esc(p.name)}</b><small>${esc(p.assignee.name)} · ${esc(p.assignee.type)} · ${esc(p.decision)}</small></span>
+      <span class="gate-mark" aria-hidden="true"><i></i><i></i><b></b></span>
+      ${factoryCanvas() ? `<span class="gate-count">${assigned.length}</span>` : badge}
+      ${factoryCanvas() ? "" : `<button class="pr-run gate-action" data-edit="${p.id}" title="Edit gate">${ICONS.pencil}</button>`}
     </div>`;
   });
 
@@ -1160,10 +1195,10 @@ const navLabel = (mode, view) => ((NAV[mode] || []).find((n) => n.id === view) |
 
 const VIEWS = {
   programs: () => ({ title: "Programs", sub: "the instructions on the lines — runbooks, plus the intake programs that pour work into the loop",
-    rows: RUNBOOKS.map((p) => ({ t: p.name, s: `${p.from} → ${p.to} · ${p.trigger}`, r: `${p.runs} runs`, pill: p.issues.length ? `${p.issues.length} issues` : "clean", bad: p.issues.length > 2, sel: { t: "proc", id: p.id } }))
+    rows: RUNBOOKS.map((p) => ({ t: p.name, s: `${endpointName(p.from)} → ${endpointName(p.to)} · ${p.trigger}`, r: `${p.runs} runs`, pill: p.issues.length ? `${p.issues.length} issues` : "clean", bad: p.issues.length > 2, sel: { t: "proc", id: p.id } }))
       .concat((typeof INPUTS !== "undefined" ? INPUTS : []).map((inp) => ({ t: inp.name, s: `intake → ${inp.to} · ${inp.sub}`, r: `${inp.count} waiting`, pill: "intake", bad: false, sel: { t: "input", id: inp.id } }))) }),
   gates: () => ({ title: "Gates", sub: "decisions that artifacts must pass before the factory can continue",
-    rows: GATES.map((p) => ({ t: p.name, s: `${p.from} → ${p.to} · ${p.decision}`, r: `${p.assignee.name} · ${p.assignee.type}`, pill: `${p.runs} decisions`, bad: false, sel: { t: "proc", id: p.id } })) }),
+    rows: GATES.map((p) => ({ t: p.name, s: `${endpointName(p.from)} → ${endpointName(p.to)} · ${p.decision}`, r: `${p.assignee.name} · ${p.assignee.type}`, pill: `${p.runs} decisions`, bad: false, sel: { t: "proc", id: p.id } })) }),
   skills: () => ({ title: "Skills", sub: "capabilities a program can call",
     rows: SKILLS.concat(EXTRA_SKILLS)
       .map((p) => ({ t: p.name, s: `${p.trigger}`, r: `${p.runs} runs`, pill: p.broken ? "broken wire" : "clean", bad: !!p.broken, sel: p.id ? { t: "proc", id: p.id } : null })) }),
@@ -1451,7 +1486,7 @@ function paintConsole(r) {
           <div class="rail-c">
             <div class="rail-k">reads from ${esc(from ? from.name : proc.from)}</div>
             <div class="fields">${proc.reads.map((f) => `<span class="f ${from && from.shape.includes(f) ? "ok" : "no"}">${esc(f)}</span>`).join("")}</div>
-            <div class="rail-k">writes into ${esc(to ? to.name : proc.to)}</div>
+            <div class="rail-k">writes into ${esc(to ? to.name : endpointName(proc.to))}</div>
             <div class="fields">${proc.writes.map((f) => `<span class="f ${to && to.shape.includes(f) ? "ok" : "no"}">${esc(f)}</span>`).join("")}</div>
           </div>` : ""}
 
@@ -1710,7 +1745,7 @@ function procPanel(p) {
   const face = procFace(p), owner = p.assignee;
   return card(p.kind === "gate" ? "Gate" : "Process", `<span class="tagm ${face.cls}">${p.kind}</span>`, `
     <div class="c-n">${esc(p.name)}</div>
-    <div class="c-r">${esc(src ? src.name : p.from)} → ${esc(dst ? dst.name : p.to)}</div>
+    <div class="c-r">${esc(src ? src.name : endpointName(p.from))} → ${esc(dst ? dst.name : endpointName(p.to))}</div>
     ${kv([["Trigger", esc(p.trigger)], [owner ? "Assigned to" : "Runner", owner ? `${esc(owner.name)} <span class="pill plain">${esc(owner.type)}</span>` : esc(p.runner)], ...(p.decision ? [["Decision", esc(p.decision)]] : []), ["Median", esc(p.median)], ["Runs", `${p.runs}`],
           ["Prompt", `<a class="lnk" onclick="openEditor('${p.id}')">${esc(file)}</a>
             <span style="color:var(--text-3)"> · ${nTasks} tasks${nPages ? ` · ${nPages} pages` : ""}</span>`],
@@ -2171,7 +2206,7 @@ function docSupportCard(path) {
       <div class="rail-c">
         <div class="rail-k">reads from ${esc(from ? from.name : p.from)}</div>
         <div class="fields">${p.reads.map((f) => `<span class="f ${from && from.shape.includes(f) ? "ok" : "no"}">${esc(f)}</span>`).join("")}</div>
-        <div class="rail-k">writes into ${esc(to ? to.name : p.to)}</div>
+        <div class="rail-k">writes into ${esc(to ? to.name : endpointName(p.to))}</div>
         <div class="fields">${p.writes.map((f) => `<span class="f ${to && to.shape.includes(f) ? "ok" : "no"}">${esc(f)}</span>`).join("")}</div>
         ${p.broken ? `<div class="rail-bad">Broken wire: ${esc(p.broken)}</div>` : ""}
       </div>` : `<div class="rail-h mt">${ICONS.gate}Contract</div>

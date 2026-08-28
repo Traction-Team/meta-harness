@@ -118,7 +118,7 @@ const STATES = [
       runbook or a skill, and every one carries a contract and a run record. ── */
 const PROCS = [
   {
-    id: "plan", from: "spec", to: "plans", name: "plan feature", kind: "runbook",
+    id: "plan", from: "spec", to: "approved", name: "plan feature", kind: "runbook",
     trigger: "manual", runner: "opus · human gate", runs: 64, fail: .09, median: "4m 20s",
     reads: ["problem", "constraints[]", "decisions[]"], writes: ["id", "needs[]", "owns[]", "spec", "proves"],
     issues: ["i7"],
@@ -150,6 +150,22 @@ You are cutting a **product spec** into build slices. Read the section named in
 1. A slice is too big if \`owns\` lists more than six files. Split it.
 2. Two slices may not own the same path.
 3. Report collisions. Do not resolve them yourself.`
+  },
+  {
+    id: "approved", from: "spec", to: "plans", name: "approved feature", kind: "gate",
+    assignee: { type: "human", name: "You" }, decision: "Approve feature",
+    trigger: "on arrival", runner: "human gate", runs: 61, fail: .05, median: "2m",
+    reads: ["id", "needs[]", "owns[]", "spec", "proves"], writes: ["approved_at"],
+    issues: [],
+    prompt: `## Decision
+
+Approve the proposed build slices before they enter the build plan queue.
+
+## Checks
+
+- Every slice proves one observable behavior.
+- Dependencies and owned paths do not conflict.
+- The slices cover the requested spec section without adding scope.`
   },
   {
     id: "dispatch", from: "plans", to: "branch", name: "dispatch slice", kind: "skill",

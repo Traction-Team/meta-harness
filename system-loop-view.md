@@ -1,6 +1,7 @@
 # System mode: the loop view
 
-Working note, 2026-08-25. Refines the system side of `meta-harness/product-shape.md`.
+Working note, 2026-08-25. Refines the system side of the historical,
+partly superseded `prior/product-shape.md`.
 
 This is the **why**. For what got built and how it behaves see `prototype.md`;
 for the file conventions underneath it see `document-model.md`. Where this note
@@ -72,7 +73,9 @@ A node is not a document. It is a set: a glob, a folder, or a query.
 
 1. The node is **countable**. Render a badge: 12 slices sitting here right now.
 2. The loop is therefore both the **definition** and the **runtime dashboard**.
-   Same view, two readings. It is a Kanban board bent into a ring.
+   State membership comes from repository predicates; live dispatch overlays
+   and telemetry come from event-log projections. Same view, two readings. It is
+   a Kanban board bent into a ring.
 
 A node also carries a **shape**: the template/schema that artifacts in that state
 must satisfy (e.g. slices need `needs` / `owns` / `spec` / `proves`).
@@ -88,10 +91,12 @@ Each **program** box holds:
 - **trigger**: when it fires — **manual**, **event** (on-arrival, on-ship),
   **clock** (every 1h, weekly), or **backpressure**: a predicate over the states'
   counts, like `branch < 3 and plans > 0`. See *The trigger paces the loop*.
-- **runner**: which agent, and whether there is a human gate.
+- **runner policy**: eligible harness adapters, required capabilities,
+  permission profile, and human gates.
 - **skills it calls**: the capabilities the body reaches for — browser use, a
   query. A skill is a tool, not a step, so it is never an edge of its own.
-- **telemetry**: runs, retries, failure rate, median duration.
+- **telemetry**: runs, retries, failure rate, and median duration, materialized
+  from dispatch events.
 
 The **bound / open** split is the whole trick. A program with a bound input is a
 transition, drawn as a box on a line. A program whose input is open is an entry
@@ -116,10 +121,11 @@ downstream drain and no faster, so there is no interval to pick; the loop paces
 itself against real throughput. That is a Kanban WIP limit, written on the edge
 instead of pencilled on a column.
 
-The operator is never locked out. Whatever a program's trigger, the play button on
-its line fires it by hand — the pace is automatic, sending one more is manual. So
-managing throughput is not a dial to tune; it is a WIP limit on the edges plus a
-person who can always push one more through.
+The operator is never locked out. Whatever a program's trigger, the play button
+requests an explicit dispatch attempt through the factory daemon. The daemon
+selects eligible items, validates contracts, commits the attempt to the event
+log, and only then launches work. The pace is automatic; sending one more is
+manual.
 
 ## Defects attach to edges, not nodes
 
@@ -146,9 +152,10 @@ what a **version** drains when you fold a batch of defects into a rework. See
   send-back rate.
 - Open a program -> its instructions as a full-page document, laid over the loop,
   with its tasks and contract in a rail beside it.
-- Play button **on the line** -> run this program now over whatever is sitting in
-  the source node. An intake pill's play button opens its console instead, where
-  the operator fills the program's open input by hand.
+- Play button **on the line** -> ask the daemon to select eligible source items,
+  validate their contracts, and create explicit dispatch attempts. An intake
+  pill's play button opens its console instead, where the operator fills the
+  program's open input by hand.
 
 The payoff: the diagram is executable. You are not drawing your programs, you are
 wiring them, and the run buttons are on the edges.
@@ -170,9 +177,11 @@ same decomposition without a second diagram to hold in your head.
    by the counting-node model above. Product mode is the same ring with lists as
    nodes, and selecting anything there opens the file itself with the station
    list floating beside it as the navigator.
-3. **Source of truth must be the files.** Runbooks are markdown in `system/`.
-   The canvas is a projection; layout is metadata. If the diagram owns the truth
-   you get the Bubble problem: unversionable, undiffable, unreviewable.
+3. **Source of truth is split by concern.** Repository files are authoritative
+   for system definition. The factory event log is authoritative for dispatch
+   lifecycle. The canvas, Agents board, and telemetry are projections; layout is
+   metadata. If the diagram owns the truth you get the Bubble problem:
+   unversionable, undiffable, unreviewable.
 4. **The killer risk.** If a program box is just a prompt file with no contract
    and no telemetry, the whole diagram degrades into a pretty file browser. The
    visual only earns its keep if edges carry contracts and run stats. Visual

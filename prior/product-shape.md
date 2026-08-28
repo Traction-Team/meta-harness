@@ -1,5 +1,10 @@
 # Meta-Harness: product shape
 
+**Historical document.** The product concepts continue, but the two-mode model,
+external-orchestrator boundary, and MVP sequence below are superseded by the
+current docs and
+[`../research/agent-runtime-architecture.md`](../research/agent-runtime-architecture.md).
+
 Working name. The bimodal harness for the system that builds the system and the
 product it builds.
 
@@ -25,7 +30,7 @@ system. Nobody has built the IDE for the source.
    is no channel from "the agent found a gap in the review skill" back to "the
    review skill gets patched."
 
-## The two modes
+## The two modes (superseded)
 
 The product has exactly two modes. They share a repo but frame it differently.
 
@@ -138,7 +143,14 @@ Four queries that only work once the graph exists:
    cannot run in parallel worktrees. Surface this before dispatch, not after a
    merge conflict.
 
-## The execution layer
+## The execution layer (superseded)
+
+The accepted architecture no longer dispatches through an external orchestrator.
+A separate local factory daemon owns managed PTYs, native agent processes,
+worktrees, session leases, Factory MCP, dispatch events, and recovery. The
+factory still owns the context and declarative contracts; it now also owns the
+small runtime needed to execute them. The original boundary is retained below as
+decision history.
 
 This product does not replace Orca, Conductor, or raw Claude Code. It sits
 above them.
@@ -160,10 +172,10 @@ Claude Code / Codex / etc    <-- the coding agent
 Code (the projection)
 ```
 
-The product dispatches work to agents through whatever orchestrator is
-configured. It does not own the agent session. It owns the context the agent
-receives (the spec, the slice, the relevant decisions, the skills) and the
-feedback the agent returns (the PR, the system issues, the decision proposals).
+The earlier model dispatched work through whatever external orchestrator was
+configured and did not own the agent session. That boundary is superseded. The
+factory still owns the context the agent receives and the feedback it returns,
+but the accepted local daemon also owns the dispatch process and terminal.
 
 ## What the product is not
 
@@ -171,9 +183,10 @@ feedback the agent returns (the PR, the system issues, the decision proposals).
   BMAD already own that space. This product consumes specs in whatever format
   the system defines. It does not prescribe a format.
 
-- **Not an agent orchestrator.** Orca, Conductor, amux already own that space.
-  This product dispatches to orchestrators. It does not manage worktrees or
-  terminals.
+- **Not a general-purpose external orchestrator or a complete coding harness.**
+  It does own the factory-specific runtime needed to execute its programs:
+  dispatch attempts, worktrees, managed terminals, structured control events,
+  and recovery. It does not rebuild Claude Code, Codex, OpenCode, or Gemini CLI.
 
 - **Not a canvas or whiteboard.** The graph has a visual representation, but
   the primary interface is query-driven views (frontier, blast radius,
@@ -184,7 +197,7 @@ feedback the agent returns (the PR, the system issues, the decision proposals).
   want waterfall slices, define waterfall slices. If you want kanban with
   Linear, wire Linear. The tool provides the harness, not the methodology.
 
-## The MVP scope
+## The MVP scope (superseded sequencing)
 
 ### Ship first (one shape of product mode)
 

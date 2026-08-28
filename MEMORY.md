@@ -11,7 +11,8 @@ Continuation of the `meta-harness` project (see
 | `system-versioning.md` | **why, part two**: defects, and the loop that rewrites itself into a new version |
 | `document-model.md` | **the model**: paths, nesting, checkboxes, predicates, contracts. Survives the prototype |
 | `prototype.md` | **what is built**: how to run it, every surface, every gesture, what is faked |
-| `research/orca-evaluation.md` | **the execution decision**: why we wrap Claude Code ourselves instead of building on Orca |
+| `research/orca-evaluation.md` | **the Orca decision**: why we take from Orca instead of building on it |
+| `research/agent-runtime-architecture.md` | **the accepted runtime**: PTY-native agents, Factory MCP, capability-negotiated ACP |
 
 ## The idea in one paragraph
 
@@ -53,57 +54,49 @@ and versioning is finally its UI.
   (definition vs. board of lists). Agents drops the ring entirely.
 - **Agents mode is the third leg: orchestration, not description.** The live
   harness sessions walking slices along the edges — the role a tool like Orca
-  plays, which we now build ourselves (see the decision below). A board
-  (a status-grouped list: needs-you / failed / blocked / running) over a console
-  that is the session itself: transcript, a composer to steer it, one-tap answers
-  to its blocking questions, and a rail linking back to the slice and the prompt.
-- **The status dots are now a reading of the fleet, not decoration.** `AGENTS` is
-  the source; `runsForSlice` / `dotForItem` derive the Factory dots from it, so
-  the ring and the fleet can never disagree about a slice. That seam (real
-  wiring, faked fleet) is where execution plugs in later.
-- **We wrap Claude Code ourselves. We do not build on Orca.** Settled 26 Aug
-  2026 after reading the source; full workings in `research/orca-evaluation.md`.
-  Orca is MIT and excellent, but it is 1.55M non-test lines, five months old,
-  ~100 PRs/day, and **exposes no importable library** — using its orchestration
-  means running a 300 MB Electron app and shelling out to the `orca` binary.
-  The deciding reason is not size though: Orca's orchestration is *imperative*
-  (a coordinator LLM calls `task-create` then `worker-start` at run time,
-  ephemeral per-run DAG) where ours is *declarative* (predicates over the repo,
-  typed program contracts, statically checkable before dispatch). Sitting on it
-  would make Orca's Run/Task/Dispatch the source of truth for execution instead
-  of the loop. We read it as a spec and copy the model.
-- **Worker chat is the Agent SDK, not a PTY.** The factory needs a console where
-  you watch a worker and talk to it mid-task. Orca does this asymmetrically —
-  it tails Claude's own JSONL transcript at
-  `~/.claude/projects/<encoded-cwd>/<session>.jsonl` for the read model, and
-  puppets keystrokes into a PTY running the real TUI for the write model —
-  because it must support 25+ agent CLIs whose only common denominator is a
-  terminal. We only target Claude Code, so we use the supported path instead:
-  `@anthropic-ai/claude-agent-sdk` in **streaming input mode**. One long-lived
-  `query()` per worker, an async generator as the composer, a typed message
-  stream to render, `interrupt()` to stop, and `canUseTool` as the **decision
-  gate** — the blocked/needs-you state comes for free rather than being a
-  protocol we invent. Cost of this: we are Claude-Code-only, accepted knowingly.
-  (Correction to an earlier note: Orca's *primary* surface is the real TUI in a
-  PTY. Its native chat is a view mode on a terminal tab, behind an experimental
-  flag, for only 5 of its 25+ agents. Their own `STA-1860` comment — pasting an
-  `AskUserQuestion` label committed the *wrong* option because the selector is
-  digit-driven — is the sharpest argument against driving an agent by PTY.)
-- **The session is the durable object; the transport is swappable.** This is what
-  makes jump-in/jump-out work, and it nearly reversed the decision before we
-  found it. An Agent SDK session is an ordinary Claude Code session on disk:
-  SDK/`-p` sessions are hidden from the picker and `--continue`, but
-  `claude --resume <session-id>` opens one in the **full interactive TUI** from
-  any directory, and `claude -p --resume <id>` pushes a follow-up into a session
-  you drove by hand. So a dispatch stores a session ID, and *take over* is:
-  stop the SDK worker → mark `operator-held` → open a terminal running
-  `claude --resume <id>` → hand back, SDK reattaches to the same ID. Hard
-  invariant: **single writer per session**. Two attachments without forking
-  interleave into one transcript and corrupt it.
-- **A terminal in the worktree is orthogonal and we build it anyway.** Running
-  the dev server, tests, git, poking the product — none of that depends on how
-  the agent is driven. `node-pty` + `xterm.js`, not Orca's Ghostty-class WebGL
-  terminal with infinite splits.
+  plays, which we now build ourselves (see the decision below). Its board covers
+  `starting`, `running`, `needs-you`, `needs-terminal`, `operator-held`,
+  `blocked`, `failed`, `lost`, and recent completion. The console is a durable
+  activity/question view; **Open terminal** attaches to the exact native TUI.
+  A generic composer is shown only where an adapter provides reliable structured
+  steering.
+- **The status dots are now a reading of the fleet, not decoration.** In the
+  prototype, `AGENTS` is the fixture source and `runsForSlice` / `dotForItem`
+  derive the Factory dots from it. In the real runtime, Agents rows and Factory
+  dots are projections of the dispatch event log, so neither mutable process
+  state nor terminal output can make the views disagree.
+- **We do not build on Orca.** Settled 26 Aug 2026 after reading the source;
+  full workings in `research/orca-evaluation.md`. Orca is MIT and excellent, but
+  it is 1.55M non-test lines and exposes no importable orchestration library.
+  More importantly, its orchestration is imperative and per-run where ours is
+  declarative and statically checkable. Sitting on Orca would make its
+  Run/Task/Dispatch model the execution authority instead of the loop. We read
+  it as a spec and copy the useful model.
+- **The accepted runtime is PTY-native agents + Factory MCP + optional ACP.** The
+  Claude-Code-only Agent SDK recommendation was superseded later on 26 Aug when
+  multi-harness support and exact live-terminal access became explicit product
+  requirements. Full design in `research/agent-runtime-architecture.md`.
+- **PTY is the data plane.** Run each harness's real CLI in a managed PTY owned
+  by a separate local daemon. Electron + `node-pty` + `@xterm/xterm` means we do
+  not write a terminal emulator. The operator can attach to the exact live TUI
+  at any time; ordinary sidecar shells in the same worktree are separate PTYs.
+  A PTY emits bytes, not dependable questions or completion events, so never
+  make screen scraping the factory contract.
+- **Factory MCP is the common control plane.** Give compatible workers
+  `factory.ask`, `factory.complete`, `factory.report`, and `factory.heartbeat`.
+  Programs tell agents to use these instead of private question tools. Questions
+  and answers are durable dispatch events; the MCP request is only transport.
+  ACP enriches adapters that reliably implement elicitation, permissions, and
+  session resume, but is capability-negotiated rather than assumed.
+- **Support is tiered, not falsely uniform.** Tier 1: ACP/elicitation + MCP; Tier
+  2: native CLI + MCP; Tier 3: any CLI in a terminal, with no guaranteed
+  structured questions or completion. Claude Code, Codex, OpenCode, Gemini CLI,
+  and future harnesses are adapter entries with explicit capabilities.
+- **The session is durable but adapter-specific.** While a PTY lives, opening the
+  terminal is only attaching a view; no handoff is needed. After daemon or
+  machine death, recovery uses the harness's native session ID or ACP
+  load/resume. ACP does not guarantee that its session can open in the native
+  TUI, so `nativeTuiHandoff` is optional. Hard invariant: one writer per session.
 - **A dispatch is a container, not a claim of autonomy.** Real work is
   interleaved: you watch, you jump in, you take the wheel, you hand back. The
   loop only asserts a start state, a program, and an end state — it says nothing
@@ -111,18 +104,18 @@ and versioning is finally its UI.
   "answer this question" through "review this diff" to "I'm taking over for
   twenty minutes", and `operator-held` is a first-class dispatch state beside
   running / blocked / failed.
-- **Taken from Orca as a spec, not a dependency:** the Run / Task / **Dispatch**
-  split (a dispatch is *one attempt*, which is what makes retries and stale
-  completions safe), `worker_done` requiring an explicit outcome, ack-until-
-  processed message delivery, heartbeats plus stale-dispatch warnings, and
-  escalation/question as first-class message types (they are the needs-you
-  column). Not built: terminal emulator, editor, embedded Chromium, SSH, mobile,
-  account switching, non-Claude adapters, federation.
-- **The event log is the source of truth for a dispatch, never process memory.**
-  This is the mitigation for the one place the decision hurts: `orca-runtime.ts`
-  is 41k lines mostly because crash recovery and resume of long-running agent
-  processes is genuinely hard. A dispatch must be reconstructable from the log
-  alone. Get this seam right from the first commit or expect a rewrite.
+- **Taken from Orca as a spec, not a dependency:** a **Dispatch** is one attempt,
+  which makes retries and stale completions safe; `factory.complete` requires an
+  explicit outcome; delivery is acknowledged until processed; heartbeats produce
+  stale-dispatch warnings; and escalation/question are first-class events. We
+  take these invariants, not Orca's Task graph or execution authority. We build a
+  small terminal runner from `node-pty` and xterm.js, not a terminal emulator.
+- **The event log is the source of truth for dispatch lifecycle, never process
+  memory.** Repository documents remain authoritative for programs, predicates,
+  contracts, and versions. Orca's large runtime illustrates how much complexity
+  accumulates around recovery, resume, and mid-flight state. A dispatch must be
+  reconstructable from the log alone. Get this seam right from the first commit
+  or expect a rewrite.
 - **Sub-loops are cut.** Descending from a program into a nested loop was
   disorienting. Depth lives in nested documents instead.
 - **Tasks are markdown checkboxes**, not a bespoke syntax, and the task rail is
@@ -192,25 +185,27 @@ agent's experiment, unrelated to this work.
   mode is the execution home** — the ring stays a definition/board, the fleet is
   where runs actually live. Play buttons still exist on the lines as a dispatch
   shortcut, but they hand off into Agents mode.
-- The Agents console is still faked. The wrapper described in
-  `research/orca-evaluation.md` is the thing that makes it real: an SDK worker
-  per dispatch, an event log, a block renderer (text / thinking / tool-use /
-  tool-result + diff cards). Which auth path workers run under — subscription
-  login vs `ANTHROPIC_API_KEY` under `--bare` — is a cost decision to make
-  deliberately, not by accident.
+- The Agents console is still faked. The accepted implementation is a separate
+  daemon running each adapter's real native CLI in a managed PTY, with Factory
+  MCP events backing the board and question flow and capability-negotiated ACP
+  enrichment. Harness-specific authentication belongs in each adapter, not in
+  the runtime model.
 - Revisit the Orca decision only if Stably ships the orchestration layer as a
-  standalone importable package, if we need three or more agent CLIs, or if
-  remote/multi-machine workers stop being hypothetical.
+  standalone importable package or remote/multi-machine workers stop being
+  hypothetical. Runtime-specific revisit triggers live in
+  `research/agent-runtime-architecture.md`.
 - Claude Code is growing its own orchestration from below — of its 44 tools,
   `Agent`, `Workflow`, `SendMessage`/`ListAgents` (cross-session messaging),
   `TaskCreate`/`TaskList`/`TaskUpdate`, `CronCreate` and `ScheduleWakeup` are all
-  orchestration primitives. Still per-session and imperative, so it does not
-  threaten a declarative loop over repo state, but "the layer below might eat
-  this" belongs beside the Orca revisit triggers.
-- Unresolved in the takeover flow: what the operator sees *while* a dispatch is
-  `operator-held`. No live co-viewing exists (SDK drives or TUI drives, never
-  both), so the console needs a defined state for "you have the wheel, watch the
-  terminal" rather than showing a stale block stream.
+  orchestration primitives. They remain harness-local and imperative; they do
+  not replace factory programs, contracts, dispatch records, or event-log
+  authority. "The layer below might eat this" belongs beside the Orca revisit
+  triggers.
+- Define the Agents presentation while a dispatch is `operator-held`. In
+  PTY-native mode the process keeps running and the operator owns the daemon's
+  single-writer lease while viewing the exact live TUI. The structured activity
+  view can continue to show committed events, but must not imply that its
+  composer universally controls the harness.
 - Layout is a forced ring over a DAG with back-edges. Fine at 6 nodes, unproven
   when a real system has skips and parallel paths.
 - Source of truth must move to the real markdown files, with canvas layout as
