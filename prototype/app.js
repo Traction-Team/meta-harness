@@ -1006,11 +1006,13 @@ function paintLoop() {
     const badge = state.mode === "system" && nIssues
       ? `<span class="pr-b ${nIssues < 3 ? "amb" : ""}">${nIssues}</span>` : "";
     const assigned = factoryCanvas() ? runsAtStage(p) : [];
+    const waiting = assigned.filter((run) => run.status === "waiting").length;
+    const unread = waiting ? `<span class="pr-b" aria-label="${waiting} waiting for you">${waiting}</span>` : "";
     const attention = assigned.some((run) => run.status === "waiting") ? " attention" : assigned.some((run) => run.status === "failed") ? " failing" : "";
     procs += `<div class="pr gate${attention}${sel}${chg}${p.broken ? " err" : ""}" data-proc="${p.id}" style="left:${r.x + r.w / 2}px;top:${r.y + r.h / 2}px;transform:translate(-50%,-50%)">
       <span class="gate-label"><b>${esc(p.name)}</b><small>${esc(p.assignee.name)} · ${esc(p.assignee.type)} · ${esc(p.decision)}</small></span>
       <span class="gate-mark" aria-hidden="true">${ICONS.gate}</span>
-      ${factoryCanvas() ? stageAvatars(assigned) : badge}
+      ${factoryCanvas() ? unread : badge}
       ${factoryCanvas() ? "" : `<button class="pr-run gate-action" data-edit="${p.id}" title="Edit gate">${ICONS.pencil}</button>`}
     </div>`;
   });
