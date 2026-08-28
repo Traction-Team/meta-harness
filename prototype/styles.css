@@ -75,7 +75,7 @@ svg { display: block; }
 .ico.on { color: var(--accent); }
 .side-chrome .ico { margin-left: auto; }
 
-/* ── the System | Product switcher ──
+/* ── the System | Factory | Product switcher ──
    The one control that reframes the whole window. Full rail width, directly
    under the workspace, because it is not a filter, it is a mode. */
 .mode-wrap { padding: 0 10px 12px; flex: none; }
@@ -442,6 +442,78 @@ svg { display: block; }
 .lrow-s { font-size: 11.5px; color: var(--text-2); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lrow-r { flex: none; display: flex; align-items: center; gap: 10px; color: var(--text-3); font-size: 11.5px; }
 
+/* ═════════════════════════════════════════════════════════ product mode ══ */
+
+.product-lv { display: flex; flex-direction: column; }
+.product-lv .lv-head { flex: none; }
+.product-lv .lv-head > .pill { margin-left: auto; }
+.rel-wrap { min-width: 720px; padding: 0 14px 28px; }
+.rel-head, .rel-row { display: grid; grid-template-columns: 36px minmax(350px,1fr) 136px 136px; }
+.rel-head { position: sticky; top: 0; z-index: 4; min-height: 54px; border: .5px solid var(--line); border-radius: 10px 10px 0 0; background: var(--side); }
+.rel-head-copy { grid-column: 1 / span 2; display: flex; align-items: baseline; gap: 8px; padding: 10px 14px; }
+.rel-head-copy b { font-size: 12px; font-weight: 620; }
+.rel-head-copy span { color: var(--text-3); font-size: 10.5px; }
+.rel-lane-head { display: grid; grid-template-columns: minmax(0,1fr) auto; align-content: center; gap: 1px 7px; padding: 7px 10px; border-left: .5px solid var(--line); text-align: left; }
+.rel-lane-head:hover { background: var(--hover); }
+.rel-lane-head > span { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 10.5px; }
+.rel-lane-head b { font-size: 11.5px; font-weight: 620; }
+.rel-lane-head small { color: var(--text-3); font-size: 9.5px; text-align: right; }
+.rel-gap { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 7px 12px; border: .5px solid var(--line); border-top: 0; background: var(--raise); color: var(--text-2); font-size: 11.5px; }
+.rel-gap svg { width: 13px; height: 13px; color: var(--green); flex: none; }
+.rel-gap.open { color: var(--amber); background: var(--amber-dim); }
+.rel-gap.open svg { color: var(--amber); }
+.rel-gap b { font-weight: 640; }
+.rel-rows { border: .5px solid var(--line); border-top: 0; border-radius: 0 0 10px 10px; overflow: hidden; }
+.rel-row { position: relative; min-height: 142px; background: var(--win); }
+.rel-row + .rel-row { border-top: .5px solid var(--line); }
+.rel-row:hover { background: color-mix(in srgb, var(--hover) 50%, var(--win)); }
+.rel-row.staged { background: color-mix(in srgb, var(--amber-dim) 35%, var(--win)); }
+.rel-axis { position: relative; display: flex; justify-content: center; padding-top: 19px; }
+.rel-axis::after { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: .5px; background: var(--line); }
+.rel-axis span { z-index: 1; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; background: var(--card); border: .5px solid var(--line); color: var(--green); box-shadow: 0 0 0 4px var(--win); }
+.rel-axis svg { width: 11px; height: 11px; }
+.rel-note { min-width: 0; padding: 16px 18px 17px 4px; }
+.rel-note-top { display: flex; align-items: baseline; gap: 9px; }
+.rel-version { color: var(--text-3); font-size: 10.5px; }
+.rel-note h3 { min-width: 0; font-size: 13.5px; font-weight: 620; letter-spacing: -.012em; }
+.rel-note time { margin-left: auto; color: var(--text-3); font-size: 10.5px; white-space: nowrap; }
+.rel-note > p { margin-top: 4px; color: var(--text-2); font-size: 11.5px; line-height: 1.5; }
+.rel-note ul { display: flex; flex-wrap: wrap; gap: 2px 18px; margin-top: 8px; padding-left: 15px; color: var(--text-2); }
+.rel-note li { font-size: 10.5px; line-height: 1.5; }
+.rel-note li::marker { color: var(--text-3); }
+.rel-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 11px; margin-top: 9px; color: var(--text-3); font-size: 10.5px; }
+.rel-meta button { display: inline-flex; align-items: center; gap: 3px; color: var(--accent); font-size: 10.5px; }
+.rel-meta button:hover { text-decoration: underline; }
+.rel-meta button svg { width: 10px; height: 10px; }
+.rel-lane-cell { border-left: .5px solid var(--line); display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--text-3); font-size: 10.5px; }
+.rel-lane-cell.reached { color: var(--text-2); }
+.rel-lane-cell.current { color: var(--green); background: var(--green-dim); font-weight: 600; }
+.rel-lane-cell.waiting { color: var(--amber); }
+.rel-check { display: grid; place-items: center; color: var(--green); }
+.rel-check svg { width: 11px; height: 11px; }
+.rel-lane-cell .btn { height: 25px; padding-inline: 9px; font-size: 11px; }
+.rel-lane-cell .btn svg { width: 11px; height: 11px; }
+.rel-env-rows .pr-k { flex: none; color: var(--accent); }
+.rel-env-version { margin-left: 4px; color: var(--text-3); font-size: 10.5px; font-weight: 400; }
+.rel-env-rows .lrow-r > svg { width: 12px; height: 12px; }
+
+@media (max-width: 700px) {
+  body { padding: 0; }
+  .win, .win.narrow { grid-template-columns: 1fr; grid-template-rows: auto minmax(0,1fr); border-radius: 0; }
+  .sidebar { display: grid; grid-template-columns: minmax(0,1fr) minmax(180px,1fr); border-right: 0; border-bottom: .5px solid var(--line); }
+  .side-chrome, .side-fill, .side-foot { display: none; }
+  .ws { padding: 6px 5px 4px 7px; }
+  .mode-wrap { padding: 8px 7px 4px 5px; }
+  .side-nav { grid-column: 1 / -1; display: flex; gap: 4px; padding: 4px 7px 7px; overflow-x: auto; }
+  .side-nav .rsec { display: none; }
+  .snav { width: auto; flex: none; padding-inline: 10px; }
+  .content { min-height: 0; }
+  .product-lv { overflow-x: auto; }
+  .product-lv .lv-head { min-width: 720px; }
+  .strip-left { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  #lintChip { display: none; }
+}
+
 /* ══════════════════════════════════════════════════════════════ toast ══ */
 
 .toasts { position: fixed; bottom: 42px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; align-items: center; z-index: 120; }
@@ -557,6 +629,7 @@ svg { display: block; }
 @media (max-width: 900px) {
   .ov-doc { padding: 30px 34px 56px; }
   .panels { width: min(380px, 92%); }
+  .panels.document-open { display: none; }
 }
 
 /* ══════════════════════════════════════════════════════ workers mode ══

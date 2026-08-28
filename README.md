@@ -51,10 +51,10 @@ the server. Bump the `?v=` query on the three assets in `index.html` after
 editing or the browser serves stale JS.
 
 It has three modes, switched top-left: **System** (the loop as a definition),
-**Factory** (the same ring as a live board of lists), and **Agents** (the fleet
-of harness sessions running against the slices). Agents combines a structured
-activity view with access to each dispatch's exact live native terminal. The
-Factory status dots are a reading of that fleet. The System canvas
+**Factory** (the live board, workers, and dispatches), and **Product** (shipped
+outcomes, release notes, and the environments where they can be experienced).
+The Factory status dots are a reading of its fleet. The Product view links each
+outcome back to its source artifacts and forward to a preview or live URL. The System canvas
 carries a **version pill** (live version + open-defect count, switch the canvas
 between the live loop and a planned rework) and, on a clean canvas, an **ask
 bar** that opens a chat with the system agent. See [`prototype.md`](prototype.md)
@@ -65,7 +65,7 @@ Tokens, window chrome, sidebar, cards and pills are copied from
 
 ## Execution
 
-Agents mode is faked today. The accepted runtime runs each harness's **real
+Factory workers are faked today. The accepted runtime runs each harness's **real
 native CLI inside a managed PTY**, so Claude Code, Codex, OpenCode, Gemini CLI,
 and future terminal agents can all participate. A separate local factory daemon
 owns the processes, PTYs, worktrees, session leases, Factory MCP server, and

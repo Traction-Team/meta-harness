@@ -25,43 +25,38 @@ agent's experiment and is not part of this work.
 |---|---|
 | `index.html` | shell markup: sidebar, toolbar, canvas, overlay mount, panels, strip |
 | `styles.css` | tokens copied verbatim from `~/Dev/email-agent/poc`, then everything for the loop, panels and sheet |
-| `data.js` | `STATES`, `PROCS`, `INPUTS`, `ITEMS`, `ISSUES`, `AGENTS`, `PAGES`, `WORKSPACES`, `NAV`, `HISTORY` (`PROCS` + `INPUTS` are both programs; see the naming note in `document-model.md`) |
+| `data.js` | `STATES`, `PROCS`, `INPUTS`, `ITEMS`, `ISSUES`, `AGENTS`, `PRODUCT`, `PAGES`, `WORKSPACES`, `NAV`, `HISTORY` (`PROCS` + `INPUTS` are both programs; see the naming note in `document-model.md`) |
 | `app.js` | icons, state, the loop renderer, list views, panels, the sheet, the markdown renderer, the agents board + console, the version pill / card + switchover flow, the ask bar + system-agent chat |
 
 Theme, window chrome, sidebar, toolbar, cards, pills and segmented controls are
 lifted from the email-agent prototype so the two read as one family.
 
-## Three modes: System, Factory, Agents
+## Three modes: System, Factory, Product
 
-The **System | Factory | Agents** switcher sits under the workspace in the
+The **System | Factory | Product** switcher sits under the workspace in the
 sidebar. The workspace (email-agent / Forma / Everest) is the product you are
-building; you pick that before you pick how you are working on it. Internally the
-three mode ids are still `system` / `product` / `agents`; only the labels moved.
+building; you pick that before you pick the lens. The mode ids are `system`,
+`factory`, and `product`.
 
 - **System mode.** The ring as a **definition**. Nodes show the predicate that
   defines the state and its count; programs show defect counts and failure heat.
   This mode also carries the factory's own version control — the version pill,
   the version card, and the ask bar — covered under *System versioning* below.
 - **Factory mode.** The same ring, same edges, but each node is a **list** of
-  what is sitting at that station right now. This is the board — working *in* the
-  system rather than on it.
-- **Agents mode.** No ring. This is the **fleet**: the harness sessions actually
-  walking things along the edges. It is where the meta-harness stops describing
-  the loop and starts orchestrating it. The fleet is faked here; the accepted
-  runtime uses a separate local daemon to run each harness's real CLI in a
-  managed PTY and own worktrees, leases, the event log, and recovery. Factory MCP
-  carries structured questions and completion; ACP is capability-negotiated per
-  adapter. See
-  [`research/agent-runtime-architecture.md`](research/agent-runtime-architecture.md).
+  what is sitting at that station right now. Its worker views show the harness
+  sessions walking artifacts along those edges.
+- **Product mode.** No ring. This is the result people can experience: grouped
+  releases or publications, human-readable notes, source artifacts, commit/PR
+  provenance, and named live or preview destinations.
 
-System and Factory are two readings of one diagram. Agents is the third leg: the
-same slices, seen as the live sessions running against them.
+System and Factory are two readings of one diagram. Product begins at the
+factory's terminal state and makes the resulting goods legible.
 
-## Agents mode
+## Factory workers
 
 The status dots you see all over Factory mode (green running, amber waiting, red
 failed) were faked telemetry. In this prototype they are a **reading of the
-fleet fixtures**. In the target runtime, both dots and Agents rows are projections
+fleet fixtures**. In the target runtime, both dots and worker rows are projections
 of durable dispatch events, not mutable run objects, process state, or terminal
 output.
 
@@ -108,6 +103,25 @@ scripted continuation, and Dispatch fabricates a run. Nothing executes yet.
 The real Dispatch action binds an item, program revision, source and target
 states, system version, contract revision, harness adapter, permission profile,
 capability snapshot, worktree, and attempt number before launch.
+
+## Product mode
+
+Product mode reads the factory's terminal artifacts as finished goods rather
+than another queue. It has two workspace-defined views:
+
+- **Timeline** is a newest-first release ledger. Each finished feature keeps its
+  release note, changes, commit or channel identifier, pull request or format,
+  source artifacts, and preview URL in one row. Aligned environment lanes show
+  exactly which rows have reached staging and production. Their headers point to
+  the current release in each environment. A staging-only row can be promoted
+  to production in place.
+- **Environments** shows the named places where the product can be experienced,
+  such as production, staging, and PR previews. A content workspace translates
+  the same structure into publications and channels.
+
+The mode deliberately does not reuse System versioning. A factory version says
+how work happens; a product release says what landed. The fixture URLs and
+deployment health are illustrative and are not backed by a provider yet.
 
 ## The loop
 
@@ -204,7 +218,7 @@ sheet, console, inspector, version card, or chat open. It clears the zoom
 cluster on the left.
 
 Submitting opens a **primary-pane chat** with the system agent, reusing the
-Agents console surface: your message as a bubble, the agent's reply, a rail with
+worker console surface: your message as a bubble, the agent's reply, a rail with
 system context and *Try asking* suggestion chips, and a composer. The replies are
 keyword-aware and **wired back into the version flow** — asking to clean up the
 `review-miss` defects offers *Open defects* and *Plan a change · N defects*;
@@ -303,7 +317,7 @@ is clickable.
 | Arrow up / down, file open | walk the station list beside it |
 | Arrow up / down, console open | walk the fleet |
 | Cmd-S | save the open file |
-| `1` / `2` / `3` | System / Factory / Agents mode |
+| `1` / `2` / `3` | System / Factory / Product mode |
 
 ## Data
 
@@ -364,6 +378,6 @@ off the fleet (`runsForSlice`, `dotForItem`) is real; the fleet behind it is not
 4. Source of truth for system definition must move to the actual markdown files,
    with canvas layout as metadata beside them. Runtime dispatch state belongs in
    the separate event log described in `research/agent-runtime-architecture.md`.
-5. Agents mode still needs the accepted runtime's daemon, event schema and
+5. Factory workers still need the accepted runtime's daemon, event schema and
    reducers, PTY registry, adapter/capability model, Factory MCP server,
    single-writer leases, live-terminal attachment, and recovery.

@@ -37,7 +37,17 @@ const ICONS = {
   heat:    I(`<path d="M8 1.9c2.2 2.5 1 3.9.4 4.6-1 1.2-1.4 2-1.4 2.9a2.6 2.6 0 0 0 5.2 0c0-.7-.2-1.2-.5-1.7 1.6 1 2.5 2.5 2.5 4A5.8 5.8 0 0 1 2.4 12c0-3.4 2-5 3.2-6.6C6.7 4 7.8 2.9 8 1.9z"/>`, 15),
   gate:    I(`<path d="M3.2 2.3v11.4M12.8 2.3v11.4M4.7 8h6.6"/><circle cx="3.2" cy="3.1" r="1.2"/><circle cx="12.8" cy="12.9" r="1.2"/>`, 14),
   wrench:  I(`<path d="M10.4 2.4a3.6 3.6 0 0 0-3.2 5.3L2.6 12.3a1.3 1.3 0 0 0 1.9 1.8l4.6-4.6a3.6 3.6 0 0 0 4.4-4.9l-2 2-1.9-.4-.4-1.9z"/>`, 15),
+  globe:   I(`<circle cx="8" cy="8" r="6"/><path d="M2.3 8h11.4M8 2c1.7 1.6 2.6 3.6 2.6 6S9.7 12.4 8 14M8 2C6.3 3.6 5.4 5.6 5.4 8s.9 4.4 2.6 6"/>`, 15),
+  external:I(`<path d="M9.2 2.8h4v4M13.2 2.8 7.4 8.6"/><path d="M12 8.7v3a1.5 1.5 0 0 1-1.5 1.5H4.3a1.5 1.5 0 0 1-1.5-1.5V5.5A1.5 1.5 0 0 1 4.3 4h3"/>`, 14),
+  box:     I(`<path d="M2.3 5.2 8 2.2l5.7 3v6.1L8 14.2l-5.7-2.9z"/><path d="M2.3 5.2 8 8.1l5.7-2.9M8 8.1v6.1M5.1 3.7l5.7 3"/>`, 15),
 };
+
+const MODES = {
+  system:  { label: "System",  icon: ICONS.wrench, defaultView: "loop", section: "Definition" },
+  factory: { label: "Factory", icon: ICONS.list, defaultView: "loop", section: "Factory" },
+  product: { label: "Product", icon: ICONS.box, defaultView: "overview", section: "Product" },
+};
+const MODE_ORDER = Object.keys(MODES);
 
 /* ─────────────────────────────────────────────────────────────── state ── */
 
@@ -46,7 +56,7 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 const cap = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
 
 const state = {
-  mode: "system",           // system | product
+  mode: "system",           // system | factory | product
   view: "loop",
   sel: null,                // { t, id }
   zoom: 1, px: 0, py: 0,
@@ -107,7 +117,7 @@ const liveAgents = () => AGENTS.filter((r) => r.status !== "done");
 const fleetSize = () => state.fleetSize[state.ws] ?? (state.fleetSize[state.ws] = liveAgents().length);
 const agentName = (r) => `Agent ${String(AGENTS.indexOf(r) + 1).padStart(2, "0")}`;
 const agentHue = (r) => (AGENTS.indexOf(r) * 47 + 205) % 360;
-/* a run's status maps onto the same four dots Product mode already draws, so
+/* a run's status maps onto the same four dots Factory already draws, so
    the ring and the fleet never disagree about a slice */
 const RUN_DOT = { running: "run", waiting: "wait", failed: "bad", blocked: "ok", done: "ok" };
 const runsAtStage = (p) => liveAgents().filter((r) => runProcOf(r)?.id === p.id && (state.view !== "needs" || r.status === "waiting"));
@@ -148,7 +158,7 @@ function scaleFleet(delta) {
    station, each badged with how many things are sitting there right now. Built
    from STATES so every workspace reads its own station names and counts, rather
    than a hand-curated set of cross-cutting views. */
-function productNav() {
+function factoryNav() {
   return [{ id: "loop", label: "Board", icon: "loop" }, { section: "Workers" }]
     .concat(agentsNav(), [{ section: "Artifacts" }],
       STATES.map((s) => ({ id: s.id, label: s.name, icon: s.icon, n: s.count })));
@@ -157,10 +167,10 @@ const navFor = () =>
   state.mode === "system" ? NAV.system.map((n) => n.id === "issues" ? { ...n, n: openDefects().length }
     : n.id === "programs" ? { ...n, n: RUNBOOKS.length + INPUTS.length }
     : n.id === "gates" ? { ...n, n: GATES.length } : n)
-  : state.mode === "product" ? productNav()
+  : state.mode === "factory" ? factoryNav()
   : NAV[state.mode];
 
-const factoryCanvas = () => state.mode === "product" && (state.view === "loop" || state.view === "needs");
+const factoryCanvas = () => state.mode === "factory" && (state.view === "loop" || state.view === "needs");
 
 /* ══════════════════════════════════════════════ system version control ══
    The factory keeps a version of itself. As it runs, it logs **defects** — not
@@ -468,14 +478,12 @@ function paintSidebar() {
     $("#wsNew").onclick = () => { state.wsOpen = false; paintSidebar(); toast("New product workspace"); };
   }
 
-  const MODE_ICON = { system: ICONS.wrench, product: ICONS.list };
-  const MODE_LBL  = { system: "System", product: "Factory" };
-  $("#modeSeg").innerHTML = ["system", "product"]
+  $("#modeSeg").innerHTML = MODE_ORDER
     .map((m) => `<button data-mode="${m}" class="${state.mode === m ? "on" : ""}">
-      ${MODE_ICON[m]}<span>${MODE_LBL[m]}</span></button>`).join("");
+      ${MODES[m].icon}<span>${MODES[m].label}</span></button>`).join("");
   $("#modeSeg").querySelectorAll("button").forEach((b) => (b.onclick = () => setMode(b.dataset.mode)));
 
-  const rsec = state.mode === "system" ? "Definition" : "Factory";
+  const rsec = MODES[state.mode].section;
   $("#sideNav").innerHTML = `<div class="rsec">${rsec}</div>` +
     navFor().map((n) => n.section ? `<div class="rsec sub">${n.section}</div>` : `
       <button class="snav ${state.view === n.id && !state.run ? "active" : ""}" data-view="${n.id}">
@@ -496,7 +504,7 @@ function paintToolbar() {
   $("#tbNav").innerHTML =
     `<button class="ico dim">${ICONS.chevL}</button><button class="ico dim">${ICONS.chevR}</button>`;
 
-  const modeLbl = state.mode === "system" ? "System" : "Factory";
+  const modeLbl = MODES[state.mode].label;
   const viewLbl = (navFor().find((n) => n.id === state.view) || {}).label || state.view;
   const r = state.run ? runById(state.run) : null;
   const doc = state.docStack[state.docStack.length - 1];
@@ -521,7 +529,9 @@ function paintStrip() {
      repeats it — just what the factory is made of */
   $("#stripLeft").textContent = state.mode === "system"
     ? `${REPO.name} · ${programCount()} programs, ${gateCount()} ${gateCount() === 1 ? "gate" : "gates"}, ${REPO.skillsN} skills`
-    : `${REPO.name} · ${REPO.branch} · ${live} agents running · ${waiting} waiting on you · ${AGENTS.filter((r) => r.status === "failed").length} failed`;
+    : state.mode === "factory"
+      ? `${REPO.name} · ${REPO.branch} · ${live} agents running · ${waiting} waiting on you · ${AGENTS.filter((r) => r.status === "failed").length} failed`
+      : `${REPO.name} · ${PRODUCT.releases.length} recent ${PRODUCT.noun}s · ${PRODUCT.environments.filter((e) => e.state === "healthy").length}/${PRODUCT.environments.length} environments healthy`;
   /* the old "broken wire" chip is now the defect count: a count badge that opens
      the Defects list and floats the version card in beside it */
   const nd = openDefects().length;
@@ -530,11 +540,8 @@ function paintStrip() {
   chip.innerHTML = `<span class="def-badge">${nd}</span>${nd === 1 ? "defect" : "defects"}`;
   chip.title = nd ? "Defects logged against the running loop" : "No open defects";
   chip.onclick = () => openDefectsList();
-  const MODE_ICON = { system: ICONS.wrench, product: ICONS.list };
-  const MODE_LBL  = { system: "System mode", product: "Factory mode" };
-  $("#modeChip").innerHTML = `${MODE_ICON[state.mode]}${MODE_LBL[state.mode]}`;
-  const NEXT = { system: "product", product: "system" };
-  $("#modeChip").onclick = () => setMode(NEXT[state.mode]);
+  $("#modeChip").innerHTML = `${MODES[state.mode].icon}${MODES[state.mode].label} mode`;
+  $("#modeChip").onclick = () => setMode(MODE_ORDER[(MODE_ORDER.indexOf(state.mode) + 1) % MODE_ORDER.length]);
 }
 
 /* clicking the defect badge takes you to the Defects list and floats the
@@ -690,7 +697,7 @@ function verCard(f, planned, viewing, nd) {
 function setMode(m) {
   if (state.mode === m) return;
   state.mode = m;
-  state.view = "loop";
+  state.view = MODES[m].defaultView;
   state.sel = null; state.run = null; state.chat.open = false; closeEditor(true);
   paint(); requestAnimationFrame(() => fit(true));
 }
@@ -705,7 +712,7 @@ function switchWorkspace(id) {
   state.chat = { open: false, log: [], text: "" }; state.askText = "";
   state.docStack = []; state.drafts = {}; state.editing = false;
   state.inputOpen = null; state.inputEditing = false; state.intakeText = "";
-  state.view = "loop";
+  state.view = MODES[state.mode].defaultView;
   loadWorkspace(id);
   initDocs();
   paint(); requestAnimationFrame(() => fit(true));
@@ -727,7 +734,7 @@ const GRID = {
 };
 
 function geo(m) {
-  const P = state.mode === "product"
+  const P = state.mode === "factory"
     ? { nw: 232, nh: 178, gapX: 280, gapY: 330 }
     : { nw: 198, nh: 80,  gapX: 210, gapY: 155 };
   const pitchX = P.nw + P.gapX, pitchY = P.nh + P.gapY;
@@ -739,7 +746,7 @@ function geo(m) {
     const incoming = m.procs.find((p) => p.kind !== "gate" && p.to === gate.id);
     const fromGrid = incoming && GRID[incoming.from], toGrid = GRID[gate.to];
     if (fromGrid && toGrid && fromGrid[1] === toGrid[1] && fromGrid[0] < toGrid[0]) {
-      columnGaps[toGrid[0]] = Math.max(columnGaps[toGrid[0]] || 0, state.mode === "product" ? 150 : 130);
+      columnGaps[toGrid[0]] = Math.max(columnGaps[toGrid[0]] || 0, state.mode === "factory" ? 150 : 130);
     }
   });
   const xForColumn = (column) => column * pitchX
@@ -944,7 +951,7 @@ function paintLoop() {
     const feeds = m.procs.filter((p) => p.to === s.id || p.from === s.id);
     const wrong = feeds.filter((p) => p.broken && p.from === s.id);
 
-    if (state.mode === "product") {
+    if (state.mode === "factory") {
       const rows = (ITEMS[s.id] || []).slice(0, 4).map((it) => {
         const isel = state.sel && state.sel.t === "item" && state.sel.id === it.id ? " sel" : "";
         const live = runsForSlice(it.id).length ? " live" : "";
@@ -1070,7 +1077,7 @@ function wireLoop() {
   world.querySelectorAll("[data-node]").forEach((el) => {
     el.onclick = (e) => { if (e.target.closest("[data-item]")) return; state.sel = { t: "node", id: el.dataset.node }; paint(); };
   });
-  /* in Product mode an item is a file, so one click opens it. The station list
+  /* in Factory an item is a file, so one click opens it. The station list
      stays floating beside it as the way to move between files. */
   world.querySelectorAll("[data-item]").forEach((el) => {
     el.onclick = (e) => { e.stopPropagation(); openItemDoc(el.dataset.item, el.dataset.state); };
@@ -1098,7 +1105,7 @@ function wireLoop() {
   world.querySelectorAll("[data-run]").forEach((el) => {
     el.onclick = (e) => {
       e.stopPropagation();
-      if (state.mode === "product" && runById(el.dataset.run)) openRun(el.dataset.run);
+      if (state.mode === "factory" && runById(el.dataset.run)) openRun(el.dataset.run);
       else runProc(el.dataset.run);
     };
   });
@@ -1185,7 +1192,7 @@ function focusSelected(anim) {
   const roomW = r.width - (state.panelOpen ? PANEL_W - 22 : 0);
   const cx = (elRect.left + elRect.width / 2 - worldRect.left) / state.zoom;
   const cy = (elRect.top + elRect.height / 2 - worldRect.top) / state.zoom;
-  const closer = state.mode === "product" ? .98 : 1.08;
+  const closer = state.mode === "factory" ? .98 : 1.08;
   state.zoom = clamp(Math.max(state.zoom, closer), .5, 1.2);
   state.px = roomW / 2 - cx * state.zoom;
   state.py = r.height / 2 - cy * state.zoom;
@@ -1219,15 +1226,15 @@ const VIEWS = {
     rows: openDefects().map((i) => ({ t: i.t, s: `on ${i.edge} · ${i.run}`, r: i.fix ? "fix proposed" : "", pill: i.cat, bad: i.cat === "skill-gap" || i.cat === "constraint-violation" || i.cat === "off-brand", sel: { t: "issue", id: i.id } })) }),
   history: () => ({ title: "System version history", sub: "separate from the repo's commit log",
     rows: HISTORY.map((h) => ({ t: h.t, s: h.s, r: h.v, pill: h.who, bad: false, sel: null })) }),
-  frontier: () => ({ title: navLabel("product", "frontier"), sub: COPY.frontierSub,
+  frontier: () => ({ title: navLabel("factory", "frontier"), sub: COPY.frontierSub,
     rows: ITEMS.plans.filter((i) => i.d === "run").concat(ITEMS.plans.filter((i) => i.d !== "run"))
       .map((i) => ({ t: `${i.id}  ${i.t}`, s: i.s, r: "", pill: i.d === "run" ? COPY.readyWord : "blocked", bad: false, sel: { t: "item", id: i.id, from: "plans" } })) }),
-  slices: () => ({ title: navLabel("product", "slices"), sub: COPY.slicesSub,
+  slices: () => ({ title: navLabel("factory", "slices"), sub: COPY.slicesSub,
     rows: [].concat(ITEMS.branch, ITEMS.pr, ITEMS.plans, ITEMS.merged)
       .map((i) => ({ t: `${i.id}  ${i.t}`, s: i.s, r: "", pill: i.d === "run" ? "running" : i.d === "wait" ? "waiting" : i.d === "bad" ? "failing" : TERMS.doneLabel, bad: i.d === "bad", sel: { t: "item", id: i.id } })) }),
-  specs: () => ({ title: navLabel("product", "specs"), sub: COPY.specsSub,
+  specs: () => ({ title: navLabel("factory", "specs"), sub: COPY.specsSub,
     rows: ITEMS.spec.map((i) => ({ t: `${i.id}  ${i.t}`, s: i.s, r: "", pill: i.d === "bad" ? "ambiguous" : i.d === "wait" ? "gaps" : "covered", bad: i.d === "bad", sel: { t: "item", id: i.id, from: "spec" } })) }),
-  runs: () => ({ title: navLabel("product", "runs"), sub: COPY.runsSub,
+  runs: () => ({ title: navLabel("factory", "runs"), sub: COPY.runsSub,
     rows: [].concat(ITEMS.branch, ITEMS.pr).map((i) => ({ t: `${i.id}  ${i.t}`, s: i.s, r: "", pill: i.d === "run" ? "running" : i.d === "wait" ? "waiting" : "failing", bad: i.d === "bad", sel: { t: "item", id: i.id } })) }),
 };
 
@@ -1285,6 +1292,111 @@ function paintList() {
     };
     b.ondblclick = () => { const s = v.rows[k].sel; if (s && s.t === "proc") openEditor(s.id); };
   });
+}
+
+/* ═══════════════════════════════════════════════════════════ product ══
+   The release timeline joins each finished feature to the environments it has
+   reached. Environment heads are pointers into that one chronological ledger. */
+
+const productStatus = (status) => status === "live" || status === "healthy" ? "running"
+  : status === "pending" ? "waiting" : status === "ready" || status === "active" ? "ready" : "done";
+const releaseReached = (r, lane) => lane === "staging" || r.stage === "production";
+const releaseAt = (lane) => PRODUCT.releases.find((r) => releaseReached(r, lane));
+
+function promoteRelease(id) {
+  const r = PRODUCT.releases.find((x) => x.id === id);
+  if (!r || r.stage === "production") return;
+  r.stage = "production"; r.status = "live";
+  const prod = r.envs.find((e) => e.name === "Production");
+  if (prod) prod.state = "live";
+  const environment = PRODUCT.environments.find((e) => e.name === "Production");
+  if (environment) { environment.version = r.id; environment.updated = "just now"; }
+  toast(`${r.id} promoted to production`);
+  paint();
+}
+
+function laneHead(lane) {
+  const current = releaseAt(lane.id);
+  const env = PRODUCT.environments.find((e) => e.name === lane.name);
+  return `<button class="rel-lane-head" ${env ? `data-url="${esc(env.url)}"` : ""}>
+    <span><i class="nd-dot ok"></i>${esc(lane.name)}</span>
+    <b class="mono">${current ? esc(current.id) : "—"}</b>
+    <small>${env ? esc(env.updated) : "current"}</small>
+  </button>`;
+}
+
+function laneCell(r, lane) {
+  const reached = releaseReached(r, lane.id);
+  const current = releaseAt(lane.id)?.id === r.id;
+  if (reached) return `<div class="rel-lane-cell reached ${current ? "current" : ""}">
+    <span class="rel-check">${ICONS.tick}</span><span>${current ? "Current" : "Deployed"}</span>
+  </div>`;
+  if (lane.id === "production" && PRODUCT.promotable) return `<div class="rel-lane-cell waiting">
+    <button class="btn pri" data-promote="${esc(r.id)}">${ICONS.up} Promote</button>
+  </div>`;
+  return `<div class="rel-lane-cell waiting"><span class="nd-dot wait"></span><span>Waiting</span></div>`;
+}
+
+function releaseRow(r) {
+  return `<article class="rel-row ${r.stage === "staging" ? "staged" : ""}">
+    <div class="rel-axis"><span>${ICONS.check}</span></div>
+    <div class="rel-note">
+      <div class="rel-note-top"><span class="mono rel-version">${esc(r.id)}</span><h3>${esc(r.title)}</h3><time>${esc(r.time)}</time></div>
+      <p>${esc(r.note)}</p>
+      <ul>${r.changes.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>
+      <div class="rel-meta"><span class="mono">${esc(r.sha)}</span><span>${esc(r.pr)}</span><span>${esc(r.date)}</span>
+        <button data-url="${esc(r.preview)}">Preview ${ICONS.external}</button>
+        <button data-url="${esc(r.url)}">Release note ${ICONS.external}</button>
+        ${r.slices.map((id) => `<button data-slice="${esc(id)}">${esc(TERMS.unit)} ${esc(id)}</button>`).join("")}
+      </div>
+    </div>
+    ${PRODUCT.lanes.map((lane) => laneCell(r, lane)).join("")}
+  </article>`;
+}
+
+function productTimeline() {
+  const staging = releaseAt("staging"), production = releaseAt("production");
+  const pending = PRODUCT.releases.filter((r) => r.stage === "staging").length;
+  return `<div class="lv product-lv">
+    <div class="lv-head"><span class="lv-title">Release timeline</span>
+      <span class="lv-sub">each finished ${esc(TERMS.unit)}, its release note, and where it is deployed</span>
+      ${pending ? `<span class="pill waiting">${pending} awaiting production</span>` : `<span class="pill done">environments aligned</span>`}
+    </div>
+    <div class="rel-wrap">
+      <div class="rel-head">
+        <div class="rel-head-copy"><b>Release notes</b><span>newest first</span></div>
+        ${PRODUCT.lanes.map(laneHead).join("")}
+      </div>
+      <div class="rel-gap ${staging && production && staging.id !== production.id ? "open" : ""}">
+        ${staging && production && staging.id !== production.id
+          ? `${ICONS.flag}<span><b>${esc(staging.id)}</b> is on ${esc(PRODUCT.lanes[0].name)}, ahead of ${esc(PRODUCT.lanes[1].name)} at <b>${esc(production.id)}</b>.</span>`
+          : `${ICONS.check}<span>${esc(PRODUCT.lanes[0].name)} and ${esc(PRODUCT.lanes[1].name)} are at the same release.</span>`}
+      </div>
+      <div class="rel-rows">${PRODUCT.releases.map(releaseRow).join("")}</div>
+    </div>
+  </div>`;
+}
+
+function productEnvironments() {
+  return `<div class="lv product-lv">
+    <div class="lv-head"><span class="lv-title">${PRODUCT.promotable ? "Environments" : "Channels"}</span><span class="lv-sub">the destinations referenced by the release timeline</span></div>
+    <div class="lv-rows rel-env-rows">${PRODUCT.environments.map((e) => `
+      <button class="lrow" data-url="${esc(e.url)}"><span class="pr-k">${ICONS.globe}</span>
+        <div class="lrow-b"><div class="lrow-t">${esc(e.name)} <span class="mono rel-env-version">${esc(e.version)}</span></div><div class="lrow-s">${esc(e.url.replace(/^https?:\/\//, ""))} · ${esc(e.branch)} · ${esc(e.note)}</div></div>
+        <div class="lrow-r"><span>${esc(e.updated)}</span><span class="pill ${productStatus(e.state)}">${esc(e.state)}</span>${ICONS.external}</div>
+      </button>`).join("")}</div>
+  </div>`;
+}
+
+function wireProduct() {
+  $("#main").querySelectorAll("[data-url]").forEach((b) => (b.onclick = () => window.open(b.dataset.url, "_blank", "noopener")));
+  $("#main").querySelectorAll("[data-slice]").forEach((b) => (b.onclick = () => openItemDoc(b.dataset.slice, "merged")));
+  $("#main").querySelectorAll("[data-promote]").forEach((b) => (b.onclick = () => promoteRelease(b.dataset.promote)));
+}
+
+function paintProduct() {
+  $("#main").innerHTML = state.view === "environments" ? productEnvironments() : productTimeline();
+  wireProduct();
 }
 
 /* ═══════════════════════════════════════════════════════════ workers ══
@@ -1530,7 +1642,7 @@ function paintConsole(r) {
 }
 
 function openRun(id) {
-  state.mode = "product"; state.run = id; state.sel = null; state.composer = ""; state.docStack = []; state.inputOpen = null;
+  state.mode = "factory"; state.run = id; state.sel = null; state.composer = ""; state.docStack = []; state.inputOpen = null;
   if (state.view === "queue") state.view = "loop";
   paint();
 }
@@ -1600,7 +1712,7 @@ function card(title, acts, body) {
 const kv = (rows) => `<div class="kv">${rows.map(([k, v]) => `<div class="kv-r"><span class="kv-k">${esc(k)}</span><span class="kv-v">${v}</span></div>`).join("")}</div>`;
 
 
-/* Product mode's node card shows four rows and a "N more" that used to lead
+/* Factory's node card shows four rows and a "N more" that used to lead
    nowhere. The rest live in the station's own Factory list view (see the `dest`
    link in itemsCard). System mode keeps its node panel clean: there a state is a
    predicate, not a pile of things. */
@@ -1609,7 +1721,7 @@ function itemsCard(s, selId) {
   const list = ITEMS[s.id] || [];
   const out = PROCS.find((p) => p.from === s.id);
   /* every station is now its own Factory list, so "open in" always resolves */
-  const dest = { mode: "product", view: s.id, label: s.name };
+  const dest = { mode: "factory", view: s.id, label: s.name };
   const rows = list.map((it) => `
     <button class="it-row ${selId === it.id ? "sel" : ""}" data-q="${esc((it.id + " " + it.t + " " + it.s).toLowerCase())}"
       onclick="selectItem('${it.id}','${s.id}')" ondblclick="openItemDoc('${it.id}','${s.id}')">
@@ -1637,7 +1749,11 @@ function openItemDoc(id, from) {
   const it = (ITEMS[home] || []).find((x) => x.id === id);
   if (!it) return;
   const path = itemDocPath(it, home);
-  if (!DOCS[path]) DOCS[path] = { title: it.t, body: itemBody(it, home), item: { id, from: home } };
+  /* IDs can repeat across stations in fixture corpora. The station requested by
+     the caller is authoritative for the document the user meant to open. */
+  if (!DOCS[path] || DOCS[path].item?.from !== home) {
+    DOCS[path] = { title: it.t, body: itemBody(it, home), item: { id, from: home } };
+  }
   state.sel = { t: "item", id, from: home };
   state.docStack = [path]; state.editing = false; state.inputOpen = null;
   paint();
@@ -1685,15 +1801,15 @@ function paintPanels() {
   P.classList.toggle("open", !!s || !!path);
   if (!s && !path) { P.innerHTML = ""; return; }
 
-  const inProduct = state.mode === "product";
+  const inFactory = state.mode === "factory";
   const home = s && s.t === "item" ? stateById(itemHome(s)) : null;
   P.innerHTML = (s ? (
-      s.t === "node"  ? nodePanel(stateById(s.id)) + (inProduct && stateById(s.id) ? itemsCard(stateById(s.id)) : "")
-    : s.t === "proc"  ? procPanel(procById(s.id)) + (inProduct ? stagePanel(procById(s.id)) : "")
+      s.t === "node"  ? nodePanel(stateById(s.id)) + (inFactory && stateById(s.id) ? itemsCard(stateById(s.id)) : "")
+    : s.t === "proc"  ? procPanel(procById(s.id)) + (inFactory ? stagePanel(procById(s.id)) : "")
     : s.t === "issue" ? issuePanel(issueById(s.id))
     /* the item's own details live in the file that is already open in the main
        pane, so the panel is only the list you navigate with */
-    : s.t === "item"  ? (inProduct && home ? itemsCard(home, s.id) : itemPanel(s))
+    : s.t === "item"  ? (inFactory && home ? itemsCard(home, s.id) : itemPanel(s))
     : "") : "") + (path ? docSupportCard(path) : "");
 
   P.querySelectorAll("[data-href]").forEach((el) => (el.onclick = (e) => {
@@ -1708,7 +1824,7 @@ function paintPanels() {
   if (cur) cur.scrollIntoView({ block: "nearest" });
 
   const first = P.querySelector(".card-a");
-  if (first && (!s || s.t !== "proc" || inProduct)) {
+  if (first && (!s || s.t !== "proc" || inFactory)) {
     const x = document.createElement("button");
     x.className = "pnl-x"; x.title = "Close (Esc)"; x.innerHTML = ICONS.x;
     x.onclick = () => { state.sel = null; closeEditor(true); paint(); };
@@ -1767,7 +1883,7 @@ function nodePanel(s) {
         <div class="irow-m"><span class="cat gap">broken wire</span></div>
       </div></div></div>` : ""}
     <div class="acts-row">
-      <button class="btn" onclick="state.mode='${state.mode === "system" ? "product" : "system"}';state.view='loop';paint();fit(true)">
+      <button class="btn" onclick="state.mode='${state.mode === "system" ? "factory" : "system"}';state.view='loop';paint();fit(true)">
         ${state.mode === "system" ? "See what's here" : "See the definition"}</button>
       <button class="btn ghost" onclick="toast('Blast radius from ${esc(s.name)}')">Blast radius</button>
     </div>`);
@@ -1846,8 +1962,14 @@ function itemHome(sel) {
 }
 
 function itemPanel(sel) {
-  let it = null, from = sel.from;
-  for (const k of Object.keys(ITEMS)) { const f = ITEMS[k].find((x) => x.id === sel.id); if (f) { it = f; from = from || k; break; } }
+  let from = sel.from;
+  let it = from ? (ITEMS[from] || []).find((x) => x.id === sel.id) : null;
+  if (!it) {
+    for (const k of Object.keys(ITEMS)) {
+      const found = ITEMS[k].find((x) => x.id === sel.id);
+      if (found) { it = found; from = k; break; }
+    }
+  }
   if (!it) return "";
   const st = STATES.find((s) => s.id === from);
   const out = PROCS.find((p) => p.from === from);
@@ -1872,7 +1994,8 @@ function paint() {
   paintSidebar(); paintToolbar(); paintStrip();
   const chat = state.chat.open && state.mode === "system";
   if (chat) paintSysChat();
-  else if (state.run || (state.mode === "product" && (state.view === "queue" || state.view === "recent"))) paintAgents();
+  else if (state.mode === "product") paintProduct();
+  else if (state.run || (state.mode === "factory" && (state.view === "queue" || state.view === "recent"))) paintAgents();
   else if (state.view === "loop" || factoryCanvas()) paintLoop(); else paintList();
   /* the list gives up the room the panel needs; the loop keeps it and re-fits */
   $("#main").classList.toggle("inset", !chat && state.view !== "loop" && !factoryCanvas() && !!state.sel);
@@ -1923,11 +2046,12 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (e.key === "1") setMode("system");
-  if (e.key === "2") setMode("product");
+  if (e.key === "2") setMode("factory");
+  if (e.key === "3") setMode("product");
 
   /* in a run console, up/down walk the fleet just like the file sheet walks a
      station list */
-  if ((e.key === "ArrowDown" || e.key === "ArrowUp") && state.mode === "product" && state.run && !state.docStack.length) {
+  if ((e.key === "ArrowDown" || e.key === "ArrowUp") && state.mode === "factory" && state.run && !state.docStack.length) {
     const list = agentsForView(), i = list.findIndex((r) => r.id === state.run);
     const j = clamp(i + (e.key === "ArrowDown" ? 1 : -1), 0, list.length - 1);
     if (i >= 0 && j !== i) { e.preventDefault(); openRun(list[j].id); }
@@ -2291,7 +2415,7 @@ function paintEditor() {
   host.innerHTML = `
     <div class="ov-card">
       <header class="ov-h">
-        <button class="ico" id="ovBack" title="${state.docStack.length > 1 ? "Back" : "Back to Factory (Esc)"}">${ICONS.chevL}</button>
+        <button class="ico" id="ovBack" title="${state.docStack.length > 1 ? "Back" : `Back to ${MODES[state.mode].label} (Esc)`}">${ICONS.chevL}</button>
         <span class="pr-k ${face.tint}">${face.icon}</span>
         <div class="ov-ht">
           <div class="ov-name">${esc(docTitle(path))}

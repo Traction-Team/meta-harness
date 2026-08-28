@@ -20,7 +20,7 @@ const WORKSPACES = [
       email — the station and edge *ids* are the skeleton, everything else is
       content. ── */
 let REPO, STATES, PROCS, BACKS, INPUTS, ISSUES, ITEMS, AGENTS, RUN_PROC, RUN_MODEL,
-    PAGES, NAV, HISTORY, RUNBOOKS, GATES, SKILLS, TERMS, COPY, EXTRA_SKILLS;
+    PAGES, NAV, HISTORY, PRODUCT, RUNBOOKS, GATES, SKILLS, TERMS, COPY, EXTRA_SKILLS;
 const DATASETS = {};
 
 function loadWorkspace(id) {
@@ -28,7 +28,7 @@ function loadWorkspace(id) {
   REPO = d.repo; STATES = d.states; PROCS = d.procs; BACKS = d.backs; INPUTS = d.inputs || [];
   ISSUES = d.issues; ITEMS = d.items; AGENTS = d.agents;
   RUN_PROC = d.runProc; RUN_MODEL = d.runModel;
-  PAGES = d.pages; NAV = d.nav; HISTORY = d.history;
+  PAGES = d.pages; NAV = d.nav; HISTORY = d.history; PRODUCT = d.product;
   TERMS = d.terms; COPY = d.copy; EXTRA_SKILLS = d.extraSkills;
   RUNBOOKS = PROCS.filter((p) => p.kind === "runbook");
   GATES = PROCS.filter((p) => p.kind === "gate");
@@ -752,6 +752,41 @@ the prompt again just spreads the same failure thinner.
   },
 };
 
+/* Product is the view past the factory's terminal state: coherent releases,
+   where they can be experienced, and the source artifacts that made them. */
+const PRODUCT = {
+  noun: "release",
+  summary: "The email client people can use, not the work moving through the factory.",
+  promotable: true,
+  lanes: [{ id: "staging", name: "Staging" }, { id: "production", name: "Production" }],
+  nav: [
+    { id: "overview", label: "Timeline", icon: "clock", n: 3 },
+    { id: "environments", label: "Environments", icon: "globe", n: 3 },
+  ],
+  releases: [
+    { id: "0.18.0", title: "A calmer reading pane", status: "ready", stage: "staging", time: "2h ago", date: "28 Aug 2026",
+      sha: "a91f3c2", pr: "#418", url: "https://email-agent.dev/releases/0.18.0", preview: "https://preview.email-agent.dev/0-18-0",
+      note: "Long threads now stay anchored while messages collapse, with quieter dividers and a persistent thread summary.",
+      slices: ["1.37", "1.33"], changes: ["Reading pane hairlines no longer jump during collapse", "Thread summaries remain visible through long conversations", "Improved keyboard focus across message boundaries"],
+      envs: [{ name: "Production", state: "pending" }, { name: "Staging", state: "live" }] },
+    { id: "0.17.0", title: "Labels where you need them", status: "live", stage: "production", time: "yesterday", date: "27 Aug 2026",
+      sha: "7d20e18", pr: "#411", url: "https://email-agent.dev/releases/0.17.0", preview: "https://preview.email-agent.dev/0-17-0",
+      note: "The sidebar label tree is easier to scan, search, and use without leaving the current thread.",
+      slices: ["1.36"], changes: ["Expandable label groups in the sidebar", "Nested labels included in rail search", "Current label remains visible while reading"],
+      envs: [{ name: "Production", state: "live" }, { name: "Staging", state: "live" }] },
+    { id: "0.16.2", title: "Safer bulk actions", status: "live", stage: "production", time: "2d ago", date: "26 Aug 2026",
+      sha: "c1b7f56", pr: "#406", url: "https://email-agent.dev/releases/0.16.2", preview: "https://preview.email-agent.dev/0-16-2",
+      note: "Archive, label, and undo actions now show their scope before changing a whole selection.",
+      slices: ["1.34", "1.32"], changes: ["Guard chip shows the selected action and count", "Undo restores the full previous thread state", "Bulk bar remains reachable from the keyboard"],
+      envs: [{ name: "Production", state: "live" }, { name: "Staging", state: "live" }] },
+  ],
+  environments: [
+    { name: "Production", branch: "main", state: "healthy", version: "0.17.0", updated: "yesterday", url: "https://email-agent.dev", note: "Public app · 100% traffic" },
+    { name: "Staging", branch: "main", state: "healthy", version: "0.18.0", updated: "18m ago", url: "https://staging.email-agent.dev", note: "Seeded accounts · production schema" },
+    { name: "PR previews", branch: "slice/*", state: "active", version: "3 live", updated: "now", url: "https://preview.email-agent.dev", note: "One isolated deployment per open PR" },
+  ],
+};
+
 /* ── the rails ── */
 const NAV = {
   system: [
@@ -762,13 +797,14 @@ const NAV = {
     { id: "issues",  label: "Defects",      icon: "flag", n: 12, loud: true },
     { id: "history", label: "Version history", icon: "clock", n: 41 },
   ],
-  product: [
+  factory: [
     { id: "loop",    label: "Board",       icon: "loop" },
     { id: "frontier",label: "Frontier",    icon: "sparkle", n: 9 },
     { id: "slices",  label: "Slices",      icon: "list",  n: 314 },
     { id: "specs",   label: "Specs",       icon: "doc",   n: 18 },
     { id: "runs",    label: "Runs",        icon: "robot", n: 6 },
   ],
+  product: PRODUCT.nav,
 };
 
 const HISTORY = [
@@ -826,7 +862,7 @@ const EXTRA_SKILLS = [
 
 return { repo: REPO, states: STATES, procs: PROCS, backs: BACKS, inputs: INPUTS, issues: ISSUES,
   items: ITEMS, agents: AGENTS, runProc: RUN_PROC, runModel: RUN_MODEL,
-  pages: PAGES, nav: NAV, history: HISTORY, terms: TERMS, copy: COPY, extraSkills: EXTRA_SKILLS };
+  pages: PAGES, nav: NAV, history: HISTORY, product: PRODUCT, terms: TERMS, copy: COPY, extraSkills: EXTRA_SKILLS };
 }
 
 /* ═══════════════════════════════════════════ workspace · My Brain Books ══
@@ -1394,6 +1430,34 @@ at the end. Two promises in one post is the drift
   },
 };
 
+const PRODUCT = {
+  noun: "publication",
+  summary: "The work as the audience experiences it, after it leaves the studio.",
+  promotable: false,
+  lanes: [{ id: "staging", name: "Scheduled" }, { id: "production", name: "Published" }],
+  nav: [
+    { id: "overview", label: "Timeline", icon: "clock", n: 3 },
+    { id: "environments", label: "Channels", icon: "globe", n: 4 },
+  ],
+  releases: [
+    { id: "2.03", title: "The desk reset reel", status: "live", stage: "production", time: "2h ago", date: "28 Aug 2026", sha: "Instagram", pr: "Reel",
+      url: "https://instagram.com/mybrainbooks", preview: "https://instagram.com/mybrainbooks", note: "A fifteen-second reset that puts the notebook at the turn, not at the start.",
+      slices: ["2.03"], changes: ["Strongest save rate this month", "Reset story before product reveal", "Audience questions feed the next pen guide"], envs: [{ name: "Instagram", state: "live" }] },
+    { id: "2.02", title: "One page, one idea", status: "live", stage: "production", time: "5h ago", date: "28 Aug 2026", sha: "TikTok", pr: "Video",
+      url: "https://tiktok.com/@mybrainbooks", preview: "https://tiktok.com/@mybrainbooks", note: "The second-brain method reduced to one repeatable rule.",
+      slices: ["2.02"], changes: ["Five-step method in under thirty seconds", "One claim per beat", "Links back to the method pillar"], envs: [{ name: "TikTok", state: "live" }] },
+    { id: "2.01", title: "The linen cover drop", status: "live", stage: "production", time: "yesterday", date: "27 Aug 2026", sha: "Instagram", pr: "Carousel",
+      url: "https://instagram.com/mybrainbooks", preview: "https://instagram.com/mybrainbooks", note: "Restock news led with the use ritual rather than inventory.",
+      slices: ["2.01"], changes: ["Restock announcement framed through the notebook ritual", "Single clear path to the product page"], envs: [{ name: "Instagram", state: "live" }] },
+  ],
+  environments: [
+    { name: "Instagram", branch: "@mybrainbooks", state: "healthy", version: "92 posts", updated: "2h ago", url: "https://instagram.com/mybrainbooks", note: "Reels and carousels" },
+    { name: "TikTok", branch: "@mybrainbooks", state: "healthy", version: "61 videos", updated: "5h ago", url: "https://tiktok.com/@mybrainbooks", note: "Methods and founder stories" },
+    { name: "Newsletter", branch: "My Brain, weekly", state: "healthy", version: "48 issues", updated: "yesterday", url: "https://mybrainbooks.example/newsletter", note: "Drops and longer-form notes" },
+    { name: "Pinterest", branch: "my-brain-books", state: "active", version: "74 pins", updated: "yesterday", url: "https://pinterest.com", note: "Evergreen setup and flat-lay discovery" },
+  ],
+};
+
 const NAV = {
   system: [
     { id: "loop",    label: "The loop",    icon: "loop" },
@@ -1403,13 +1467,14 @@ const NAV = {
     { id: "issues",  label: "Defects",      icon: "flag", n: 10, loud: true },
     { id: "history", label: "Version history", icon: "clock", n: 27 },
   ],
-  product: [
+  factory: [
     { id: "loop",    label: "Board",       icon: "loop" },
     { id: "frontier",label: "Ready",       icon: "sparkle", n: 9 },
     { id: "slices",  label: "Pieces",      icon: "list",  n: 242 },
     { id: "specs",   label: "Strategy",    icon: "doc",   n: 12 },
     { id: "runs",    label: "In production", icon: "robot", n: 5 },
   ],
+  product: PRODUCT.nav,
 };
 
 const HISTORY = [
@@ -1465,7 +1530,7 @@ const EXTRA_SKILLS = [
 
 return { repo: REPO, states: STATES, procs: PROCS, backs: BACKS, issues: ISSUES,
   items: ITEMS, agents: AGENTS, runProc: RUN_PROC, runModel: RUN_MODEL,
-  pages: PAGES, nav: NAV, history: HISTORY, terms: TERMS, copy: COPY, extraSkills: EXTRA_SKILLS };
+  pages: PAGES, nav: NAV, history: HISTORY, product: PRODUCT, terms: TERMS, copy: COPY, extraSkills: EXTRA_SKILLS };
 }
 
 DATASETS["email-agent"] = makeEmailAgent();

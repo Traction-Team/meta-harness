@@ -48,21 +48,20 @@ and versioning is finally its UI.
   6-10 nodes by construction, so a diagram is exactly right. Same reasoning,
   opposite conclusion per mode.
 - **The switcher stays top-left**, under the workspace. It now carries three:
-  **System | Factory | Agents** (ids still `system` / `product` / `agents`; only
-  the labels changed — went System/Product → Factory/Assets/Workers → landed on
-  System/Factory/Agents). System and Factory are the same ring read two ways
-  (definition vs. board of lists). Agents drops the ring entirely.
-- **Agents mode is the third leg: orchestration, not description.** The live
-  harness sessions walking slices along the edges — the role a tool like Orca
-  plays, which we now build ourselves (see the decision below). Its board covers
+  **System | Factory | Product** (`system` / `factory` / `product`). System and
+  Factory are the same ring read two ways (definition vs. board of lists).
+  Product drops the ring and shows coherent shipped outcomes.
+- **Worker orchestration stays inside Factory.** The live harness sessions walk
+  artifacts along the edges. Factory's worker surfaces cover
   `starting`, `running`, `needs-you`, `needs-terminal`, `operator-held`,
   `blocked`, `failed`, `lost`, and recent completion. The console is a durable
   activity/question view; **Open terminal** attaches to the exact native TUI.
   A generic composer is shown only where an adapter provides reliable structured
-  steering.
+  steering. Product is the third leg: what landed, where it is available, and
+  the release notes and source artifacts that prove it.
 - **The status dots are now a reading of the fleet, not decoration.** In the
   prototype, `AGENTS` is the fixture source and `runsForSlice` / `dotForItem`
-  derive the Factory dots from it. In the real runtime, Agents rows and Factory
+  derive the Factory dots from it. In the real runtime, worker rows and Factory
   dots are projections of the dispatch event log, so neither mutable process
   state nor terminal output can make the views disagree.
 - **We do not build on Orca.** Settled 26 Aug 2026 after reading the source;
@@ -145,7 +144,7 @@ and versioning is finally its UI.
   `system/issues/`; path/name lag like the runbooks one.
 - **The ask bar opens a chat with the system agent.** A clean System canvas
   floats an up-arrow ask bar (only when nothing is drilled into); submitting opens
-  a primary-pane chat that reuses the Agents console surface. Its replies are
+  a primary-pane chat that reuses the worker console surface. Its replies are
   keyword-matched and wired into the version flow — asking to clean up defects
   offers *Plan a change*, which hands off to the version card. Scoped to System
   mode. Replies are canned; not a real model.
@@ -181,11 +180,10 @@ agent's experiment, unrelated to this work.
 ## Open threads
 
 - Does the play button belong on the lines, or is the loop a static definition
-  surface with execution elsewhere? Leaning toward the latter now that **Agents
-  mode is the execution home** — the ring stays a definition/board, the fleet is
-  where runs actually live. Play buttons still exist on the lines as a dispatch
-  shortcut, but they hand off into Agents mode.
-- The Agents console is still faked. The accepted implementation is a separate
+  surface with execution elsewhere? The ring stays a definition/board and the
+  Factory worker views are where runs actually live. Play buttons still exist on
+  the lines as a dispatch shortcut, but they hand off into those worker views.
+- The worker console is still faked. The accepted implementation is a separate
   daemon running each adapter's real native CLI in a managed PTY, with Factory
   MCP events backing the board and question flow and capability-negotiated ACP
   enrichment. Harness-specific authentication belongs in each adapter, not in
