@@ -45,7 +45,7 @@ const ICONS = {
 const MODES = {
   system:  { label: "System",  icon: ICONS.wrench, defaultView: "loop", section: "Definition" },
   factory: { label: "Factory", icon: ICONS.list, defaultView: "loop", section: "Factory" },
-  product: { label: "Products", icon: ICONS.box, defaultView: "overview", section: "Products" },
+  product: { label: "Outputs", icon: ICONS.box, defaultView: "overview", section: "Outputs" },
 };
 const MODE_ORDER = Object.keys(MODES);
 
@@ -1295,8 +1295,8 @@ function paintList() {
 }
 
 /* ══════════════════════════════════════════════════════════ products ══
-   Finished features stay in one Recent-style table. Environment boundaries
-   divide that table into groups and move as releases are promoted. */
+   Recent output is arranged by environment. A workspace with one environment
+   gets one wide lane; additional environments divide the same space evenly. */
 
 const productStatus = (status) => status === "live" || status === "healthy" ? "running"
   : status === "pending" ? "waiting" : status === "ready" || status === "active" ? "ready" : "done";
@@ -1332,54 +1332,55 @@ function promoteAllReleases() {
   paint();
 }
 
-function releaseTableRow(r) {
+function releaseCard(r, environment) {
   const staged = r.stage === "staging";
-  const status = staged ? PRODUCT.lanes[0].name.toLowerCase() : PRODUCT.lanes[1].name.toLowerCase();
-  return `<div class="wrow release-row">
-    <div class="wrow-b">
-      <div class="wrow-t"><span class="nd-dot ${staged ? "wait" : "ok"}"></span>
-        <span class="wrow-id mono">${esc(r.id)}</span><span class="wrow-nm">${esc(r.title)}</span>
-        <span class="wrow-meta">${esc(r.pr)} · ${esc(r.sha)} · ${esc(r.date)}</span></div>
-      <div class="wrow-head">${esc(r.note)}</div>
-      <div class="release-links">
-        <button data-url="${esc(r.preview)}">Preview ${ICONS.external}</button>
-        <button data-url="${esc(r.url)}">Release note ${ICONS.external}</button>
-        ${r.slices.map((id) => `<button data-slice="${esc(id)}">${esc(TERMS.unit)} ${esc(id)}</button>`).join("")}
-      </div>
+  return `<article class="release-card ${staged ? "staged" : ""}">
+    <div class="release-card-top"><span class="nd-dot ${staged ? "wait" : "ok"}"></span>
+      <span class="wrow-id mono">${esc(r.id)}</span>
+      <span class="wrow-time mono">${ICONS.clock}${esc(r.time)}</span></div>
+    <div class="release-card-title">${esc(r.title)}</div>
+    <div class="release-card-meta">${esc(r.pr)} · ${esc(r.sha)} · ${esc(r.date)}</div>
+    <div class="release-card-note">${esc(r.note)}</div>
+    <div class="release-links">
+      ${r.preview ? `<button data-url="${esc(r.preview)}">Preview ${ICONS.external}</button>` : ""}
+      <button data-url="${esc(r.url)}">${PRODUCT.promotable ? "Release note" : "Open output"} ${ICONS.external}</button>
+      ${r.slices.map((id) => `<button data-slice="${esc(id)}">${esc(TERMS.unit)} ${esc(id)}</button>`).join("")}
     </div>
-    <div class="wrow-r release-row-r"><span class="wrow-time mono">${ICONS.clock}${esc(r.time)}</span>
+    <div class="release-card-foot">
+      <span class="pill ${staged ? "waiting" : "done"} plain">${esc(environment.name.toLowerCase())}</span>
       ${staged && PRODUCT.promotable ? `<button class="btn" data-promote="${esc(r.id)}">${ICONS.up} Promote</button>` : ""}
-      <span class="pill ${staged ? "waiting" : "done"} plain">${esc(status)}</span>
     </div>
-  </div>`;
+  </article>`;
 }
 
-function releaseGroup(label, rows, cls = "") {
-  if (!rows.length) return "";
-  return `<section class="wgroup release-group ${cls}" aria-label="${esc(label)}"><div class="wgroup-h">${esc(label)}<span class="wgroup-n">${rows.length}</span></div>
-    <div class="wrows">${rows.map(releaseTableRow).join("")}</div></section>`;
+function releaseColumn(environment) {
+  const rows = PRODUCT.releases.filter((r) => r.stage === environment.id);
+  const canPromoteAll = environment.id === "staging" && PRODUCT.promotable && PRODUCT.environments.length > 1 && rows.length;
+  return `<section class="release-column" aria-label="${esc(environment.name)}">
+    <div class="release-column-head">
+      <span class="release-column-icon">${ICONS.globe}</span>
+      <div class="release-column-copy"><div class="release-column-name">${esc(environment.name)} <span>${rows.length}</span></div>
+        <div class="release-column-detail">${esc(environment.version)} · ${esc(environment.updated)}</div></div>
+      <div class="release-column-actions"><span class="pill ${productStatus(environment.state)}">${esc(environment.state)}</span>
+        ${canPromoteAll ? `<button class="btn pri" data-promote-all>${ICONS.up} Promote all</button>` : ""}</div>
+    </div>
+    <div class="release-cards">${rows.length ? rows.map((r) => releaseCard(r, environment)).join("")
+      : `<div class="release-empty">No recent ${esc(PRODUCT.noun)}s in this environment.</div>`}</div>
+  </section>`;
 }
 
 function productTimeline() {
-  const staged = PRODUCT.releases.filter((r) => r.stage === "staging");
-  const production = PRODUCT.releases.filter((r) => r.stage === "production");
-  const current = releaseAt("production");
-  const stagingLabel = PRODUCT.promotable ? `${PRODUCT.lanes[0].name} only` : PRODUCT.lanes[0].name;
   return `<div class="lv product-lv">
-    <div class="lv-head"><span class="lv-title">Recent</span><span class="lv-sub">finished ${esc(PRODUCT.itemWord)} and their release notes, newest first</span></div>
-    ${releaseGroup(stagingLabel, staged, "staged")}
-    <div class="release-boundary ${staged.length ? "open" : ""}" role="separator" aria-label="${esc(PRODUCT.lanes[1].name)} boundary${current ? ` at ${esc(current.id)}` : ""}">
-      <span class="release-boundary-line"></span><span class="release-boundary-label"><i class="nd-dot ${staged.length ? "wait" : "ok"}"></i>${esc(PRODUCT.lanes[1].name)}${current ? ` · <b class="mono">${esc(current.id)}</b>` : ""}</span>
-      ${staged.length && PRODUCT.promotable ? `<button class="btn pri" data-promote-all>${ICONS.up} Promote all ${staged.length}</button>` : ""}
-      <span class="release-boundary-line"></span>
+    <div class="lv-head"><span class="lv-title">Recent</span><span class="lv-sub">finished ${esc(PRODUCT.itemWord)}, grouped by environment</span></div>
+    <div class="release-board" style="--columns:${PRODUCT.environments.length}">
+      ${PRODUCT.environments.map(releaseColumn).join("")}
     </div>
-    ${releaseGroup(PRODUCT.lanes[1].name, production, "production")}
   </div>`;
 }
 
 function productEnvironments() {
   return `<div class="lv product-lv">
-    <div class="lv-head"><span class="lv-title">${PRODUCT.promotable ? "Environments" : "Channels"}</span><span class="lv-sub">the destinations referenced by the release timeline</span></div>
+    <div class="lv-head"><span class="lv-title">Environments</span><span class="lv-sub">the destinations represented on the Recent board</span></div>
     <div class="lv-rows rel-env-rows">${PRODUCT.environments.map((e) => `
       <button class="lrow" data-url="${esc(e.url)}"><span class="pr-k">${ICONS.globe}</span>
         <div class="lrow-b"><div class="lrow-t">${esc(e.name)} <span class="mono rel-env-version">${esc(e.version)}</span></div><div class="lrow-s">${esc(e.url.replace(/^https?:\/\//, ""))} · ${esc(e.branch)} · ${esc(e.note)}</div></div>

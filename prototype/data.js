@@ -759,17 +759,17 @@ const PRODUCT = {
   itemWord: "features",
   summary: "The email client people can use, not the work moving through the factory.",
   promotable: true,
-  lanes: [{ id: "staging", name: "Staging" }, { id: "production", name: "Production" }],
+  lanes: [{ id: "development", name: "Development" }, { id: "staging", name: "Staging" }, { id: "production", name: "Production" }],
   nav: [
     { id: "overview", label: "Recent", icon: "clock", n: 3 },
     { id: "environments", label: "Environments", icon: "globe", n: 3 },
   ],
   releases: [
-    { id: "0.18.0", title: "A calmer reading pane", status: "ready", stage: "staging", time: "2h ago", date: "28 Aug 2026",
+    { id: "0.18.0", title: "A calmer reading pane", status: "ready", stage: "development", time: "2h ago", date: "28 Aug 2026",
       sha: "a91f3c2", pr: "#418", url: "https://email-agent.dev/releases/0.18.0", preview: "https://preview.email-agent.dev/0-18-0",
       note: "Long threads now stay anchored while messages collapse, with quieter dividers and a persistent thread summary.",
       slices: ["1.37", "1.33"], changes: ["Reading pane hairlines no longer jump during collapse", "Thread summaries remain visible through long conversations", "Improved keyboard focus across message boundaries"],
-      envs: [{ name: "Production", state: "pending" }, { name: "Staging", state: "live" }] },
+      envs: [{ name: "Development", state: "live" }, { name: "Staging", state: "pending" }, { name: "Production", state: "pending" }] },
     { id: "0.17.0", title: "Labels where you need them", status: "ready", stage: "staging", time: "yesterday", date: "27 Aug 2026",
       sha: "7d20e18", pr: "#411", url: "https://email-agent.dev/releases/0.17.0", preview: "https://preview.email-agent.dev/0-17-0",
       note: "The sidebar label tree is easier to scan, search, and use without leaving the current thread.",
@@ -782,9 +782,9 @@ const PRODUCT = {
       envs: [{ name: "Production", state: "live" }, { name: "Staging", state: "live" }] },
   ],
   environments: [
-    { name: "Production", branch: "main", state: "healthy", version: "0.16.2", updated: "2d ago", url: "https://email-agent.dev", note: "Public app · 100% traffic" },
-    { name: "Staging", branch: "main", state: "healthy", version: "0.18.0", updated: "18m ago", url: "https://staging.email-agent.dev", note: "Seeded accounts · production schema" },
-    { name: "PR previews", branch: "slice/*", state: "active", version: "3 live", updated: "now", url: "https://preview.email-agent.dev", note: "One isolated deployment per open PR" },
+    { id: "development", name: "Development", branch: "slice/*", state: "active", version: "0.18.0", updated: "now", url: "https://preview.email-agent.dev", note: "One isolated deployment per open PR" },
+    { id: "staging", name: "Staging", branch: "main", state: "healthy", version: "0.17.0", updated: "18m ago", url: "https://staging.email-agent.dev", note: "Seeded accounts · production schema" },
+    { id: "production", name: "Production", branch: "main", state: "healthy", version: "0.16.2", updated: "2d ago", url: "https://email-agent.dev", note: "Public app · 100% traffic" },
   ],
 };
 
@@ -1436,27 +1436,24 @@ const PRODUCT = {
   itemWord: "publications",
   summary: "The work as the audience experiences it, after it leaves the studio.",
   promotable: false,
-  lanes: [{ id: "staging", name: "Scheduled" }, { id: "production", name: "Published" }],
+  lanes: [{ id: "production", name: "Content engine" }],
   nav: [
     { id: "overview", label: "Recent", icon: "clock", n: 3 },
-    { id: "environments", label: "Channels", icon: "globe", n: 4 },
+    { id: "environments", label: "Environments", icon: "globe", n: 1 },
   ],
   releases: [
     { id: "2.03", title: "The desk reset reel", status: "live", stage: "production", time: "2h ago", date: "28 Aug 2026", sha: "Instagram", pr: "Reel",
       url: "https://instagram.com/mybrainbooks", preview: "https://instagram.com/mybrainbooks", note: "A fifteen-second reset that puts the notebook at the turn, not at the start.",
-      slices: ["2.03"], changes: ["Strongest save rate this month", "Reset story before product reveal", "Audience questions feed the next pen guide"], envs: [{ name: "Instagram", state: "live" }] },
+      slices: ["2.03"], changes: ["Strongest save rate this month", "Reset story before product reveal", "Audience questions feed the next pen guide"], envs: [{ name: "Content engine", state: "live" }] },
     { id: "2.02", title: "One page, one idea", status: "live", stage: "production", time: "5h ago", date: "28 Aug 2026", sha: "TikTok", pr: "Video",
       url: "https://tiktok.com/@mybrainbooks", preview: "https://tiktok.com/@mybrainbooks", note: "The second-brain method reduced to one repeatable rule.",
-      slices: ["2.02"], changes: ["Five-step method in under thirty seconds", "One claim per beat", "Links back to the method pillar"], envs: [{ name: "TikTok", state: "live" }] },
+      slices: ["2.02"], changes: ["Five-step method in under thirty seconds", "One claim per beat", "Links back to the method pillar"], envs: [{ name: "Content engine", state: "live" }] },
     { id: "2.01", title: "The linen cover drop", status: "live", stage: "production", time: "yesterday", date: "27 Aug 2026", sha: "Instagram", pr: "Carousel",
       url: "https://instagram.com/mybrainbooks", preview: "https://instagram.com/mybrainbooks", note: "Restock news led with the use ritual rather than inventory.",
-      slices: ["2.01"], changes: ["Restock announcement framed through the notebook ritual", "Single clear path to the product page"], envs: [{ name: "Instagram", state: "live" }] },
+      slices: ["2.01"], changes: ["Restock announcement framed through the notebook ritual", "Single clear path to the product page"], envs: [{ name: "Content engine", state: "live" }] },
   ],
   environments: [
-    { name: "Instagram", branch: "@mybrainbooks", state: "healthy", version: "92 posts", updated: "2h ago", url: "https://instagram.com/mybrainbooks", note: "Reels and carousels" },
-    { name: "TikTok", branch: "@mybrainbooks", state: "healthy", version: "61 videos", updated: "5h ago", url: "https://tiktok.com/@mybrainbooks", note: "Methods and founder stories" },
-    { name: "Newsletter", branch: "My Brain, weekly", state: "healthy", version: "48 issues", updated: "yesterday", url: "https://mybrainbooks.example/newsletter", note: "Drops and longer-form notes" },
-    { name: "Pinterest", branch: "my-brain-books", state: "active", version: "74 pins", updated: "yesterday", url: "https://pinterest.com", note: "Evergreen setup and flat-lay discovery" },
+    { id: "production", name: "Content engine", branch: "all channels", state: "healthy", version: "3 recent outputs", updated: "2h ago", url: "https://instagram.com/mybrainbooks", note: "Instagram, TikTok, newsletter, and Pinterest" },
   ],
 };
 

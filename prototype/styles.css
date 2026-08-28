@@ -75,7 +75,7 @@ svg { display: block; }
 .ico.on { color: var(--accent); }
 .side-chrome .ico { margin-left: auto; }
 
-/* ── the System | Factory | Products switcher ──
+/* ── the System | Factory | Outputs switcher ──
    The one control that reframes the whole window. Full rail width, directly
    under the workspace, because it is not a filter, it is a mode. */
 .mode-wrap { padding: 0 10px 12px; flex: none; }
@@ -446,27 +446,38 @@ svg { display: block; }
 
 .product-lv { display: flex; flex-direction: column; }
 .product-lv .lv-head { flex: none; }
-.release-group:first-of-type .wgroup-h { padding-top: 4px; }
-.release-group .wrow { min-height: 64px; align-items: center; }
-.release-group.staged .wrow { background: color-mix(in srgb, var(--amber-dim) 24%, transparent); }
-.release-group.staged .wrow:hover { background: var(--amber-dim); }
-.release-row .wrow-nm { max-width: 38%; }
-.release-row .wrow-head { white-space: normal; line-height: 1.45; }
-.release-row-r { align-self: center; }
-.release-row-r .btn { height: 25px; padding-inline: 9px; font-size: 11px; color: var(--amber); background: var(--card); }
-.release-row-r .btn:hover { border-color: var(--amber); }
-.release-row-r .btn svg { width: 11px; height: 11px; }
-.release-links { display: flex; flex-wrap: wrap; gap: 9px; margin: 5px 0 0 24px; }
+.release-board { --gap: 12px; flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(var(--columns), minmax(280px, 1fr));
+  gap: var(--gap); padding: 0 22px 22px; overflow-x: auto; }
+.release-column { min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 12px; border-radius: 14px;
+  background: color-mix(in srgb, var(--raise) 72%, transparent); border: .5px solid var(--line-soft); }
+.release-column-head { display: flex; align-items: center; gap: 9px; padding: 1px 1px 12px; }
+.release-column-icon { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 7px; color: var(--accent); background: var(--accent-dim); flex: none; }
+.release-column-icon svg { width: 13px; height: 13px; }
+.release-column-copy { min-width: 0; flex: 1; }
+.release-column-name { font-size: 12.5px; font-weight: 640; }
+.release-column-name span { margin-left: 4px; color: var(--text-3); font-weight: 550; font-variant-numeric: tabular-nums; }
+.release-column-detail { color: var(--text-3); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.release-column-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+.release-column-actions .pill { font-size: 10px; padding-inline: 6px; }
+.release-column-actions .btn { height: 25px; padding-inline: 8px; font-size: 10.5px; }
+.release-column-actions .btn svg { width: 11px; height: 11px; }
+.release-cards { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; padding: 1px; }
+.release-card { padding: 12px; border-radius: 11px; background: var(--card); border: .5px solid var(--line); box-shadow: var(--card-shadow); }
+.release-card:hover { border-color: rgba(128,128,138,.4); }
+.release-card.staged { border-color: color-mix(in srgb, var(--amber) 38%, var(--line)); }
+.release-card-top { display: flex; align-items: center; gap: 7px; }
+.release-card-top .wrow-time { margin-left: auto; }
+.release-card-title { margin-top: 8px; font-size: 13.5px; font-weight: 620; letter-spacing: -.012em; }
+.release-card-meta { margin-top: 1px; font-size: 10.5px; color: var(--text-3); }
+.release-card-note { margin-top: 8px; font-size: 11.5px; line-height: 1.5; color: var(--text-2); }
+.release-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
 .release-links button { display: inline-flex; align-items: center; gap: 3px; color: var(--accent); font-size: 10.5px; }
 .release-links button:hover { text-decoration: underline; }
 .release-links button svg { width: 10px; height: 10px; }
-.release-boundary { display: flex; align-items: center; gap: 9px; margin: 13px 22px 4px; color: var(--text-3); }
-.release-boundary-line { height: .5px; background: var(--line); flex: 1; }
-.release-boundary.open .release-boundary-line { background: color-mix(in srgb, var(--amber) 38%, transparent); }
-.release-boundary-label { display: inline-flex; align-items: center; gap: 6px; padding: 0 2px; font-size: 10px; font-weight: 620; letter-spacing: .045em; text-transform: uppercase; white-space: nowrap; }
-.release-boundary-label b { color: var(--text-2); font-size: 10px; font-weight: 600; letter-spacing: 0; }
-.release-boundary .btn { height: 25px; padding-inline: 9px; font-size: 11px; }
-.release-boundary .btn svg { width: 11px; height: 11px; }
+.release-card-foot { display: flex; align-items: center; gap: 8px; margin-top: 11px; padding-top: 10px; border-top: .5px solid var(--line-soft); }
+.release-card-foot .btn { height: 24px; margin-left: auto; padding-inline: 8px; font-size: 10.5px; color: var(--amber); }
+.release-card-foot .btn svg { width: 11px; height: 11px; }
+.release-empty { display: grid; place-items: center; min-height: 110px; padding: 18px; border: .5px dashed var(--line); border-radius: 10px; color: var(--text-3); font-size: 11.5px; text-align: center; }
 .rel-env-rows .pr-k { flex: none; color: var(--accent); }
 .rel-env-version { margin-left: 4px; color: var(--text-3); font-size: 10.5px; font-weight: 400; }
 .rel-env-rows .lrow-r > svg { width: 12px; height: 12px; }
@@ -482,9 +493,7 @@ svg { display: block; }
   .side-nav .rsec { display: none; }
   .snav { width: auto; flex: none; padding-inline: 10px; }
   .content { min-height: 0; }
-  .release-row { grid-template-columns: minmax(0,1fr); }
-  .release-row-r { margin-left: 24px; }
-  .release-boundary { margin-inline: 14px; }
+  .release-board { padding-inline: 14px; grid-template-columns: repeat(var(--columns), minmax(calc(100vw - 28px), 1fr)); }
   .strip-left { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   #lintChip { display: none; }
 }
