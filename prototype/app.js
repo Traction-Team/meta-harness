@@ -725,11 +725,24 @@ function geo(m) {
     : { nw: 198, nh: 80,  gapX: 210, gapY: 155 };
   const pitchX = P.nw + P.gapX, pitchY = P.nh + P.gapY;
 
+  /* A program and its target gate both occupy the gap between states. Add room
+     before that destination column instead of spreading the whole loop out. */
+  const columnGaps = {};
+  m.procs.filter((p) => p.kind === "gate").forEach((gate) => {
+    const incoming = m.procs.find((p) => p.kind !== "gate" && p.to === gate.id);
+    const fromGrid = incoming && GRID[incoming.from], toGrid = GRID[gate.to];
+    if (fromGrid && toGrid && fromGrid[1] === toGrid[1] && fromGrid[0] < toGrid[0]) {
+      columnGaps[toGrid[0]] = Math.max(columnGaps[toGrid[0]] || 0, state.mode === "product" ? 150 : 130);
+    }
+  });
+  const xForColumn = (column) => column * pitchX
+    + Object.entries(columnGaps).reduce((sum, [before, gap]) => sum + (+before <= column ? gap : 0), 0);
+
   /* raw node rects, origin at Feedback's top-left */
   const nodes = {};
   for (const id in GRID) {
     const [c, r] = GRID[id];
-    nodes[id] = { x: c * pitchX, y: r * pitchY, w: P.nw, h: P.nh };
+    nodes[id] = { x: xForColumn(c), y: r * pitchY, w: P.nw, h: P.nh };
   }
 
   /* Gates are endpoints on the wire. Place each one between its source and
@@ -740,9 +753,10 @@ function geo(m) {
     const from = nodes[incoming ? incoming.from : gate.from], to = nodes[gate.to];
     if (!from || !to) return;
     const w = 54, h = 54;
+    const progress = incoming ? .62 : .5;
     gates[gate.id] = {
-      x: ((from.x + from.w / 2) + (to.x + to.w / 2)) / 2 - w / 2,
-      y: ((from.y + from.h / 2) + (to.y + to.h / 2)) / 2 - h / 2,
+      x: (from.x + from.w / 2) + ((to.x + to.w / 2) - (from.x + from.w / 2)) * progress - w / 2,
+      y: (from.y + from.h / 2) + ((to.y + to.h / 2) - (from.y + from.h / 2)) * progress - h / 2,
       w, h,
     };
   });
