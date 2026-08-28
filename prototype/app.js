@@ -45,7 +45,7 @@ const ICONS = {
 const MODES = {
   system:  { label: "System",  icon: ICONS.wrench, defaultView: "loop", section: "Definition" },
   factory: { label: "Factory", icon: ICONS.list, defaultView: "loop", section: "Factory" },
-  product: { label: "Product", icon: ICONS.box, defaultView: "overview", section: "Product" },
+  product: { label: "Products", icon: ICONS.box, defaultView: "overview", section: "Products" },
 };
 const MODE_ORDER = Object.keys(MODES);
 
@@ -1294,86 +1294,86 @@ function paintList() {
   });
 }
 
-/* ═══════════════════════════════════════════════════════════ product ══
-   The release timeline joins each finished feature to the environments it has
-   reached. Environment heads are pointers into that one chronological ledger. */
+/* ══════════════════════════════════════════════════════════ products ══
+   Finished features stay in one Recent-style table. Environment boundaries
+   divide that table into groups and move as releases are promoted. */
 
 const productStatus = (status) => status === "live" || status === "healthy" ? "running"
   : status === "pending" ? "waiting" : status === "ready" || status === "active" ? "ready" : "done";
-const releaseReached = (r, lane) => lane === "staging" || r.stage === "production";
-const releaseAt = (lane) => PRODUCT.releases.find((r) => releaseReached(r, lane));
+const releaseAt = (stage) => PRODUCT.releases.find((r) => stage === "staging" || r.stage === "production");
+
+function setReleaseProduction(r) {
+  r.stage = "production"; r.status = "live";
+  const prod = r.envs.find((e) => e.name === "Production");
+  if (prod) prod.state = "live";
+}
+
+function syncProductionEnvironment() {
+  const environment = PRODUCT.environments.find((e) => e.name === "Production");
+  const current = releaseAt("production");
+  if (environment && current) { environment.version = current.id; environment.updated = "just now"; }
+}
 
 function promoteRelease(id) {
   const r = PRODUCT.releases.find((x) => x.id === id);
   if (!r || r.stage === "production") return;
-  r.stage = "production"; r.status = "live";
-  const prod = r.envs.find((e) => e.name === "Production");
-  if (prod) prod.state = "live";
-  const environment = PRODUCT.environments.find((e) => e.name === "Production");
-  if (environment) { environment.version = r.id; environment.updated = "just now"; }
+  setReleaseProduction(r);
+  syncProductionEnvironment();
   toast(`${r.id} promoted to production`);
   paint();
 }
 
-function laneHead(lane) {
-  const current = releaseAt(lane.id);
-  const env = PRODUCT.environments.find((e) => e.name === lane.name);
-  return `<button class="rel-lane-head" ${env ? `data-url="${esc(env.url)}"` : ""}>
-    <span><i class="nd-dot ok"></i>${esc(lane.name)}</span>
-    <b class="mono">${current ? esc(current.id) : "—"}</b>
-    <small>${env ? esc(env.updated) : "current"}</small>
-  </button>`;
+function promoteAllReleases() {
+  const staged = PRODUCT.releases.filter((r) => r.stage === "staging");
+  if (!staged.length) return;
+  staged.forEach(setReleaseProduction);
+  syncProductionEnvironment();
+  toast(`${staged.length} ${staged.length === 1 ? PRODUCT.noun : PRODUCT.noun + "s"} promoted to production`);
+  paint();
 }
 
-function laneCell(r, lane) {
-  const reached = releaseReached(r, lane.id);
-  const current = releaseAt(lane.id)?.id === r.id;
-  if (reached) return `<div class="rel-lane-cell reached ${current ? "current" : ""}">
-    <span class="rel-check">${ICONS.tick}</span><span>${current ? "Current" : "Deployed"}</span>
-  </div>`;
-  if (lane.id === "production" && PRODUCT.promotable) return `<div class="rel-lane-cell waiting">
-    <button class="btn pri" data-promote="${esc(r.id)}">${ICONS.up} Promote</button>
-  </div>`;
-  return `<div class="rel-lane-cell waiting"><span class="nd-dot wait"></span><span>Waiting</span></div>`;
-}
-
-function releaseRow(r) {
-  return `<article class="rel-row ${r.stage === "staging" ? "staged" : ""}">
-    <div class="rel-axis"><span>${ICONS.check}</span></div>
-    <div class="rel-note">
-      <div class="rel-note-top"><span class="mono rel-version">${esc(r.id)}</span><h3>${esc(r.title)}</h3><time>${esc(r.time)}</time></div>
-      <p>${esc(r.note)}</p>
-      <ul>${r.changes.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>
-      <div class="rel-meta"><span class="mono">${esc(r.sha)}</span><span>${esc(r.pr)}</span><span>${esc(r.date)}</span>
+function releaseTableRow(r) {
+  const staged = r.stage === "staging";
+  const status = staged ? PRODUCT.lanes[0].name.toLowerCase() : PRODUCT.lanes[1].name.toLowerCase();
+  return `<div class="wrow release-row">
+    <div class="wrow-b">
+      <div class="wrow-t"><span class="nd-dot ${staged ? "wait" : "ok"}"></span>
+        <span class="wrow-id mono">${esc(r.id)}</span><span class="wrow-nm">${esc(r.title)}</span>
+        <span class="wrow-meta">${esc(r.pr)} · ${esc(r.sha)} · ${esc(r.date)}</span></div>
+      <div class="wrow-head">${esc(r.note)}</div>
+      <div class="release-links">
         <button data-url="${esc(r.preview)}">Preview ${ICONS.external}</button>
         <button data-url="${esc(r.url)}">Release note ${ICONS.external}</button>
         ${r.slices.map((id) => `<button data-slice="${esc(id)}">${esc(TERMS.unit)} ${esc(id)}</button>`).join("")}
       </div>
     </div>
-    ${PRODUCT.lanes.map((lane) => laneCell(r, lane)).join("")}
-  </article>`;
+    <div class="wrow-r release-row-r"><span class="wrow-time mono">${ICONS.clock}${esc(r.time)}</span>
+      ${staged && PRODUCT.promotable ? `<button class="btn" data-promote="${esc(r.id)}">${ICONS.up} Promote</button>` : ""}
+      <span class="pill ${staged ? "waiting" : "done"} plain">${esc(status)}</span>
+    </div>
+  </div>`;
+}
+
+function releaseGroup(label, rows, cls = "") {
+  if (!rows.length) return "";
+  return `<section class="wgroup release-group ${cls}" aria-label="${esc(label)}"><div class="wgroup-h">${esc(label)}<span class="wgroup-n">${rows.length}</span></div>
+    <div class="wrows">${rows.map(releaseTableRow).join("")}</div></section>`;
 }
 
 function productTimeline() {
-  const staging = releaseAt("staging"), production = releaseAt("production");
-  const pending = PRODUCT.releases.filter((r) => r.stage === "staging").length;
+  const staged = PRODUCT.releases.filter((r) => r.stage === "staging");
+  const production = PRODUCT.releases.filter((r) => r.stage === "production");
+  const current = releaseAt("production");
+  const stagingLabel = PRODUCT.promotable ? `${PRODUCT.lanes[0].name} only` : PRODUCT.lanes[0].name;
   return `<div class="lv product-lv">
-    <div class="lv-head"><span class="lv-title">Release timeline</span>
-      <span class="lv-sub">each finished ${esc(TERMS.unit)}, its release note, and where it is deployed</span>
-      ${pending ? `<span class="pill waiting">${pending} awaiting production</span>` : `<span class="pill done">environments aligned</span>`}
+    <div class="lv-head"><span class="lv-title">Recent</span><span class="lv-sub">finished ${esc(PRODUCT.itemWord)} and their release notes, newest first</span></div>
+    ${releaseGroup(stagingLabel, staged, "staged")}
+    <div class="release-boundary ${staged.length ? "open" : ""}" role="separator" aria-label="${esc(PRODUCT.lanes[1].name)} boundary${current ? ` at ${esc(current.id)}` : ""}">
+      <span class="release-boundary-line"></span><span class="release-boundary-label"><i class="nd-dot ${staged.length ? "wait" : "ok"}"></i>${esc(PRODUCT.lanes[1].name)}${current ? ` · <b class="mono">${esc(current.id)}</b>` : ""}</span>
+      ${staged.length && PRODUCT.promotable ? `<button class="btn pri" data-promote-all>${ICONS.up} Promote all ${staged.length}</button>` : ""}
+      <span class="release-boundary-line"></span>
     </div>
-    <div class="rel-wrap">
-      <div class="rel-head">
-        <div class="rel-head-copy"><b>Release notes</b><span>newest first</span></div>
-        ${PRODUCT.lanes.map(laneHead).join("")}
-      </div>
-      <div class="rel-gap ${staging && production && staging.id !== production.id ? "open" : ""}">
-        ${staging && production && staging.id !== production.id
-          ? `${ICONS.flag}<span><b>${esc(staging.id)}</b> is on ${esc(PRODUCT.lanes[0].name)}, ahead of ${esc(PRODUCT.lanes[1].name)} at <b>${esc(production.id)}</b>.</span>`
-          : `${ICONS.check}<span>${esc(PRODUCT.lanes[0].name)} and ${esc(PRODUCT.lanes[1].name)} are at the same release.</span>`}
-      </div>
-      <div class="rel-rows">${PRODUCT.releases.map(releaseRow).join("")}</div>
-    </div>
+    ${releaseGroup(PRODUCT.lanes[1].name, production, "production")}
   </div>`;
 }
 
@@ -1392,6 +1392,8 @@ function wireProduct() {
   $("#main").querySelectorAll("[data-url]").forEach((b) => (b.onclick = () => window.open(b.dataset.url, "_blank", "noopener")));
   $("#main").querySelectorAll("[data-slice]").forEach((b) => (b.onclick = () => openItemDoc(b.dataset.slice, "merged")));
   $("#main").querySelectorAll("[data-promote]").forEach((b) => (b.onclick = () => promoteRelease(b.dataset.promote)));
+  const promoteAll = $("#main").querySelector("[data-promote-all]");
+  if (promoteAll) promoteAll.onclick = promoteAllReleases;
 }
 
 function paintProduct() {

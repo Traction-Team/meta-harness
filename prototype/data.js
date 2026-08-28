@@ -756,11 +756,12 @@ the prompt again just spreads the same failure thinner.
    where they can be experienced, and the source artifacts that made them. */
 const PRODUCT = {
   noun: "release",
+  itemWord: "features",
   summary: "The email client people can use, not the work moving through the factory.",
   promotable: true,
   lanes: [{ id: "staging", name: "Staging" }, { id: "production", name: "Production" }],
   nav: [
-    { id: "overview", label: "Timeline", icon: "clock", n: 3 },
+    { id: "overview", label: "Recent", icon: "clock", n: 3 },
     { id: "environments", label: "Environments", icon: "globe", n: 3 },
   ],
   releases: [
@@ -769,11 +770,11 @@ const PRODUCT = {
       note: "Long threads now stay anchored while messages collapse, with quieter dividers and a persistent thread summary.",
       slices: ["1.37", "1.33"], changes: ["Reading pane hairlines no longer jump during collapse", "Thread summaries remain visible through long conversations", "Improved keyboard focus across message boundaries"],
       envs: [{ name: "Production", state: "pending" }, { name: "Staging", state: "live" }] },
-    { id: "0.17.0", title: "Labels where you need them", status: "live", stage: "production", time: "yesterday", date: "27 Aug 2026",
+    { id: "0.17.0", title: "Labels where you need them", status: "ready", stage: "staging", time: "yesterday", date: "27 Aug 2026",
       sha: "7d20e18", pr: "#411", url: "https://email-agent.dev/releases/0.17.0", preview: "https://preview.email-agent.dev/0-17-0",
       note: "The sidebar label tree is easier to scan, search, and use without leaving the current thread.",
       slices: ["1.36"], changes: ["Expandable label groups in the sidebar", "Nested labels included in rail search", "Current label remains visible while reading"],
-      envs: [{ name: "Production", state: "live" }, { name: "Staging", state: "live" }] },
+      envs: [{ name: "Production", state: "pending" }, { name: "Staging", state: "live" }] },
     { id: "0.16.2", title: "Safer bulk actions", status: "live", stage: "production", time: "2d ago", date: "26 Aug 2026",
       sha: "c1b7f56", pr: "#406", url: "https://email-agent.dev/releases/0.16.2", preview: "https://preview.email-agent.dev/0-16-2",
       note: "Archive, label, and undo actions now show their scope before changing a whole selection.",
@@ -781,7 +782,7 @@ const PRODUCT = {
       envs: [{ name: "Production", state: "live" }, { name: "Staging", state: "live" }] },
   ],
   environments: [
-    { name: "Production", branch: "main", state: "healthy", version: "0.17.0", updated: "yesterday", url: "https://email-agent.dev", note: "Public app · 100% traffic" },
+    { name: "Production", branch: "main", state: "healthy", version: "0.16.2", updated: "2d ago", url: "https://email-agent.dev", note: "Public app · 100% traffic" },
     { name: "Staging", branch: "main", state: "healthy", version: "0.18.0", updated: "18m ago", url: "https://staging.email-agent.dev", note: "Seeded accounts · production schema" },
     { name: "PR previews", branch: "slice/*", state: "active", version: "3 live", updated: "now", url: "https://preview.email-agent.dev", note: "One isolated deployment per open PR" },
   ],
@@ -1432,11 +1433,12 @@ at the end. Two promises in one post is the drift
 
 const PRODUCT = {
   noun: "publication",
+  itemWord: "publications",
   summary: "The work as the audience experiences it, after it leaves the studio.",
   promotable: false,
   lanes: [{ id: "staging", name: "Scheduled" }, { id: "production", name: "Published" }],
   nav: [
-    { id: "overview", label: "Timeline", icon: "clock", n: 3 },
+    { id: "overview", label: "Recent", icon: "clock", n: 3 },
     { id: "environments", label: "Channels", icon: "globe", n: 4 },
   ],
   releases: [

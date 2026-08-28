@@ -48,16 +48,16 @@ and versioning is finally its UI.
   6-10 nodes by construction, so a diagram is exactly right. Same reasoning,
   opposite conclusion per mode.
 - **The switcher stays top-left**, under the workspace. It now carries three:
-  **System | Factory | Product** (`system` / `factory` / `product`). System and
+  **System | Factory | Products** (`system` / `factory` / `product`). System and
   Factory are the same ring read two ways (definition vs. board of lists).
-  Product drops the ring and shows coherent shipped outcomes.
+  Products drops the ring and shows coherent shipped outcomes.
 - **Worker orchestration stays inside Factory.** The live harness sessions walk
   artifacts along the edges. Factory's worker surfaces cover
   `starting`, `running`, `needs-you`, `needs-terminal`, `operator-held`,
   `blocked`, `failed`, `lost`, and recent completion. The console is a durable
   activity/question view; **Open terminal** attaches to the exact native TUI.
   A generic composer is shown only where an adapter provides reliable structured
-  steering. Product is the third leg: what landed, where it is available, and
+  steering. Products is the third leg: what landed, where it is available, and
   the release notes and source artifacts that prove it.
 - **The status dots are now a reading of the fleet, not decoration.** In the
   prototype, `AGENTS` is the fixture source and `runsForSlice` / `dotForItem`
@@ -121,7 +121,7 @@ and versioning is finally its UI.
   a reading of the file rather than a second list.
 - **A process is a prompt, so opening one opens a document**, not another
   diagram. Slices, spec sections and issues open in the same sheet.
-- **In Product mode an item is a file**, so one click opens it and the panel
+- **In Factory mode an item is a file**, so one click opens it and the panel
   holds only the station list, as the navigator.
 - The self-edge and centre hub that drew "one edge rewrites the loop" were built
   and removed for being confusing. Idea stands, and it now has a picture:

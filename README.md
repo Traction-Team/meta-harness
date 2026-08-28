@@ -51,9 +51,9 @@ the server. Bump the `?v=` query on the three assets in `index.html` after
 editing or the browser serves stale JS.
 
 It has three modes, switched top-left: **System** (the loop as a definition),
-**Factory** (the live board, workers, and dispatches), and **Product** (shipped
+**Factory** (the live board, workers, and dispatches), and **Products** (shipped
 outcomes, release notes, and the environments where they can be experienced).
-The Factory status dots are a reading of its fleet. The Product view links each
+The Factory status dots are a reading of its fleet. The Products view links each
 outcome back to its source artifacts and forward to a preview or live URL. The System canvas
 carries a **version pill** (live version + open-defect count, switch the canvas
 between the live loop and a planned rework) and, on a clean canvas, an **ask

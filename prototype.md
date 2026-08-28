@@ -31,9 +31,9 @@ agent's experiment and is not part of this work.
 Theme, window chrome, sidebar, toolbar, cards, pills and segmented controls are
 lifted from the email-agent prototype so the two read as one family.
 
-## Three modes: System, Factory, Product
+## Three modes: System, Factory, Products
 
-The **System | Factory | Product** switcher sits under the workspace in the
+The **System | Factory | Products** switcher sits under the workspace in the
 sidebar. The workspace (email-agent / Forma / Everest) is the product you are
 building; you pick that before you pick the lens. The mode ids are `system`,
 `factory`, and `product`.
@@ -45,11 +45,11 @@ building; you pick that before you pick the lens. The mode ids are `system`,
 - **Factory mode.** The same ring, same edges, but each node is a **list** of
   what is sitting at that station right now. Its worker views show the harness
   sessions walking artifacts along those edges.
-- **Product mode.** No ring. This is the result people can experience: grouped
+- **Products mode.** No ring. This is the result people can experience: grouped
   releases or publications, human-readable notes, source artifacts, commit/PR
   provenance, and named live or preview destinations.
 
-System and Factory are two readings of one diagram. Product begins at the
+System and Factory are two readings of one diagram. Products begins at the
 factory's terminal state and makes the resulting goods legible.
 
 ## Factory workers
@@ -104,17 +104,17 @@ The real Dispatch action binds an item, program revision, source and target
 states, system version, contract revision, harness adapter, permission profile,
 capability snapshot, worktree, and attempt number before launch.
 
-## Product mode
+## Products mode
 
-Product mode reads the factory's terminal artifacts as finished goods rather
+Products mode reads the factory's terminal artifacts as finished goods rather
 than another queue. It has two workspace-defined views:
 
-- **Timeline** is a newest-first release ledger. Each finished feature keeps its
-  release note, changes, commit or channel identifier, pull request or format,
-  source artifacts, and preview URL in one row. Aligned environment lanes show
-  exactly which rows have reached staging and production. Their headers point to
-  the current release in each environment. A staging-only row can be promoted
-  to production in place.
+- **Recent** is a newest-first release table using the same grouped rows as the
+  Factory worker lists. Each finished feature keeps its release note, commit or
+  channel identifier, pull request or format, source artifacts, and preview URL
+  in one row. Environment separator lines divide staging-only work from the
+  production group. A separator promotes its whole upstream group; an individual
+  staging row can also be promoted on its own.
 - **Environments** shows the named places where the product can be experienced,
   such as production, staging, and PR previews. A content workspace translates
   the same structure into publications and channels.
@@ -240,10 +240,10 @@ What the panel holds, by selection:
 | Selection | Panel |
 |---|---|
 | state, System mode | State card: predicate, shape, arrives/leaves by, **Throughput** |
-| state, Product mode | State card **and** `In <state>` list |
+| state, Factory mode | State card **and** `In <state>` list |
 | program | Process card: trigger, adapter/capability policy, median, runs, prompt link, defects, contract, send-back rate |
 | defect | Defect card (edge, source run, status) plus "why it lands here", and *Fold into next version* |
-| item, Product mode | `In <state>` list only, because the item's own detail is the file already open in the main pane |
+| item, Factory mode | `In <state>` list only, because the item's own detail is the file already open in the main pane |
 
 **Throughput** is the block that stops the state card being a label: median time
 in that state, an eight-week sparkline (amber rising, green falling), slowest
@@ -252,7 +252,7 @@ The flow number is the useful one. Wherever `in` runs ahead of `out` is the
 loop's bottleneck. Feedback sits at +2/wk, so items are arriving faster than the
 weekly triage folds them out.
 
-The `In <state>` card is Product mode's see-all: a filter field, the full
+The `In <state>` card is Factory mode's see-all: a filter field, the full
 scrollable list, `Showing 40 of 273 · Open in Slices`, and a `<process> over all
 N` button. Filtering is a DOM pass, not a repaint, so the field keeps focus.
 
@@ -317,7 +317,7 @@ is clickable.
 | Arrow up / down, file open | walk the station list beside it |
 | Arrow up / down, console open | walk the fleet |
 | Cmd-S | save the open file |
-| `1` / `2` / `3` | System / Factory / Product mode |
+| `1` / `2` / `3` | System / Factory / Products mode |
 
 ## Data
 
