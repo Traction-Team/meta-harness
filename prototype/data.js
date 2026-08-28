@@ -20,7 +20,7 @@ const WORKSPACES = [
       email — the station and edge *ids* are the skeleton, everything else is
       content. ── */
 let REPO, STATES, PROCS, BACKS, INPUTS, ISSUES, ITEMS, AGENTS, RUN_PROC, RUN_MODEL,
-    PAGES, NAV, HISTORY, RUNBOOKS, SKILLS, TERMS, COPY, EXTRA_SKILLS;
+    PAGES, NAV, HISTORY, RUNBOOKS, GATES, SKILLS, TERMS, COPY, EXTRA_SKILLS;
 const DATASETS = {};
 
 function loadWorkspace(id) {
@@ -31,6 +31,7 @@ function loadWorkspace(id) {
   PAGES = d.pages; NAV = d.nav; HISTORY = d.history;
   TERMS = d.terms; COPY = d.copy; EXTRA_SKILLS = d.extraSkills;
   RUNBOOKS = PROCS.filter((p) => p.kind === "runbook");
+  GATES = PROCS.filter((p) => p.kind === "gate");
   SKILLS = PROCS.filter((p) => p.kind === "skill");
 }
 
@@ -201,7 +202,8 @@ does not own, stop and file a \`spec-ambiguity\` issue naming the path.
 3. A finding you cannot fix inside owns is raised as a known limitation.`
   },
   {
-    id: "review", from: "pr", to: "merged", name: "review", kind: "runbook",
+    id: "review", from: "pr", to: "merged", name: "review + merge", kind: "gate",
+    assignee: { type: "human", name: "You" }, decision: "Merge PR",
     trigger: "on arrival", runner: "opus · human gate", runs: 301, fail: .34, median: "6m",
     reads: ["diff", "checks", "reviewer"], writes: ["slice", "sha", "shipped_at"],
     issues: ["i2", "i4", "i5", "i8", "i10", "i12"],
@@ -648,7 +650,7 @@ Every line is an issue this loop logged and closed. Nothing goes on this list
 because it sounded sensible.`
   },
 
-  "system/runbooks/review/conventions.md": {
+  "system/gates/review/conventions.md": {
     title: "conventions",
     body: `Part of [review](../review.md), task 3. This page is the readable half
 of \`AGENTS.md\`.
@@ -707,7 +709,7 @@ its thread. Nothing in the client may hold a message id as a primary key.
 
 Unread count, participant list and last-activity are derived from messages on
 read. Storing any of them creates the second source of truth that
-[review](../../system/runbooks/review.md) keeps catching.`
+[review + merge](../../system/gates/review.md) keeps catching.`
   },
 
   "system/runbooks/triage/redraw-an-edge.md": {
@@ -739,6 +741,7 @@ const NAV = {
   system: [
     { id: "loop",    label: "The loop",    icon: "loop" },
     { id: "programs",label: "Programs",    icon: "book",  n: 9 },
+    { id: "gates",   label: "Gates",       icon: "gate",  n: 1 },
     { id: "skills",  label: "Skills",      icon: "sparkle", n: 12 },
     { id: "issues",  label: "Defects",      icon: "flag", n: 12, loud: true },
     { id: "history", label: "Version history", icon: "clock", n: 41 },
@@ -942,7 +945,8 @@ channel to work, stop and file a \`brief-gap\` learning naming the channel.
 3. A claim you cannot source stays out, or goes in as an open question.`
   },
   {
-    id: "review", from: "pr", to: "merged", name: "review + approve", kind: "runbook",
+    id: "review", from: "pr", to: "merged", name: "approve + publish", kind: "gate",
+    assignee: { type: "human", name: "You" }, decision: "Approve & publish",
     trigger: "on arrival", runner: "opus · human gate", runs: 201, fail: .30, median: "8m",
     reads: ["draft", "checks", "reviewer"], writes: ["piece", "url", "shipped_at"],
     issues: ["c2", "c4", "c5", "c8", "c10"],
@@ -1305,7 +1309,7 @@ questions are whether the hook lands and whether it stayed on one claim.
 2. Taste is not a blocker. File \`voice-drift\` so the rule exists next time.`
   },
 
-  "system/runbooks/review/brand-checklist.md": {
+  "system/gates/review/brand-checklist.md": {
     title: "brand checklist",
     body: `Part of [review + approve](../review.md), task 3. Every line is a
 learning this loop logged and closed, not a rule that sounded sensible.
@@ -1370,7 +1374,7 @@ pillar, never a mood.
 
 A post's caption is derived from its one claim, never a second promise bolted on
 at the end. Two promises in one post is the drift
-[review + approve](../../system/runbooks/review.md) keeps catching.`
+[approve + publish](../../system/gates/review.md) keeps catching.`
   },
 };
 
@@ -1378,6 +1382,7 @@ const NAV = {
   system: [
     { id: "loop",    label: "The loop",    icon: "loop" },
     { id: "programs",label: "Programs",    icon: "book",  n: 6 },
+    { id: "gates",   label: "Gates",       icon: "gate",  n: 1 },
     { id: "skills",  label: "Skills",      icon: "sparkle", n: 9 },
     { id: "issues",  label: "Defects",      icon: "flag", n: 10, loud: true },
     { id: "history", label: "Version history", icon: "clock", n: 27 },

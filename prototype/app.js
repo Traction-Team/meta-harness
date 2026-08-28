@@ -35,7 +35,7 @@ const ICONS = {
   minus:   I(`<path d="M3.4 8h9.2"/>`, 14),
   fit:     I(`<path d="M2.6 6V3.4a.8.8 0 0 1 .8-.8H6M10 2.6h2.6a.8.8 0 0 1 .8.8V6M13.4 10v2.6a.8.8 0 0 1-.8.8H10M6 13.4H3.4a.8.8 0 0 1-.8-.8V10"/>`, 14),
   heat:    I(`<path d="M8 1.9c2.2 2.5 1 3.9.4 4.6-1 1.2-1.4 2-1.4 2.9a2.6 2.6 0 0 0 5.2 0c0-.7-.2-1.2-.5-1.7 1.6 1 2.5 2.5 2.5 4A5.8 5.8 0 0 1 2.4 12c0-3.4 2-5 3.2-6.6C6.7 4 7.8 2.9 8 1.9z"/>`, 15),
-  gate:    I(`<rect x="3" y="7" width="10" height="6.4" rx="1.6"/><path d="M5.4 7V5.2a2.6 2.6 0 0 1 5.2 0V7"/>`, 14),
+  gate:    I(`<path d="M3.2 2.3v11.4M12.8 2.3v11.4M4.7 8h6.6"/><circle cx="3.2" cy="3.1" r="1.2"/><circle cx="12.8" cy="12.9" r="1.2"/>`, 14),
   wrench:  I(`<path d="M10.4 2.4a3.6 3.6 0 0 0-3.2 5.3L2.6 12.3a1.3 1.3 0 0 0 1.9 1.8l4.6-4.6a3.6 3.6 0 0 0 4.4-4.9l-2 2-1.9-.4-.4-1.9z"/>`, 15),
 };
 
@@ -91,6 +91,12 @@ const procById = (id) => PROCS.find((p) => p.id === id);
 const issueById = (id) => ISSUES.find((i) => i.id === id);
 const brokenProcs = () => PROCS.filter((p) => p.broken);
 
+function procFace(p) {
+  if (p.kind === "gate") return { icon: ICONS.gate, cls: "gt", tint: "gt", dir: "gates" };
+  if (p.kind === "runbook") return { icon: ICONS.book, cls: "rb", tint: "rb", dir: "runbooks" };
+  return { icon: ICONS.sparkle, cls: "sk", tint: "", dir: "skills" };
+}
+
 /* ── agents: runs are the truth behind the status dots ── */
 const runById = (id) => AGENTS.find((r) => r.id === id);
 const runsForSlice = (id) => AGENTS.filter((r) => r.slice === id && r.status !== "done");
@@ -140,7 +146,9 @@ function productNav() {
       STATES.map((s) => ({ id: s.id, label: s.name, icon: s.icon, n: s.count })));
 }
 const navFor = () =>
-  state.mode === "system" ? NAV.system.map((n) => (n.id === "issues" ? { ...n, n: openDefects().length } : n))
+  state.mode === "system" ? NAV.system.map((n) => n.id === "issues" ? { ...n, n: openDefects().length }
+    : n.id === "programs" ? { ...n, n: RUNBOOKS.length + INPUTS.length }
+    : n.id === "gates" ? { ...n, n: GATES.length } : n)
   : state.mode === "product" ? productNav()
   : NAV[state.mode];
 
@@ -156,7 +164,8 @@ const factoryCanvas = () => state.mode === "product" && (state.view === "loop" |
    fleet, migrates it, and flips live onto the new version. */
 
 /* the same "programs" count the strip and rail use: runbooks plus intake programs */
-const programCount = () => REPO.runbooksN + (typeof INPUTS !== "undefined" ? INPUTS.length : 0);
+const programCount = () => RUNBOOKS.length + (typeof INPUTS !== "undefined" ? INPUTS.length : 0);
+const gateCount = () => GATES.length;
 /* every logged defect that a version has not yet closed */
 const openDefects = () => ISSUES.filter((i) => !i.closedBy);
 /* the ones with a proposed fix — the change a planned version folds in */
@@ -386,7 +395,8 @@ function paintSysChat() {
           <div class="rail-h">${ICONS.loop}The system</div>
           <div class="rail-c">
             <div class="rail-r"><span>Version</span><b>${esc(liveVersion())}</b></div>
-            <div class="rail-r"><span>Programs</span><b>${REPO.runbooksN + (typeof INPUTS !== "undefined" ? INPUTS.length : 0)}</b></div>
+            <div class="rail-r"><span>Programs</span><b>${programCount()}</b></div>
+            <div class="rail-r"><span>Gates</span><b>${gateCount()}</b></div>
             <div class="rail-r"><span>Skills</span><b>${REPO.skillsN}</b></div>
             <div class="rail-r"><span>Open defects</span><b>${nd}</b></div>
           </div>
@@ -502,7 +512,7 @@ function paintStrip() {
   /* the version has moved up into the pill on the canvas, so the strip no longer
      repeats it — just what the factory is made of */
   $("#stripLeft").textContent = state.mode === "system"
-    ? `${REPO.name} · ${REPO.runbooksN + (typeof INPUTS !== "undefined" ? INPUTS.length : 0)} programs, ${REPO.skillsN} skills`
+    ? `${REPO.name} · ${programCount()} programs, ${gateCount()} ${gateCount() === 1 ? "gate" : "gates"}, ${REPO.skillsN} skills`
     : `${REPO.name} · ${REPO.branch} · ${live} agents running · ${waiting} waiting on you · ${AGENTS.filter((r) => r.status === "failed").length} failed`;
   /* the old "broken wire" chip is now the defect count: a count badge that opens
      the Defects list and floats the version card in beside it */
@@ -659,7 +669,8 @@ function verCard(f, planned, viewing, nd) {
     <div class="card-b">
       <div class="ver-now"><div class="ver-now-v">${esc(liveVersion())}<span class="ver-tag">Live</span></div>
         <div class="ver-now-s">${esc(REPO.name)} · running now</div></div>
-      ${kv([["Programs", `${REPO.runbooksN + (typeof INPUTS !== "undefined" ? INPUTS.length : 0)}`],
+      ${kv([["Programs", `${programCount()}`],
+            ["Gates", `${gateCount()}`],
             ["Skills", `${REPO.skillsN}`],
             ["Open defects", nd ? `<a class="lnk" onclick="gotoDefects()">${nd} logged against the loop</a>` : `<span style="color:var(--text-3)">none</span>`]])}
       <div class="ver-sep"></div>
@@ -934,17 +945,27 @@ function paintLoop() {
       ? liveAgents().filter((r) => runProcOf(r) && runProcOf(r).id === p.id && (state.view !== "needs" || r.status === "waiting"))
       : [];
     const attention = assigned.some((r) => r.status === "waiting") ? " attention" : assigned.some((r) => r.status === "failed") ? " failing" : "";
+    const face = procFace(p), gate = p.kind === "gate";
+    if (gate) {
+      procs += `<div class="pr gate${attention}${sel}${chg}${p.broken ? " err" : ""}" data-proc="${p.id}" style="left:${g.mx}px;top:${g.my}px;transform:translate(-50%,-50%)">
+        <span class="gate-label"><b>${esc(p.name)}</b><small>${esc(p.assignee.name)} · ${esc(p.assignee.type)} · ${esc(p.decision)}</small></span>
+        <span class="gate-mark" aria-hidden="true"><i></i><i></i><b></b></span>
+        ${factoryCanvas() ? `<span class="gate-count">${assigned.length}</span>` : badge}
+        ${factoryCanvas() ? "" : `<button class="pr-run gate-action" data-edit="${p.id}" title="Edit gate">${ICONS.pencil}</button>`}
+      </div>`;
+      return;
+    }
     const agentRows = assigned.map((r) => `<button class="agent-run ${r.status}" data-run="${r.id}" title="Open ${esc(agentName(r))}">
       <span class="agent-avatar" style="--agent-h:${agentHue(r)}" aria-hidden="true"></span>
       <span class="agent-work"><b>${esc(agentName(r))}</b><span><span class="mono">${esc(r.slice)}</span> ${esc(r.title)}</span><small>${esc(r.question ? r.question.t : r.head || "Working")}</small></span>
       <span class="nd-dot ${RUN_DOT[r.status]}"></span>
     </button>`).join("");
     procs += `<div class="pr${factoryCanvas() ? ` agent-proc${assigned.length ? " staffed" : ""}` : ""}${attention}${sel}${chg}${p.broken ? " err" : ""}" data-proc="${p.id}" style="left:${g.mx}px;top:${g.my}px;transform:translate(-50%,-50%)">
-      <span class="pr-k ${p.kind === "runbook" ? "rb" : ""}">${p.kind === "runbook" ? ICONS.book : ICONS.sparkle}</span>
-      <span class="pr-t">${esc(p.name)}</span>
+      <span class="pr-k ${face.tint}">${face.icon}</span>
+      <span class="pr-copy"><span class="pr-t">${esc(p.name)}</span>${gate ? `<small>${esc(p.assignee.name)} · ${esc(p.assignee.type)} · ${esc(p.decision)}</small>` : ""}</span>
       ${chg ? `<span class="pr-chg">Δ</span>` : ""}
       ${factoryCanvas() ? `<span class="agent-proc-count">${assigned.length}</span>` : badge}
-      ${factoryCanvas() ? `<div class="agent-runs">${agentRows || `<span class="agent-empty">${state.view === "needs" ? "No attention needed" : "No agent assigned"}</span>`}</div>` : `<button class="pr-run" data-${isSys ? "edit" : "run"}="${p.id}" title="${isSys ? "Edit program" : `Run over ${inflight} items`}">${isSys ? ICONS.pencil : ICONS.play}</button>`}
+      ${factoryCanvas() ? `<div class="agent-runs">${agentRows || `<span class="agent-empty">${state.view === "needs" ? "No attention needed" : "No agent assigned"}</span>`}</div>` : `<button class="pr-run" data-${isSys ? "edit" : "run"}="${p.id}" title="${isSys ? `Edit ${gate ? "gate" : "program"}` : `Run over ${inflight} items`}">${isSys ? ICONS.pencil : ICONS.play}</button>`}
     </div>`;
   });
 
@@ -1141,6 +1162,8 @@ const VIEWS = {
   programs: () => ({ title: "Programs", sub: "the instructions on the lines — runbooks, plus the intake programs that pour work into the loop",
     rows: RUNBOOKS.map((p) => ({ t: p.name, s: `${p.from} → ${p.to} · ${p.trigger}`, r: `${p.runs} runs`, pill: p.issues.length ? `${p.issues.length} issues` : "clean", bad: p.issues.length > 2, sel: { t: "proc", id: p.id } }))
       .concat((typeof INPUTS !== "undefined" ? INPUTS : []).map((inp) => ({ t: inp.name, s: `intake → ${inp.to} · ${inp.sub}`, r: `${inp.count} waiting`, pill: "intake", bad: false, sel: { t: "input", id: inp.id } }))) }),
+  gates: () => ({ title: "Gates", sub: "decisions that artifacts must pass before the factory can continue",
+    rows: GATES.map((p) => ({ t: p.name, s: `${p.from} → ${p.to} · ${p.decision}`, r: `${p.assignee.name} · ${p.assignee.type}`, pill: `${p.runs} decisions`, bad: false, sel: { t: "proc", id: p.id } })) }),
   skills: () => ({ title: "Skills", sub: "capabilities a program can call",
     rows: SKILLS.concat(EXTRA_SKILLS)
       .map((p) => ({ t: p.name, s: `${p.trigger}`, r: `${p.runs} runs`, pill: p.broken ? "broken wire" : "clean", bad: !!p.broken, sel: p.id ? { t: "proc", id: p.id } : null })) }),
@@ -1684,10 +1707,11 @@ function procPanel(p) {
   const rate = Math.round(p.fail * 100);
   const issues = (p.issues || []).map(issueById).filter(Boolean);
   const file = promptFile(p), nTasks = parseTasks(docBody(file)).length, nPages = childPages(file).length;
-  return card("Process", `<span class="tagm ${p.kind === "runbook" ? "rb" : "sk"}">${p.kind}</span>`, `
+  const face = procFace(p), owner = p.assignee;
+  return card(p.kind === "gate" ? "Gate" : "Process", `<span class="tagm ${face.cls}">${p.kind}</span>`, `
     <div class="c-n">${esc(p.name)}</div>
     <div class="c-r">${esc(src ? src.name : p.from)} → ${esc(dst ? dst.name : p.to)}</div>
-    ${kv([["Trigger", esc(p.trigger)], ["Runner", esc(p.runner)], ["Median", esc(p.median)], ["Runs", `${p.runs}`],
+    ${kv([["Trigger", esc(p.trigger)], [owner ? "Assigned to" : "Runner", owner ? `${esc(owner.name)} <span class="pill plain">${esc(owner.type)}</span>` : esc(p.runner)], ...(p.decision ? [["Decision", esc(p.decision)]] : []), ["Median", esc(p.median)], ["Runs", `${p.runs}`],
           ["Prompt", `<a class="lnk" onclick="openEditor('${p.id}')">${esc(file)}</a>
             <span style="color:var(--text-3)"> · ${nTasks} tasks${nPages ? ` · ${nPages} pages` : ""}</span>`],
           ["Issues", issues.length
@@ -1845,7 +1869,7 @@ window.addEventListener("keydown", (e) => {
 const DOCS = {};
 
 function promptFile(p) {
-  return (p.kind === "runbook" ? "system/runbooks/" : "system/skills/") + p.id + ".md";
+  return `system/${procFace(p).dir}/${p.id}.md`;
 }
 function initDocs() {
   Object.keys(DOCS).forEach((k) => delete DOCS[k]);   /* a fresh corpus per workspace */
@@ -2031,7 +2055,7 @@ function childPages(path) {
   return Object.keys(DOCS).filter((k) => k.startsWith(base) && !k.slice(base.length).includes("/"));
 }
 function procOfDoc(path) {
-  const m = path.match(/^system\/(?:runbooks|skills)\/([^/.]+)/);
+  const m = path.match(/^system\/(?:runbooks|gates|skills)\/([^/.]+)/);
   return m ? procById(m[1]) : null;
 }
 
@@ -2160,8 +2184,7 @@ function docSupportCard(path) {
 function docFace(path) {
   const pr = procOfDoc(path), isRoot = !!pr && promptFile(pr) === path;
   const item = DOCS[path] && DOCS[path].item;
-  if (isRoot) return { icon: pr.kind === "runbook" ? ICONS.book : ICONS.sparkle, kind: pr.kind,
-    cls: pr.kind === "runbook" ? "rb" : "sk", tint: pr.kind === "runbook" ? "rb" : "", proc: pr, root: true };
+  if (isRoot) return { ...procFace(pr), kind: pr.kind, proc: pr, root: true };
   if (item) {
     const kind = item.from === "spec" ? "spec" : item.from === "feed" ? "feedback" : "slice";
     return { icon: kind === "spec" ? ICONS.doc : kind === "feedback" ? ICONS.flag : ICONS.list,
