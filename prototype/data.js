@@ -243,31 +243,31 @@ Nothing else is in scope.
    the rule exists next time.`
   },
   {
-    id: "log", from: "merged", to: "feed", name: "log feedback", kind: "skill",
-    trigger: "after every ship", runner: "haiku", runs: 308, fail: .04, median: "40s",
-    reads: ["signals", "sha"], writes: ["category", "area", "report", "fold"],
-    issues: [], broken: "reads `signals`, which the Merged shape does not define",
+    id: "log", from: "merged", to: "feed", name: "capture landing notes", kind: "skill",
+    trigger: "after every merge", runner: "haiku", runs: 308, fail: .04, median: "40s",
+    reads: ["slice", "sha"], writes: ["category", "area", "report", "fold"],
+    issues: [],
     prompt: `## Context
 
-Read how the shipped slice behaves in real use and log feedback about the
-**product** — bugs, regressions, requests. This is not process feedback: a
-runbook that let something through is a **system issue**, and those are logged
-off this loop, in System mode.
+Read the worker and reviewer notes left on the merged PR. Preserve findings the
+landing orchestrator should not lose: follow-up work, unresolved issues,
+deliberate trade-offs, and limitations discovered while building the slice.
 
-Categories: \`bug\`, \`regression\`, \`request\`, \`paper-cut\`, \`praise\`.
+Categories: \`follow-up\`, \`unresolved\`, \`trade-off\`, \`limitation\`.
 
 ## Tasks
 
-- [ ] Pull the usage signals for the slice that just shipped → report
-- [ ] Name the area of the product it touches → area
-- [ ] Classify each report into exactly one category → category
-- [ ] Say where it folds back — a spec constraint, or a rework slice → fold
+- [ ] Read the merged PR thread and worker handoff for the slice → report
+- [ ] Keep only notes that still matter after merge → report
+- [ ] Name the code or product area each note touches → area
+- [ ] Classify each note into exactly one category → category
+- [ ] Route it to a follow-up slice, a system issue, or an accepted limitation → fold
 
 ## Rules
 
-1. Feedback about the product stays in the factory. It sharpens the next spec.
-2. If the miss is the system's, not the product's, file a system issue instead —
-   that does not belong on this ring.`
+1. Do not turn resolved review comments into follow-up work.
+2. Preserve the worker's wording when it explains why a trade-off was made.
+3. A harness failure becomes a system issue; product work becomes a slice.`
   },
   {
     id: "triage", from: "feed", to: "spec", name: "triage feedback", kind: "runbook",
@@ -484,7 +484,7 @@ const AGENTS = [
     ],
   },
   {
-    id: "r-150", slice: "1.50", title: "model switcher pop", station: "branch",
+    id: "r-150", slice: "1.50", title: "model switcher pop", station: "spec", proc: "plan", model: "opus",
     started: "3m ago", elapsed: "3m", pct: 20, status: "running",
     head: "Sketching the popover shell",
     log: [
@@ -494,7 +494,7 @@ const AGENTS = [
     ],
   },
   {
-    id: "r-153", slice: "1.53", title: "calendar day popover", station: "branch",
+    id: "r-153", slice: "1.53", title: "calendar day popover", station: "merged", proc: "log", model: "haiku",
     started: "31m ago", elapsed: "31m", pct: 74, status: "running",
     head: "Self-reviewing the diff against proves",
     log: [
@@ -507,7 +507,7 @@ const AGENTS = [
     ],
   },
   {
-    id: "r-155", slice: "1.55", title: "list send button", station: "branch",
+    id: "r-155", slice: "1.55", title: "list send button", station: "feed", proc: "triage", model: "opus",
     started: "1m ago", elapsed: "1m", pct: 90, status: "running",
     head: "One file, raising the PR shortly",
     log: [
@@ -1167,7 +1167,7 @@ const AGENTS = [
     ],
   },
   {
-    id: "r-211", slice: "2.11", title: "second-brain in 5 steps, carousel", station: "branch",
+    id: "r-211", slice: "2.11", title: "second-brain in 5 steps, carousel", station: "spec", proc: "plan", model: "opus",
     started: "34m ago", elapsed: "34m", pct: 44, status: "waiting",
     head: "Stopped on an unsourced claim",
     question: {
@@ -1184,7 +1184,7 @@ const AGENTS = [
     ],
   },
   {
-    id: "r-212", slice: "2.12", title: "TikTok · pen test, 12 inks", station: "branch",
+    id: "r-212", slice: "2.12", title: "TikTok · pen test, 12 inks", station: "merged", proc: "log", model: "haiku",
     started: "4m ago", elapsed: "4m", pct: 22, status: "running",
     head: "Sketching the hook options",
     log: [
@@ -1194,7 +1194,7 @@ const AGENTS = [
     ],
   },
   {
-    id: "r-213", slice: "2.13", title: "IG carousel · sunday reset prompts", station: "branch",
+    id: "r-213", slice: "2.13", title: "IG carousel · sunday reset prompts", station: "feed", proc: "triage", model: "opus",
     started: "22m ago", elapsed: "22m", pct: 76, status: "running",
     head: "Self-editing the slides against the hook",
     log: [

@@ -101,8 +101,8 @@ function procFace(p) {
 /* ── agents: runs are the truth behind the status dots ── */
 const runById = (id) => AGENTS.find((r) => r.id === id);
 const runsForSlice = (id) => AGENTS.filter((r) => r.slice === id && r.status !== "done");
-const runProcOf = (r) => procById(RUN_PROC[r.station]);   // the edge this run executes
-const runModelOf = (r) => RUN_MODEL[r.station] || "sonnet";
+const runProcOf = (r) => procById(r.proc || RUN_PROC[r.station]);   // the edge this run executes
+const runModelOf = (r) => r.model || RUN_MODEL[r.station] || "sonnet";
 const liveAgents = () => AGENTS.filter((r) => r.status !== "done");
 const fleetSize = () => state.fleetSize[state.ws] ?? (state.fleetSize[state.ws] = liveAgents().length);
 const agentName = (r) => `Agent ${String(AGENTS.indexOf(r) + 1).padStart(2, "0")}`;
@@ -110,6 +110,13 @@ const agentHue = (r) => (AGENTS.indexOf(r) * 47 + 205) % 360;
 /* a run's status maps onto the same four dots Product mode already draws, so
    the ring and the fleet never disagree about a slice */
 const RUN_DOT = { running: "run", waiting: "wait", failed: "bad", blocked: "ok", done: "ok" };
+const runsAtStage = (p) => liveAgents().filter((r) => runProcOf(r)?.id === p.id && (state.view !== "needs" || r.status === "waiting"));
+const stageAvatars = (runs) => runs.length ? `<div class="stage-avatars" aria-label="${runs.length} ${runs.length === 1 ? "agent" : "agents"} at this stage">
+  ${runs.map((r) => `<button class="stage-avatar ${r.status}" data-run="${r.id}" title="${esc(agentName(r))}: ${esc(r.slice)} ${esc(r.title)}">
+    <span class="agent-avatar" style="--agent-h:${agentHue(r)}" aria-hidden="true"></span>
+    <span class="nd-dot ${RUN_DOT[r.status]}"></span>
+  </button>`).join("")}
+</div>` : "";
 const dotForItem = (id, fallback) => {
   const rs = runsForSlice(id);
   return rs.length ? RUN_DOT[rs[0].status] : fallback;
@@ -977,25 +984,17 @@ function paintLoop() {
     const badge = state.mode === "system"
       ? (nIssues ? `<span class="pr-b ${nIssues < 3 ? "amb" : ""}">${nIssues}</span>` : "")
       : (inflight ? `<span class="pr-b amb" style="background:var(--raise);color:var(--text-2)">${inflight}</span>` : "");
-    /* System mode is where you design the program, so its action is Edit (opens
-       the prompt in write mode); Factory mode is where you run it, so it is Play. */
+    /* System mode edits the program. Factory keeps the card compact and exposes
+       active runs through the avatar dock and selection panel instead. */
     const isSys = state.mode === "system";
-    const assigned = factoryCanvas()
-      ? liveAgents().filter((r) => runProcOf(r) && runProcOf(r).id === p.id && (state.view !== "needs" || r.status === "waiting"))
-      : [];
+    const assigned = factoryCanvas() ? runsAtStage(p) : [];
     const attention = assigned.some((r) => r.status === "waiting") ? " attention" : assigned.some((r) => r.status === "failed") ? " failing" : "";
     const face = procFace(p);
-    const agentRows = assigned.map((r) => `<button class="agent-run ${r.status}" data-run="${r.id}" title="Open ${esc(agentName(r))}">
-      <span class="agent-avatar" style="--agent-h:${agentHue(r)}" aria-hidden="true"></span>
-      <span class="agent-work"><b>${esc(agentName(r))}</b><span><span class="mono">${esc(r.slice)}</span> ${esc(r.title)}</span><small>${esc(r.question ? r.question.t : r.head || "Working")}</small></span>
-      <span class="nd-dot ${RUN_DOT[r.status]}"></span>
-    </button>`).join("");
-    procs += `<div class="pr${factoryCanvas() ? ` agent-proc${assigned.length ? " staffed" : ""}` : ""}${attention}${sel}${chg}${p.broken ? " err" : ""}" data-proc="${p.id}" style="left:${g.mx}px;top:${g.my}px;transform:translate(-50%,-50%)">
+    procs += `<div class="pr${factoryCanvas() ? " factory-proc" : ""}${attention}${sel}${chg}${p.broken ? " err" : ""}" data-proc="${p.id}" style="left:${g.mx}px;top:${g.my}px;transform:translate(-50%,-50%)">
       <span class="pr-k ${face.tint}">${face.icon}</span>
       <span class="pr-copy"><span class="pr-t">${esc(p.name)}</span></span>
       ${chg ? `<span class="pr-chg">Δ</span>` : ""}
-      ${factoryCanvas() ? `<span class="agent-proc-count">${assigned.length}</span>` : badge}
-      ${factoryCanvas() ? `<div class="agent-runs">${agentRows || `<span class="agent-empty">${state.view === "needs" ? "No attention needed" : "No agent assigned"}</span>`}</div>` : `<button class="pr-run" data-${isSys ? "edit" : "run"}="${p.id}" title="${isSys ? "Edit program" : `Run over ${inflight} items`}">${isSys ? ICONS.pencil : ICONS.play}</button>`}
+      ${factoryCanvas() ? stageAvatars(assigned) : `${badge}<button class="pr-run" data-${isSys ? "edit" : "run"}="${p.id}" title="${isSys ? "Edit program" : `Run over ${inflight} items`}">${isSys ? ICONS.pencil : ICONS.play}</button>`}
     </div>`;
   });
 
@@ -1006,14 +1005,12 @@ function paintLoop() {
     const nIssues = (p.issues || []).length;
     const badge = state.mode === "system" && nIssues
       ? `<span class="pr-b ${nIssues < 3 ? "amb" : ""}">${nIssues}</span>` : "";
-    const assigned = factoryCanvas()
-      ? liveAgents().filter((run) => runProcOf(run) && runProcOf(run).id === p.id && (state.view !== "needs" || run.status === "waiting"))
-      : [];
+    const assigned = factoryCanvas() ? runsAtStage(p) : [];
     const attention = assigned.some((run) => run.status === "waiting") ? " attention" : assigned.some((run) => run.status === "failed") ? " failing" : "";
     procs += `<div class="pr gate${attention}${sel}${chg}${p.broken ? " err" : ""}" data-proc="${p.id}" style="left:${r.x + r.w / 2}px;top:${r.y + r.h / 2}px;transform:translate(-50%,-50%)">
       <span class="gate-label"><b>${esc(p.name)}</b><small>${esc(p.assignee.name)} · ${esc(p.assignee.type)} · ${esc(p.decision)}</small></span>
       <span class="gate-mark" aria-hidden="true">${ICONS.gate}</span>
-      ${factoryCanvas() ? `<span class="gate-count">${assigned.length}</span>` : badge}
+      ${factoryCanvas() ? stageAvatars(assigned) : badge}
       ${factoryCanvas() ? "" : `<button class="pr-run gate-action" data-edit="${p.id}" title="Edit gate">${ICONS.pencil}</button>`}
     </div>`;
   });
@@ -1656,6 +1653,29 @@ function filterItems(inp) {
   });
 }
 
+function stagePanel(p) {
+  const runs = runsAtStage(p);
+  const face = procFace(p);
+  const isGate = p.kind === "gate";
+  const rows = runs.map((r) => isGate
+    ? `<button class="stage-artifact ${r.status}" onclick="openRun('${r.id}')" title="Open blocked artifact">
+        <span class="stage-artifact-i">${ICONS.doc}</span>
+        <span class="stage-artifact-copy"><b><span class="mono">${esc(r.slice)}</span> ${esc(r.title)}</b><small>${esc(r.question ? r.question.t : r.head || "Awaiting review")}</small></span>
+        <span class="nd-dot ${RUN_DOT[r.status]}"></span>
+      </button>`
+    : `<button class="agent-run ${r.status}" onclick="openRun('${r.id}')" title="Open ${esc(agentName(r))}">
+        <span class="agent-avatar" style="--agent-h:${agentHue(r)}" aria-hidden="true"></span>
+        <span class="agent-work"><b>${esc(agentName(r))}</b><span><span class="mono">${esc(r.slice)}</span> ${esc(r.title)}</span><small>${esc(r.question ? r.question.t : r.head || "Working")}</small></span>
+        <span class="nd-dot ${RUN_DOT[r.status]}"></span>
+      </button>`).join("");
+  const empty = state.view === "needs" ? "Nothing here needs your attention." : isGate ? "No artifacts are waiting at this gate." : "No agents are at this stage.";
+
+  return card(isGate ? "At this gate" : "At this stage", `<span class="tagm ${face.cls}">${runs.length}</span>`, `
+    <div class="c-n">${esc(p.name)}</div>
+    <div class="c-r">${isGate ? esc(p.decision) : `${runs.length} ${runs.length === 1 ? "agent" : "agents"} currently running this program`}</div>
+    <div class="stage-list">${rows || `<div class="stage-empty">${empty}</div>`}</div>`);
+}
+
 function paintPanels() {
   const P = $("#panels"), s = state.sel;
   const path = state.docStack[state.docStack.length - 1];
@@ -1667,7 +1687,7 @@ function paintPanels() {
   const home = s && s.t === "item" ? stateById(itemHome(s)) : null;
   P.innerHTML = (s ? (
       s.t === "node"  ? nodePanel(stateById(s.id)) + (inProduct && stateById(s.id) ? itemsCard(stateById(s.id)) : "")
-    : s.t === "proc"  ? procPanel(procById(s.id))
+    : s.t === "proc"  ? procPanel(procById(s.id)) + (inProduct ? stagePanel(procById(s.id)) : "")
     : s.t === "issue" ? issuePanel(issueById(s.id))
     /* the item's own details live in the file that is already open in the main
        pane, so the panel is only the list you navigate with */
@@ -1760,7 +1780,7 @@ function procPanel(p) {
   return card(p.kind === "gate" ? "Gate" : "Process", `<span class="tagm ${face.cls}">${p.kind}</span>`, `
     <div class="c-n">${esc(p.name)}</div>
     <div class="c-r">${esc(src ? src.name : endpointName(p.from))} → ${esc(dst ? dst.name : endpointName(p.to))}</div>
-    ${kv([["Trigger", esc(p.trigger)], [owner ? "Assigned to" : "Runner", owner ? `${esc(owner.name)} <span class="pill plain">${esc(owner.type)}</span>` : esc(p.runner)], ...(p.decision ? [["Decision", esc(p.decision)]] : []), ["Median", esc(p.median)], ["Runs", `${p.runs}`],
+    ${kv([["Trigger", esc(p.trigger)], [owner ? "Assigned to" : "Runner", owner ? `${esc(owner.name)} <span class="pill plain">${esc(owner.type)}</span>` : esc(p.runner)], ...(p.decision ? [["Decision", esc(p.decision)]] : []),
           ["Prompt", `<a class="lnk" onclick="openEditor('${p.id}')">${esc(file)}</a>
             <span style="color:var(--text-3)"> · ${nTasks} tasks${nPages ? ` · ${nPages} pages` : ""}</span>`],
           ["Issues", issues.length
@@ -1778,9 +1798,17 @@ function procPanel(p) {
         Broken wire: ${esc(p.broken)}. Caught before dispatch, not after a bad run.</span></div>` : ""}
     </div>
 
-    <div class="kv"><div class="kv-r"><span class="kv-k">Send-backs</span><span class="kv-v">
-      <div class="meter"><div class="meter-bar"><i class="${rate >= 25 ? "hi" : rate >= 10 ? "" : "lo"}" style="width:${Math.max(3, rate)}%"></i></div>
-      <span class="meter-n">${rate}%</span></div></span></div></div>
+    <div class="kv">
+      <div class="sub-h">Throughput</div>
+      <div class="dwell">
+        <div class="dwell-n">${esc(p.median)}</div>
+        <div class="dwell-l">median run time</div>
+      </div>
+      <div class="kv-r"><span class="kv-k">Runs</span><span class="kv-v">${p.runs} total</span></div>
+      <div class="kv-r"><span class="kv-k">Send-backs</span><span class="kv-v">
+        <div class="meter"><div class="meter-bar"><i class="${rate >= 25 ? "hi" : rate >= 10 ? "" : "lo"}" style="width:${Math.max(3, rate)}%"></i></div>
+        <span class="meter-n">${rate}%</span></div></span></div>
+    </div>
 
     <div class="acts-row">
       <button class="btn pri" onclick="runProc('${p.id}')">${ICONS.play} Run now</button>

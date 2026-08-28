@@ -306,9 +306,9 @@ svg { display: block; }
   display: flex; flex-direction: column; align-items: center; pointer-events: none; text-align: center; }
 .gate-label b { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 12px; font-weight: 650; white-space: nowrap; }
 .gate-label small { margin-top: 2px; color: var(--text-3); font-size: 9.5px; white-space: nowrap; }
-.gate .pr-b, .gate-count { position: absolute; top: -6px; right: -6px; min-width: 17px; height: 17px; padding: 0 5px;
+.gate .pr-b { position: absolute; top: -6px; right: -6px; min-width: 17px; height: 17px; padding: 0 5px;
   display: grid; place-items: center; border-radius: 20px; background: var(--red); color: #fff; font-size: 10px; font-weight: 650; }
-.gate .pr-b.amb, .gate-count { background: var(--amber); color: #fff; }
+.gate .pr-b.amb { background: var(--amber); color: #fff; }
 .gate-action { position: absolute; right: -7px; bottom: -7px; margin: 0; background: var(--card); border: .5px solid var(--line); box-shadow: var(--card-shadow); }
 .gate:hover { border-color: var(--amber); background: color-mix(in srgb, var(--amber-dim) 62%, var(--card)); }
 .gate.sel { border-color: var(--amber); box-shadow: 0 0 0 3px var(--win), 0 0 0 6px var(--amber-dim), var(--card-shadow); }
@@ -614,23 +614,25 @@ svg { display: block; }
 .wrow-time { color: var(--text-3); display: inline-flex; align-items: center; gap: 4px; }
 .wrow-time svg { width: 12px; height: 12px; }
 
-/* ── the factory floor: agents occupy the program they are executing on the
-      line between artifact-state lists ── */
+/* ── the factory floor: agents float below the stage they currently occupy ── */
 .wire.agent-wire { transition: stroke .2s, opacity .2s; }
 .wire.agent-wire.active { stroke: var(--green); opacity: .55; }
 .wire.agent-wire.attention { stroke: var(--amber); stroke-width: 2.3; }
 .wire.agent-wire.failing { stroke: var(--red); stroke-width: 2.3; stroke-dasharray: 6 4; }
 
-.pr.agent-proc { width: 156px; height: auto; min-height: 34px; padding: 6px 8px; display: grid;
-  grid-template-columns: 15px minmax(0,1fr) auto; gap: 0 6px; cursor: default; }
-.pr.agent-proc.staffed { width: 244px; }
-.pr.agent-proc.attention { border-color: color-mix(in srgb, var(--amber) 55%, transparent); box-shadow: 0 0 0 3px var(--win), 0 0 0 6px var(--amber-dim), var(--card-shadow); }
-.pr.agent-proc.failing { border-color: color-mix(in srgb, var(--red) 50%, transparent); }
-.agent-proc .pr-t { overflow: hidden; text-overflow: ellipsis; }
-.agent-proc .pr-copy { overflow: hidden; }
-.agent-proc-count { min-width: 17px; height: 17px; padding: 0 5px; display: grid; place-items: center;
-  border-radius: 20px; background: var(--raise); color: var(--text-2); font-size: 10.5px; font-weight: 650; }
-.agent-runs { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+.pr.factory-proc.attention { border-color: color-mix(in srgb, var(--amber) 55%, transparent); box-shadow: 0 0 0 3px var(--win), 0 0 0 6px var(--amber-dim), var(--card-shadow); }
+.pr.factory-proc.failing { border-color: color-mix(in srgb, var(--red) 50%, transparent); }
+.stage-avatars { position: absolute; left: 50%; top: calc(100% + 8px); transform: translateX(-50%);
+  display: flex; align-items: center; padding: 3px 5px; border-radius: 12px; background: color-mix(in srgb, var(--card) 88%, transparent);
+  border: .5px solid var(--line); box-shadow: var(--card-shadow); cursor: default; }
+.stage-avatar { width: 27px; height: 28px; position: relative; display: grid; place-items: center; border-radius: 8px; }
+.stage-avatar + .stage-avatar { margin-left: -4px; }
+.stage-avatar:hover { z-index: 2; transform: translateY(-2px); }
+.stage-avatar .agent-avatar { width: 24px; height: 24px; border: 1.5px solid var(--card); border-radius: 7px; }
+.stage-avatar .agent-avatar::before, .stage-avatar .agent-avatar::after { top: 7px; }
+.stage-avatar .nd-dot { position: absolute; right: 0; bottom: 0; width: 7px; height: 7px; border: 1.5px solid var(--card); }
+.pr.gate .stage-avatars { top: calc(100% + 9px); }
+
 .agent-run { width: 100%; min-width: 0; display: grid; grid-template-columns: 26px minmax(0,1fr) 7px;
   align-items: center; gap: 7px; padding: 5px 6px; border-radius: 8px; text-align: left; background: var(--raise); }
 .agent-run:hover { background: var(--accent-dim); }
@@ -651,7 +653,19 @@ svg { display: block; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-run.waiting .agent-work small { color: var(--amber); }
 .agent-run.failed .agent-work small { color: var(--red); }
-.agent-empty { color: var(--text-3); font-size: 10.5px; padding: 1px 2px 2px; text-align: center; }
+.stage-list { display: flex; flex-direction: column; gap: 4px; margin-top: 13px; padding-top: 11px; border-top: .5px solid var(--line-soft); }
+.stage-artifact { width: 100%; min-width: 0; display: grid; grid-template-columns: 28px minmax(0,1fr) 7px;
+  align-items: center; gap: 8px; padding: 7px; border-radius: 9px; text-align: left; background: var(--raise); }
+.stage-artifact:hover, .stage-artifact.waiting { background: var(--amber-dim); }
+.stage-artifact.failed { background: var(--red-dim); }
+.stage-artifact-i { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; color: var(--amber); background: var(--card); }
+.stage-artifact-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.stage-artifact-copy b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; font-weight: 620; }
+.stage-artifact-copy b .mono { margin-right: 4px; color: var(--text-3); font-size: 10px; }
+.stage-artifact-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-size: 10px; }
+.stage-artifact.waiting small { color: var(--amber); }
+.stage-artifact.failed small { color: var(--red); }
+.stage-empty { padding: 16px 8px; color: var(--text-3); font-size: 11.5px; text-align: center; }
 
 .fleet-control { position: absolute; z-index: 8; top: 14px; left: 14px; display: flex; align-items: center; gap: 12px;
   padding: 7px 8px 7px 11px; border-radius: 12px; background: color-mix(in srgb, var(--card) 88%, transparent);
