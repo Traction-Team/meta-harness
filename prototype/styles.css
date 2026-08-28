@@ -338,10 +338,11 @@ svg { display: block; }
   transform: translateX(102%); opacity: 0; pointer-events: none;
   transition: transform .34s cubic-bezier(.22,.7,.3,1), opacity .22s ease;
 }
-.panels.open { transform: none; opacity: 1; pointer-events: auto; }
+.panels.open { transform: none; opacity: 1; }
 .panels.document-open { top: 64px; }
 .card {
   flex: 0 0 auto; border-radius: 13px;
+  pointer-events: auto;
   background: rgba(255,255,255,.74);
   -webkit-backdrop-filter: blur(22px) saturate(1.7); backdrop-filter: blur(22px) saturate(1.7);
   border: .5px solid var(--line);

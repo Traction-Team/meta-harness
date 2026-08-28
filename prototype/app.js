@@ -1079,14 +1079,8 @@ function wireLoop() {
   world.querySelectorAll("[data-proc]").forEach((el) => {
     el.onclick = (e) => {
       if (e.target.closest("[data-run],[data-edit]")) return;
-      /* in System (design) mode a process is a runbook you edit, so one click
-         opens its prompt — the same pane as "Edit prompt" on the floating card,
-         which still floats beside it. Elsewhere a click just selects. */
-      if (state.mode === "system") { openEditor(el.dataset.proc); return; }
       state.sel = { t: "proc", id: el.dataset.proc }; paint();
     };
-    /* double-click goes straight to the prompt, since that is what a process is */
-    el.ondblclick = () => { state.sel = { t: "proc", id: el.dataset.proc }; openEditor(el.dataset.proc); };
   });
   /* an input program: the play button opens its intake console in any mode; in
      System mode clicking the pill body opens it too (it is a runbook you tune) */
@@ -1117,19 +1111,25 @@ function wireLoop() {
   $("#zOut").onclick = () => zoomBy(1 / 1.18);
   $("#zFit").onclick = fit;
 
-  /* pan on the background, zoom under the cursor */
+  /* A background click clears selection; moving instead pans the canvas. */
   let down = null;
   lp.addEventListener("mousedown", (e) => {
-    if (e.target.closest(".nd, .pr, .lp-tools")) return;
-    down = { x: e.clientX, y: e.clientY, px: state.px, py: state.py };
+    if (e.target.closest(".nd, .pr, .nd-in, .fleet-control, .lp-tools")) return;
+    down = { x: e.clientX, y: e.clientY, px: state.px, py: state.py, moved: false };
     lp.classList.add("drag");
   });
   window.addEventListener("mousemove", (e) => {
     if (!down) return;
+    if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 3) down.moved = true;
     state.px = down.px + (e.clientX - down.x); state.py = down.py + (e.clientY - down.y);
     applyTransform();
   });
-  window.addEventListener("mouseup", () => { down = null; lp.classList.remove("drag"); });
+  window.addEventListener("mouseup", () => {
+    if (!down) return;
+    const deselect = !down.moved && !!state.sel;
+    down = null; lp.classList.remove("drag");
+    if (deselect) { state.sel = null; paint(); }
+  });
   lp.addEventListener("wheel", (e) => {
     e.preventDefault();
     const r = lp.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
@@ -1850,9 +1850,9 @@ function paint() {
      lands on top of the rows; over the loop it just floats on the dot grid */
   $("#main").classList.toggle("card-left", state.verCardOpen && state.mode === "system" && state.view !== "loop");
   paintPanels(); paintVersion(); paintAsk(); paintEditor();
-  /* Selection gets a closer contextual frame; closing the inspector restores
-     the whole-loop overview. */
-  if (!chat && (state.view === "loop" || factoryCanvas())) {
+  /* Factory selection gets a closer contextual frame; System keeps the canvas
+     viewport stable while its inspector opens. */
+  if (!chat && factoryCanvas()) {
     if (state.panelOpen && state.sel) requestAnimationFrame(() => focusSelected(true));
     else if (was !== state.panelOpen) requestAnimationFrame(() => fit(true));
   }
