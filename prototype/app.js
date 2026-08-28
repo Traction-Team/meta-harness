@@ -1012,7 +1012,7 @@ function paintLoop() {
     const attention = assigned.some((run) => run.status === "waiting") ? " attention" : assigned.some((run) => run.status === "failed") ? " failing" : "";
     procs += `<div class="pr gate${attention}${sel}${chg}${p.broken ? " err" : ""}" data-proc="${p.id}" style="left:${r.x + r.w / 2}px;top:${r.y + r.h / 2}px;transform:translate(-50%,-50%)">
       <span class="gate-label"><b>${esc(p.name)}</b><small>${esc(p.assignee.name)} · ${esc(p.assignee.type)} · ${esc(p.decision)}</small></span>
-      <span class="gate-mark" aria-hidden="true"><i></i><i></i><b></b></span>
+      <span class="gate-mark" aria-hidden="true">${ICONS.gate}</span>
       ${factoryCanvas() ? `<span class="gate-count">${assigned.length}</span>` : badge}
       ${factoryCanvas() ? "" : `<button class="pr-run gate-action" data-edit="${p.id}" title="Edit gate">${ICONS.pencil}</button>`}
     </div>`;
@@ -2261,9 +2261,7 @@ function paintEditor() {
   host.innerHTML = `
     <div class="ov-card">
       <header class="ov-h">
-        ${face.item
-          ? `<button class="ico" id="ovBack" title="Back to Factory (Esc)">${ICONS.chevL}</button>`
-          : state.docStack.length > 1 ? `<button class="ico" id="ovBack" title="Back">${ICONS.chevL}</button>` : ""}
+        <button class="ico" id="ovBack" title="${state.docStack.length > 1 ? "Back" : "Back to Factory (Esc)"}">${ICONS.chevL}</button>
         <span class="pr-k ${face.tint}">${face.icon}</span>
         <div class="ov-ht">
           <div class="ov-name">${esc(docTitle(path))}
@@ -2275,7 +2273,6 @@ function paintEditor() {
           <button data-m="read" class="${state.editing ? "" : "on"}">${ICONS.eye}Read</button>
           <button data-m="write" class="${state.editing ? "on" : ""}">${ICONS.pencil}Edit</button>
         </div>
-        ${face.item ? "" : `<button class="ico" id="ovX" title="Close (Esc)">${ICONS.x}</button>`}
       </header>
 
       <div class="ov-b">
@@ -2300,10 +2297,9 @@ function paintEditor() {
     </div>`;
 
   const card = host.querySelector(".ov-card");
-  const close = $("#ovX");
-  if (close) close.onclick = (e) => { e.stopPropagation(); closeEditor(); };
-  if (face.item) $("#ovBack").onclick = () => closeEditor();
-  else if (state.docStack.length > 1) $("#ovBack").onclick = () => { state.docStack.pop(); state.editing = false; paintPanels(); paintEditor(); paintToolbar(); };
+  $("#ovBack").onclick = state.docStack.length > 1
+    ? () => { state.docStack.pop(); state.editing = false; paintPanels(); paintEditor(); paintToolbar(); }
+    : () => closeEditor();
   const runId = face.item && face.next ? face.next.id : p ? p.id : null;
   if (runId) $("#ovRun").onclick = () => runProc(runId);
   $("#ovSave").onclick = () => saveEditor();
