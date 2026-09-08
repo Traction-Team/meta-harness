@@ -71,6 +71,7 @@ const state = {
   run: null,                // run id, or null for the board
   composer: "",             // the un-sent line in the console
   fleetSize: {},            // ws id -> configured agent capacity
+  decisionIndex: 0,         // the pending decision currently in focus
   /* an input program opened as its own primary pane: the operator's intake
      console, where you pour work into the loop */
   inputOpen: null,          // input id, or null
@@ -159,8 +160,12 @@ function scaleFleet(delta) {
    from STATES so every workspace reads its own station names and counts, rather
    than a hand-curated set of cross-cutting views. */
 function factoryNav() {
-  return [{ id: "loop", label: "Board", icon: "loop" }, { section: "Workers" }]
-    .concat(agentsNav(), [{ section: "Artifacts" }],
+  const decisions = AGENTS.filter((r) => r.status === "waiting" && r.question).length;
+  return [
+    { id: "loop", label: "Board", icon: "loop" },
+    { id: "decisions", label: "Decisions", icon: "flag", n: decisions, loud: true },
+    { section: "Workers" },
+  ].concat(agentsNav().filter((n) => n.id !== "needs"), [{ section: "Artifacts" }],
       STATES.map((s) => ({ id: s.id, label: s.name, icon: s.icon, n: s.count })));
 }
 const navFor = () =>
@@ -1483,6 +1488,157 @@ function paintAgents() {
     (el.onclick = (e) => { e.stopPropagation(); spawnRun("branch", el.dataset.dispatch, el.dataset.title); }));
 }
 
+/* ═══════════════════════════════════════════════════════ decisions ══
+   The operator view deliberately hides the factory floor. It presents one
+   blocked question at a time, with a compact read of the fleet alongside it. */
+
+const pendingDecisions = () => AGENTS.filter((r) => r.status === "waiting" && r.question);
+
+function decisionEffect(option) {
+  if (/file|pause|flag|ambiguity|brief-gap/i.test(option)) return "Records the gap and pauses this work rather than guessing.";
+  if (/send back|revise|soften/i.test(option)) return "Sends this work back with the decision attached.";
+  if (/merge|approve|publish|ship/i.test(option)) return `Approves the work and moves it to ${TERMS.doneLabel}.`;
+  return "Gives the agent the missing direction and lets it continue.";
+}
+
+function decisionContext(r) {
+  const askAt = r.log.findIndex((e) => e.k === "ask");
+  const before = (askAt < 0 ? r.log : r.log.slice(0, askAt)).filter((e) => e.k === "say");
+  return before.length ? before[before.length - 1].t : r.head;
+}
+
+function setDecision(delta) {
+  const list = pendingDecisions();
+  if (!list.length) return;
+  state.decisionIndex = (state.decisionIndex + delta + list.length) % list.length;
+  paint();
+}
+
+function makeDecision(id, optionIndex) {
+  const r = runById(id);
+  if (!r || !r.question) return;
+  const choice = r.question.opts[optionIndex];
+  answerRun(id, optionIndex);
+  toast(`Decision sent · ${choice}`);
+}
+
+function decisionContextCard(r) {
+  if (!r) return "";
+  const proc = runProcOf(r);
+  const home = itemHome({ id: r.slice });
+  const files = filesTouched(r);
+  return `<aside class="dec-context-card">
+    <div class="dec-context-main">
+      <span class="dec-context-icon">${ICONS.doc}</span>
+      <div class="dec-context-title">
+        <b><span class="mono">${esc(r.slice)}</span> ${esc(r.title)}</b>
+        <span>${esc(stationName(r.station))} · ${esc(agentName(r))}</span>
+      </div>
+      <span class="pill waiting">Needs you</span>
+    </div>
+    <div class="dec-context-rows">
+      <div><span>Process</span><b>${esc(proc ? proc.name : "—")}</b></div>
+      <div><span>Model</span><b>${esc(runModelOf(r))}</b></div>
+      <div><span>Progress</span><b>${r.pct}% · ${esc(r.elapsed)}</b></div>
+      <div><span>Files touched</span><b>${files.length || "None yet"}</b></div>
+    </div>
+    <div class="dec-context-foot">
+      <span>Source&nbsp; ${esc(home ? stationName(home) : stationName(r.station))}</span>
+      ${home ? `<button data-context-file="${esc(home)}">Open artifact</button>` : ""}
+      <button data-context-run="${r.id}">Open session</button>
+    </div>
+  </aside>`;
+}
+
+function decisionFleet() {
+  const live = liveAgents();
+  const size = fleetSize();
+  const groups = [
+    ["waiting", "Needs a decision", "wait"],
+    ["failed", "Failed", "bad"],
+    ["blocked", "Blocked", "wait"],
+    ["running", "Working", "run"],
+  ];
+  const rows = groups.map(([status, label, dot]) => {
+    const runs = live.filter((r) => r.status === status);
+    if (!runs.length) return "";
+    return `<div class="dec-agent-group">
+      <div class="dec-agent-group-h"><span>${esc(label)}</span><b>${runs.length}</b></div>
+      ${runs.map((r) => `<button class="dec-agent" data-run="${r.id}">
+        <span class="agent-avatar" style="--agent-h:${agentHue(r)}" aria-hidden="true"></span>
+        <span class="dec-agent-copy"><b>${esc(agentName(r))}</b><span><i class="nd-dot ${dot}"></i>${esc(r.head || r.title)}</span></span>
+        ${ICONS.chevR}
+      </button>`).join("")}
+    </div>`;
+  }).join("");
+  return `<aside class="dec-fleet">
+    <div class="dec-fleet-head">
+      <div><span>Factory agents</span><strong>${size}</strong></div>
+      <span class="pill running">Live</span>
+    </div>
+    <div class="dec-fleet-summary">
+      <span><b>${live.filter((r) => r.status === "running").length}</b> working</span>
+      <span><b>${pendingDecisions().length}</b> need you</span>
+      <span><b>${live.filter((r) => r.status === "blocked").length}</b> blocked</span>
+      <span><b>${live.filter((r) => r.status === "failed").length}</b> failed</span>
+    </div>
+    <div class="dec-agent-list">${rows || `<div class="dec-agents-clear">${ICONS.check}<span>All agents are clear.</span></div>`}</div>
+  </aside>`;
+}
+
+function paintDecisions() {
+  const list = pendingDecisions();
+  state.decisionIndex = clamp(state.decisionIndex, 0, Math.max(0, list.length - 1));
+  const r = list[state.decisionIndex];
+  let focus;
+  if (!r) {
+    focus = `<section class="dec-focus dec-empty">
+      <span class="dec-empty-icon">${ICONS.check}</span>
+      <h1>No decisions waiting</h1>
+      <p>The agents can keep moving without you. New questions will appear here when an agent needs a call only you can make.</p>
+      <button class="btn" id="decBoard">${ICONS.loop} View the board</button>
+    </section>`;
+  } else {
+    const proc = runProcOf(r);
+    focus = `<section class="dec-focus">
+      <div class="dec-progress">
+        <span><b>${state.decisionIndex + 1}</b> of ${list.length}</span>
+        <span class="dec-progress-dots">${list.map((_, i) => `<i class="${i === state.decisionIndex ? "on" : ""}"></i>`).join("")}</span>
+        <span class="tagm gt">Decision</span>
+      </div>
+      <div class="dec-question">
+        <div class="dec-scope"><span class="mono">${esc(r.slice)}</span><span>${esc(r.title)}</span><span>·</span><span>${esc(proc ? proc.name : stationName(r.station))}</span></div>
+        <h1>${esc(r.question.t)}</h1>
+        <p>${mdi(decisionContext(r), null)}</p>
+        <div class="dec-options">${r.question.opts.map((option, i) => `<button class="dec-option" data-decision="${i}">
+          <span class="dec-key">${i + 1}</span>
+          <span class="dec-option-copy"><b>${esc(option)}</b><span>${esc(decisionEffect(option))}</span></span>
+          ${ICONS.chevR}
+        </button>`).join("")}</div>
+        <div class="dec-after">${ICONS.sparkle}<span><b>Then</b> the agent records your choice and continues from where it stopped.</span></div>
+      </div>
+      <footer class="dec-actions">
+        <button class="btn ghost" id="decPrev" ${list.length < 2 ? "disabled" : ""}>${ICONS.chevL} Previous</button>
+        <button class="btn ghost" id="decNext" ${list.length < 2 ? "disabled" : ""}>Next ${ICONS.chevR}</button>
+        <button class="btn" id="decSession">Open full session</button>
+        <span class="dec-shortcuts"><kbd>1</kbd>–<kbd>${r.question.opts.length}</kbd> to decide</span>
+      </footer>
+    </section>`;
+  }
+
+  const rail = `<div class="dec-rail">${decisionContextCard(r)}${decisionFleet()}</div>`;
+  $("#main").innerHTML = `<div class="decisions-view"><div class="dec-layout">${focus}${rail}</div></div>`;
+  $("#main").querySelectorAll("[data-decision]").forEach((b) => (b.onclick = () => makeDecision(r.id, +b.dataset.decision)));
+  $("#main").querySelectorAll(".dec-agent").forEach((b) => (b.onclick = () => openRun(b.dataset.run)));
+  $("#main").querySelectorAll("[data-context-run]").forEach((b) => (b.onclick = () => openRun(b.dataset.contextRun)));
+  $("#main").querySelectorAll("[data-context-file]").forEach((b) => (b.onclick = () => openItemDoc(r.slice, b.dataset.contextFile)));
+  const prev = $("#decPrev"), next = $("#decNext"), session = $("#decSession"), board = $("#decBoard");
+  if (prev) prev.onclick = () => setDecision(-1);
+  if (next) next.onclick = () => setDecision(1);
+  if (session) session.onclick = () => openRun(r.id);
+  if (board) board.onclick = () => { state.view = "loop"; paint(); requestAnimationFrame(() => fit(true)); };
+}
+
 function fleetControl() {
   const busy = liveAgents().length, size = fleetSize();
   const waiting = AGENTS.filter((r) => r.status === "waiting").length;
@@ -1999,6 +2155,7 @@ function paint() {
   if (chat) paintSysChat();
   else if (state.mode === "product") paintProduct();
   else if (state.run || (state.mode === "factory" && (state.view === "queue" || state.view === "recent"))) paintAgents();
+  else if (state.mode === "factory" && state.view === "decisions") paintDecisions();
   else if (state.view === "loop" || factoryCanvas()) paintLoop(); else paintList();
   /* the list gives up the room the panel needs; the loop keeps it and re-fits */
   $("#main").classList.toggle("inset", !chat && state.view !== "loop" && !factoryCanvas() && !!state.sel);
@@ -2039,6 +2196,18 @@ window.addEventListener("keydown", (e) => {
   }
   if ((e.metaKey || e.ctrlKey) && e.key === "s" && state.docStack.length) { e.preventDefault(); saveEditor(); }
   if (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") return;
+
+  if (state.mode === "factory" && state.view === "decisions" && !state.run) {
+    const decisions = pendingDecisions(), current = decisions[state.decisionIndex];
+    if (/^[1-9]$/.test(e.key)) {
+      e.preventDefault();
+      if (current && +e.key <= current.question.opts.length) makeDecision(current.id, +e.key - 1);
+      return;
+    }
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault(); setDecision(e.key === "ArrowLeft" ? -1 : 1); return;
+    }
+  }
 
   /* with a file open, up and down walk the station list beside it */
   if ((e.key === "ArrowDown" || e.key === "ArrowUp") && state.docStack.length && state.sel && state.sel.t === "item") {
