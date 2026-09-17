@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Meta Harness Mark II</title>
+<link rel="stylesheet" href="styles.css?v=2000000001" />
+</head>
+<body>
+
+<div class="win">
+
+  <!-- ─────────────────────────────────────────── sidebar (full height) -->
+  <aside class="sidebar">
+    <div class="side-chrome">
+      <div class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+      <button class="ico" id="sideToggle" title="Hide sidebar"></button>
+    </div>
+
+    <!-- the workspace IS the product. Top of the rail, above the mode switch,
+         because you pick which thing you are building before you pick whether
+         you are working on it or in it. -->
+    <div class="ws" id="wsWrap"></div>
+
+    <!-- the switcher: are you working ON the system, or IN it -->
+    <div class="mode-wrap">
+      <div class="seg mode" id="modeSeg"></div>
+    </div>
+
+    <nav class="side-nav" id="sideNav"></nav>
+    <div class="side-fill"></div>
+    <nav class="side-nav side-foot" id="sideNavFoot"></nav>
+  </aside>
+
+  <!-- ───────────────────────────────────────────────── content surface -->
+  <section class="content">
+    <header class="toolbar">
+      <div class="tb-nav" id="tbNav"></div>
+      <div class="crumb"><span class="crumb-app">Harness</span><span class="crumb-sep">|</span><span id="crumb"></span></div>
+      <div class="tb-acts" id="tbActs"></div>
+    </header>
+
+    <!-- the canvas runs the full width. The panels float over it, so the dot
+         grid keeps going underneath them. -->
+    <div class="canvas" id="canvas">
+      <div class="col-main" id="main"></div>
+      <!-- an open document replaces the canvas; inspectors still float above it -->
+      <div class="ov-wrap" id="overlay"></div>
+      <aside class="panels" id="panels"></aside>
+      <!-- the factory's own version control: a pill pinned top-left of the
+           canvas, and the version card that floats in beside it -->
+      <div class="ver-layer" id="verLayer"></div>
+      <!-- the ask bar: floats at the bottom of a clean canvas, opens a chat
+           with the system agent -->
+      <div class="ask-layer" id="askLayer"></div>
+      <!-- the shelf: reusable resources (sources, programs, skills) that can be
+           placed onto the canvas or attached through a program -->
+      <div class="shelf-layer" id="shelfLayer"></div>
+    </div>
+
+    <footer class="strip">
+      <span class="strip-item" id="stripLeft"></span>
+      <span class="strip-item strip-right">
+        <span class="strip-guard" id="lintChip"></span>
+        <span class="strip-model" id="modeChip"></span>
+      </span>
+    </footer>
+  </section>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script src="data.js?v=2000000001"></script>
+<script src="app.js?v=2000000001"></script>
+</body>
+</html>
