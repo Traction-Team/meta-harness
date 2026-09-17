@@ -150,6 +150,7 @@ const STATES = [
 const PROCS = [
   {
     id: "plan", def: "plan-feature", from: "spec", to: "plans", name: "plan feature",
+    pos: [557, 545],
     skills: ["read-spec", "frontier"],
     trigger: "manual", runner: "opus", runs: 64, fail: .09, median: "4m 20s",
     accepts: ["problem", "constraints[]", "decisions[]"], produces: ["id", "needs[]", "owns[]", "spec", "proves"],
@@ -261,32 +262,60 @@ Nothing else is in scope.
    the rule exists next time.`
   },
   {
-    id: "log", def: "capture-notes", from: "merged", to: "feed", name: "capture landing notes",
+    id: "log", def: "capture-notes", from: "merged", to: "spec", name: "capture landing notes",
+    fromSide: "bottom", toSide: "bottom",
     skills: ["github"],
     trigger: "after every merge", runner: "haiku", runs: 308, fail: .04, median: "40s",
-    accepts: ["slice", "sha"], produces: ["category", "area", "report", "fold"],
+    accepts: ["slice", "sha"], produces: ["constraints[]", "decisions[]"],
     issues: [],
     instructions: `## Context
 
-Read the worker and reviewer notes left on the merged PR. Preserve findings the
-landing orchestrator should not lose: follow-up work, unresolved issues,
-deliberate trade-offs, and limitations discovered while building the slice.
-
-Categories: \`follow-up\`, \`unresolved\`, \`trade-off\`, \`limitation\`.
+The landing orchestrator runs after every merge. Read the worker and reviewer
+notes left on the merged PR and fold the ones that change how the product should
+work back into the **product spec** — deliberate trade-offs, constraints
+discovered while building, and questions the slice answered.
 
 ## Tasks
 
-- [ ] Read the merged PR thread and worker handoff for the slice → report
-- [ ] Keep only notes that still matter after merge → report
-- [ ] Name the code or product area each note touches → area
-- [ ] Classify each note into exactly one category → category
-- [ ] Route it to a follow-up slice, a system defect, or an accepted limitation → fold
+- [ ] Read the merged PR thread and worker handoff for the slice → notes
+- [ ] Keep only notes that change how the product should work → notes
+- [ ] Name the spec section each note touches → area
+- [ ] Turn each into a spec constraint or a numbered decision → constraints[], decisions[]
+- [ ] Cite the sha that settled it so the decision is traceable → decisions[]
 
 ## Rules
 
-1. Do not turn resolved review comments into follow-up work.
-2. Preserve the worker's wording when it explains why a trade-off was made.
-3. A harness failure becomes a system defect; product work becomes a slice.`
+1. A trade-off the worker made deliberately becomes a decision, in their words.
+2. Do not re-open a decision the spec already states. Add, do not churn.
+3. A harness failure is not a product decision — that is a system defect.`
+  },
+  {
+    id: "followups", def: "plan-followups", from: "merged", to: "plans", name: "plan follow-ups",
+    fromSide: "bottom", toSide: "bottom",
+    pos: [555, 635],
+    skills: ["frontier", "github"],
+    trigger: "after every merge", runner: "sonnet", runs: 308, fail: .06, median: "1m 30s",
+    accepts: ["slice", "sha"], produces: ["id", "needs[]", "owns[]", "spec", "proves"],
+    issues: [],
+    instructions: `## Context
+
+The landing orchestrator runs after every merge. Read what the slice left behind
+and cut any **follow-up work** it surfaced into new build plans — deferred tasks,
+unresolved findings, and limitations the worker flagged but did not own.
+
+## Tasks
+
+- [ ] Read the merged PR thread and worker handoff for the slice → findings
+- [ ] Keep only findings that need code, not a spec decision → findings
+- [ ] Cut each into a slice with one provable behaviour → slices/*.md
+- [ ] Order it against the merged frontier → needs[]
+- [ ] Claim the file globs it will touch → owns[]
+
+## Rules
+
+1. Only cut work the merged slice actually surfaced. Do not widen scope.
+2. A finding that changes the product is a spec decision, not a slice.
+3. Resolved review comments are done — do not turn them into follow-ups.`
   },
   {
     id: "triage", def: "triage-feedback", from: "feed", to: "spec", name: "triage feedback",
@@ -340,13 +369,13 @@ const CANVASES = {
   root: {
     id: "root", name: "email-agent",
     nodes: [
-      { id: "feed",     grid: [0, 0] },
-      { id: "spec",     grid: [1, 0] },
-      { id: "plans",    grid: [2, 0] },
-      { id: "delivery", grid: [2, 1], subsystem: true },
-      { id: "merged",   grid: [0, 1] },
+      { id: "feed",     grid: [0, 0], pos: [216, 252] },
+      { id: "spec",     grid: [0, 1], pos: [216, 516] },
+      { id: "plans",    grid: [1, 1], pos: [778, 523] },
+      { id: "delivery", grid: [2, 1], subsystem: true, pos: [778, 984] },
+      { id: "merged",   grid: [3, 1], pos: [250, 1001] },
     ],
-    programs: ["triage", "plan", "log"],
+    programs: ["triage", "plan", "log", "followups"],
     connections: [
       { from: "plans", to: "delivery", label: "in" },
       { from: "delivery", to: "merged", label: "out" },
@@ -373,9 +402,9 @@ const CANVASES = {
       is a program with an OPEN input (nothing upstream feeds it — the operator
       does), so it draws as a pill rather than a box. It produces feedback items. ── */
 const INPUTS = [
-  { id: "bugs",     to: "feed", name: "Bug reports",      sub: "from users", icon: "flag",    count: 12, source: "feedback-docs" },
-  { id: "requests", to: "feed", name: "Feature requests", sub: "from users", icon: "sparkle", count: 7,  source: "feedback-docs" },
-  { id: "signals",  to: "feed", name: "Usage signals",    sub: "telemetry",  icon: "heat",    count: 34, source: "feedback-docs" },
+  { id: "bugs",     to: "feed", name: "Bug reports",      sub: "from users", icon: "flag",    count: 12, source: "feedback-docs", pos: [57, 62] },
+  { id: "requests", to: "feed", name: "Feature requests", sub: "from users", icon: "sparkle", count: 7,  source: "feedback-docs", pos: [56, 113] },
+  { id: "signals",  to: "feed", name: "Usage signals",    sub: "telemetry",  icon: "heat",    count: 34, source: "feedback-docs", pos: [54, 162] },
 ];
 
 /* ── DEFECTS. Friction the factory logs about its own wiring, attributed to a
@@ -874,7 +903,8 @@ const PROGRAM_DEFS = [
   { id: "dispatch-slice",    name: "Dispatch slice",      sub: "build plan → worker branch" },
   { id: "build-self-review", name: "Build + self-review", sub: "build plan → worker branch" },
   { id: "review-merge",      name: "Review + merge",     sub: "completed work → merged work" },
-  { id: "capture-notes",     name: "Capture landing notes", sub: "merged work → feedback" },
+  { id: "capture-notes",     name: "Capture landing notes", sub: "merged work → product spec" },
+  { id: "plan-followups",    name: "Plan follow-ups",     sub: "merged work → build plans" },
   { id: "triage-feedback",   name: "Triage feedback",    sub: "feedback → product spec" },
 ];
 

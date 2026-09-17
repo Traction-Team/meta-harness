@@ -223,7 +223,7 @@ svg { display: block; }
 /* ── an input program: a compact pill that pours work into Feedback's top ── */
 .nd-in { position: absolute; display: flex; align-items: center; gap: 7px; padding: 0 10px 0 12px;
   border-radius: 20px; background: var(--card); border: .5px solid var(--line);
-  box-shadow: var(--card-shadow); cursor: default; }
+  box-shadow: var(--card-shadow); cursor: grab; }
 .nd-in:hover { border-color: rgba(128,128,138,.4); }
 .nd-in.open { border-color: var(--accent); box-shadow: var(--card-shadow), 0 0 0 3px var(--accent-dim); }
 .nd-in-i { display: flex; color: var(--accent); flex: none; }
@@ -255,9 +255,10 @@ svg { display: block; }
 .intake-foot { margin-top: 12px; font-size: 11.5px; color: var(--text-3); text-align: center; }
 
 /* ── a node: a bit of state ── */
-.nd { position: absolute; border-radius: 12px; background: var(--card); border: .5px solid var(--line); box-shadow: var(--card-shadow); cursor: pointer; overflow: hidden; }
+.nd { position: absolute; border-radius: 12px; background: var(--card); border: .5px solid var(--line); box-shadow: var(--card-shadow); cursor: grab; overflow: hidden; }
 .nd:hover { border-color: rgba(128,128,138,.4); }
 .nd.sel { border-color: var(--accent); box-shadow: var(--card-shadow), 0 0 0 3px var(--accent-dim); }
+.nd.dragging { cursor: grabbing; z-index: 40; box-shadow: var(--card-shadow), 0 0 0 3px var(--accent-dim); transition: none; }
 .nd-h { display: flex; align-items: center; gap: 7px; padding: 9px 11px 0; }
 .nd-h svg { color: var(--text-3); flex: none; }
 .nd-t { font-size: 13px; font-weight: 620; letter-spacing: -.012em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -279,8 +280,9 @@ svg { display: block; }
 .nd-more { padding: 5px 11px 9px; font-size: 11px; color: var(--text-3); }
 
 /* ── a program: an arrow-shaped card that sits on the line ── */
-.pr { position: absolute; isolation: isolate; display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 12px 24px; cursor: pointer; white-space: nowrap;
+.pr { position: absolute; isolation: isolate; display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 12px 24px; cursor: grab; white-space: nowrap;
   --pr-line: var(--line); }
+.pr.dragging, .nd-in.dragging { cursor: grabbing; z-index: 40; transition: none; }
 .pr-shape { position: absolute; z-index: -1; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none;
   filter: drop-shadow(0 1px 2px rgba(0,0,0,.10)) drop-shadow(0 5px 10px rgba(0,0,0,.10)); }
 .pr-shape path { fill: var(--card); stroke: var(--pr-line); stroke-width: .75; }
@@ -1096,7 +1098,7 @@ kbd { min-width: 16px; height: 16px; display: inline-grid; place-items: center; 
 .pr-skilln { display: block; margin-top: 2px; font-size: 10px; font-weight: 500; color: var(--text-3); }
 
 /* a plain connection into/out of a subsystem boundary */
-.wire.conn { stroke: var(--wire); stroke-width: 1.6; stroke-dasharray: 2 4; opacity: .85; }
+.wire.conn { stroke: var(--wire); stroke-width: 1.9; }
 
 /* the breadcrumb segment that walks back out of a subsystem canvas */
 .crumb-canvas { color: var(--accent); cursor: pointer; }

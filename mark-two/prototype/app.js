@@ -40,11 +40,12 @@ const ICONS = {
   globe:   I(`<circle cx="8" cy="8" r="6"/><path d="M2.3 8h11.4M8 2c1.7 1.6 2.6 3.6 2.6 6S9.7 12.4 8 14M8 2C6.3 3.6 5.4 5.6 5.4 8s.9 4.4 2.6 6"/>`, 15),
   external:I(`<path d="M9.2 2.8h4v4M13.2 2.8 7.4 8.6"/><path d="M12 8.7v3a1.5 1.5 0 0 1-1.5 1.5H4.3a1.5 1.5 0 0 1-1.5-1.5V5.5A1.5 1.5 0 0 1 4.3 4h3"/>`, 14),
   box:     I(`<path d="M2.3 5.2 8 2.2l5.7 3v6.1L8 14.2l-5.7-2.9z"/><path d="M2.3 5.2 8 8.1l5.7-2.9M8 8.1v6.1M5.1 3.7l5.7 3"/>`, 15),
+  copy:    I(`<rect x="5.4" y="5.4" width="8" height="8" rx="1.4"/><path d="M10.6 5.4V4A1.4 1.4 0 0 0 9.2 2.6H4A1.4 1.4 0 0 0 2.6 4v5.2A1.4 1.4 0 0 0 4 10.6h1.4"/>`, 14),
 };
 
 const MODES = {
-  system:  { label: "Factory",    icon: ICONS.wrench, defaultView: "loop", section: "Definition" },
-  factory: { label: "Production", icon: ICONS.list, defaultView: "loop", section: "Production" },
+  system:  { label: "System",    icon: ICONS.wrench, defaultView: "loop", section: "Definition" },
+  factory: { label: "Fab", icon: ICONS.list, defaultView: "loop", section: "Production" },
   product: { label: "Artifacts",  icon: ICONS.box, defaultView: "overview", section: "Artifacts" },
 };
 /* Factory defines how the factory works, Production shows work moving through
@@ -64,6 +65,16 @@ const state = {
   view: "loop",
   sel: null,                // { t, id }
   zoom: 1, px: 0, py: 0,
+  /* hand-placed node positions for layout authoring, keyed canvas → mode → id.
+     A live drag writes here; geo() lets these win over the computed grid so you
+     can nudge a node into place and copy the coordinates back into the config. */
+  nodePos: {},
+  /* hand-placed program-box positions (the box centre), keyed the same way. By
+     default a program rides the middle of its edge; a drag pins it elsewhere. */
+  procPos: {},
+  /* hand-placed input-pill positions (top-left), keyed the same way. By default
+     the pills stack above the group they feed; a drag pins them elsewhere. */
+  inputPos: {},
   ws: "email-agent", wsOpen: false,
   /* which canvas is on screen: the top-level "root", or a subsystem's internal
      canvas. Opening a subsystem pushes onto the stack; the crumb walks back. */
@@ -853,10 +864,41 @@ function switchWorkspace(id) {
    top-level system and each subsystem's internal canvas lay themselves out the
    same way with different node sets. */
 
+/* the per-canvas, per-mode map of hand-placed node positions (lazily created).
+   Pixel space matches what geo() returns, so a copied layout round-trips. */
+function nodeOverrides() {
+  const perCanvas = (state.nodePos[state.canvas] ||= {});
+  return (perCanvas[state.mode] ||= {});
+}
+function procOverrides() {
+  const perCanvas = (state.procPos[state.canvas] ||= {});
+  return (perCanvas[state.mode] ||= {});
+}
+function inputOverrides() {
+  const perCanvas = (state.inputPos[state.canvas] ||= {});
+  return (perCanvas[state.mode] ||= {});
+}
+/* the drag store + config field for a given canvas element type */
+const DRAG_STORES = {
+  node:  { store: nodeOverrides,  pos: (id) => (activeCanvas().nodes || []).find((n) => n.id === id)?.pos },
+  proc:  { store: procOverrides,  pos: (id) => procById(id)?.pos },
+  input: { store: inputOverrides, pos: (id) => (INPUTS || []).find((x) => x.id === id)?.pos },
+};
+
+/* true once this canvas has any hand-placed node (a live drag override, or a
+   pos:[x,y] pinned in the config). In that case the router stops trusting the
+   config's fixed edge sides and re-picks them from the actual geometry, so wires
+   leave the sensible side as you move nodes around. */
+function hasManualLayout() {
+  const ov = state.nodePos[state.canvas]?.[state.mode];
+  if (ov && Object.keys(ov).length) return true;
+  return (activeCanvas().nodes || []).some((n) => n.pos);
+}
+
 function geo(m) {
   const P = state.mode === "factory"
-    ? { nw: 232, nh: 178, gapX: 280, gapY: 330 }
-    : { nw: 202, nh: 96,  gapX: 210, gapY: 165 };
+    ? { nw: 232, nh: 178, gapX: 300, gapY: 300 }
+    : { nw: 202, nh: 96,  gapX: 232, gapY: 168 };
   const pitchX = P.nw + P.gapX, pitchY = P.nh + P.gapY;
 
   /* raw node rects from the canvas grid. A subsystem frame is a little taller so
@@ -890,8 +932,29 @@ function geo(m) {
   const dx = pad - minX, dy = pad - minY;
   rects.forEach((q) => { q.x += dx; q.y += dy; });
 
+  /* authoring: hand-placed positions (a live drag, then any pos:[x,y] pinned in
+     the canvas config) win over the computed grid, so an operator can nudge
+     nodes into place and copy the result straight back into data. */
+  const overrides = nodeOverrides();
+  m.nodes.forEach((n) => {
+    const p = overrides[n.id] || (n.pos ? { x: n.pos[0], y: n.pos[1] } : null);
+    if (p && nodes[n.id]) { nodes[n.id].x = p.x; nodes[n.id].y = p.y; }
+  });
+  const inOverrides = inputOverrides();
+  inputs.forEach((inp) => {
+    const p = inOverrides[inp.id] || (inp.pos ? { x: inp.pos[0], y: inp.pos[1] } : null);
+    if (p) { inp.x = p.x; inp.y = p.y; }
+  });
+
+  /* size the world to the actual content (grid + any hand-placed positions), so
+     Fit-to-screen frames what is really on the canvas, not the stale grid span. */
+  const fin = [...Object.values(nodes), ...inputs];
+  const fMaxX = Math.max(...fin.map((q) => q.x + q.w));
+  const fMaxY = Math.max(...fin.map((q) => q.y + q.h));
+
   return { ...P, nodes, inputs, iw, ih,
-    W: maxX - minX + pad * 2, H: maxY - minY + pad * 2 };
+    W: fMaxX + pad,
+    H: fMaxY + pad };
 }
 
 /* a connection point on one of a node's four sides, at fraction f along it,
@@ -929,9 +992,15 @@ function pickSides(a, b) {
 /* resolve every edge to two ports, spreading edges that share a side so several
    wires into one intake fan out instead of stacking on one point. */
 function routeEdges(edges, nodes) {
+  const manual = hasManualLayout();
   edges.forEach((e) => {
     const [fs, ts] = pickSides(nodes[e.from], nodes[e.to]);
-    e._fs = e.fromSide || fs; e._ts = e.toSide || ts;
+    /* In a hand-authored layout, only the input feeders (pills that always pour
+       into the top) keep their pinned sides; every node-to-node wire re-picks
+       from geometry so it leaves the side that faces where you dragged it. */
+    const pin = !manual || e.cls === "in";
+    e._fs = pin ? (e.fromSide || fs) : fs;
+    e._ts = pin ? (e.toSide || ts) : ts;
   });
   const out = {}, inn = {};
   edges.forEach((e) => { (out[e.from + ":" + e._fs] ??= []).push(e); (inn[e.to + ":" + e._ts] ??= []).push(e); });
@@ -960,6 +1029,19 @@ function orthoPoints(e) {
   return [s0, s1, ...mid, t1, t0];
 }
 
+/* same orthogonal route, but forced through a hand-placed program box at w: an
+   L from the source stub to w, then an L from w to the target stub, so the wire
+   follows the box wherever it was dragged. */
+function orthoThrough(e, w) {
+  const a = e._a, b = e._b, stub = 24;
+  const s0 = { x: a.x, y: a.y },                       s1 = { x: a.x + a.nx * stub, y: a.y + a.ny * stub };
+  const t1 = { x: b.x + b.nx * stub, y: b.y + b.ny * stub }, t0 = { x: b.x, y: b.y };
+  const aH = a.ny === 0, bH = b.ny === 0;
+  const c1 = aH ? { x: w.x, y: s1.y } : { x: s1.x, y: w.y };
+  const c2 = bH ? { x: w.x, y: t1.y } : { x: t1.x, y: w.y };
+  return [s0, s1, c1, w, c2, t1, t0];
+}
+
 /* an orthogonal polyline drawn with rounded corners, plus its halfway point so
    the process box can ride the middle of the edge. */
 function roundedPath(raw, r) {
@@ -984,9 +1066,17 @@ function roundedPath(raw, r) {
   return { d, mid };
 }
 
+/* the pinned centre of a program box (a drag override, then a pos:[x,y] in
+   config), or null if it still rides the middle of its edge */
+function procForcedPos(p) {
+  const o = procOverrides()[p.id] || (p && p.pos ? { x: p.pos[0], y: p.pos[1] } : null);
+  return o ? { x: o.x, y: o.y } : null;
+}
+
 function edgeD(e) {
-  const { d, mid } = roundedPath(orthoPoints(e), R);
-  return { d, mx: mid.x, my: mid.y };
+  const w = e.proc ? procForcedPos(e.proc) : null;
+  const { d, mid } = roundedPath(w ? orthoThrough(e, w) : orthoPoints(e), R);
+  return { d, mx: w ? w.x : mid.x, my: w ? w.y : mid.y };
 }
 
 function paintLoop() {
@@ -1002,7 +1092,7 @@ function paintLoop() {
      together: the programs, the plain connections into/out of subsystems, the
      input feeders, and the back edges */
   const edges = [];
-  m.procs.forEach((p) => edges.push({ from: p.from, to: p.to, proc: p }));
+  m.procs.forEach((p) => edges.push({ from: p.from, to: p.to, proc: p, fromSide: p.fromSide, toSide: p.toSide }));
   m.connections.forEach((c) => edges.push({ from: c.from, to: c.to, conn: true, label: c.label }));
   [...G.inputs].reverse().forEach((inp) => edges.push({ from: inp.id, to: inp.to, cls: "in", fromSide: "right", toSide: "top" }));
   (m.backs || []).forEach((b) => edges.push({ from: b.from, to: b.to, back: true, label: b.label, fromSide: "bottom", toSide: "bottom" }));
@@ -1153,6 +1243,7 @@ function paintLoop() {
         <button class="ico" id="zOut">${ICONS.minus}</button>
         <button class="ico" id="zFit">${ICONS.fit}</button>
         <button class="ico" id="zIn">${ICONS.plus}</button>
+        <button class="ico" id="zCopy" title="Copy node positions">${ICONS.copy}</button>
       </div>
     </div>`;
 
@@ -1200,6 +1291,23 @@ function wireLoop() {
 
   world.querySelectorAll("[data-node]").forEach((el) => {
     el.onclick = (e) => { if (e.target.closest("[data-item]")) return; state.sel = { t: "node", id: el.dataset.node }; paint(); };
+  });
+  /* layout authoring: press-drag any node, subsystem frame, program box or input
+     pill to hand-place it. The position is remembered and wires re-route on drop;
+     the copy button in the zoom toolbar then hands you the coordinates. */
+  world.querySelectorAll("[data-node],[data-sub],[data-proc],[data-input]").forEach((el) => {
+    el.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      /* buttons and item rows keep their own click actions, never drag */
+      if (e.target.closest("[data-item],[data-open],[data-run],[data-edit],[data-inrun],[data-inedit],.stage-avatar")) return;
+      e.stopPropagation();
+      const kind = el.dataset.proc ? "proc" : el.dataset.input ? "input" : "node";
+      const id = el.dataset.node || el.dataset.sub || el.dataset.proc || el.dataset.input;
+      const ov = DRAG_STORES[kind].store();
+      const start = ov[id] || { x: parseFloat(el.style.left) || 0, y: parseFloat(el.style.top) || 0 };
+      nodeDrag = { kind, id, el, sx: e.clientX, sy: e.clientY, ox: start.x, oy: start.y, moved: false };
+      el.classList.add("dragging");
+    });
   });
   /* a subsystem frame: the open button drills in, the body selects it */
   world.querySelectorAll("[data-open]").forEach((el) => {
@@ -1251,6 +1359,7 @@ function wireLoop() {
   $("#zIn").onclick = () => zoomBy(1.18);
   $("#zOut").onclick = () => zoomBy(1 / 1.18);
   $("#zFit").onclick = fit;
+  const zc = $("#zCopy"); if (zc) zc.onclick = copyLayout;
 
   /* A background click clears selection; moving instead pans the canvas. */
   let down = null;
@@ -1282,6 +1391,43 @@ function wireLoop() {
 }
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+/* ── canvas layout authoring ── */
+let nodeDrag = null;   // { kind, id, el, sx, sy, ox, oy, moved } while dragging
+window.addEventListener("mousemove", (e) => {
+  if (!nodeDrag) return;
+  const dx = (e.clientX - nodeDrag.sx) / state.zoom;
+  const dy = (e.clientY - nodeDrag.sy) / state.zoom;
+  if (!nodeDrag.moved && Math.hypot(e.clientX - nodeDrag.sx, e.clientY - nodeDrag.sy) > 3) nodeDrag.moved = true;
+  const nx = Math.round(nodeDrag.ox + dx), ny = Math.round(nodeDrag.oy + dy);
+  DRAG_STORES[nodeDrag.kind].store()[nodeDrag.id] = { x: nx, y: ny };
+  nodeDrag.el.style.left = nx + "px";
+  nodeDrag.el.style.top = ny + "px";
+});
+window.addEventListener("mouseup", () => {
+  if (!nodeDrag) return;
+  const moved = nodeDrag.moved;
+  nodeDrag.el.classList.remove("dragging");
+  nodeDrag = null;
+  if (moved) paint();   // re-route wires (and swallow the trailing select click)
+});
+
+/* Copy the current node, program and input positions to the clipboard as
+   pos:[x,y] pairs, ready to paste into data.js. Beats guessing by hand. */
+function copyLayout() {
+  const m = model(), G = geo(m);
+  const nodes = {}, procs = {}, inputs = {};
+  m.nodes.forEach((n) => { const r = G.nodes[n.id]; if (r) nodes[n.id] = [Math.round(r.x), Math.round(r.y)]; });
+  const pOv = procOverrides();
+  m.procs.forEach((p) => { const o = pOv[p.id] || (p.pos ? { x: p.pos[0], y: p.pos[1] } : null); if (o) procs[p.id] = [Math.round(o.x), Math.round(o.y)]; });
+  G.inputs.forEach((inp) => { inputs[inp.id] = [Math.round(inp.x), Math.round(inp.y)]; });
+  const out = { nodes, programs: procs, inputs };
+  const n = Object.keys(nodes).length + Object.keys(procs).length + Object.keys(inputs).length;
+  const text = JSON.stringify(out, null, 2);
+  const done = () => toast(`Copied ${n} positions`);
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(done, () => toast("Copy failed"));
+  else { console.log(text); done(); }
+}
 
 let animT = null;
 function applyTransform(anim) {
@@ -2573,8 +2719,8 @@ ${it.s}. Cited by [${cite[0].id}](../slices/${cite[0].id}.md) and
        factory and folds back into the spec. System/process misses are a
        different animal and live off the loop in System mode. */
     const specName = (stateById("spec") || {}).name || "spec";
-    const logProc = procById("log");
-    return `\`${it.cat}\` · ${it.area || it.channel || ""} · logged by [${logProc.name}](../system/programs/log.md)
+    const triageProc = procById("triage");
+    return `\`${it.cat}\` · ${it.area || it.channel || ""} · folded by [${triageProc.name}](../system/programs/triage.md)
 
 ## What we saw
 
