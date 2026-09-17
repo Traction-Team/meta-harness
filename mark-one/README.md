@@ -43,12 +43,13 @@ those defects sit on.
 ```
 cd prototype
 python3 -m http.server 4599
-open http://localhost:4599/index.html
+open 'http://localhost:4599/index.html?mark=one'
 ```
 
 No build step and no dependencies. It does **not** run from `file://`, it needs
-the server. Bump the `?v=` query on the three assets in `index.html` after
-editing or the browser serves stale JS.
+the server. Keep the `?mark=one` query in the URL so a page previously served at
+the same local path cannot be reused from the browser cache. Bump the `?v=` query
+on the three assets in `index.html` after editing or the browser serves stale JS.
 
 It has three modes, switched top-left: **System** (the loop as a definition),
 **Factory** (the live board, workers, and dispatches), and **Products** (shipped
