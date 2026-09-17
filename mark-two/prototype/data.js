@@ -873,7 +873,7 @@ const PRODUCT = {
 /* ── the rails ── */
 const NAV = {
   system: [
-    { id: "loop",       label: "Layout",  icon: "loop" },
+    { id: "loop",       label: "Layout",  icon: "layout" },
     { id: "artifacts",  label: "Stages",       icon: "list",  n: 6 },
     { id: "programs",   label: "Programs",     icon: "book",  n: 6 },
     { id: "subsystems", label: "Subsystems",   icon: "box",   n: 1 },
@@ -882,7 +882,7 @@ const NAV = {
     { id: "history",    label: "Version history", icon: "clock", n: 41 },
   ],
   factory: [
-    { id: "loop", label: "Board", icon: "loop" },
+    { id: "loop", label: "Board", icon: "board" },
   ],
   product: PRODUCT.nav,
 };

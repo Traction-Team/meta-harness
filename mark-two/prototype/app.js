@@ -40,12 +40,14 @@ const ICONS = {
   globe:   I(`<circle cx="8" cy="8" r="6"/><path d="M2.3 8h11.4M8 2c1.7 1.6 2.6 3.6 2.6 6S9.7 12.4 8 14M8 2C6.3 3.6 5.4 5.6 5.4 8s.9 4.4 2.6 6"/>`, 15),
   external:I(`<path d="M9.2 2.8h4v4M13.2 2.8 7.4 8.6"/><path d="M12 8.7v3a1.5 1.5 0 0 1-1.5 1.5H4.3a1.5 1.5 0 0 1-1.5-1.5V5.5A1.5 1.5 0 0 1 4.3 4h3"/>`, 14),
   box:     I(`<path d="M2.3 5.2 8 2.2l5.7 3v6.1L8 14.2l-5.7-2.9z"/><path d="M2.3 5.2 8 8.1l5.7-2.9M8 8.1v6.1M5.1 3.7l5.7 3"/>`, 15),
+  layout:  I(`<rect x="2.2" y="2.2" width="4" height="3.5" rx="1"/><rect x="9.8" y="10.3" width="4" height="3.5" rx="1"/><path d="M6.2 4h2a2 2 0 0 1 2 2v4.3"/>`, 15),
+  board:   I(`<rect x="2.2" y="2.2" width="4.7" height="4.7" rx="1"/><rect x="9.1" y="2.2" width="4.7" height="4.7" rx="1"/><rect x="2.2" y="9.1" width="4.7" height="4.7" rx="1"/><rect x="9.1" y="9.1" width="4.7" height="4.7" rx="1"/>`, 15),
   copy:    I(`<rect x="5.4" y="5.4" width="8" height="8" rx="1.4"/><path d="M10.6 5.4V4A1.4 1.4 0 0 0 9.2 2.6H4A1.4 1.4 0 0 0 2.6 4v5.2A1.4 1.4 0 0 0 4 10.6h1.4"/>`, 14),
 };
 
 const MODES = {
   system:  { label: "System",    icon: ICONS.wrench, defaultView: "loop", section: "Definition" },
-  factory: { label: "Fab", icon: ICONS.list, defaultView: "loop", section: "Production" },
+  factory: { label: "Live", icon: ICONS.list, defaultView: "loop", section: "Production" },
   product: { label: "Artifacts",  icon: ICONS.box, defaultView: "overview", section: "Artifacts" },
 };
 /* Factory defines how the factory works, Production shows work moving through
@@ -202,7 +204,7 @@ function scaleFleet(delta) {
 function factoryNav() {
   const decisions = AGENTS.filter((r) => r.status === "waiting" && r.question).length;
   return [
-    { id: "loop", label: "Board", icon: "loop" },
+    { id: "loop", label: "Map", icon: "board" },
     { id: "decisions", label: "Decisions", icon: "flag", n: decisions, loud: true },
     { section: "Workers" },
   ].concat(agentsNav().filter((n) => n.id !== "needs"), [{ section: "Stages" }],
@@ -724,7 +726,7 @@ function verPill(f, planned, viewing, nd) {
     </div>` : "";
   return `<div class="ver-pill-wrap">
     <button class="ver-pill ${viewing === "planned" ? "planned" : ""} ${state.verMenuOpen ? "open" : ""}" id="verPill">
-      ${ICONS.wrench}<span class="ver-pill-l">Factory</span><b class="ver-pill-v">${esc(cur)}</b>
+      ${ICONS.wrench}<span class="ver-pill-l">Version</span><b class="ver-pill-v">${esc(cur)}</b>
       <span class="ver-tag ${viewing === "planned" ? "plan" : ""}">${tag}</span>
       ${nd ? `<span class="ver-def" title="${nd} defects">${nd}</span>` : ""}
       <span class="ver-chev">${ICONS.chevD}</span>
@@ -1893,7 +1895,7 @@ function decisionFleet() {
   }).join("");
   return `<aside class="dec-fleet">
     <div class="dec-fleet-head">
-      <div><span>Factory agents</span><strong>${size}</strong></div>
+      <div><span>Agents</span><strong>${size}</strong></div>
       <span class="pill running">Live</span>
     </div>
     <div class="dec-fleet-summary">
@@ -1967,7 +1969,7 @@ function fleetControl() {
   const status = draining ? `${draining} draining after current work` : `${busy} busy · ${available} available`;
   return `<div class="fleet-control">
     <div class="fleet-copy">
-      <span class="fleet-k">Factory agents</span>
+      <span class="fleet-k">Agents</span>
       <strong>${size}</strong>
       <span class="fleet-status">${status}</span>
     </div>
