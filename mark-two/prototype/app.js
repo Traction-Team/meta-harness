@@ -124,6 +124,10 @@ const sourceById = (id) => (SOURCES || []).find((s) => s.id === id);
 const skillById = (id) => (SKILLS || []).find((s) => s.id === id);
 const usedBySkill = (id) => PROCS.filter((p) => (p.skills || []).includes(id)).length;
 const endpointName = (id) => stateById(id)?.name || subById(id)?.name || procById(id)?.name || id;
+const procTargetIds = (p) => Array.isArray(p.to) ? p.to : [p.to];
+const procTargetNames = (p) => procTargetIds(p).map(endpointName);
+const procTargetStates = (p) => procTargetIds(p).map(stateById).filter(Boolean);
+const procProducesField = (p, field) => procTargetStates(p).some((s) => s.shape.includes(field));
 const issueById = (id) => ISSUES.find((i) => i.id === id);
 const brokenProcs = () => PROCS.filter((p) => p.broken);
 
@@ -1076,7 +1080,10 @@ function procForcedPos(p) {
 }
 
 function edgeD(e) {
-  const w = e.proc ? procForcedPos(e.proc) : null;
+  /* A single-output program rides one continuous wire. Multi-output programs
+     route to a small virtual node under the card instead, so their shared input
+     is drawn once and the outputs branch cleanly from the card's own sides. */
+  const w = e.proc && !e.procSegment ? procForcedPos(e.proc) : null;
   const { d, mid } = roundedPath(w ? orthoThrough(e, w) : orthoPoints(e), R);
   return { d, mx: w ? w.x : mid.x, my: w ? w.y : mid.y };
 }
@@ -1090,11 +1097,40 @@ function paintLoop() {
   const look = { ...N };
   G.inputs.forEach((inp) => (look[inp.id] = inp));
 
+  /* A branching program is a real junction, not two complete wires laid on top
+     of each other. The virtual rect sits under its visible card and gives the
+     router one inbound endpoint plus one outbound endpoint per target. */
+  const procAnchors = {};
+  m.procs.forEach((p) => {
+    if (procTargetIds(p).length < 2) return;
+    const forced = procForcedPos(p);
+    const src = look[p.from];
+    const targets = procTargetIds(p).map((id) => look[id]).filter(Boolean);
+    const fallback = {
+      x: ((src?.x || 0) + targets.reduce((sum, n) => sum + n.x, 0)) / (targets.length + 1),
+      y: ((src?.y || 0) + targets.reduce((sum, n) => sum + n.y, 0)) / (targets.length + 1),
+    };
+    const centre = forced || fallback;
+    const id = `program:${p.id}`;
+    procAnchors[p.id] = { x: centre.x, y: centre.y, id };
+    look[id] = { x: centre.x - 112, y: centre.y - 25, w: 224, h: 50 };
+  });
+
   /* every wire the canvas draws, as one list so wires sharing a side fan out
      together: the programs, the plain connections into/out of subsystems, the
      input feeders, and the back edges */
   const edges = [];
-  m.procs.forEach((p) => edges.push({ from: p.from, to: p.to, proc: p, fromSide: p.fromSide, toSide: p.toSide }));
+  m.procs.forEach((p) => {
+    const targets = procTargetIds(p);
+    const anchor = procAnchors[p.id];
+    if (!anchor) {
+      edges.push({ from: p.from, to: targets[0], proc: p, fromSide: p.fromSide, toSide: p.toSide });
+      return;
+    }
+    edges.push({ from: p.from, to: anchor.id, proc: p, procSegment: "in" });
+    targets.forEach((to, targetIndex) =>
+      edges.push({ from: anchor.id, to, proc: p, procSegment: "out", targetIndex }));
+  });
   m.connections.forEach((c) => edges.push({ from: c.from, to: c.to, conn: true, label: c.label }));
   [...G.inputs].reverse().forEach((inp) => edges.push({ from: inp.id, to: inp.to, cls: "in", fromSide: "right", toSide: "top" }));
   (m.backs || []).forEach((b) => edges.push({ from: b.from, to: b.to, back: true, label: b.label, fromSide: "bottom", toSide: "bottom" }));
@@ -1113,7 +1149,8 @@ function paintLoop() {
         : procRuns.length ? " agent-wire active" : "";
       const cls = (p.broken ? "wire err" : "wire") + runCls;
       const mk = p.broken ? "arrowE" : "arrow";
-      paths += `<path class="${cls}" id="w-${p.id}" d="${g.d}" marker-end="url(#${mk})"/>`;
+      const marker = e.procSegment === "in" ? "" : ` marker-end="url(#${mk})"`;
+      paths += `<path class="${cls}" data-wire-proc="${p.id}" d="${g.d}"${marker}/>`;
     } else if (e.conn) {
       paths += `<path class="wire conn" d="${g.d}" marker-end="url(#arrow)"/>`;
     } else if (e.back) {
@@ -1184,9 +1221,11 @@ function paintLoop() {
   const planPreview = state.mode === "system" && sysViewing() === "planned";
   const reworked = planPreview ? changedEdges() : new Set();
   let procs = "";
+  const renderedProcs = new Set();
   edges.forEach((e) => {
-    if (!e.proc || !e._g) return;
-    const p = e.proc, g = e._g;
+    if (!e.proc || !e._g || renderedProcs.has(e.proc.id)) return;
+    const p = e.proc, anchor = procAnchors[e.proc.id], g = anchor ? { mx: anchor.x, my: anchor.y } : e._g;
+    renderedProcs.add(p.id);
     const chg = reworked.has(p.id) ? " changed" : "";
     const sel = state.sel && state.sel.t === "proc" && state.sel.id === p.id ? " sel" : "";
     const inflight = stateById(p.from) ? stateById(p.from).count : 0;
@@ -1202,8 +1241,10 @@ function paintLoop() {
     /* a program transforms one fixed station into another, so it draws as an
        arrow-shaped rectangle that points the way work flows — right if the
        downstream group sits further right, left otherwise. */
-    const fromN = look[p.from], toN = look[p.to];
-    const dir = (fromN && toN && (toN.x + (toN.w || 0) / 2) < (fromN.x + (fromN.w || 0) / 2)) ? "left" : "right";
+    const fromN = look[p.from];
+    const targetNodes = procTargetIds(p).map((id) => look[id]).filter(Boolean);
+    const targetX = targetNodes.reduce((sum, n) => sum + n.x + (n.w || 0) / 2, 0) / (targetNodes.length || 1);
+    const dir = (fromN && targetNodes.length && targetX < (fromN.x + (fromN.w || 0) / 2)) ? "left" : "right";
     procs += `<div class="pr dir-${dir}${factoryCanvas() ? " factory-proc" : ""}${isSys ? " sys-proc" : ""}${attention}${sel}${chg}${p.broken ? " err" : ""}" data-proc="${p.id}" style="left:${g.mx}px;top:${g.my}px;transform:translate(-50%,-50%)">
       <svg class="pr-shape" aria-hidden="true"><path vector-effect="non-scaling-stroke"></path></svg>
       <span class="pr-k ${face.tint}">${face.icon}</span>
@@ -1484,8 +1525,9 @@ function focusSelected(anim) {
 
 function runProc(id) {
   const p = procById(id);
-  const w = $(`#w-${id}`);
-  if (w) { w.classList.add("lit"); setTimeout(() => w.classList.remove("lit"), 1500); }
+  const wires = document.querySelectorAll(`[data-wire-proc="${id}"]`);
+  wires.forEach((w) => w.classList.add("lit"));
+  setTimeout(() => wires.forEach((w) => w.classList.remove("lit")), 1500);
   const src = stateById(p.from);
   toast(`Running ${p.name} over ${src ? src.count : 0} items in ${src ? src.name : "?"}`);
 }
@@ -1499,8 +1541,8 @@ const navLabel = (mode, view) => ((NAV[mode] || []).find((n) => n.id === view) |
 const VIEWS = {
   artifacts: () => ({ title: "Stages", sub: "where artifacts collect — each a source plus a filter, not one document",
     rows: STATES.map((s) => { const src = sourceById(s.source); return { t: s.name, s: `${src ? src.name : s.source} · ${s.filter}`, r: `${s.shape.length} fields`, pill: src ? src.id : "group", bad: false, sel: { t: "node", id: s.id } }; }) }),
-  programs: () => ({ title: "Programs", sub: "prose job definitions that transform the artifacts of one stage into another — canvas programs, plus the intake programs that pour work in",
-    rows: PROCS.map((p) => ({ t: p.name, s: `${endpointName(p.from)} → ${endpointName(p.to)} · ${p.trigger}`, r: "", pill: "program", bad: false, sel: { t: "proc", id: p.id } }))
+  programs: () => ({ title: "Programs", sub: "prose job definitions that transform artifacts from one stage into one or more stages — canvas programs, plus the intake programs that pour work in",
+    rows: PROCS.map((p) => ({ t: p.name, s: `${endpointName(p.from)} → ${procTargetNames(p).join(" + ")} · ${p.trigger}`, r: "", pill: "program", bad: false, sel: { t: "proc", id: p.id } }))
       .concat((typeof INPUTS !== "undefined" ? INPUTS : []).map((inp) => ({ t: inp.name, s: `open input → ${endpointName(inp.to)} · ${inp.sub}`, r: "", pill: "intake", bad: false, sel: { t: "input", id: inp.id } }))) }),
   subsystems: () => ({ title: "Subsystems", sub: "part of the factory behind one boundary — declared inputs and outputs, children hidden until you open it",
     rows: (SUBSYSTEMS || []).map((s) => ({ t: s.name, s: `${(s.inputs || []).map((id) => endpointName(id)).join(", ")} → ${(s.outputs || []).map((id) => endpointName(id)).join(", ")}`, r: `${(s.contains.groups.length + s.contains.programs.length)} inside`, pill: "subsystem", bad: false, sel: { t: "sub", id: s.id } })) }),
@@ -2039,7 +2081,7 @@ function paintConsole(r) {
   const proc = runProcOf(r), st = STATUS[r.status], q = r.question;
   const kIcon = proc ? procFace(proc).icon : ICONS.book;
   const files = filesTouched(r);
-  const from = proc ? stateById(proc.from) : null, to = proc ? stateById(proc.to) : null;
+  const from = proc ? stateById(proc.from) : null;
 
   const composer = q
     ? `<div class="cns-ask">
@@ -2092,8 +2134,8 @@ function paintConsole(r) {
           <div class="rail-c">
             <div class="rail-k">accepts from ${esc(from ? from.name : proc.from)}</div>
             <div class="fields">${proc.accepts.map((f) => `<span class="f ${from && from.shape.includes(f) ? "ok" : "no"}">${esc(f)}</span>`).join("")}</div>
-            <div class="rail-k">produces into ${esc(to ? to.name : endpointName(proc.to))}</div>
-            <div class="fields">${proc.produces.map((f) => `<span class="f ${to && to.shape.includes(f) ? "ok" : "no"}">${esc(f)}</span>`).join("")}</div>
+            <div class="rail-k">produces into ${esc(procTargetNames(proc).join(" + "))}</div>
+            <div class="fields">${proc.produces.map((f) => `<span class="f ${procProducesField(proc, f) ? "ok" : "no"}">${esc(f)}</span>`).join("")}</div>
           </div>` : ""}
 
           <div class="rail-h mt">${ICONS.doc}Files touched<span class="rail-n">${files.length}</span></div>
@@ -2322,7 +2364,7 @@ function spark(vals) {
 }
 
 function nodePanel(s) {
-  const into = PROCS.filter((p) => p.to === s.id), out = PROCS.filter((p) => p.from === s.id);
+  const into = PROCS.filter((p) => procTargetIds(p).includes(s.id)), out = PROCS.filter((p) => p.from === s.id);
   const src = sourceById(s.source);
   const d = s.dwell;
   const isSys = state.mode === "system";
@@ -2366,7 +2408,7 @@ function nodePanel(s) {
 }
 
 function procPanel(p) {
-  const src = stateById(p.from), dst = stateById(p.to);
+  const src = stateById(p.from), targets = procTargetStates(p);
   const isSys = state.mode === "system";
   const rate = Math.round(p.fail * 100);
   const issues = (p.issues || []).map(issueById).filter(Boolean);
@@ -2380,7 +2422,7 @@ function procPanel(p) {
      shows only in Factory. */
   const definition = `
     <div class="c-n">${esc(p.name)}</div>
-    <div class="c-r">${esc(src ? src.name : endpointName(p.from))} → ${esc(dst ? dst.name : endpointName(p.to))}</div>
+    <div class="c-r">${esc(src ? src.name : endpointName(p.from))} → ${esc(procTargetNames(p).join(" + "))}</div>
     ${kv([["Trigger", esc(p.trigger)],
           ...(def ? [["Instance of", `${esc(def.name)} <span style="color:var(--text-3)">· account program</span>`]] : []),
           ["Instructions", `<a class="lnk" onclick="openEditor('${p.id}')">${esc(file)}</a>
@@ -2391,7 +2433,7 @@ function procPanel(p) {
         ${p.accepts.map((f) => `<span class="f ${src && src.shape.includes(f) ? "ok" : "no"}">${esc(f)}</span>`).join("")}
       </span></span></div>
       <div class="kv-r"><span class="kv-k">Produces</span><span class="kv-v"><span class="fields">
-        ${p.produces.map((f) => `<span class="f ${dst && dst.shape.includes(f) ? "ok" : "no"}">${esc(f)}</span>`).join("")}
+        ${p.produces.map((f) => `<span class="f ${procProducesField(p, f) ? "ok" : "no"}">${esc(f)}</span>`).join("")}
       </span></span></div>
       ${p.broken ? `<div class="kv-r"><span class="kv-k"></span><span class="kv-v" style="color:var(--red);font-size:11.5px">
         Broken wire: ${esc(p.broken)}. Caught before dispatch, not after a bad run.</span></div>` : ""}
@@ -2897,7 +2939,7 @@ function md(src, from) {
 function docSupportCard(path) {
   const p = procOfDoc(path), root = p && promptFile(p) === path;
   const kids = childPages(path);
-  const from = p ? stateById(p.from) : null, to = p ? stateById(p.to) : null;
+  const from = p ? stateById(p.from) : null;
 
   return card("Pages & contract", "", `
     <div class="rail-h">${ICONS.doc}Pages<span class="rail-n">${kids.length}</span></div>
@@ -2915,8 +2957,8 @@ function docSupportCard(path) {
       <div class="rail-c">
         <div class="rail-k">accepts from ${esc(from ? from.name : p.from)}</div>
         <div class="fields">${p.accepts.map((f) => `<span class="f ${from && from.shape.includes(f) ? "ok" : "no"}">${esc(f)}</span>`).join("")}</div>
-        <div class="rail-k">produces into ${esc(to ? to.name : endpointName(p.to))}</div>
-        <div class="fields">${p.produces.map((f) => `<span class="f ${to && to.shape.includes(f) ? "ok" : "no"}">${esc(f)}</span>`).join("")}</div>
+        <div class="rail-k">produces into ${esc(procTargetNames(p).join(" + "))}</div>
+        <div class="fields">${p.produces.map((f) => `<span class="f ${procProducesField(p, f) ? "ok" : "no"}">${esc(f)}</span>`).join("")}</div>
         ${p.broken ? `<div class="rail-bad">Broken wire: ${esc(p.broken)}</div>` : ""}
       </div>` : `<div class="rail-h mt">${ICONS.gate}Contract</div>
         <div class="rail-empty">The contract is defined on the parent program.</div>`}`);
@@ -2947,7 +2989,6 @@ function paintEditor() {
   const face = docFace(path), root = face.root;
   const p = face.item ? null : procOfDoc(path);
   const src = docBody(path), dirty = isDirty(path);
-  const from = p ? stateById(p.from) : null, to = p ? stateById(p.to) : null;
   const rate = p ? Math.round(p.fail * 100) : 0;
 
   /* The document becomes the canvas; inspectors continue to float above it. */

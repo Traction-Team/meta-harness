@@ -86,7 +86,7 @@ const REPO = { name: "email-agent", branch: "main", sysVersion: "v41" };
 const SOURCES = [
   { id: "repo-files",    name: "Repository files",     icon: "doc",    sub: "paths in the repo matching a glob" },
   { id: "git-branches",  name: "Git branches",         icon: "branch", sub: "refs matching a pattern" },
-  { id: "github-prs",    name: "GitHub pull requests", icon: "pr",     sub: "open PRs, optionally by label" },
+  { id: "github-prs",    name: "GitHub pull requests", icon: "pr",     sub: "PRs selected by state, branch, or label" },
   { id: "plan-docs",     name: "Plan documents",       icon: "list",   sub: "plans selected by status" },
   { id: "feedback-docs", name: "Feedback documents",   icon: "flag",   sub: "reports awaiting triage" },
 ];
@@ -130,8 +130,8 @@ const STATES = [
       trend: [3.1, 3.6, 4.4, 3.9, 5.2, 4.6, 4.0, 4.2], unit: "h",
       note: "the wait is the human gate, not the checks" } },
 
-  { id: "merged", name: "Merged work",    source: "repo-files",    filter: "slices/*.md · status=merged",  icon: "check",  count: 273,
-    shape: ["slice", "sha", "shipped_at"],
+  { id: "merged", name: "Closed PR",      source: "github-prs",    filter: "gh · pr is:closed is:merged",  icon: "pr",     count: 273,
+    shape: ["slice", "pr", "sha", "merged_at"],
     dwell: { median: "40s", p90: "2m 10s", oldest: "12m", inW: 17, outW: 17,
       trend: [.7, .6, .7, .6, .7, .6, .7, .7], unit: "m", note: "" } },
 
@@ -150,7 +150,7 @@ const STATES = [
 const PROCS = [
   {
     id: "plan", def: "plan-feature", from: "spec", to: "plans", name: "plan feature",
-    pos: [557, 545],
+    pos: [584, 630],
     skills: ["read-spec", "frontier"],
     trigger: "manual", runner: "opus", runs: 64, fail: .09, median: "4m 20s",
     accepts: ["problem", "constraints[]", "decisions[]"], produces: ["id", "needs[]", "owns[]", "spec", "proves"],
@@ -262,60 +262,33 @@ Nothing else is in scope.
    the rule exists next time.`
   },
   {
-    id: "log", def: "capture-notes", from: "merged", to: "spec", name: "capture landing notes",
+    id: "log", def: "capture-notes", from: "merged", to: ["spec", "plans"], name: "capture landing notes",
     fromSide: "bottom", toSide: "bottom",
-    skills: ["github"],
-    trigger: "after every merge", runner: "haiku", runs: 308, fail: .04, median: "40s",
-    accepts: ["slice", "sha"], produces: ["constraints[]", "decisions[]"],
+    pos: [314, 749],
+    skills: ["frontier", "github"],
+    trigger: "after every PR closes", runner: "haiku", runs: 308, fail: .04, median: "1m 30s",
+    accepts: ["slice", "pr", "sha"], produces: ["constraints[]", "decisions[]", "id", "needs[]", "owns[]", "spec", "proves"],
     issues: [],
     instructions: `## Context
 
-The landing orchestrator runs after every merge. Read the worker and reviewer
-notes left on the merged PR and fold the ones that change how the product should
-work back into the **product spec** — deliberate trade-offs, constraints
-discovered while building, and questions the slice answered.
+The landing orchestrator runs after every PR closes. Read the worker and reviewer
+notes left on the PR. Fold product decisions back into the **product spec**, and
+cut unresolved implementation findings into **build plans**.
 
 ## Tasks
 
 - [ ] Read the merged PR thread and worker handoff for the slice → notes
-- [ ] Keep only notes that change how the product should work → notes
-- [ ] Name the spec section each note touches → area
-- [ ] Turn each into a spec constraint or a numbered decision → constraints[], decisions[]
-- [ ] Cite the sha that settled it so the decision is traceable → decisions[]
+- [ ] Separate product decisions from unresolved implementation findings → notes, findings
+- [ ] Turn product decisions into spec constraints or numbered decisions → constraints[], decisions[]
+- [ ] Cut each implementation finding into one provable build plan → slices/*.md
+- [ ] Order new plans against the merged frontier and claim their paths → needs[], owns[]
+- [ ] Cite the PR and sha that surfaced each output → decisions[], spec
 
 ## Rules
 
-1. A trade-off the worker made deliberately becomes a decision, in their words.
-2. Do not re-open a decision the spec already states. Add, do not churn.
-3. A harness failure is not a product decision — that is a system defect.`
-  },
-  {
-    id: "followups", def: "plan-followups", from: "merged", to: "plans", name: "plan follow-ups",
-    fromSide: "bottom", toSide: "bottom",
-    pos: [555, 635],
-    skills: ["frontier", "github"],
-    trigger: "after every merge", runner: "sonnet", runs: 308, fail: .06, median: "1m 30s",
-    accepts: ["slice", "sha"], produces: ["id", "needs[]", "owns[]", "spec", "proves"],
-    issues: [],
-    instructions: `## Context
-
-The landing orchestrator runs after every merge. Read what the slice left behind
-and cut any **follow-up work** it surfaced into new build plans — deferred tasks,
-unresolved findings, and limitations the worker flagged but did not own.
-
-## Tasks
-
-- [ ] Read the merged PR thread and worker handoff for the slice → findings
-- [ ] Keep only findings that need code, not a spec decision → findings
-- [ ] Cut each into a slice with one provable behaviour → slices/*.md
-- [ ] Order it against the merged frontier → needs[]
-- [ ] Claim the file globs it will touch → owns[]
-
-## Rules
-
-1. Only cut work the merged slice actually surfaced. Do not widen scope.
-2. A finding that changes the product is a spec decision, not a slice.
-3. Resolved review comments are done — do not turn them into follow-ups.`
+1. A deliberate product trade-off becomes a decision, in the worker's words.
+2. Only cut follow-up work that the closed PR actually surfaced. Do not widen scope.
+3. Resolved review comments are done. A harness failure is a system defect.`
   },
   {
     id: "triage", def: "triage-feedback", from: "feed", to: "spec", name: "triage feedback",
@@ -356,7 +329,7 @@ const BACKS = [
 const SUBSYSTEMS = [
   { id: "delivery", name: "Delivery", icon: "box", canvas: "delivery",
     inputs: ["plans"], outputs: ["merged"],
-    sub: "build plans → worker branches → PRs → merged work",
+    sub: "build plans → worker branches → PRs → closed PRs",
     contains: { groups: ["branch", "pr"], programs: ["dispatch", "build", "review"] } },
 ];
 
@@ -370,12 +343,12 @@ const CANVASES = {
     id: "root", name: "email-agent",
     nodes: [
       { id: "feed",     grid: [0, 0], pos: [216, 252] },
-      { id: "spec",     grid: [0, 1], pos: [216, 516] },
-      { id: "plans",    grid: [1, 1], pos: [778, 523] },
-      { id: "delivery", grid: [2, 1], subsystem: true, pos: [778, 984] },
-      { id: "merged",   grid: [3, 1], pos: [250, 1001] },
+      { id: "spec",     grid: [0, 1], pos: [220, 564] },
+      { id: "plans",    grid: [1, 1], pos: [777, 649] },
+      { id: "delivery", grid: [2, 1], subsystem: true, pos: [773, 912] },
+      { id: "merged",   grid: [3, 1], pos: [215, 935] },
     ],
-    programs: ["triage", "plan", "log", "followups"],
+    programs: ["triage", "plan", "log"],
     connections: [
       { from: "plans", to: "delivery", label: "in" },
       { from: "delivery", to: "merged", label: "out" },
@@ -707,7 +680,7 @@ a pre-flight check, not a feedback loop. This page is loaded through the
   "system/programs/build/code-review.md": {
     title: "code review",
     body: `Part of [build + self-review](../build.md), task 4. The same page
-[review + merge](../review.md) uses on the edge into Merged work, so the agent
+[review + merge](../review.md) uses on the edge into Closed PR, so the agent
 reviewing itself and the person at the human task are reading one file. Loaded
 through the **Code review** skill.
 
@@ -902,9 +875,8 @@ const PROGRAM_DEFS = [
   { id: "plan-feature",      name: "Plan feature",        sub: "product brief → build plans" },
   { id: "dispatch-slice",    name: "Dispatch slice",      sub: "build plan → worker branch" },
   { id: "build-self-review", name: "Build + self-review", sub: "build plan → worker branch" },
-  { id: "review-merge",      name: "Review + merge",     sub: "completed work → merged work" },
-  { id: "capture-notes",     name: "Capture landing notes", sub: "merged work → product spec" },
-  { id: "plan-followups",    name: "Plan follow-ups",     sub: "merged work → build plans" },
+  { id: "review-merge",      name: "Review + merge",     sub: "worker PR → closed PR" },
+  { id: "capture-notes",     name: "Capture landing notes", sub: "closed PR → product spec + build plans" },
   { id: "triage-feedback",   name: "Triage feedback",    sub: "feedback → product spec" },
 ];
 
