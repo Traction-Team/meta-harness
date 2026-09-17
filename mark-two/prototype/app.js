@@ -605,6 +605,20 @@ const SHELF_CLASSES = [
     items: () => (SUBSYSTEMS || []).map((s) => ({ t: s.name, s: s.sub || "subsystem" })) },
 ];
 
+/* each class drawn in its own canvas shape as one consistent outlined glyph:
+   stage=square, program=arrow card, skill=circle, subsystem=dashed boundary.
+   All share a stroke + faint tint so no single shape shouts louder than the rest. */
+const SHELF_SHAPE_PATHS = {
+  sq:  `<rect x="2.7" y="2.7" width="12.6" height="12.6" rx="3.4"/>`,
+  arw: `<path d="M2.7 2.7h7.9l3.9 6.3-3.9 6.3H2.7L4.9 9z"/>`,
+  cir: `<circle cx="9" cy="9" r="6.3"/>`,
+  frm: `<rect x="2.7" y="2.7" width="12.6" height="12.6" rx="3.4" stroke-dasharray="3 2.4"/>`,
+};
+function shelfShape(shape, sm) {
+  return `<span class="sb-shape ${shape}${sm ? " sm" : ""}">
+    <svg viewBox="0 0 18 18" aria-hidden="true">${SHELF_SHAPE_PATHS[shape] || SHELF_SHAPE_PATHS.sq}</svg></span>`;
+}
+
 /* jump to a class's full inventory (a list view in the left rail) */
 function shelfGoto(view) { state.mode = "system"; state.view = view; state.sel = null; state.docStack = []; paint(); }
 
@@ -625,10 +639,10 @@ function paintShelf() {
         <b>${esc(it.t)}</b>${it.s ? `<small>${esc(it.s)}</small>` : ""}
       </button>`).join("") || `<div class="sb-empty">none defined yet</div>`;
     return `<div class="shelf-block" tabindex="0" data-class="${c.id}">
-      <span class="sb-shape ${c.shape}"></span>
+      ${shelfShape(c.shape)}
       <span class="sb-cap">${esc(c.label)}<b>${items.length}</b></span>
       <div class="sb-pop">
-        <div class="sb-pop-h"><span class="sb-shape ${c.shape} sm"></span>${esc(c.label)} · ${items.length} in this workspace</div>
+        <div class="sb-pop-h">${shelfShape(c.shape, true)}${esc(c.label)} · ${items.length} in this workspace</div>
         <div class="sb-pop-list">${list}</div>
         <button class="sb-pop-all" data-view="${c.view}">View all ${esc(c.label.toLowerCase())}</button>
       </div>
