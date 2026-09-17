@@ -75,7 +75,7 @@ svg { display: block; }
 .ico.on { color: var(--accent); }
 .side-chrome .ico { margin-left: auto; }
 
-/* ── the System | Factory | Outputs switcher ──
+/* ── the Factory | Production | Artifacts switcher ──
    The one control that reframes the whole window. Full rail width, directly
    under the workspace, because it is not a filter, it is a mode. */
 .mode-wrap { padding: 0 10px 12px; flex: none; }
@@ -278,11 +278,17 @@ svg { display: block; }
 .nd-nm { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nd-more { padding: 5px 11px 9px; font-size: 11px; color: var(--text-3); }
 
-/* ── a process: the box that sits on the line ── */
-.pr { position: absolute; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 9px 0 8px; border-radius: 9px; background: var(--card); border: .5px solid var(--line); box-shadow: 0 0 0 3px var(--win), var(--card-shadow); cursor: pointer; white-space: nowrap; }
-.pr:hover { border-color: rgba(128,128,138,.45); }
-.pr.sel { border-color: var(--accent); box-shadow: 0 0 0 3px var(--win), 0 0 0 6px var(--accent-dim), var(--card-shadow); }
-.pr.err { border-color: var(--red); }
+/* ── a program: an arrow-shaped card that sits on the line ── */
+.pr { position: absolute; isolation: isolate; display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 12px 24px; cursor: pointer; white-space: nowrap;
+  --pr-line: var(--line); }
+.pr-shape { position: absolute; z-index: -1; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,.10)) drop-shadow(0 5px 10px rgba(0,0,0,.10)); }
+.pr-shape path { fill: var(--card); stroke: var(--pr-line); stroke-width: .75; }
+.pr:hover { --pr-line: rgba(128,128,138,.26); }
+.pr.sel { --pr-line: var(--accent); }
+.pr.sel .pr-shape { filter: drop-shadow(0 0 3px var(--accent-dim)) drop-shadow(0 1px 2px rgba(0,0,0,.10)) drop-shadow(0 5px 10px rgba(0,0,0,.10)); }
+.pr.sel .pr-shape path { stroke-width: 1.25; }
+.pr.err { --pr-line: var(--red); }
 .pr-k { width: 15px; height: 15px; border-radius: 4px; display: grid; place-items: center; flex: none; background: var(--green-dim); color: var(--green); }
 .pr-k.rb { background: rgba(140,90,220,.14); color: #7b52c9; }
 .pr-k.gt { background: var(--amber-dim); color: var(--amber); }
@@ -446,6 +452,15 @@ svg { display: block; }
 
 .product-lv { display: flex; flex-direction: column; }
 .product-lv .lv-head { flex: none; }
+/* the Artifacts browser filter chips: Final (default), All, then one per stage */
+.af-chips { flex: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 14px 22px 4px; }
+.af-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 550; color: var(--text-2); cursor: pointer;
+  background: var(--card); border: .5px solid var(--line); }
+.af-chip:hover { background: var(--raise); }
+.af-chip span { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text-3); }
+.af-chip.on { color: #fff; background: var(--accent); border-color: transparent; }
+.af-chip.on span { color: color-mix(in srgb, #fff 78%, transparent); }
 .release-board { --gap: 12px; flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(var(--columns), minmax(280px, 1fr));
   gap: var(--gap); padding: 0 22px 22px; overflow-x: auto; }
 .release-column { min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 12px; border-radius: 14px;
@@ -677,8 +692,9 @@ svg { display: block; }
 .wire.agent-wire.attention { stroke: var(--amber); stroke-width: 2.3; }
 .wire.agent-wire.failing { stroke: var(--red); stroke-width: 2.3; stroke-dasharray: 6 4; }
 
-.pr.factory-proc.attention { border-color: color-mix(in srgb, var(--amber) 55%, transparent); box-shadow: 0 0 0 3px var(--win), 0 0 0 6px var(--amber-dim), var(--card-shadow); }
-.pr.factory-proc.failing { border-color: color-mix(in srgb, var(--red) 50%, transparent); }
+.pr.factory-proc.attention { --pr-line: color-mix(in srgb, var(--amber) 55%, transparent); }
+.pr.factory-proc.attention .pr-shape { filter: drop-shadow(0 0 3px var(--amber-dim)) drop-shadow(0 1px 2px rgba(0,0,0,.10)) drop-shadow(0 5px 10px rgba(0,0,0,.10)); }
+.pr.factory-proc.failing { --pr-line: color-mix(in srgb, var(--red) 50%, transparent); }
 .stage-avatars { position: absolute; left: 50%; top: calc(100% + 8px); transform: translateX(-50%);
   display: flex; align-items: center; padding: 3px 5px; border-radius: 12px; background: color-mix(in srgb, var(--card) 88%, transparent);
   border: .5px solid var(--line); box-shadow: var(--card-shadow); cursor: default; }
@@ -996,7 +1012,8 @@ kbd { min-width: 16px; height: 16px; display: inline-grid; place-items: center; 
 
 /* ── the process box an in-flight version reworks, shown when the canvas is
       previewing that planned version ── */
-.pr.changed { border-color: var(--accent); box-shadow: 0 0 0 3px var(--win), 0 0 0 6px var(--accent-dim), var(--card-shadow); }
+.pr.changed { --pr-line: var(--accent); }
+.pr.changed .pr-shape { filter: drop-shadow(0 0 3px var(--accent-dim)) drop-shadow(0 1px 2px rgba(0,0,0,.10)) drop-shadow(0 5px 10px rgba(0,0,0,.10)); }
 .pr-chg { font-size: 11px; font-weight: 800; color: var(--accent); margin: 0 -1px; }
 
 /* ── the strip's defect badge (was the "broken wire" chip) ── */
@@ -1046,7 +1063,7 @@ kbd { min-width: 16px; height: 16px; display: inline-grid; place-items: center; 
    Artifact groups, program contract chips, subsystem frames, connections,
    and the shelf. */
 
-/* System-mode artifact group: name, filter, source — no count */
+/* System-mode stage: name, filter, source — no count */
 .nd.group .nd-h { padding: 9px 11px 2px; }
 .nd-src { display: flex; align-items: center; gap: 6px; padding: 2px 11px 10px;
   color: var(--text-3); font-size: 11px; font-weight: 500; }
@@ -1070,15 +1087,13 @@ kbd { min-width: 16px; height: 16px; display: inline-grid; place-items: center; 
 .frame-arrow { color: var(--text-3); flex: none; }
 .frame-sub { padding: 3px 11px 11px; color: var(--text-3); font-size: 11px; line-height: 1.35; }
 
-/* program box in System mode: runner + skill chips */
-.pr.sys-proc { height: auto; min-height: 30px; padding: 4px 9px 4px 8px; align-items: flex-start; }
+/* program box in System mode: runner + skill count */
+.pr.sys-proc { min-height: 36px; padding: 12px 24px; align-items: flex-start; }
 .pr.sys-proc .pr-k { margin-top: 1px; }
 .pr-run-by { font-size: 9.5px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase;
   padding: 1.5px 6px; border-radius: 5px; flex: none; color: #7b52c9; background: rgba(140,90,220,.14); }
 .pr-run-by.person { color: var(--amber); background: var(--amber-dim); }
-.pr-skills { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; max-width: 210px; }
-.pr-skill { font-size: 9.5px; font-weight: 500; color: var(--text-3); background: var(--raise);
-  border-radius: 5px; padding: 1px 5px; }
+.pr-skilln { display: block; margin-top: 2px; font-size: 10px; font-weight: 500; color: var(--text-3); }
 
 /* a plain connection into/out of a subsystem boundary */
 .wire.conn { stroke: var(--wire); stroke-width: 1.6; stroke-dasharray: 2 4; opacity: .85; }
@@ -1087,32 +1102,55 @@ kbd { min-width: 16px; height: 16px; display: inline-grid; place-items: center; 
 .crumb-canvas { color: var(--accent); cursor: pointer; }
 .crumb-canvas:hover { text-decoration: underline; }
 
-/* the shelf: a floating palette pinned to the right of the canvas */
+/* ── the shelf: the workspace's global inventory ──
+   a row of shape-blocks floating at the top of the design canvas, one per class
+   the factory is built from, each drawn in that class's own shape. Hover / focus
+   a block to peek the full list of what's defined. */
 .shelf-layer { position: absolute; inset: 0; z-index: 46; pointer-events: none; }
 .shelf-layer > * { pointer-events: auto; }
-.shelf { position: absolute; top: 16px; right: 16px; bottom: 16px; width: 300px;
-  display: flex; flex-direction: column; gap: 10px; padding: 12px;
-  background: var(--card); border: .5px solid var(--line); border-radius: 14px; box-shadow: var(--card-shadow); }
-.shelf-h { display: flex; align-items: center; }
-.shelf-t { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 650; }
-.shelf-t svg { color: var(--accent); }
-.shelf-h .ico { margin-left: auto; }
-.shelf-seg { width: 100%; }
-.shelf-seg button { flex: 1; justify-content: center; }
-.shelf-note { font-size: 11px; color: var(--text-3); line-height: 1.4; }
-.shelf-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin: 0 -4px; padding: 0 4px; }
-.shelf-row { display: flex; align-items: center; gap: 9px; padding: 8px 9px; border-radius: 10px;
-  background: var(--win); border: .5px solid var(--line); }
-.shelf-row.skill { opacity: .92; }
-.shelf-i { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; flex: none;
-  background: var(--raise); color: var(--text-2); }
-.shelf-i.rb { background: rgba(140,90,220,.14); color: #7b52c9; }
-.shelf-i.gt { background: var(--amber-dim); color: var(--amber); }
-.shelf-i.sk { background: var(--green-dim); color: var(--green); }
-.shelf-copy { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.shelf-copy b { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.shelf-copy small { font-size: 11px; color: var(--text-3); line-height: 1.3; }
-.shelf-add { margin-left: auto; width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center;
-  color: var(--text-3); background: var(--raise); flex: none; }
-.shelf-add:hover { color: var(--accent); background: var(--accent-dim); }
-.shelf-use { margin-left: auto; font-size: 10.5px; color: var(--text-3); flex: none; white-space: nowrap; }
+.shelf-bar { position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 7px; padding: 6px; border-radius: 14px;
+  background: color-mix(in srgb, var(--card) 88%, transparent); backdrop-filter: blur(7px);
+  border: .5px solid var(--line); box-shadow: var(--card-shadow); }
+
+.shelf-block { position: relative; display: flex; align-items: center; gap: 8px;
+  padding: 7px 11px 7px 9px; border-radius: 10px; cursor: default; outline: none; }
+.shelf-block:hover, .shelf-block:focus-within { background: var(--raise); }
+.sb-cap { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 560; letter-spacing: -.006em; }
+.sb-cap b { font-size: 10.5px; font-weight: 650; color: var(--text-3);
+  background: var(--win); border: .5px solid var(--line); border-radius: 20px; min-width: 16px; height: 16px;
+  padding: 0 5px; display: grid; place-items: center; }
+
+/* the shapes — a stage is a square, a program is an arrow, a skill is a
+   circle, mirroring how they draw on the canvas */
+.sb-shape { width: 20px; height: 20px; flex: none; display: block;
+  background: var(--card); border: 1px solid var(--line); }
+.sb-shape.sm { width: 13px; height: 13px; }
+.sb-shape.sq  { border-radius: 4px; }
+.sb-shape.cir { border-radius: 50%; background: var(--green-dim); border-color: color-mix(in srgb, var(--green) 45%, var(--line)); }
+.sb-shape.frm { border-radius: 4px; border-style: dashed; background: transparent; }
+.sb-shape.arw { border: none; background: #7b52c9;
+  clip-path: polygon(0 0, 72% 0, 100% 50%, 72% 100%, 0 100%, 28% 50%); }
+
+/* the peek popup — the inventory list for one class */
+.sb-pop { position: absolute; top: 100%; left: 50%; transform: translateX(-50%) translateY(4px);
+  width: 244px; padding-top: 8px; opacity: 0; visibility: hidden; transition: opacity .12s ease, transform .12s ease; }
+.shelf-block:hover .sb-pop, .shelf-block:focus-within .sb-pop {
+  opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
+.sb-pop > .sb-pop-list, .sb-pop { pointer-events: auto; }
+.sb-pop-h { display: flex; align-items: center; gap: 7px; padding: 9px 11px; font-size: 11px; font-weight: 600;
+  color: var(--text-3); border-bottom: .5px solid var(--line);
+  background: var(--card); border: .5px solid var(--line); border-bottom: none; border-radius: 12px 12px 0 0; }
+.sb-pop-list { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column;
+  background: var(--card); border: .5px solid var(--line); border-top: none; }
+.sb-item { display: flex; flex-direction: column; gap: 1px; align-items: flex-start; text-align: left;
+  padding: 8px 11px; border-top: .5px solid var(--line); cursor: pointer; }
+.sb-item:first-child { border-top: none; }
+.sb-item:hover { background: var(--raise); }
+.sb-item b { font-size: 12.5px; font-weight: 560; }
+.sb-item small { font-size: 11px; color: var(--text-3); line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 218px; }
+.sb-empty { padding: 12px; font-size: 11.5px; color: var(--text-3); background: var(--card); text-align: center; }
+.sb-pop-all { width: 100%; padding: 8px; font-size: 11.5px; font-weight: 560; color: var(--accent);
+  background: var(--card); border: .5px solid var(--line); border-top: none; border-radius: 0 0 12px 12px; cursor: pointer; }
+.sb-pop-all:hover { background: var(--accent-dim); }

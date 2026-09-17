@@ -43,13 +43,14 @@ const ICONS = {
 };
 
 const MODES = {
-  system:  { label: "System",  icon: ICONS.wrench, defaultView: "loop", section: "Definition" },
-  factory: { label: "Factory", icon: ICONS.list, defaultView: "loop", section: "Factory" },
-  product: { label: "Outputs", icon: ICONS.box, defaultView: "overview", section: "Outputs" },
+  system:  { label: "Factory",    icon: ICONS.wrench, defaultView: "loop", section: "Definition" },
+  factory: { label: "Production", icon: ICONS.list, defaultView: "loop", section: "Production" },
+  product: { label: "Artifacts",  icon: ICONS.box, defaultView: "overview", section: "Artifacts" },
 };
-/* System defines how the factory works, Factory shows work moving through it,
-   Outputs shows what it produces. The System canvas draws structure only —
-   sources, filters, contracts, connections — never counts, items or activity. */
+/* Factory defines how the factory works, Production shows work moving through
+   it, Artifacts browses the things it produces (finals first). The Factory
+   canvas draws structure only — sources, filters, contracts, connections —
+   never counts, items or activity. */
 const MODE_ORDER = Object.keys(MODES);
 
 /* ─────────────────────────────────────────────────────────────── state ── */
@@ -68,11 +69,9 @@ const state = {
      canvas. Opening a subsystem pushes onto the stack; the crumb walks back. */
   canvas: "root",
   canvasStack: [],
-  /* the shelf: reusable resources — artifact source types, defined programs,
-     and skills — that can be placed onto a canvas (skills attach through a
-     program's definition rather than as canvas primitives) */
-  shelfOpen: false,
-  shelfTab: "sources",      // sources | programs | skills
+  /* the shelf: the workspace's global inventory of the classes the factory is
+     made of — stations, programs, skills, sources, subsystems. It floats at the
+     top of the design canvas as shape-blocks; hovering one peeks the full list. */
   panelOpen: false,
   theme: null,
   /* the prompt sheet that floats over the flowchart */
@@ -101,6 +100,7 @@ const state = {
      answer questions about how it is wired */
   chat: { open: false, log: [], text: "" },
   askText: "",              // the un-sent line in the floating ask bar
+  artifactFilter: "final",  // Artifacts mode: "final" (default) | "all" | a stage id
 };
 const PANEL_W = 412;
 
@@ -114,7 +114,7 @@ const endpointName = (id) => stateById(id)?.name || subById(id)?.name || procByI
 const issueById = (id) => ISSUES.find((i) => i.id === id);
 const brokenProcs = () => PROCS.filter((p) => p.broken);
 
-/* the canvas on screen, resolved: its nodes (artifact groups + subsystem
+/* the canvas on screen, resolved: its nodes (stages + subsystem
    frames), the programs whose endpoints live on it, plain connections into/out
    of subsystems, the input programs feeding it, and any back edges. This is the
    unit both System and Factory read — System draws its structure, Factory
@@ -131,14 +131,12 @@ function model() {
     connections: c.connections || [], backs: c.backs || [] };
 }
 
-/* a program is run by an agent or by a person (a person program creates a human
-   task). The face is the glyph + tint it wears on the canvas and in lists. */
+/* every program wears the same face: a glyph + tint on the canvas and in lists.
+   (programs used to be split into agent/person runners — that distinction is
+   gone; a program is just a program.) */
 function procFace(p) {
-  if (!p) return { icon: ICONS.book, cls: "rb", tint: "rb", dir: "programs" };
-  if (p.runBy === "person") return { icon: ICONS.gate, cls: "gt", tint: "gt", dir: "programs" };
   return { icon: ICONS.book, cls: "rb", tint: "rb", dir: "programs" };
 }
-const runByLabel = (p) => (p && p.runBy === "person") ? "person" : "agent";
 
 /* ── agents: runs are the truth behind the status dots ── */
 const runById = (id) => AGENTS.find((r) => r.id === id);
@@ -187,8 +185,8 @@ function scaleFleet(delta) {
   paint();
 }
 /* Factory mode's rail is just the loop's nodes: the Board, then one list per
-   station, each badged with how many things are sitting there right now. Built
-   from STATES so every workspace reads its own station names and counts, rather
+   stage, each badged with how many artifacts are sitting there right now. Built
+   from STATES so every workspace reads its own stage names and counts, rather
    than a hand-curated set of cross-cutting views. */
 function factoryNav() {
   const decisions = AGENTS.filter((r) => r.status === "waiting" && r.question).length;
@@ -196,7 +194,7 @@ function factoryNav() {
     { id: "loop", label: "Board", icon: "loop" },
     { id: "decisions", label: "Decisions", icon: "flag", n: decisions, loud: true },
     { section: "Workers" },
-  ].concat(agentsNav().filter((n) => n.id !== "needs"), [{ section: "Artifacts" }],
+  ].concat(agentsNav().filter((n) => n.id !== "needs"), [{ section: "Stages" }],
       STATES.map((s) => ({ id: s.id, label: s.name, icon: s.icon, n: s.count })));
 }
 const navFor = () =>
@@ -219,10 +217,8 @@ const factoryCanvas = () => state.mode === "factory" && (state.view === "loop" |
    its own branch, you promote it, and a switchover phase pauses the running
    fleet, migrates it, and flips live onto the new version. */
 
-/* every program: those on the canvas plus the intake programs. Person programs
-   (human tasks) are programs too — runBy is the only difference. */
+/* every program: those on the canvas plus the intake programs. */
 const programCount = () => PROCS.length + (typeof INPUTS !== "undefined" ? INPUTS.length : 0);
-const personTaskCount = () => (PEOPLE_TASKS || []).length;
 const skillCount = () => (SKILLS || []).length;
 /* every logged defect that a version has not yet closed */
 const openDefects = () => ISSUES.filter((i) => !i.closedBy);
@@ -376,7 +372,7 @@ function agentReply(text) {
       actions: [{ label: "Plan a change", act: "plan" }] };
   }
   if (/why|how|explain|what|send.?back|slow|bottleneck/.test(t)) {
-    return { text: `Reading the factory for **${REPO.name}**: ${STATES.length} artifact groups, ${programCount()} programs, ${nd} open defects. The \`review + merge\` program sends back the most — that is the human task, not the checks. Ask me to rework any program and I will draft the change as a version bump.`,
+    return { text: `Reading the factory for **${REPO.name}**: ${STATES.length} stages, ${programCount()} programs, ${nd} open defects. The \`review + merge\` program sends back the most — that is the human task, not the checks. Ask me to rework any program and I will draft the change as a version bump.`,
       actions: planAct };
   }
   return { text: `I am looking at the whole factory for **${REPO.name}** — ${programCount()} programs, ${skillCount()} skills, ${nd} open defects. Tell me what to change and I will rework the affected programs in a branch off ${liveVersion()}, or ask me anything about how it is wired.`,
@@ -454,7 +450,6 @@ function paintSysChat() {
           <div class="rail-c">
             <div class="rail-r"><span>Version</span><b>${esc(liveVersion())}</b></div>
             <div class="rail-r"><span>Programs</span><b>${programCount()}</b></div>
-            <div class="rail-r"><span>Human tasks</span><b>${personTaskCount()}</b></div>
             <div class="rail-r"><span>Skills</span><b>${skillCount()}</b></div>
             <div class="rail-r"><span>Open defects</span><b>${nd}</b></div>
           </div>
@@ -561,13 +556,10 @@ function paintToolbar() {
   $("#crumb").querySelectorAll("[data-canvas-depth]").forEach((el) =>
     (el.onclick = () => exitToCanvas(+el.dataset.canvasDepth)));
 
-  /* the shelf toggle sits in System mode — reusable resources you place onto the
-     canvas (sources, programs) or attach through a program (skills) */
+  /* the shelf floats on the design canvas itself now (see paintShelf), so the
+     toolbar just carries the theme toggle. */
   $("#tbActs").innerHTML = `
-    ${state.mode === "system" ? `<button class="ico ${state.shelfOpen ? "on" : ""}" id="shelfBtn" title="Shelf">${ICONS.box}</button>` : ""}
     <button class="ico" id="themeBtn" title="Theme">${ICONS.moon}</button>`;
-  const shelfBtn = $("#shelfBtn");
-  if (shelfBtn) shelfBtn.onclick = () => { state.shelfOpen = !state.shelfOpen; paint(); };
   $("#themeBtn").onclick = () => {
     const dark = document.documentElement.dataset.theme === "dark";
     document.documentElement.dataset.theme = dark ? "light" : "dark";
@@ -575,69 +567,59 @@ function paintToolbar() {
 }
 
 /* ══════════════════════════════════════════════════════════════ the shelf ══
-   Reusable resources available across the account: artifact SOURCE TYPES,
-   defined PROGRAMS, and SKILLS. Sources and programs can be placed onto a
-   canvas and wired into the line. Skills are not canvas primitives — they stay
-   on the shelf and attach through a program's definition. */
+   The workspace's global inventory. When you design a factory you don't only lay
+   out how work moves — you also keep a stock of the *classes* the factory is
+   built from: the stages that hold artifacts, the programs that transform them,
+   the skills a program can load, and the subsystems. (A stage's source is an
+   attribute of the stage, not its own class.) The shelf floats at the top of the
+   design canvas as one shape-block per class (drawn in that class's own shape —
+   stage=square, program=arrow, skill=circle). Hover or
+   focus a block to peek the full list of what you've defined; click an item to
+   jump to that class's inventory view. */
 
-const SHELF_TABS = [
-  { id: "sources",  label: "Sources" },
-  { id: "programs", label: "Programs" },
-  { id: "skills",   label: "Skills" },
+const SHELF_CLASSES = [
+  { id: "stages",     label: "Stages",     shape: "sq",  view: "artifacts",
+    items: () => (STATES || []).map((s) => ({ t: s.name, s: (sourceById(s.source) || {}).name || s.source })) },
+  { id: "programs",   label: "Programs",   shape: "arw", view: "programs",
+    items: () => (PROGRAM_DEFS || []).map((d) => ({ t: d.name, s: d.sub })) },
+  { id: "skills",     label: "Skills",     shape: "cir", view: "skills",
+    items: () => (SKILLS || []).map((s) => ({ t: s.name, s: s.desc })) },
+  { id: "subsystems", label: "Subsystems", shape: "frm", view: "subsystems",
+    items: () => (SUBSYSTEMS || []).map((s) => ({ t: s.name, s: s.sub || "subsystem" })) },
 ];
 
-function openShelf(tab) { state.shelfOpen = true; if (tab) state.shelfTab = tab; paint(); }
+/* jump to a class's full inventory (a list view in the left rail) */
+function shelfGoto(view) { state.mode = "system"; state.view = view; state.sel = null; state.docStack = []; paint(); }
 
 function paintShelf() {
   const host = $("#shelfLayer");
   if (!host) return;
-  if (!state.shelfOpen || state.mode !== "system") { host.classList.remove("on"); host.innerHTML = ""; return; }
+  /* the shelf belongs to the design surface — only the loop canvas in the
+     Factory (definition) mode, never over a document or a list view */
+  if (state.mode !== "system" || state.view !== "loop" || state.docStack.length) {
+    host.classList.remove("on"); host.innerHTML = ""; return;
+  }
   host.classList.add("on");
 
-  const tab = state.shelfTab;
-  let rows = "";
-  if (tab === "sources") {
-    rows = SOURCES.map((s) => `<div class="shelf-row">
-      <span class="shelf-i">${ICONS[s.icon] || ICONS.doc}</span>
-      <span class="shelf-copy"><b>${esc(s.name)}</b><small>${esc(s.sub)}</small></span>
-      <button class="shelf-add" data-place="source:${s.id}" title="Place a group from this source">${ICONS.plus}</button>
-    </div>`).join("");
-  } else if (tab === "programs") {
-    rows = (PROGRAM_DEFS || []).map((d) => `<div class="shelf-row">
-      <span class="shelf-i ${d.runBy === "person" ? "gt" : "rb"}">${d.runBy === "person" ? ICONS.gate : ICONS.book}</span>
-      <span class="shelf-copy"><b>${esc(d.name)}</b><small>${esc(d.sub)} · ${esc(d.runBy)}</small></span>
-      <button class="shelf-add" data-place="program:${d.id}" title="Place this program">${ICONS.plus}</button>
-    </div>`).join("");
-  } else {
-    rows = SKILLS.map((s) => `<div class="shelf-row skill">
-      <span class="shelf-i sk">${ICONS[s.icon] || ICONS.sparkle}</span>
-      <span class="shelf-copy"><b>${esc(s.name)}</b><small>${esc(s.desc)}</small></span>
-      <span class="shelf-use">${usedBySkill(s.id)} ${usedBySkill(s.id) === 1 ? "program" : "programs"}</span>
-    </div>`).join("");
-  }
+  const blocks = SHELF_CLASSES.map((c) => {
+    const items = c.items();
+    const list = items.map((it) =>
+      `<button class="sb-item" data-view="${c.view}">
+        <b>${esc(it.t)}</b>${it.s ? `<small>${esc(it.s)}</small>` : ""}
+      </button>`).join("") || `<div class="sb-empty">none defined yet</div>`;
+    return `<div class="shelf-block" tabindex="0" data-class="${c.id}">
+      <span class="sb-shape ${c.shape}"></span>
+      <span class="sb-cap">${esc(c.label)}<b>${items.length}</b></span>
+      <div class="sb-pop">
+        <div class="sb-pop-h"><span class="sb-shape ${c.shape} sm"></span>${esc(c.label)} · ${items.length} in this workspace</div>
+        <div class="sb-pop-list">${list}</div>
+        <button class="sb-pop-all" data-view="${c.view}">View all ${esc(c.label.toLowerCase())}</button>
+      </div>
+    </div>`;
+  }).join("");
 
-  host.innerHTML = `<div class="shelf">
-    <div class="shelf-h">
-      <span class="shelf-t">${ICONS.box} The shelf</span>
-      <button class="ico" id="shelfX" title="Close">${ICONS.x}</button>
-    </div>
-    <div class="seg shelf-seg" id="shelfSeg">
-      ${SHELF_TABS.map((t) => `<button data-tab="${t.id}" class="${tab === t.id ? "on" : ""}">${esc(t.label)}</button>`).join("")}
-    </div>
-    <div class="shelf-note">${tab === "skills"
-      ? "Skills attach through a program's definition — they are never placed on the canvas."
-      : "Drag onto the canvas to add it to this system, or use +."}</div>
-    <div class="shelf-list">${rows}</div>
-  </div>`;
-
-  $("#shelfX").onclick = () => { state.shelfOpen = false; paint(); };
-  host.querySelectorAll("#shelfSeg button").forEach((b) => (b.onclick = () => { state.shelfTab = b.dataset.tab; paintShelf(); }));
-  host.querySelectorAll("[data-place]").forEach((b) => (b.onclick = () => {
-    const [kind, id] = b.dataset.place.split(":");
-    const name = kind === "source" ? (sourceById(id) || {}).name
-      : ((PROGRAM_DEFS || []).find((d) => d.id === id) || {}).name;
-    toast(`Placing ${esc(name)} onto ${(activeCanvas().name)} — stub in the prototype`);
-  }));
+  host.innerHTML = `<div class="shelf-bar">${blocks}</div>`;
+  host.querySelectorAll("[data-view]").forEach((b) => (b.onclick = () => shelfGoto(b.dataset.view)));
 }
 
 function paintStrip() {
@@ -646,7 +628,7 @@ function paintStrip() {
   /* the version has moved up into the pill on the canvas, so the strip no longer
      repeats it — just what the factory is made of */
   $("#stripLeft").textContent = state.mode === "system"
-    ? `${REPO.name} · ${STATES.length} artifact groups, ${programCount()} programs, ${skillCount()} skills`
+    ? `${REPO.name} · ${STATES.length} stages, ${programCount()} programs, ${skillCount()} skills`
     : state.mode === "factory"
       ? `${REPO.name} · ${REPO.branch} · ${live} agents running · ${waiting} waiting on you · ${AGENTS.filter((r) => r.status === "failed").length} failed`
       : `${REPO.name} · ${PRODUCT.releases.length} recent ${PRODUCT.noun}s · ${PRODUCT.environments.filter((e) => e.state === "healthy").length}/${PRODUCT.environments.length} environments healthy`;
@@ -803,7 +785,6 @@ function verCard(f, planned, viewing, nd) {
       <div class="ver-now"><div class="ver-now-v">${esc(liveVersion())}<span class="ver-tag">Live</span></div>
         <div class="ver-now-s">${esc(REPO.name)} · running now</div></div>
       ${kv([["Programs", `${programCount()}`],
-            ["Human tasks", `${personTaskCount()}`],
             ["Skills", `${skillCount()}`],
             ["Open defects", nd ? `<a class="lnk" onclick="gotoDefects()">${nd} logged against programs</a>` : `<span style="color:var(--text-3)">none</span>`]])}
       <div class="ver-sep"></div>
@@ -862,8 +843,8 @@ function switchWorkspace(id) {
 /* ═════════════════════════════════════════════════════════════ the canvas ══
    A canvas lays its nodes out on a grid and runs the connections around the
    perimeter as a loop — because these systems are always loops. Nodes are
-   artifact groups and subsystem frames; programs ride the middle of the edge
-   between two groups; plain connections wire a group to a subsystem boundary;
+   stages and subsystem frames; programs ride the middle of the edge
+   between two stages; plain connections wire a stage to a subsystem boundary;
    input programs stack above the group they feed. Edges walk the grid as
    orthogonal H/V segments with rounded corners, each picking whichever sides
    face the target, so moving a node re-routes its wires.
@@ -1051,7 +1032,7 @@ function paintLoop() {
     }
   });
 
-  /* ── nodes: artifact groups and subsystem frames ── */
+   /* ── nodes: stages and subsystem frames ── */
   let nodes = "";
   m.nodes.forEach((n) => {
     const r = N[n.id]; if (!r) return;
@@ -1122,13 +1103,19 @@ function paintLoop() {
     const face = procFace(p);
     /* System draws the contract-carrying definition (runner + skills), never a
        defect count or an item count. Factory projects the live fleet onto it. */
-    const skills = (p.skills || []).slice(0, 3).map((id) => (skillById(id) || {}).name).filter(Boolean);
+    const skillN = (p.skills || []).length;
     const meta = isSys
-      ? `<span class="pr-run-by ${runByLabel(p)}">${runByLabel(p)}</span>`
+      ? ""
       : (inflight ? `<span class="pr-b amb" style="background:var(--raise);color:var(--text-2)">${inflight}</span>` : "");
-    procs += `<div class="pr${factoryCanvas() ? " factory-proc" : ""}${isSys ? " sys-proc" : ""}${attention}${sel}${chg}${p.broken ? " err" : ""}" data-proc="${p.id}" style="left:${g.mx}px;top:${g.my}px;transform:translate(-50%,-50%)">
+    /* a program transforms one fixed station into another, so it draws as an
+       arrow-shaped rectangle that points the way work flows — right if the
+       downstream group sits further right, left otherwise. */
+    const fromN = look[p.from], toN = look[p.to];
+    const dir = (fromN && toN && (toN.x + (toN.w || 0) / 2) < (fromN.x + (fromN.w || 0) / 2)) ? "left" : "right";
+    procs += `<div class="pr dir-${dir}${factoryCanvas() ? " factory-proc" : ""}${isSys ? " sys-proc" : ""}${attention}${sel}${chg}${p.broken ? " err" : ""}" data-proc="${p.id}" style="left:${g.mx}px;top:${g.my}px;transform:translate(-50%,-50%)">
+      <svg class="pr-shape" aria-hidden="true"><path vector-effect="non-scaling-stroke"></path></svg>
       <span class="pr-k ${face.tint}">${face.icon}</span>
-      <span class="pr-copy"><span class="pr-t">${esc(p.name)}</span>${isSys && skills.length ? `<span class="pr-skills">${skills.map((s) => `<span class="pr-skill">${esc(s)}</span>`).join("")}</span>` : ""}</span>
+      <span class="pr-copy"><span class="pr-t">${esc(p.name)}</span>${isSys && skillN ? `<span class="pr-skilln">${skillN} skill${skillN === 1 ? "" : "s"}</span>` : ""}</span>
       ${chg ? `<span class="pr-chg">Δ</span>` : ""}
       ${factoryCanvas() ? stageAvatars(assigned) : `${meta}<button class="pr-run" data-${isSys ? "edit" : "run"}="${p.id}" title="${isSys ? "Edit program" : `Run over ${inflight} items`}">${isSys ? ICONS.pencil : ICONS.play}</button>`}
     </div>`;
@@ -1169,8 +1156,38 @@ function paintLoop() {
       </div>
     </div>`;
 
+  drawProgramShapes();
   wireLoop();
   applyTransform();
+}
+
+function roundedProgramPath(w, h, dir) {
+  const edge = 1, tip = Math.min(18, w * .14), mid = h / 2;
+  const points = dir === "left"
+    ? [[tip, edge], [w - edge, edge], [w - tip, mid], [w - edge, h - edge], [tip, h - edge], [edge, mid]]
+    : [[edge, edge], [w - tip, edge], [w - edge, mid], [w - tip, h - edge], [edge, h - edge], [tip, mid]];
+  const radius = Math.min(6, h / 6);
+  const corners = points.map((point, i) => {
+    const prev = points[(i + points.length - 1) % points.length];
+    const next = points[(i + 1) % points.length];
+    const toward = (other) => {
+      const dx = other[0] - point[0], dy = other[1] - point[1];
+      const scale = radius / Math.hypot(dx, dy);
+      return [point[0] + dx * scale, point[1] + dy * scale];
+    };
+    return { point, start: toward(prev), end: toward(next) };
+  });
+  const xy = ([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`;
+  return corners.map((corner, i) => `${i ? "L" : "M"} ${xy(corner.start)} Q ${xy(corner.point)} ${xy(corner.end)}`).join(" ") + " Z";
+}
+
+function drawProgramShapes() {
+  $("#world").querySelectorAll(".pr").forEach((el) => {
+    const svg = el.querySelector(".pr-shape");
+    const w = el.offsetWidth, h = el.offsetHeight;
+    svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+    svg.querySelector("path").setAttribute("d", roundedProgramPath(w, h, el.classList.contains("dir-left") ? "left" : "right"));
+  });
 }
 
 function wireLoop() {
@@ -1328,20 +1345,20 @@ function runProc(id) {
 /* ══════════════════════════════════════════════════════════ list views ══ */
 
 /* list-view titles are the same words the rail uses, so a workspace names its
-   own stations once and every surface reads them the same way */
+   own stages once and every surface reads them the same way */
 const navLabel = (mode, view) => ((NAV[mode] || []).find((n) => n.id === view) || {}).label || view;
 
 const VIEWS = {
-  artifacts: () => ({ title: "Artifact groups", sub: "filtered lists of things the factory can act on — a source plus a filter, not one document",
+  artifacts: () => ({ title: "Stages", sub: "where artifacts collect — each a source plus a filter, not one document",
     rows: STATES.map((s) => { const src = sourceById(s.source); return { t: s.name, s: `${src ? src.name : s.source} · ${s.filter}`, r: `${s.shape.length} fields`, pill: src ? src.id : "group", bad: false, sel: { t: "node", id: s.id } }; }) }),
-  programs: () => ({ title: "Programs", sub: "prose job definitions that transform one artifact group into another — canvas programs, plus the intake programs that pour work in",
-    rows: PROCS.map((p) => ({ t: p.name, s: `${endpointName(p.from)} → ${endpointName(p.to)} · ${p.trigger}`, r: runByLabel(p), pill: runByLabel(p) === "person" ? "human task" : "agent", bad: false, sel: { t: "proc", id: p.id } }))
-      .concat((typeof INPUTS !== "undefined" ? INPUTS : []).map((inp) => ({ t: inp.name, s: `open input → ${endpointName(inp.to)} · ${inp.sub}`, r: "agent", pill: "intake", bad: false, sel: { t: "input", id: inp.id } }))) }),
+  programs: () => ({ title: "Programs", sub: "prose job definitions that transform the artifacts of one stage into another — canvas programs, plus the intake programs that pour work in",
+    rows: PROCS.map((p) => ({ t: p.name, s: `${endpointName(p.from)} → ${endpointName(p.to)} · ${p.trigger}`, r: "", pill: "program", bad: false, sel: { t: "proc", id: p.id } }))
+      .concat((typeof INPUTS !== "undefined" ? INPUTS : []).map((inp) => ({ t: inp.name, s: `open input → ${endpointName(inp.to)} · ${inp.sub}`, r: "", pill: "intake", bad: false, sel: { t: "input", id: inp.id } }))) }),
   subsystems: () => ({ title: "Subsystems", sub: "part of the factory behind one boundary — declared inputs and outputs, children hidden until you open it",
     rows: (SUBSYSTEMS || []).map((s) => ({ t: s.name, s: `${(s.inputs || []).map((id) => endpointName(id)).join(", ")} → ${(s.outputs || []).map((id) => endpointName(id)).join(", ")}`, r: `${(s.contains.groups.length + s.contains.programs.length)} inside`, pill: "subsystem", bad: false, sel: { t: "sub", id: s.id } })) }),
   skills: () => ({ title: "Skills", sub: "capabilities a program loads from the shelf — never a node or an edge, attached through a program's definition",
     rows: (SKILLS || []).map((s) => ({ t: s.name, s: s.desc, r: `${s.runs} calls`, pill: usedBySkill(s.id) ? `${usedBySkill(s.id)} programs` : "unused", bad: false, sel: { t: "skill", id: s.id } })) }),
-  issues: () => ({ title: navLabel("system", "issues"), sub: "friction the factory logs about its own wiring as it runs — attributed to programs, never to artifact groups. Operational: off the System canvas.",
+  issues: () => ({ title: navLabel("system", "issues"), sub: "friction the factory logs about its own wiring as it runs — attributed to programs, never to stages. Operational: off the System canvas.",
     rows: openDefects().map((i) => ({ t: i.t, s: `on ${endpointName(i.edge)} · ${i.run}`, r: i.fix ? "fix proposed" : "", pill: i.cat, bad: i.cat === "skill-gap" || i.cat === "constraint-violation" || i.cat === "off-brand", sel: { t: "issue", id: i.id } })) }),
   history: () => ({ title: "System version history", sub: "separate from the repo's commit log",
     rows: HISTORY.map((h) => ({ t: h.t, s: h.s, r: h.v, pill: h.who, bad: false, sel: null })) }),
@@ -1357,10 +1374,10 @@ const VIEWS = {
     rows: [].concat(ITEMS.branch, ITEMS.pr).map((i) => ({ t: `${i.id}  ${i.t}`, s: i.s, r: "", pill: i.d === "run" ? "running" : i.d === "wait" ? "waiting" : "failing", bad: i.d === "bad", sel: { t: "item", id: i.id } })) }),
 };
 
-/* each Factory node is now its own nav item, so selecting one lists what is
-   sitting at that station. The pill reads the item's status dot the way that
-   station means it: a plan is buildable or blocked, a PR running or failing, a
-   spec covered or ambiguous, everything in Merged simply done. */
+/* each Factory node is now its own nav item, so selecting one lists the
+   artifacts sitting at that stage. The pill reads the artifact's status dot the
+   way that stage means it: a plan is buildable or blocked, a PR running or
+   failing, a spec covered or ambiguous, everything in Merged simply done. */
 const STATION_PILL = {
   spec:   (it) => ({ pill: it.d === "bad" ? "ambiguous" : it.d === "wait" ? "gaps" : "covered", bad: it.d === "bad" }),
   plans:  (it) => ({ pill: it.d === "run" ? COPY.readyWord : "blocked", bad: false }),
@@ -1488,18 +1505,59 @@ function releaseColumn(environment) {
   </section>`;
 }
 
-function productTimeline() {
+/* every artifact the factory holds, tagged with the stage it sits in */
+const artifactStages = () => STATES.map((s) => ({ id: s.id, name: s.name, icon: s.icon, filter: s.filter, items: ITEMS[s.id] || [] }));
+const allArtifacts = () => artifactStages().flatMap((s) => s.items.map((it) => ({ ...it, stage: s.id, stageName: s.name })));
+
+/* the filter chips across the top of the Artifacts browser: Final (the default),
+   All, then one per stage — so you can widen from the finished outputs to
+   everything the factory is holding at any point in the line */
+function artifactChips() {
+  const all = allArtifacts();
+  const chips = [
+    { id: "final", label: "Final", n: PRODUCT.releases.length },
+    { id: "all",   label: "All",   n: all.length },
+  ].concat(artifactStages().map((s) => ({ id: s.id, label: s.name, n: s.items.length })));
+  return `<div class="af-chips">${chips.map((c) =>
+    `<button class="af-chip ${state.artifactFilter === c.id ? "on" : ""}" data-artifact-filter="${esc(c.id)}">${esc(c.label)}<span>${c.n}</span></button>`).join("")}</div>`;
+}
+
+/* a flat, browsable catalog of artifacts — used for All and for any single stage */
+function artifactCatalog(rows, title, sub) {
   return `<div class="lv product-lv">
-    <div class="lv-head"><span class="lv-title">Recent</span><span class="lv-sub">finished ${esc(PRODUCT.itemWord)}, grouped by environment</span></div>
-    <div class="release-board" style="--columns:${PRODUCT.environments.length}">
-      ${PRODUCT.environments.map(releaseColumn).join("")}
-    </div>
+    ${artifactChips()}
+    <div class="lv-head"><span class="lv-title">${esc(title)}</span><span class="lv-sub">${esc(sub)}</span></div>
+    <div class="lv-rows">${rows.length ? rows.map((a) =>
+      `<button class="lrow" data-artifact="${esc(a.id)}" data-stage="${esc(a.stage)}">
+        <div class="lrow-b"><div class="lrow-t"><span class="mono">${esc(a.id)}</span>&nbsp; ${esc(a.t)}</div><div class="lrow-s">${esc(a.s || "")}</div></div>
+        <div class="lrow-r">${a.final ? `<span class="pill done">final</span>` : ""}<span class="pill plain">${esc(a.stageName)}</span></div>
+      </button>`).join("") : `<div class="release-empty">No artifacts here yet.</div>`}</div>
   </div>`;
+}
+
+/* the Artifacts browser. Final (default) keeps the release board — the finished
+   outputs, grouped by where they are deployed, with promote controls. Any other
+   chip drops to a flat catalog you can read through. */
+function artifactsBrowser() {
+  const f = state.artifactFilter || "final";
+  if (f === "final") {
+    return `<div class="lv product-lv">
+      ${artifactChips()}
+      <div class="lv-head"><span class="lv-title">Final</span><span class="lv-sub">finished ${esc(PRODUCT.itemWord)}, grouped by where they are deployed</span></div>
+      <div class="release-board" style="--columns:${PRODUCT.environments.length}">
+        ${PRODUCT.environments.map(releaseColumn).join("")}
+      </div>
+    </div>`;
+  }
+  if (f === "all") return artifactCatalog(allArtifacts(), "All artifacts", "everything the factory holds, across every stage");
+  const s = stateById(f);
+  const rows = allArtifacts().filter((a) => a.stage === f);
+  return artifactCatalog(rows, s ? s.name : f, s ? s.filter : "");
 }
 
 function productEnvironments() {
   return `<div class="lv product-lv">
-    <div class="lv-head"><span class="lv-title">Environments</span><span class="lv-sub">the destinations represented on the Recent board</span></div>
+    <div class="lv-head"><span class="lv-title">Environments</span><span class="lv-sub">the destinations final artifacts are deployed to</span></div>
     <div class="lv-rows rel-env-rows">${PRODUCT.environments.map((e) => `
       <button class="lrow" data-url="${esc(e.url)}"><span class="pr-k">${ICONS.globe}</span>
         <div class="lrow-b"><div class="lrow-t">${esc(e.name)} <span class="mono rel-env-version">${esc(e.version)}</span></div><div class="lrow-s">${esc(e.url.replace(/^https?:\/\//, ""))} · ${esc(e.branch)} · ${esc(e.note)}</div></div>
@@ -1511,19 +1569,21 @@ function productEnvironments() {
 function wireProduct() {
   $("#main").querySelectorAll("[data-url]").forEach((b) => (b.onclick = () => window.open(b.dataset.url, "_blank", "noopener")));
   $("#main").querySelectorAll("[data-slice]").forEach((b) => (b.onclick = () => openItemDoc(b.dataset.slice, "merged")));
+  $("#main").querySelectorAll("[data-artifact]").forEach((b) => (b.onclick = () => openItemDoc(b.dataset.artifact, b.dataset.stage)));
+  $("#main").querySelectorAll("[data-artifact-filter]").forEach((b) => (b.onclick = () => { state.artifactFilter = b.dataset.artifactFilter; paint(); }));
   $("#main").querySelectorAll("[data-promote]").forEach((b) => (b.onclick = () => promoteRelease(b.dataset.promote)));
   const promoteAll = $("#main").querySelector("[data-promote-all]");
   if (promoteAll) promoteAll.onclick = promoteAllReleases;
 }
 
 function paintProduct() {
-  $("#main").innerHTML = state.view === "environments" ? productEnvironments() : productTimeline();
+  $("#main").innerHTML = state.view === "environments" ? productEnvironments() : artifactsBrowser();
   wireProduct();
 }
 
 /* ═══════════════════════════════════════════════════════════ workers ══
-   Factory shows both the artifacts at each station and the harness sessions
-   walking them along the programs between those stations. A run is one session
+   Factory shows both the artifacts at each stage and the harness sessions
+   walking them along the programs between those stages. A run is one session
    on one slice; its console stays scoped to that slice and its place in the loop. */
 
 const STATUS_BASE = {
@@ -1657,7 +1717,7 @@ function decisionContextCard(r) {
       <div><span>Files touched</span><b>${files.length || "None yet"}</b></div>
     </div>
     <div class="dec-context-foot">
-      <span>Source&nbsp; ${esc(home ? stationName(home) : stationName(r.station))}</span>
+      <span>Stage&nbsp; ${esc(home ? stationName(home) : stationName(r.station))}</span>
       ${home ? `<button data-context-file="${esc(home)}">Open artifact</button>` : ""}
       <button data-context-run="${r.id}">Open session</button>
     </div>
@@ -1873,7 +1933,7 @@ function paintConsole(r) {
           <div class="rail-h">${ICONS.loop}Scope</div>
           <div class="rail-c">
             <div class="rail-r"><span>${esc(TERMS.Unit)}</span><b><a class="lnk" data-slice="${esc(r.slice)}" data-station="${esc(r.station)}">${esc(r.slice)} ${esc(r.title)}</a></b></div>
-            <div class="rail-r"><span>Station</span><b>${esc(stationName(r.station))}</b></div>
+            <div class="rail-r"><span>Stage</span><b>${esc(stationName(r.station))}</b></div>
             <div class="rail-r"><span>Process</span><b>${proc ? `<a class="lnk" data-proc="${esc(proc.id)}">${esc(proc.name)}</a>` : "—"}</b></div>
             <div class="rail-k">worktree</div>
             <div class="fields"><span class="f">${esc(worktreeOf(r))}</span></div>
@@ -2047,23 +2107,17 @@ function filterItems(inp) {
 function stagePanel(p) {
   const runs = runsAtStage(p);
   const face = procFace(p);
-  const isGate = p.runBy === "person";
-  const rows = runs.map((r) => isGate
-    ? `<button class="stage-artifact ${r.status}" onclick="openRun('${r.id}')" title="Open blocked artifact">
-        <span class="stage-artifact-i">${ICONS.doc}</span>
-        <span class="stage-artifact-copy"><b><span class="mono">${esc(r.slice)}</span> ${esc(r.title)}</b><small>${esc(r.question ? r.question.t : r.head || "Awaiting review")}</small></span>
-        <span class="nd-dot ${RUN_DOT[r.status]}"></span>
-      </button>`
-    : `<button class="agent-run ${r.status}" onclick="openRun('${r.id}')" title="Open ${esc(agentName(r))}">
+  const rows = runs.map((r) =>
+    `<button class="agent-run ${r.status}" onclick="openRun('${r.id}')" title="Open ${esc(agentName(r))}">
         <span class="agent-avatar" style="--agent-h:${agentHue(r)}" aria-hidden="true"></span>
         <span class="agent-work"><b>${esc(agentName(r))}</b><span><span class="mono">${esc(r.slice)}</span> ${esc(r.title)}</span><small>${esc(r.question ? r.question.t : r.head || "Working")}</small></span>
         <span class="nd-dot ${RUN_DOT[r.status]}"></span>
       </button>`).join("");
-  const empty = state.view === "needs" ? "Nothing here needs your attention." : isGate ? "No work is waiting for this human task." : "No agents are running this program.";
+  const empty = state.view === "needs" ? "Nothing here needs your attention." : "No agents are running this program.";
 
-  return card(isGate ? "Human task" : "Running now", `<span class="tagm ${face.cls}">${runs.length}</span>`, `
+  return card("Running now", `<span class="tagm ${face.cls}">${runs.length}</span>`, `
     <div class="c-n">${esc(p.name)}</div>
-    <div class="c-r">${isGate ? esc(p.task || "a person makes this call") : `${runs.length} ${runs.length === 1 ? "agent" : "agents"} currently running this program`}</div>
+    <div class="c-r">${runs.length} ${runs.length === 1 ? "agent" : "agents"} currently running this program</div>
     <div class="stage-list">${rows || `<div class="stage-empty">${empty}</div>`}</div>`);
 }
 
@@ -2155,7 +2209,7 @@ function nodePanel(s) {
       ${d.note ? `<div class="dwell-note">${esc(d.note)}</div>` : ""}
     </div>` : "";
 
-  return card("Artifact group", isSys ? `<span class="tagm rb">definition</span>` : `<span class="pill plain" style="color:var(--text-2)">${s.count}</span>`, `
+  return card("Stage", isSys ? `<span class="tagm rb">definition</span>` : `<span class="pill plain" style="color:var(--text-2)">${s.count}</span>`, `
     ${structure}${live}
     <div class="acts-row">
       <button class="btn" onclick="state.mode='${isSys ? "factory" : "system"}';state.view='loop';paint();fit(true)">
@@ -2179,8 +2233,7 @@ function procPanel(p) {
   const definition = `
     <div class="c-n">${esc(p.name)}</div>
     <div class="c-r">${esc(src ? src.name : endpointName(p.from))} → ${esc(dst ? dst.name : endpointName(p.to))}</div>
-    ${kv([["Run by", `<span class="pill plain ${runByLabel(p) === "person" ? "waiting" : ""}">${runByLabel(p)}${runByLabel(p) === "person" ? " · human task" : ""}</span>`],
-          ["Trigger", esc(p.trigger)],
+    ${kv([["Trigger", esc(p.trigger)],
           ...(def ? [["Instance of", `${esc(def.name)} <span style="color:var(--text-3)">· account program</span>`]] : []),
           ["Instructions", `<a class="lnk" onclick="openEditor('${p.id}')">${esc(file)}</a>
             <span style="color:var(--text-3)"> · ${nTasks} tasks${nPages ? ` · ${nPages} pages` : ""}</span>`]])}
@@ -2215,7 +2268,7 @@ function procPanel(p) {
         <a class="lnk" onclick="state.mode='system';state.view='issues';state.sel=null;paint()">${issues.length} on this program</a></span></div>` : ""}
     </div>` : "";
 
-  return card("Program", `<span class="tagm ${face.cls}">${isSys ? "definition" : runByLabel(p)}</span>`, `
+  return card("Program", `<span class="tagm ${face.cls}">${isSys ? "definition" : "live"}</span>`, `
     ${definition}${liveBlock}
     <div class="acts-row">
       ${isSys ? `<button class="btn pri" onclick="openEditor('${p.id}')">${ICONS.pencil} Edit instructions</button>`
@@ -2257,7 +2310,7 @@ function skillPanel(sk) {
     <div class="kv-note" style="color:var(--text-3);font-size:11.5px;padding:2px 2px 0">
       Skills stay on the shelf and attach through a program's definition — they are never a node or an edge.</div>
     <div class="acts-row">
-      <button class="btn" onclick="openShelf('skills')">${ICONS.box} Show on the shelf</button>
+      <button class="btn" onclick="shelfGoto('skills')">${ICONS.box} Show all skills</button>
     </div>`);
 }
 
@@ -2303,7 +2356,7 @@ function itemPanel(sel) {
   return card(st ? st.name : "Item", `<span class="pill plain" style="color:var(--text-2)">${esc(from)}</span>`, `
     <div class="c-n"><span class="mono" style="color:var(--text-3)">${esc(it.id)}</span> ${esc(it.t)}</div>
     <div class="c-r">${esc(it.s)}</div>
-    ${kv([["Station", st ? esc(st.name) : "—"], ["Next process", out ? esc(out.name) : "—"],
+    ${kv([["Stage", st ? esc(st.name) : "—"], ["Next process", out ? esc(out.name) : "—"],
           ["Shape", st ? st.shape.join(", ") : "—"]])}
     <div class="acts-row">
       <button class="btn pri" onclick="openItemDoc('${it.id}','${from}')">${ICONS.doc} Open file</button>
@@ -2356,7 +2409,6 @@ window.addEventListener("resize", () => { if (state.view === "loop" || factoryCa
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (state.verMenuOpen) { state.verMenuOpen = false; paintVersion(); }   /* the version dropdown */
-    else if (state.shelfOpen) { state.shelfOpen = false; paint(); }        /* the shelf */
     else if (state.docStack.length || state.inputOpen) closeEditor();      /* the sheet */
     else if (state.chat.open) { state.chat.open = false; paint(); }        /* the agent chat */
     else if (state.verCardOpen) { state.verCardOpen = false; paintVersion(); }   /* the version card */

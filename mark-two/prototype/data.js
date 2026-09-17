@@ -27,7 +27,7 @@ const WORKSPACES = [
 ];
 
 let REPO, STATES, PROCS, BACKS, INPUTS, ISSUES, ITEMS, AGENTS, RUN_PROC, RUN_MODEL,
-    PAGES, NAV, HISTORY, PRODUCT, PROGRAMS, PEOPLE_TASKS, SKILLS, SOURCES, SUBSYSTEMS,
+    PAGES, NAV, HISTORY, PRODUCT, PROGRAMS, SKILLS, SOURCES, SUBSYSTEMS,
     CANVASES, TERMS, COPY, PROGRAM_DEFS;
 const DATASETS = {};
 
@@ -40,10 +40,8 @@ function loadWorkspace(id) {
   TERMS = d.terms; COPY = d.copy;
   SOURCES = d.sources; SKILLS = d.skills; SUBSYSTEMS = d.subsystems; CANVASES = d.canvases;
   PROGRAM_DEFS = d.programDefs;
-  /* a program is run by an agent or a person; the "people" programs are the ones
-     that create a human task rather than dispatching an agent */
-  PROGRAMS = PROCS.filter((p) => p.runBy === "agent");
-  PEOPLE_TASKS = PROCS.filter((p) => p.runBy === "person");
+  /* every program is just a program — no agent/person split anymore */
+  PROGRAMS = PROCS;
 }
 
 /* padded plausible history so a group reads full in Factory mode without
@@ -82,8 +80,9 @@ function padStations(STATES, ITEMS, PANEL_MAX, NOUN, VERB) {
 function makeEmailAgent() {
 const REPO = { name: "email-agent", branch: "main", sysVersion: "v41" };
 
-/* ── the shelf, part 1: artifact SOURCE TYPES. Where a group's items come from.
-      A group binds one of these plus a filter. ── */
+/* ── artifact SOURCE TYPES. Where a stage's artifacts come from. A stage binds
+      one of these plus a filter — the source is an attribute of the stage, not
+      its own shelf class. ── */
 const SOURCES = [
   { id: "repo-files",    name: "Repository files",     icon: "doc",    sub: "paths in the repo matching a glob" },
   { id: "git-branches",  name: "Git branches",         icon: "branch", sub: "refs matching a pattern" },
@@ -103,9 +102,10 @@ const SKILLS = [
   { id: "frontier",    name: "Frontier query",    icon: "sparkle", desc: "find buildable plans with no owns collision", runs: 731 },
 ];
 
-/* ── ARTIFACT GROUPS. A group is a filtered list, defined by a `source` and a
-      `filter`. `shape` is what each item looks like. `count`/`dwell` are LIVE
-      state (Factory mode only); the System canvas shows name + filter + source. ── */
+/* ── STAGES. A stage is a filtered list of artifacts, defined by a `source` and
+      a `filter`. `shape` is what each artifact looks like. `count`/`dwell` are
+      LIVE state (Factory mode only); the System canvas shows name + filter +
+      source. Artifacts flow between stages along the programs. ── */
 const STATES = [
   { id: "spec",   name: "Product spec",   source: "repo-files",    filter: "docs/**/*.md",                icon: "doc",    count: 18,
     shape: ["title", "problem", "constraints[]", "decisions[]"],
@@ -142,15 +142,14 @@ const STATES = [
       note: "product feedback waits here for the weekly triage to fold it in" } },
 ];
 
-/* ── PROGRAMS. Each transforms one artifact group into another. `runBy` is
-      "agent" or "person" (a person program creates a human task). `accepts` and
+/* ── PROGRAMS. Each transforms the artifacts of one stage into another. `accepts` and
       `produces` are the artifact shapes it reads and writes — the contract.
       `skills` are ids into SKILLS, loaded from the shelf. `instructions` is the
       prose job definition. `def` names the account-level program it instances.
       `runs`/`fail`/`median`/`issues` are LIVE state (Factory only). ── */
 const PROCS = [
   {
-    id: "plan", def: "plan-feature", from: "spec", to: "plans", name: "plan feature", runBy: "agent",
+    id: "plan", def: "plan-feature", from: "spec", to: "plans", name: "plan feature",
     skills: ["read-spec", "frontier"],
     trigger: "manual", runner: "opus", runs: 64, fail: .09, median: "4m 20s",
     accepts: ["problem", "constraints[]", "decisions[]"], produces: ["id", "needs[]", "owns[]", "spec", "proves"],
@@ -185,7 +184,7 @@ You are cutting a **product spec** into build slices. Read the section named in
 3. Report collisions. Do not resolve them yourself.`
   },
   {
-    id: "dispatch", def: "dispatch-slice", from: "plans", to: "branch", name: "dispatch slice", runBy: "agent",
+    id: "dispatch", def: "dispatch-slice", from: "plans", to: "branch", name: "dispatch slice",
     skills: ["frontier", "github"],
     trigger: "on arrival · frontier only", runner: "orca", runs: 314, fail: .02, median: "8s",
     accepts: ["needs[]", "owns[]"], produces: ["slice", "branch", "agent", "started_at"],
@@ -210,7 +209,7 @@ with a slice already sitting in Worker branch or Worker PR.
 2. If nothing is buildable, stop. Do not widen the definition.`
   },
   {
-    id: "build", def: "build-self-review", from: "branch", to: "pr", name: "build + self-review", runBy: "agent",
+    id: "build", def: "build-self-review", from: "branch", to: "pr", name: "build + self-review",
     skills: ["testing", "code-review", "browser"],
     trigger: "on arrival", runner: "sonnet", runs: 308, fail: .21, median: "22m",
     accepts: ["slice", "branch", "agent"], produces: ["slice", "diff", "checks", "reviewer"],
@@ -237,16 +236,15 @@ does not own, stop and file a \`spec-ambiguity\` defect naming the path.
 3. A finding you cannot fix inside owns is raised as a known limitation.`
   },
   {
-    id: "review", def: "review-merge", from: "pr", to: "merged", name: "review + merge", runBy: "person",
-    task: "Merge PR", assignee: { type: "human", name: "You" }, skills: ["code-review", "github"],
+    id: "review", def: "review-merge", from: "pr", to: "merged", name: "review + merge",
+    skills: ["code-review", "github"],
     trigger: "on arrival", runner: "you", runs: 301, fail: .34, median: "6m",
     accepts: ["diff", "checks", "reviewer"], produces: ["slice", "sha", "shipped_at"],
     issues: ["i2", "i4", "i5", "i8", "i10", "i12"],
     instructions: `## Context
 
 Review against the slice's \`proves\` line and the conventions in \`AGENTS.md\`.
-Nothing else is in scope. This program creates a **human task** — a person makes
-the call, an agent does not.
+Nothing else is in scope.
 
 ## Tasks
 
@@ -263,7 +261,7 @@ the call, an agent does not.
    the rule exists next time.`
   },
   {
-    id: "log", def: "capture-notes", from: "merged", to: "feed", name: "capture landing notes", runBy: "agent",
+    id: "log", def: "capture-notes", from: "merged", to: "feed", name: "capture landing notes",
     skills: ["github"],
     trigger: "after every merge", runner: "haiku", runs: 308, fail: .04, median: "40s",
     accepts: ["slice", "sha"], produces: ["category", "area", "report", "fold"],
@@ -291,8 +289,8 @@ Categories: \`follow-up\`, \`unresolved\`, \`trade-off\`, \`limitation\`.
 3. A harness failure becomes a system defect; product work becomes a slice.`
   },
   {
-    id: "triage", def: "triage-feedback", from: "feed", to: "spec", name: "triage feedback", runBy: "person",
-    task: "Fold feedback into the spec", assignee: { type: "human", name: "You" }, skills: ["read-spec"],
+    id: "triage", def: "triage-feedback", from: "feed", to: "spec", name: "triage feedback",
+    skills: ["read-spec"],
     trigger: "manual · weekly", runner: "you", runs: 21, fail: .05, median: "3m",
     accepts: ["report", "fold"], produces: ["constraints[]", "decisions[]"],
     issues: ["i6"],
@@ -381,7 +379,7 @@ const INPUTS = [
 ];
 
 /* ── DEFECTS. Friction the factory logs about its own wiring, attributed to a
-      program, never to an artifact group. Operational — never on the System
+      program, never to a stage. Operational — never on the System
       canvas; reached through the Defects list. ── */
 const ISSUES = [
   { id: "i1",  cat: "skill-gap",       edge: "build",  t: "No skill for generating fixture mail with realistic thread depth", run: "run 291", fix: true },
@@ -398,14 +396,17 @@ const ISSUES = [
   { id: "i12", cat: "convention-drift",edge: "review", t: "Commit messages losing the slice id prefix", run: "run 255", fix: true },
 ];
 
-/* ── LIVE STATE: what is actually sitting in each group right now (Factory). ── */
+/* ── LIVE STATE: the artifacts sitting in each stage right now (Factory / the
+      Artifacts browser). `final: true` marks an artifact as a finished output —
+      independent of which stage it is at — so the Artifacts mode can default to
+      showing just the finals. ── */
 const ITEMS = {
   spec: [
     { id: "01", t: "Product concept", s: "12 decisions · 3 open questions", d: "ok" },
     { id: "02", t: "Schema", s: "§3 ambiguous · 1 defect open", d: "bad" },
     { id: "03", t: "Sync engine", s: "8 slices covering · complete", d: "ok" },
     { id: "04", t: "Agent runtime", s: "4 sections uncovered", d: "wait" },
-    { id: "05", t: "Shell decision", s: "settled · Electron", d: "ok" },
+    { id: "05", t: "Shell decision", s: "settled · Electron", d: "ok", final: true },
     { id: "06", t: "Contact as memory", s: "2 sections uncovered", d: "wait" },
   ],
   plans: [
@@ -430,12 +431,12 @@ const ITEMS = {
     { id: "1.42", t: "avatar list variant", s: "1 check failing", d: "bad" },
   ],
   merged: [
-    { id: "1.37", t: "reading pane hairlines", s: "2h ago · a91f3c2", d: "ok" },
-    { id: "1.36", t: "sidebar label twisty", s: "4h ago · 7d20e18", d: "ok" },
-    { id: "1.35", t: "palette @ context", s: "6h ago · 3fe9a04", d: "ok" },
-    { id: "1.34", t: "strip guard chip", s: "yesterday · c1b7f56", d: "ok" },
-    { id: "1.33", t: "thread summary block", s: "yesterday · 0ab4d91", d: "ok" },
-    { id: "1.32", t: "compose overlay card", s: "yesterday · 55c3e77", d: "ok" },
+    { id: "1.37", t: "reading pane hairlines", s: "2h ago · a91f3c2", d: "ok", final: true },
+    { id: "1.36", t: "sidebar label twisty", s: "4h ago · 7d20e18", d: "ok", final: true },
+    { id: "1.35", t: "palette @ context", s: "6h ago · 3fe9a04", d: "ok", final: true },
+    { id: "1.34", t: "strip guard chip", s: "yesterday · c1b7f56", d: "ok", final: true },
+    { id: "1.33", t: "thread summary block", s: "yesterday · 0ab4d91", d: "ok", final: true },
+    { id: "1.32", t: "compose overlay card", s: "yesterday · 55c3e77", d: "ok", final: true },
   ],
   feed: [
     { id: "#1", t: "reading pane drops frames past 40 messages", cat: "bug", area: "reading pane", d: "bad", fix: true,
@@ -482,7 +483,7 @@ padStations(STATES, ITEMS, PANEL_MAX,
 
 /* ══════════════════════════════════════════════════════════════ agents ══
    LIVE STATE. A run is one harness session dispatched by a program, sitting on
-   one slice in one artifact group and executing the program out of it. Factory
+   one slice in one stage and executing the program out of it. Factory
    mode only — never read by the System canvas. */
 
 const RUN_PROC  = { branch: "build",  pr: "review", merged: "review" };
@@ -790,7 +791,7 @@ Patching the instructions again just spreads the same failure thinner.
 
 ## Tasks
 
-- [ ] Name the artifact group the program is really trying to produce → groups
+- [ ] Name the stage the program is really trying to produce → stages
 - [ ] Split the program in two, or move the boundary → system/canvas.md
 - [ ] Re-type the contracts either side of the new line → accepts[], produces[]
 - [ ] Close the three defects against the redraw, not against a patch → system/defects/*.md
@@ -798,13 +799,14 @@ Patching the instructions again just spreads the same failure thinner.
 ## Rules
 
 1. A redraw bumps the **minor** version. A patch bumps the point.
-2. If the redraw needs a new artifact group, it needs a new filter. No group
+2. If the redraw needs a new stage, it needs a new filter. No stage
    without a predicate you can count.`
   },
 };
 
-/* Outputs is the view past the factory's terminal group: coherent releases,
-   where they can be experienced, and the source artifacts that made them. */
+/* The Artifacts browser is where you read the things the factory produces. It
+   defaults to the finals (see `final` on ITEMS) — coherent releases and where
+   they can be experienced — and widens to every artifact at any stage. */
 const PRODUCT = {
   noun: "release",
   itemWord: "features",
@@ -812,7 +814,7 @@ const PRODUCT = {
   promotable: true,
   lanes: [{ id: "development", name: "Development" }, { id: "staging", name: "Staging" }, { id: "production", name: "Production" }],
   nav: [
-    { id: "overview", label: "Recent", icon: "clock", n: 3 },
+    { id: "overview", label: "Browse", icon: "box" },
     { id: "environments", label: "Environments", icon: "globe", n: 3 },
   ],
   releases: [
@@ -842,8 +844,8 @@ const PRODUCT = {
 /* ── the rails ── */
 const NAV = {
   system: [
-    { id: "loop",       label: "The factory",  icon: "loop" },
-    { id: "artifacts",  label: "Artifact groups", icon: "list",  n: 6 },
+    { id: "loop",       label: "Layout",  icon: "loop" },
+    { id: "artifacts",  label: "Stages",       icon: "list",  n: 6 },
     { id: "programs",   label: "Programs",     icon: "book",  n: 6 },
     { id: "subsystems", label: "Subsystems",   icon: "box",   n: 1 },
     { id: "skills",     label: "Skills",       icon: "sparkle", n: 6 },
@@ -868,12 +870,12 @@ const HISTORY = [
 /* ── account-level PROGRAM DEFINITIONS. A program placed on a canvas is an
       instance of one of these; several systems can reuse the same definition. ── */
 const PROGRAM_DEFS = [
-  { id: "plan-feature",      name: "Plan feature",       runBy: "agent",  sub: "product brief → build plans" },
-  { id: "dispatch-slice",    name: "Dispatch slice",     runBy: "agent",  sub: "build plan → worker branch" },
-  { id: "build-self-review", name: "Build + self-review", runBy: "agent", sub: "build plan → worker branch" },
-  { id: "review-merge",      name: "Review + merge",     runBy: "person", sub: "completed work → merged work" },
-  { id: "capture-notes",     name: "Capture landing notes", runBy: "agent", sub: "merged work → feedback" },
-  { id: "triage-feedback",   name: "Triage feedback",    runBy: "person", sub: "feedback → product spec" },
+  { id: "plan-feature",      name: "Plan feature",        sub: "product brief → build plans" },
+  { id: "dispatch-slice",    name: "Dispatch slice",      sub: "build plan → worker branch" },
+  { id: "build-self-review", name: "Build + self-review", sub: "build plan → worker branch" },
+  { id: "review-merge",      name: "Review + merge",     sub: "completed work → merged work" },
+  { id: "capture-notes",     name: "Capture landing notes", sub: "merged work → feedback" },
+  { id: "triage-feedback",   name: "Triage feedback",    sub: "feedback → product spec" },
 ];
 
 const TERMS = {
