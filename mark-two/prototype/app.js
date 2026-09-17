@@ -1017,7 +1017,8 @@ function routeEdges(edges, nodes) {
   });
 }
 
-const R = 16;   // corner radius for the grid routing
+const R = 16;            // corner radius for the grid routing
+const STRAIGHT_TOL = 8;  // a route this close to straight renders as one segment
 
 /* orthogonal route between the two ports: a stub out of each side, then straight
    H/V segments meeting in the middle — an L when the sides are perpendicular,
@@ -1054,6 +1055,25 @@ function roundedPath(raw, r) {
   const p = [];
   for (const q of raw) { const l = p[p.length - 1]; if (!l || Math.abs(q.x - l.x) > 0.5 || Math.abs(q.y - l.y) > 0.5) p.push(q); }
   if (p.length < 2) return { d: "", mid: p[0] || { x: 0, y: 0 } };
+  /* A route whose every bend sits within a few pixels of the straight line
+     between its two endpoints is a near-straight wire. Snap its two endpoints
+     onto a shared axis so the wire is genuinely straight — a small kink becomes
+     an aligned horizontal or vertical line, not a subtly diagonal one. */
+  if (p.length > 2) {
+    const a = p[0], b = p[p.length - 1];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    if (len > STRAIGHT_TOL
+      && p.slice(1, -1).every((q) =>
+        Math.abs(dx * (q.y - a.y) - dy * (q.x - a.x)) / len <= STRAIGHT_TOL)) {
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        const y = (a.y + b.y) / 2;
+        return { d: `M${a.x},${y} L${b.x},${y}`, mid: { x: (a.x + b.x) / 2, y } };
+      }
+      const x = (a.x + b.x) / 2;
+      return { d: `M${x},${a.y} L${x},${b.y}`, mid: { x, y: (a.y + b.y) / 2 } };
+    }
+  }
   let d = `M${p[0].x},${p[0].y}`;
   for (let i = 1; i < p.length - 1; i++) {
     const a = p[i - 1], c = p[i], b = p[i + 1];
@@ -1273,7 +1293,7 @@ function paintLoop() {
       <div class="lp-world" id="world" style="width:${G.W}px;height:${G.H}px">
         <svg class="lp-svg" width="${G.W}" height="${G.H}">
           <defs>
-            ${["arrow:var(--wire)", "arrowA:var(--accent)", "arrowE:var(--red)", "arrowS:var(--wire)", "arrowIn:var(--accent)"]
+            ${["arrow:var(--wire-solid)", "arrowA:var(--accent)", "arrowE:var(--red)", "arrowS:var(--wire-solid)", "arrowIn:var(--accent)"]
               .map((d) => { const [id, c] = d.split(":");
                 return `<marker id="${id}" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                   <path d="M0,1 L9,5 L0,9 z" style="fill:${c}${id === "arrowS" ? ";opacity:.62" : ""}"/></marker>`; }).join("")}
