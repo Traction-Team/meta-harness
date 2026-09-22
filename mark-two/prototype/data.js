@@ -584,17 +584,20 @@ const AGENTS = [
   {
     id: "r-138", slice: "1.38", title: "company card people strip", station: "pr",
     started: "3h ago", elapsed: "3h", pct: 80, status: "waiting",
-    head: "Waiting on a merge call",
+    head: "PR #412 up · preview ready for review",
     question: {
-      t: "The diff caches a derived people-count on the company record. Merge it, or send back to derive on read?",
-      opts: ["Send back — derive on read", "Merge — the cache is fine here"],
+      kind: "review",
+      t: "Review the company card people strip against its proves line.",
+      summary: "The agent raised PR #412 and deployed the branch to a preview. Open it, use the strip the way a reader would, then approve it or send it back with a note.",
+      opts: ["Approve and merge", "Send back with changes", "Hold — leave a note"],
+      preview: { title: "Company card", url: "preview.email-agent.dev/1-38", screen: "company" },
     },
     log: [
       { k: "sys",  t: "Reviewing PR slice/1.38 · checks green · waiting on you" },
-      { k: "say",  t: "Read `proves`, then the diff. Scope is clean — every changed path sits inside owns. One thing gives me pause." },
+      { k: "say",  t: "Read `proves`, then the diff. Scope is clean — every changed path sits inside owns. The strip reads the people from messages on read, which matches D191. It also caches the count on the company record, which the checklist usually flags, so I am not merging it on my own." },
       { k: "tool", act: "Read", arg: "src/company/PeopleStrip.tsx" },
-      { k: "say",  t: "The strip derives the people list from messages on read, which matches D191. But it also caches the count on the company record — exactly the second-source-of-truth the review checklist keeps catching. It may be an intentional perf call, so I am not merging or rejecting on my own." },
-      { k: "ask",  t: "The diff caches a derived people-count on the company record. Merge it, or send back to derive on read?" },
+      { k: "bash", cmd: "npm run deploy -- preview", ok: true, out: "preview ready  https://preview.email-agent.dev/1-38" },
+      { k: "ask",  t: "Review the company card people strip against its proves line." },
     ],
   },
   {

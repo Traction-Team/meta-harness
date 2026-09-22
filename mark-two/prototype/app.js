@@ -43,6 +43,7 @@ const ICONS = {
   layout:  I(`<rect x="2.2" y="2.2" width="4" height="3.5" rx="1"/><rect x="9.8" y="10.3" width="4" height="3.5" rx="1"/><path d="M6.2 4h2a2 2 0 0 1 2 2v4.3"/>`, 15),
   board:   I(`<rect x="2.2" y="2.2" width="4.7" height="4.7" rx="1"/><rect x="9.1" y="2.2" width="4.7" height="4.7" rx="1"/><rect x="2.2" y="9.1" width="4.7" height="4.7" rx="1"/><rect x="9.1" y="9.1" width="4.7" height="4.7" rx="1"/>`, 15),
   copy:    I(`<rect x="5.4" y="5.4" width="8" height="8" rx="1.4"/><path d="M10.6 5.4V4A1.4 1.4 0 0 0 9.2 2.6H4A1.4 1.4 0 0 0 2.6 4v5.2A1.4 1.4 0 0 0 4 10.6h1.4"/>`, 14),
+  terminal:I(`<rect x="2" y="2.8" width="12" height="10.4" rx="1.9"/><path d="M4.7 6.3 6.3 7.9 4.7 9.5M8.2 9.7h3.2"/>`, 14),
 };
 
 const MODES = {
@@ -96,6 +97,8 @@ const state = {
   composer: "",             // the un-sent line in the console
   fleetSize: {},            // ws id -> configured agent capacity
   decisionIndex: 0,         // the pending decision currently in focus
+  decisionNote: "",         // the unsent feedback on a review decision
+  previewOpen: false,       // the artifact preview popped to full screen
   /* an input program opened as its own primary pane: the operator's intake
      console, where you pour work into the loop */
   inputOpen: null,          // input id, or null
@@ -1909,6 +1912,7 @@ function setDecision(delta) {
   const list = pendingDecisions();
   if (!list.length) return;
   state.decisionIndex = (state.decisionIndex + delta + list.length) % list.length;
+  state.decisionNote = ""; state.previewOpen = false;
   paint();
 }
 
@@ -1916,71 +1920,114 @@ function makeDecision(id, optionIndex) {
   const r = runById(id);
   if (!r || !r.question) return;
   const choice = r.question.opts[optionIndex];
-  answerRun(id, optionIndex);
-  toast(`Decision sent · ${choice}`);
+  const note = isReview(r) ? (state.decisionNote || "").trim() : "";
+  state.decisionNote = ""; state.previewOpen = false;
+  answerRun(id, optionIndex, note);
+  toast(note ? `Decision sent with your note · ${choice}` : `Decision sent · ${choice}`);
 }
 
-function decisionContextCard(r) {
+/* The rail answers two questions and nothing else: which agent raised this,
+   and what it actually built. The fleet-wide roster used to live here and only
+   got in the way — you came to this page to make one call. */
+
+const isReview = (r) => !!(r && r.question && r.question.kind === "review" && r.question.preview);
+
+/* the terminals behind the run: the worker session, its check run if the log
+   has one, and the worktree shell. Each one opens the session console. */
+function decisionSessions(r) {
+  const failing = [...r.log].reverse().find((e) => e.k === "bash" && e.ok === false);
+  const passing = [...r.log].reverse().find((e) => e.k === "bash" && e.ok === true);
+  const log = [
+    { name: branchOf(r), kind: "worker", status: r.status },
+  ];
+  if (failing) log.push({ name: failing.cmd, kind: "checks", status: "failed" });
+  else if (passing) log.push({ name: passing.cmd, kind: "checks", status: "running" });
+  log.push({ name: worktreeOf(r), kind: "shell", status: "done" });
+  return log;
+}
+
+function decisionAgentPanel(r) {
   if (!r) return "";
   const proc = runProcOf(r);
-  const home = itemHome({ id: r.slice });
-  const files = filesTouched(r);
-  return `<aside class="dec-context-card">
-    <div class="dec-context-main">
-      <span class="dec-context-icon">${ICONS.doc}</span>
-      <div class="dec-context-title">
-        <b><span class="mono">${esc(r.slice)}</span> ${esc(r.title)}</b>
-        <span>${esc(stationName(r.station))} · ${esc(agentName(r))}</span>
+  return `<aside class="dec-agent-pane">
+    <div class="dec-agent-head">
+      <span class="agent-avatar lg" style="--agent-h:${agentHue(r)}" aria-hidden="true"></span>
+      <div class="dec-agent-id">
+        <b>${esc(agentName(r))}</b>
+        <span>${esc(proc ? proc.name : stationName(r.station))} · ${esc(runModelOf(r))}</span>
       </div>
       <span class="pill waiting">Needs you</span>
     </div>
-    <div class="dec-context-rows">
-      <div><span>Process</span><b>${esc(proc ? proc.name : "—")}</b></div>
-      <div><span>Model</span><b>${esc(runModelOf(r))}</b></div>
+    <div class="dec-agent-rows">
+      <div><span>${esc(TERMS.Unit)}</span><b><span class="mono">${esc(r.slice)}</span> ${esc(r.title)}</b></div>
+      <div><span>Stage</span><b>${esc(stationName(r.station))}</b></div>
       <div><span>Progress</span><b>${r.pct}% · ${esc(r.elapsed)}</b></div>
-      <div><span>Files touched</span><b>${files.length || "None yet"}</b></div>
     </div>
-    <div class="dec-context-foot">
-      <span>Stage&nbsp; ${esc(home ? stationName(home) : stationName(r.station))}</span>
-      ${home ? `<button data-context-file="${esc(home)}">Open artifact</button>` : ""}
-      <button data-context-run="${r.id}">Open session</button>
+    <div class="dec-sessions-h">Terminal sessions</div>
+    <div class="dec-sessions">
+      ${decisionSessions(r).map((s) => `<button class="dec-session" data-context-run="${r.id}">
+        <span class="dec-session-ic">${ICONS.terminal}</span>
+        <span class="dec-session-b"><b class="mono">${esc(s.name)}</b><span>${esc(s.kind)}</span></span>
+        <span class="nd-dot ${RUN_DOT[s.status] || "ok"}"></span>
+      </button>`).join("")}
+    </div>
+    <div class="dec-agent-foot">
+      <button class="lnk" data-context-run="${r.id}">Open full session ${ICONS.chevR}</button>
     </div>
   </aside>`;
 }
 
-function decisionFleet() {
-  const live = liveAgents();
-  const size = fleetSize();
-  const groups = [
-    ["waiting", "Needs a decision", "wait"],
-    ["failed", "Failed", "bad"],
-    ["blocked", "Blocked", "wait"],
-    ["running", "Working", "run"],
-  ];
-  const rows = groups.map(([status, label, dot]) => {
-    const runs = live.filter((r) => r.status === status);
-    if (!runs.length) return "";
-    return `<div class="dec-agent-group">
-      <div class="dec-agent-group-h"><span>${esc(label)}</span><b>${runs.length}</b></div>
-      ${runs.map((r) => `<button class="dec-agent" data-run="${r.id}">
-        <span class="agent-avatar" style="--agent-h:${agentHue(r)}" aria-hidden="true"></span>
-        <span class="dec-agent-copy"><b>${esc(agentName(r))}</b><span><i class="nd-dot ${dot}"></i>${esc(r.head || r.title)}</span></span>
-        ${ICONS.chevR}
-      </button>`).join("")}
-    </div>`;
-  }).join("");
-  return `<aside class="dec-fleet">
-    <div class="dec-fleet-head">
-      <div><span>Agents</span><strong>${size}</strong></div>
-      <span class="pill running">Live</span>
+/* a plausible read of the artifact under review, so the preview window has
+   something app-shaped in it. One screen per kind; only `company` ships today. */
+function previewScreen(pv) {
+  if (!pv) return "";
+  if (pv.screen === "company") return `<div class="pv-app">
+    <div class="pv-app-side">
+      <div class="pv-app-brand"><span class="pv-app-mark"></span><b>Mail</b></div>
+      ${[["Inbox", "12"], ["Starred", ""], ["Sent", ""], ["Drafts", "3"], ["Archive", ""]].map(([n, c], i) =>
+        `<span class="pv-nav ${i === 0 ? "on" : ""}">${esc(n)}${c ? `<i>${esc(c)}</i>` : ""}</span>`).join("")}
+      <span class="pv-nav-h">Labels</span>
+      ${["Work", "Receipts", "Travel"].map((n) => `<span class="pv-nav">${esc(n)}</span>`).join("")}
     </div>
-    <div class="dec-fleet-summary">
-      <span><b>${live.filter((r) => r.status === "running").length}</b> working</span>
-      <span><b>${pendingDecisions().length}</b> need you</span>
-      <span><b>${live.filter((r) => r.status === "blocked").length}</b> blocked</span>
-      <span><b>${live.filter((r) => r.status === "failed").length}</b> failed</span>
+    <div class="pv-app-main">
+      <div class="pv-app-bar"><span class="pv-app-crumb">Inbox</span><span class="pv-app-me"></span></div>
+      <div class="pv-card">
+        <div class="pv-card-h">
+          <span class="pv-logo">N</span>
+          <div class="pv-card-ht"><b>Northwind Trading</b><span>team@northwind.co</span></div>
+        </div>
+        <div class="pv-feature">
+          <div class="pv-feature-l"><span>People in this thread</span><b>6</b></div>
+          <div class="pv-people">
+            ${["AK", "MR", "TS", "JD", "LP", "+2"].map((x, i) =>
+              `<span class="pv-person" style="--h:${(i * 53 + 200) % 360}">${esc(x)}</span>`).join("")}
+          </div>
+        </div>
+      </div>
+      ${["Re: Q3 freight schedule", "Invoice 88213 attached", "Following up on the quote"].map((s, i) =>
+        `<div class="pv-row"><span class="pv-row-dot ${i ? "" : "un"}"></span>
+          <div class="pv-row-b"><b>${esc(s)}</b><span>${["Priya Nair", "Marcus Reed", "Nadia Okafor"][i]} · ${i ? "Yesterday" : "9:41 AM"}</span></div>
+        </div>`).join("")}
     </div>
-    <div class="dec-agent-list">${rows || `<div class="dec-agents-clear">${ICONS.check}<span>All agents are clear.</span></div>`}</div>
+  </div>`;
+  return `<div class="pv-app pv-app-blank">${esc(pv.title || "Preview")}</div>`;
+}
+
+function decisionPreviewPane(r) {
+  if (!isReview(r)) return "";
+  const pv = r.question.preview;
+  return `<aside class="dec-preview-pane">
+    <div class="dec-pane-label"><span>Artifact under review</span><span class="pill running">Live</span></div>
+    <button class="pv-win" data-preview-open title="Open full screen">
+      <div class="pv-bar">
+        <span class="pv-fav">${ICONS.globe}</span>
+        <span class="pv-bar-t">${esc(pv.title)}</span>
+        <span class="pv-bar-expand">${ICONS.fit}</span>
+      </div>
+      <div class="pv-body">${previewScreen(pv)}</div>
+      <div class="pv-foot"><span class="pv-url mono">${esc(pv.url)}</span></div>
+    </button>
+    <p class="dec-preview-hint">${ICONS.external}<span>Click to open full screen, use it the way a reader would, then decide.</span></p>
   </aside>`;
 }
 
@@ -1988,6 +2035,7 @@ function paintDecisions() {
   const list = pendingDecisions();
   state.decisionIndex = clamp(state.decisionIndex, 0, Math.max(0, list.length - 1));
   const r = list[state.decisionIndex];
+  const review = isReview(r);
   let focus;
   if (!r) {
     focus = `<section class="dec-focus dec-empty">
@@ -1998,22 +2046,35 @@ function paintDecisions() {
     </section>`;
   } else {
     const proc = runProcOf(r);
+    const body = review
+      ? (r.question.summary || decisionContext(r))
+      : decisionContext(r);
+    const feedback = review
+      ? `<div class="dec-feedback">
+          <label for="decFeedback">Feedback for ${esc(agentName(r))} <span>optional — sent with your decision</span></label>
+          <textarea id="decFeedback" rows="2" placeholder="What worked, what to change…">${esc(state.decisionNote || "")}</textarea>
+        </div>`
+      : "";
+    const after = review
+      ? `<b>Then</b> the agent folds your note back into the work and re-runs the checks.`
+      : `<b>Then</b> the agent records your choice and continues from where it stopped.`;
     focus = `<section class="dec-focus">
       <div class="dec-progress">
         <span><b>${state.decisionIndex + 1}</b> of ${list.length}</span>
         <span class="dec-progress-dots">${list.map((_, i) => `<i class="${i === state.decisionIndex ? "on" : ""}"></i>`).join("")}</span>
-        <span class="tagm gt">Decision</span>
+        <span class="tagm ${review ? "rt" : "gt"}">${review ? "Review" : "Decision"}</span>
       </div>
       <div class="dec-question">
         <div class="dec-scope"><span class="mono">${esc(r.slice)}</span><span>${esc(r.title)}</span><span>·</span><span>${esc(proc ? proc.name : stationName(r.station))}</span></div>
         <h1>${esc(r.question.t)}</h1>
-        <p>${mdi(decisionContext(r), null)}</p>
+        <p>${mdi(body, null)}</p>
+        ${feedback}
         <div class="dec-options">${r.question.opts.map((option, i) => `<button class="dec-option" data-decision="${i}">
           <span class="dec-key">${i + 1}</span>
           <span class="dec-option-copy"><b>${esc(option)}</b><span>${esc(decisionEffect(option))}</span></span>
           ${ICONS.chevR}
         </button>`).join("")}</div>
-        <div class="dec-after">${ICONS.sparkle}<span><b>Then</b> the agent records your choice and continues from where it stopped.</span></div>
+        <div class="dec-after">${ICONS.sparkle}<span>${after}</span></div>
       </div>
       <footer class="dec-actions">
         <button class="btn ghost" id="decPrev" ${list.length < 2 ? "disabled" : ""}>${ICONS.chevL} Previous</button>
@@ -2024,17 +2085,66 @@ function paintDecisions() {
     </section>`;
   }
 
-  const rail = `<div class="dec-rail">${decisionContextCard(r)}${decisionFleet()}</div>`;
+  const rail = `<div class="dec-rail">${decisionAgentPanel(r)}${decisionPreviewPane(r)}</div>`;
   $("#main").innerHTML = `<div class="decisions-view"><div class="dec-layout">${focus}${rail}</div></div>`;
   $("#main").querySelectorAll("[data-decision]").forEach((b) => (b.onclick = () => makeDecision(r.id, +b.dataset.decision)));
-  $("#main").querySelectorAll(".dec-agent").forEach((b) => (b.onclick = () => openRun(b.dataset.run)));
   $("#main").querySelectorAll("[data-context-run]").forEach((b) => (b.onclick = () => openRun(b.dataset.contextRun)));
-  $("#main").querySelectorAll("[data-context-file]").forEach((b) => (b.onclick = () => openItemDoc(r.slice, b.dataset.contextFile)));
-  const prev = $("#decPrev"), next = $("#decNext"), session = $("#decSession"), board = $("#decBoard");
+  $("#main").querySelectorAll("[data-preview-open]").forEach((b) => (b.onclick = openPreview));
+  const prev = $("#decPrev"), next = $("#decNext"), session = $("#decSession"), board = $("#decBoard"), fb = $("#decFeedback");
   if (prev) prev.onclick = () => setDecision(-1);
   if (next) next.onclick = () => setDecision(1);
   if (session) session.onclick = () => openRun(r.id);
   if (board) board.onclick = () => { state.view = "loop"; paint(); requestAnimationFrame(() => fit(true)); };
+  if (fb) fb.oninput = () => { state.decisionNote = fb.value; };
+}
+
+/* ── the artifact preview, popped to full screen ──
+   Same browser chrome and same app screen as the rail, given the whole canvas,
+   with the decision buttons along the bottom so you can use the thing and
+   answer without leaving it. */
+function previewRunOf() {
+  const r = pendingDecisions()[state.decisionIndex];
+  return isReview(r) ? r : null;
+}
+function openPreview() {
+  if (!previewRunOf()) return;
+  state.previewOpen = true; paintPreview();
+}
+function closePreview() {
+  state.previewOpen = false; paintPreview();
+}
+function paintPreview() {
+  const host = $("#previewLayer");
+  if (!host) return;
+  const r = previewRunOf();
+  if (!state.previewOpen || !r || state.mode !== "factory" || state.view !== "decisions") {
+    host.className = "pv-layer"; host.innerHTML = ""; return;
+  }
+  const pv = r.question.preview;
+  host.className = "pv-layer open";
+  host.innerHTML = `<div class="pv-full">
+    <header class="pv-full-h">
+      <button class="ico" id="pvBack" title="Back to decision (Esc)">${ICONS.chevL}</button>
+      <span class="pv-full-chrome">
+        <span class="pv-fav">${ICONS.globe}</span>
+        <span class="pv-url mono">${esc(pv.url)}</span>
+      </span>
+      <button class="btn ghost" data-url="https://${esc(pv.url)}">Open in new tab ${ICONS.external}</button>
+    </header>
+    <div class="pv-full-b">${previewScreen(pv)}</div>
+    <footer class="pv-full-f">
+      <span class="pv-full-t">Reviewing <b>${esc(r.slice)} ${esc(r.title)}</b> · ${esc(agentName(r))}</span>
+      <textarea id="pvNote" rows="1" placeholder="Leave a note for ${esc(agentName(r))}…">${esc(state.decisionNote || "")}</textarea>
+      ${r.question.opts.map((o, i) => `<button class="btn ${i === 0 ? "pri" : ""}" data-decision="${i}">${i === 0 ? ICONS.check : ""}${esc(o)}</button>`).join("")}
+    </footer>
+  </div>`;
+  $("#pvBack").onclick = closePreview;
+  $("#previewLayer").querySelectorAll("[data-decision]").forEach((b) =>
+    (b.onclick = () => makeDecision(r.id, +b.dataset.decision)));
+  $("#previewLayer").querySelectorAll("[data-url]").forEach((b) =>
+    (b.onclick = () => window.open(b.dataset.url, "_blank", "noopener")));
+  const note = $("#pvNote");
+  if (note) note.oninput = () => { state.decisionNote = note.value; };
 }
 
 function fleetControl() {
@@ -2234,9 +2344,10 @@ function sendToRun(id) {
 }
 
 /* answering the pending question with one of its one-tap options */
-function answerRun(id, i) {
+function answerRun(id, i, note) {
   const r = runById(id); if (!r || !r.question) return;
   const choice = r.question.opts[i];
+  if (note) r.log.push({ k: "you", t: note });
   r.log.push({ k: "you", t: choice });
   /* a tailored continuation, so the session reads like it actually acted. The
      branches key off the shape of the answer, not the domain, so both a code
@@ -2607,7 +2718,7 @@ function paint() {
   /* over a list, the version card gets its own room on the left so it never
      lands on top of the rows; over the loop it just floats on the dot grid */
   $("#main").classList.toggle("card-left", state.verCardOpen && state.mode === "system" && state.view !== "loop");
-  paintPanels(); paintVersion(); paintAsk(); paintEditor(); paintShelf();
+  paintPanels(); paintVersion(); paintAsk(); paintEditor(); paintShelf(); paintPreview();
   /* Factory selection gets a closer contextual frame; System keeps the canvas
      viewport stable while its inspector opens. */
   if (!chat && factoryCanvas()) {
@@ -2633,6 +2744,7 @@ window.addEventListener("resize", () => { if (state.view === "loop" || factoryCa
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (state.verMenuOpen) { state.verMenuOpen = false; paintVersion(); }   /* the version dropdown */
+    else if (state.previewOpen) closePreview();                            /* the artifact preview */
     else if (state.docStack.length || state.inputOpen) closeEditor();      /* the sheet */
     else if (state.chat.open) { state.chat.open = false; paint(); }        /* the agent chat */
     else if (state.verCardOpen) { state.verCardOpen = false; paintVersion(); }   /* the version card */
@@ -2651,7 +2763,8 @@ window.addEventListener("keydown", (e) => {
       return;
     }
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-      e.preventDefault(); setDecision(e.key === "ArrowLeft" ? -1 : 1); return;
+      if (!state.previewOpen) { e.preventDefault(); setDecision(e.key === "ArrowLeft" ? -1 : 1); }
+      return;
     }
   }
 
