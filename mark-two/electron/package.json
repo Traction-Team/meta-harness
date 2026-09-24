@@ -1,0 +1,14 @@
+{
+  "name": "meta-harness-mark-two",
+  "productName": "Meta Harness",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Electron shell around the mark-two prototype",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^44.4.5"
+  }
+}

@@ -46,7 +46,21 @@ python3 -m http.server 4599
 open 'http://localhost:4599/index.html?mark=one'
 ```
 
-No build step and no dependencies. It does **not** run from `file://`, it needs
+To run it as a desktop app instead, with the native macOS window frame:
+
+```
+cd electron
+npm install    # first time only
+npm start
+```
+
+`electron/` is a thin shell. It loads `prototype/index.html` unchanged and
+injects `electron/shell.css`, which removes the drawn window frame and fake
+traffic lights and makes the top bars drag the window. It has no build step,
+and you reload after an edit with Cmd+R. Links to preview and live URLs open
+in the default browser.
+
+In a browser there is no build step and no dependencies. It does **not** run from `file://`, it needs
 the server. Keep the `?mark=one` query in the URL so a page previously served at
 the same local path cannot be reused from the browser cache. Bump the `?v=` query
 on the three assets in `index.html` after editing or the browser serves stale JS.

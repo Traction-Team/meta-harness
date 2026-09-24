@@ -1,0 +1,18 @@
+/* Injected by main.js. Turns the prototype's drawn window into the real one.
+   Selectors are prefixed with `html` so they outrank styles.css regardless of
+   the order the sheets land in. */
+
+/* the prototype draws a window floating on a backdrop; the OS window is it now */
+html body { padding: 0; background: var(--win); }
+html .win { border-radius: 0; box-shadow: none; }
+
+/* native traffic lights sit where the fake ones were; keep the space */
+html .lights { visibility: hidden; width: 58px; }
+
+/* the chrome rows drag the window */
+html .side-chrome, html .toolbar { -webkit-app-region: drag; user-select: none; }
+html .side-chrome button, html .toolbar button, html .toolbar input, html .toolbar a,
+html .toolbar [role="button"], html .toolbar [data-go], html .toolbar [onclick] { -webkit-app-region: no-drag; }
+
+/* sidebar collapsed: the traffic lights now sit over the toolbar */
+html .win.narrow .toolbar { padding-left: 84px; }
