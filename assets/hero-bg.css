@@ -1,0 +1,122 @@
+/* Hero background variants.
+   Mounted by assets/hero-bg.js into .hero-bg based on [data-bg] on .hero-wrap.
+   Variants: blueprint | pipeline | depth | contour */
+
+.hero-wrap{position:relative}
+.hero-wrap>.hero{position:relative;z-index:1}
+.hero-bg{position:absolute;inset:-64px 0 -120px;z-index:0;pointer-events:none;overflow:hidden;contain:strict}
+.hero-bg canvas,.hero-bg svg.hero-bg-svg{position:absolute;inset:0;width:100%;height:100%}
+
+/* Text protection + edge fades. Drawn above the variant content. */
+.hero-bg-fade{position:absolute;inset:0;z-index:2}
+.hero-bg-fade::before{content:"";position:absolute;inset:0;background:
+  linear-gradient(90deg,rgba(8,9,10,.92) 0%,rgba(8,9,10,.72) 26%,rgba(8,9,10,.28) 48%,rgba(8,9,10,0) 66%)}
+.hero-bg-fade::after{content:"";position:absolute;inset:0;background:
+  linear-gradient(180deg,rgba(8,9,10,.55) 0%,rgba(8,9,10,0) 22%,rgba(8,9,10,0) 68%,rgba(8,9,10,.6) 88%,#08090a 100%)}
+
+/* ---------------------------------------------------------------- Blueprint */
+.bp-grid{position:absolute;inset:0;
+  --minor:rgba(255,255,255,.035);--major:rgba(255,255,255,.075);
+  background-image:
+    linear-gradient(var(--major) 1px,transparent 1px),
+    linear-gradient(90deg,var(--major) 1px,transparent 1px),
+    linear-gradient(var(--minor) 1px,transparent 1px),
+    linear-gradient(90deg,var(--minor) 1px,transparent 1px);
+  background-size:120px 120px,120px 120px,24px 24px,24px 24px;
+  background-position-x:max(48px,calc(50% - 600px));
+  background-position-y:64px}
+.bp-glow{position:absolute;right:6%;top:10%;width:680px;height:600px;border-radius:50%;
+  background:radial-gradient(closest-side,rgba(125,132,240,.17),rgba(125,132,240,.05) 55%,transparent 75%);filter:blur(30px)}
+.bp-sweep{position:absolute;inset:-20% -40%;
+  background:linear-gradient(115deg,transparent 40%,rgba(255,255,255,.035) 49%,rgba(255,255,255,.06) 50%,rgba(255,255,255,.035) 51%,transparent 60%);
+  animation:bp-sweep 11s cubic-bezier(.4,0,.2,1) infinite;transform:translateX(-45%)}
+@keyframes bp-sweep{0%,55%{transform:translateX(-45%)}100%{transform:translateX(45%)}}
+.bp-schematic{position:absolute;right:max(24px,calc(50% - 640px));top:40px;width:min(640px,54vw);height:auto;overflow:visible;
+  will-change:transform;transition:transform .6s cubic-bezier(.2,.7,.2,1)}
+.bp-schematic .bp-stroke{fill:none;stroke:rgba(255,255,255,.34);stroke-width:1.2;stroke-linejoin:round;stroke-linecap:round}
+.bp-schematic .bp-stroke.dim{stroke:rgba(255,255,255,.16)}
+.bp-schematic .bp-stroke.faint{stroke:rgba(255,255,255,.10)}
+.bp-schematic .bp-stroke.dash{stroke-dasharray:3 5}
+.bp-schematic .bp-stroke.accent{stroke:#7d84f0;stroke-width:1.4}
+.bp-schematic .bp-fill{fill:rgba(255,255,255,.025);stroke:none}
+.bp-schematic .bp-fill.top{fill:rgba(125,132,240,.06)}
+.bp-schematic .bp-node{fill:#0f1011;stroke:rgba(255,255,255,.34);stroke-width:1.1}
+.bp-schematic .bp-node.on{fill:#7d84f0;stroke:#7d84f0}
+.bp-schematic .bp-node.ok{fill:#4cb782;stroke:#4cb782}
+.bp-schematic text{font:500 9.5px 'SFMono-Regular',Consolas,'Liberation Mono',monospace;letter-spacing:.14em;fill:rgba(255,255,255,.42)}
+.bp-schematic text.faint{fill:rgba(255,255,255,.22)}
+.bp-schematic text.accent{fill:#a5aaf6}
+.bp-schematic .bp-draw{stroke-dasharray:1;stroke-dashoffset:1;animation:bp-draw 1.6s cubic-bezier(.5,0,.15,1) forwards;animation-delay:calc(var(--i,0)*.16s + .2s)}
+@keyframes bp-draw{to{stroke-dashoffset:0}}
+.bp-schematic .bp-in{opacity:0;animation:bp-in .9s ease forwards;animation-delay:calc(var(--i,0)*.16s + 1.1s)}
+@keyframes bp-in{to{opacity:1}}
+.bp-schematic .bp-layer{animation:bp-float 9s ease-in-out infinite;animation-delay:calc(var(--i,0)*-2.6s);transform-box:fill-box;transform-origin:center}
+@keyframes bp-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+.bp-schematic .bp-pulse{animation:bp-pulse 2.4s ease-in-out infinite}
+@keyframes bp-pulse{0%,100%{opacity:.35}50%{opacity:1}}
+.bp-schematic .bp-travel{stroke-dasharray:6 120;animation:bp-travel 3.2s linear infinite}
+@keyframes bp-travel{to{stroke-dashoffset:-126}}
+.bp-corner{position:absolute;width:14px;height:14px;border:1px solid rgba(255,255,255,.14)}
+.bp-corner.tl{left:max(48px,calc(50% - 600px));top:64px;border-width:1px 0 0 1px}
+.bp-corner.tr{right:max(48px,calc(50% - 600px));top:64px;border-width:1px 1px 0 0}
+
+/* ---------------------------------------------------------------- Pipeline */
+.pl-dots{position:absolute;inset:0;background:radial-gradient(rgba(255,255,255,.06) .8px,transparent .9px) 0 0/32px 32px;
+  background-position:max(48px,calc(50% - 600px)) 64px}
+.pl-glow{position:absolute;right:0;top:0;width:60%;height:100%;
+  background:radial-gradient(ellipse 60% 55% at 70% 45%,rgba(125,132,240,.08),transparent 70%)}
+
+/* ---------------------------------------------------------------- Depth */
+.dg-scene{position:absolute;inset:0;perspective:800px;perspective-origin:50% 60%;--horizon:66%}
+.dg-floor{position:absolute;left:-60%;right:-60%;top:var(--horizon);height:1400px;transform-origin:50% 0;transform:rotateX(72deg);
+  background-image:
+    linear-gradient(rgba(255,255,255,.22) 1.5px,transparent 1.5px),
+    linear-gradient(90deg,rgba(255,255,255,.22) 1.5px,transparent 1.5px);
+  background-size:80px 80px;
+  -webkit-mask-image:linear-gradient(180deg,transparent 0%,#000 10%,#000 40%,transparent 70%),linear-gradient(90deg,transparent 22%,#000 42%,#000 58%,transparent 78%);
+  mask-image:linear-gradient(180deg,transparent 0%,#000 10%,#000 40%,transparent 70%),linear-gradient(90deg,transparent 22%,#000 42%,#000 58%,transparent 78%);
+  -webkit-mask-composite:source-in;mask-composite:intersect;
+  animation:dg-drift 5s linear infinite}
+@keyframes dg-drift{to{background-position:0 80px,0 0}}
+.dg-horizon{position:absolute;left:0;right:0;top:var(--horizon);height:1px;
+  background:linear-gradient(90deg,transparent 22%,rgba(255,255,255,.18) 40%,rgba(165,170,246,.45) 52%,rgba(255,255,255,.18) 64%,transparent 82%)}
+.dg-horizon-glow{position:absolute;left:14%;right:14%;top:calc(var(--horizon) - 70px);height:140px;
+  background:radial-gradient(ellipse 50% 50% at 52% 50%,rgba(125,132,240,.24),rgba(125,132,240,.06) 50%,transparent 75%);filter:blur(22px)}
+.dg-plates{position:absolute;right:max(24px,calc(50% - 620px));top:30px;width:min(560px,50vw);aspect-ratio:1/1;transform-style:preserve-3d;
+  transition:transform .6s cubic-bezier(.2,.7,.2,1)}
+.dg-plate{position:absolute;left:50%;top:50%;width:var(--w);height:calc(var(--w)*.58);margin:calc(var(--w)*-.29) 0 0 calc(var(--w)*-.5);
+  transform:translate3d(var(--x),var(--y),var(--z));animation:dg-float 10s ease-in-out infinite;animation-delay:var(--d)}
+.dg-plate svg{width:100%;height:100%;overflow:visible}
+.dg-plate path{fill:rgba(255,255,255,.02);stroke:rgba(255,255,255,var(--a,.3));stroke-width:1.2;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.dg-plate path.inner{fill:none;stroke:rgba(255,255,255,calc(var(--a,.3)*.45));stroke-dasharray:3 5}
+.dg-plate.accent path{stroke:rgba(165,170,246,var(--a,.5));fill:rgba(125,132,240,.06)}
+@keyframes dg-float{0%,100%{transform:translate3d(var(--x),var(--y),var(--z))}50%{transform:translate3d(var(--x),calc(var(--y) - 10px),var(--z))}}
+
+/* ---------------------------------------------------------------- Contour */
+.ct-glow{position:absolute;right:-5%;top:0;width:70%;height:100%;
+  background:radial-gradient(ellipse 50% 50% at 62% 50%,rgba(125,132,240,.10),transparent 70%)}
+
+/* ---------------------------------------------------------------- Dev switcher (remove before ship) */
+.hero-bg-switch{position:fixed;left:16px;bottom:16px;z-index:50;display:flex;gap:2px;padding:3px;border-radius:8px;
+  background:rgba(15,16,17,.9);border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  font:11px 'SFMono-Regular',Consolas,'Liberation Mono',monospace}
+.hero-bg-switch button{background:transparent;border:1px solid transparent;border-radius:5px;padding:5px 9px;color:#8a8f98;font:inherit;cursor:pointer}
+.hero-bg-switch button:hover{color:#d0d2d6}
+.hero-bg-switch button[aria-pressed=true]{background:#1a1b1d;color:#f7f8f8;border-color:rgba(255,255,255,.08)}
+
+@media(max-width:1100px){
+  .bp-schematic{width:min(520px,60vw);top:20px}
+  .dg-plates{width:min(440px,52vw)}
+}
+@media(max-width:760px){
+  .hero-bg-fade::before{background:linear-gradient(90deg,rgba(8,9,10,.9),rgba(8,9,10,.6) 50%,rgba(8,9,10,.3))}
+  .bp-schematic{width:72vw;right:-12vw;top:0;opacity:.7}
+  .bp-corner{display:none}
+  .dg-plates{width:70vw;right:-14vw;opacity:.7}
+}
+@media(prefers-reduced-motion:reduce){
+  .bp-sweep,.bp-schematic .bp-layer,.bp-schematic .bp-pulse,.bp-schematic .bp-travel,.dg-floor,.dg-plate{animation:none}
+  .bp-schematic .bp-draw{animation:none;stroke-dashoffset:0}
+  .bp-schematic .bp-in{animation:none;opacity:1}
+  .bp-schematic,.dg-plates{transition:none}
+}
