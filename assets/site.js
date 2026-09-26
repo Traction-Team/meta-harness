@@ -27,7 +27,7 @@ const agentsOn = program => agents.filter(a => a.program === program);
 const modes = {
   system: { crumb: 'The factory', context: 'System overview', status: 'All contracts valid', caption: 'Design the system. Every step has a purpose. Every handoff has a contract.' },
   factory: { crumb: 'The factory', context: 'Work in motion', status: '4 agents running · 1 needs you', caption: 'Follow the work. See where every agent is, what it’s doing, and what needs your judgment.' },
-  outputs: { crumb: 'Outputs', context: 'Shipped work', status: 'Latest release · v0.3.2', caption: 'See the outcome. Trace what shipped back to the work and decisions behind it.' }
+  outputs: { crumb: 'Outputs', context: 'Environments', status: '0.16.2 in production · 0.17.0 staged', caption: 'See the outcome. Every environment, what’s running on it, and what’s ready to promote.' }
 };
 function node(id, position, kind, name, filter, extra = '') {
   return `<button class="graph-node ${position} ${extra}" data-node="${id}" aria-label="Inspect ${name}"><small><span class="node-icon" aria-hidden="true">${id === 'delivery' ? '▧' : '▤'}</span>${kind}</small><strong>${name}${id === 'delivery' ? '<span aria-hidden="true">↗</span>' : ''}</strong><code>${filter}</code></button>`;
@@ -120,8 +120,33 @@ function startSpotlight() {
   spotlight();
   if (!reducedMotion.matches) spotTimer = setInterval(() => { if (!document.hidden && !selectedNode) spotlight(); }, 3400);
 }
+// --- Outputs: finished work, grouped by where it is deployed. Promote moves a release up the chain.
+const releases = {
+  dev: { version: '0.18.0-pr128', age: 'now', title: 'Inbox keyboard shortcuts', src: 'PR #128 · build/AM-139', note: 'Preview build for the pull request waiting on your review in the factory.', slices: ['AM-139'] },
+  staging: { version: '0.17.0', age: '18m ago', title: 'Thread view polish', src: '#126 · 7d20e18 · 27 Aug', note: 'Long threads stay anchored while messages collapse, with quieter dividers and a persistent summary.', slices: ['AM-138', 'AM-135'] },
+  prod: { version: '0.16.2', age: '2d ago', title: 'Archive shortcuts', src: '#121 · c1b7f56 · 25 Aug', note: 'Archive, label, and undo actions now show their scope before changing a whole selection.', slices: ['AM-137', 'AM-134'] }
+};
+const history = {
+  dev: [['0.18.0-pr127', 'Attachment preview', 'merged'], ['0.18.0-pr125', 'Digest length rail', 'closed']],
+  staging: [['0.16.2', 'Archive shortcuts', '2d ago'], ['0.16.1', 'Draft autosave', '5d ago']],
+  prod: [['0.16.1', 'Draft autosave', '5d ago'], ['0.16.0', 'Label tree', '9d ago']]
+};
+const historyList = rows => `<div class="release-history">${rows.map(([v, t, a]) => `<div><code>${v}</code><span>${t}</span><small>${a}</small></div>`).join('')}</div>`;
+let promoted = false, promoting = false;
+function releaseCard(r, env, extra = '') {
+  return `<div class="release-card ${extra}"><div class="release-top"><b>${r.version}</b><span>${r.age}</span></div><h4>${r.title}</h4><div class="release-src">${r.src}</div><p>${r.note}</p><div class="release-slices">${r.slices.map(s => `<span>${s}</span>`).join('')}</div><div class="release-foot"><span class="env-tag">${env}</span>${env === 'staging' ? `<button class="promote" data-promote ${promoting ? 'disabled' : ''}>${promoting ? 'Promoting…' : '↑ Promote'}</button>` : env === 'development' ? '<span class="env-tag">Preview ↗</span>' : '<span class="env-tag ok"><i class="dot green"></i>Live</span>'}</div></div>`;
+}
+function envColumn(name, sub, pill, body, note) {
+  return `<div class="env-column"><div class="env-head"><span class="env-icon">◎</span><div><strong>${name}</strong><small>${sub}</small></div><span class="env-pill ${pill.kind}"><i class="dot"></i>${pill.text}</span></div>${body}<div class="env-note">${note}</div></div>`;
+}
 function outputsView() {
-  return `<div class="canvas-title"><strong>Product releases</strong><span class="version-badge">agent-mail</span></div><div class="release-view"><div class="release-preview"><div class="mail-toolbar">Inbox <span>3 unread</span></div><div class="mail-item"><span class="mail-avatar">M</span><div><strong>Morgan Lee</strong><p>The new inbox feels great.<br>Those shortcuts make a difference.</p></div></div><div class="mail-item"><span class="mail-avatar">A</span><div><strong>Alex Chen</strong><p>Re: next week’s plans<br>Here’s what I had in mind…</p></div></div><div class="mail-item"><span class="mail-avatar">J</span><div><strong>Jamie Park</strong><p>A few ideas for the next release</p></div></div></div><div class="release-copy"><small>● SHIPPED · V0.3.2</small><h3>A faster way<br>through your inbox.</h3><p>Keyboard shortcuts, a cleaner thread view, and the details that make a product feel right.</p><div class="release-meta">v0.3.2 &nbsp;·&nbsp; 3 merged slices &nbsp;·&nbsp; Shipped 2 days ago<br><br>Reviewed and approved by a person</div></div></div>`;
+  const prodRelease = promoted ? { ...releases.staging, age: 'just now' } : releases.prod;
+  return `<div class="canvas-title"><strong>Releases</strong><span class="fleet-chip"><span><i class="dot green"></i>${promoted ? '3' : '2'}/3 healthy</span><span><i class="dot violet"></i>1 preview</span></span></div>
+  <div class="env-board">
+    ${envColumn('Development', 'preview.agent-mail.dev · build/*', { kind: 'active', text: 'active' }, releaseCard(releases.dev, 'development') + historyList(history.dev), 'One isolated deployment per open PR.')}
+    ${envColumn('Staging', 'staging.agent-mail.dev · main', promoted ? { kind: 'healthy', text: 'in sync' } : { kind: 'staged', text: 'ready' }, (promoted ? `<div class="env-empty"><i class="dot green"></i><span>Nothing waiting. Staging matches production at <b>0.17.0</b>.</span></div>` : releaseCard(releases.staging, 'staging', 'staged')) + historyList(promoted ? [['0.17.0', 'Thread view polish', 'promoted'], ...history.staging.slice(0, 1)] : history.staging), promoted ? 'Next merge from main lands here first.' : 'Reviewed by a person. Promote when you’re happy.')}
+    ${envColumn('Production', 'agent-mail.dev · signed + notarised', { kind: 'healthy', text: 'healthy' }, releaseCard(prodRelease, 'production', promoted ? 'landed' : '') + historyList(promoted ? [['0.16.2', 'Archive shortcuts', '2d ago'], ...history.prod.slice(0, 1)] : history.prod), promoted ? '0.17.0 rolling out to all users.' : 'What people are using right now.')}
+  </div><div class="canvas-legend"><span>development → staging → production</span></div>${promoted ? '' : '<div class="canvas-hint">Try promoting staging ↑</div>'}`;
 }
 function closeInspector(restoreFocus = false) {
   appView.querySelector('.node-inspector')?.remove();
@@ -149,13 +174,14 @@ function renderView() {
   const mode = modes[currentMode];
   document.querySelector('#app-crumb').textContent = mode.crumb;
   document.querySelector('#app-context').textContent = currentCanvas === 'delivery' && currentMode === 'system' ? 'Delivery subsystem' : mode.context;
-  document.querySelector('#app-status-text').textContent = mode.status;
+  document.querySelector('#app-status-text').textContent = currentMode === 'outputs' && promoted ? '0.17.0 in production · staging in sync' : mode.status;
   document.querySelector('#preview-caption').textContent = mode.caption;
   document.querySelector('#sidebar-current').textContent = currentMode === 'outputs' ? 'Releases' : 'The factory';
 }
 function showView(mode, focus = false) {
   currentMode = mode;
   currentCanvas = 'root';
+  promoted = false; promoting = false;
   tabs.forEach(tab => {
     const selected = tab.dataset.mode === mode;
     tab.setAttribute('aria-selected', String(selected));
@@ -182,6 +208,11 @@ tabs.forEach((tab,index) => {
 appView.addEventListener('click', event => {
   const agentButton = event.target.closest('[data-agent]');
   if(agentButton) { event.stopPropagation(); inspectAgent(agentButton.dataset.agent); return; }
+  if(event.target.closest('[data-promote]') && !promoting) {
+    promoting = true; renderView();
+    setTimeout(() => { if (currentMode !== 'outputs') return; promoting = false; promoted = true; renderView(); }, reducedMotion.matches ? 0 : 900);
+    return;
+  }
   const nodeButton = event.target.closest('[data-node]');
   if(nodeButton) inspectNode(nodeButton.dataset.node);
   if(event.target.closest('[data-close]')) closeInspector(true);
