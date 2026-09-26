@@ -14,9 +14,19 @@ const descriptions = {
   branch: { type: 'ARTIFACT GROUP', title: 'Worker branch', description: 'A dedicated branch for a build slice. The agent implements and checks its change before opening a pull request.', label: 'ACCEPTS', contract: 'A buildable slice' },
   pr: { type: 'ARTIFACT GROUP', title: 'Worker PR', description: 'An implementation with passing checks and evidence of completion, ready for human review.', label: 'PRODUCES', contract: 'A tested pull request' }
 };
+// The fleet. Each agent sits on the program it is running; the live view reads this.
+const agents = [
+  { id: 'nova', name: 'Nova', hue: 205, program: 'plan', status: 'running', slice: 'AM-146', title: 'Thread summaries', head: 'Reading spec §3 · drafting two slices', log: [['read', 'specs/threads.md §3'], ['edit', 'slices/AM-146.md', '+24 −0'], ['say', 'Splitting summaries from the digest work — two slices, one contract each.']] },
+  { id: 'atlas', name: 'Atlas', hue: 252, program: 'triage', status: 'running', slice: 'FB-88', title: 'Labels wrong after archive', head: 'Matched to spec §2.4 · filing as defect', log: [['read', 'feedback/FB-88.md'], ['grep', 'archive → labels', '3 hits'], ['say', 'Reproducible. Linking to the classifier slice and marking it a defect, not a request.']] },
+  { id: 'quill', name: 'Quill', hue: 299, program: 'build', status: 'running', slice: 'AM-140', title: 'Search across threads', head: 'Edit search/index.ts · +38 −4', log: [['edit', 'search/index.ts', '+38 −4'], ['bash', 'npm test -- search', '14 passing'], ['say', 'Index builds per thread now. Wiring the query path, then self-review against the spec.']] },
+  { id: 'ember', name: 'Ember', hue: 346, program: 'build', status: 'running', slice: 'AM-141', title: 'Recover unsent drafts', head: 'npm test · 9 passing, 1 pending', log: [['edit', 'drafts/autosave.ts', '+61 −12'], ['bash', 'npm test -- drafts', '9 passing · 1 pending'], ['say', 'Autosave works on blur. Still need the recovery banner state — checking the empty-state rule first.']] },
+  { id: 'sage', name: 'Sage', hue: 33, program: 'learn', status: 'done', slice: 'AM-139', title: 'Inbox keyboard shortcuts', head: 'Captured 2 lessons → feedback', log: [['read', 'pull request #128'], ['write', 'feedback/lessons-128.md', '+18 −0'], ['say', 'Two lessons: shortcut discoverability, and a missing empty state the review caught. Filed both.']] },
+  { id: 'you', name: 'You', person: true, program: 'review', status: 'waiting', slice: 'AM-139', title: 'PR #128 · Inbox keyboard shortcuts', head: 'Waiting for your review', log: [['ci', 'checks', 'all passing'], ['agent', 'self-review', 'no blockers'], ['say', 'Ready for a human decision. Approve to land on main, or send back with notes.']] }
+];
+const agentsOn = program => agents.filter(a => a.program === program);
 const modes = {
   system: { crumb: 'The factory', context: 'System overview', status: 'All contracts valid', caption: 'Design the system. Every step has a purpose. Every handoff has a contract.' },
-  factory: { crumb: 'The factory', context: 'Work in motion', status: '1 agent working · 1 human review', caption: 'Follow the work. See what’s ready, what’s running, and what needs your judgment.' },
+  factory: { crumb: 'The factory', context: 'Work in motion', status: '4 agents running · 1 needs you', caption: 'Follow the work. See where every agent is, what it’s doing, and what needs your judgment.' },
   outputs: { crumb: 'Outputs', context: 'Shipped work', status: 'Latest release · v0.3.2', caption: 'See the outcome. Trace what shipped back to the work and decisions behind it.' }
 };
 function node(id, position, kind, name, filter, extra = '') {
@@ -38,34 +48,104 @@ function rootGraph() {
 function deliveryGraph() {
   return `<div class="canvas-title"><button data-back aria-label="Back to factory overview">← The factory</button><strong>Delivery</strong><span class="version-badge">subsystem</span></div><div class="system-graph delivery-graph"><svg class="graph-wires" viewBox="0 0 800 340" preserveAspectRatio="none" aria-hidden="true"><path class="wire" d="M208 130H296 M504 130H592"/><path class="wire wire-muted" d="M696 170V220Q696 235 680 235H120Q104 235 104 220V170"/></svg>${node('branch','node-spec','ARTIFACT GROUP','Worker branch','slice = dispatched')}${node('pr','node-plans','ARTIFACT GROUP','Worker PR','checks = passing')}${node('merged','node-merged','ARTIFACT GROUP','Merged work','review = approved')}<span class="program-label label-plan"><span>✳</span>build + review</span><span class="program-label label-learn"><span>◇</span>review + merge</span><div class="loop-center">${mark}<span><strong>Agents execute. People decide.</strong>Rework feeds back into the build.</span></div><div class="delivery-note">Build plans in → dispatch → build → human review → merged work out</div></div><div class="canvas-legend"><span><i class="legend-circle"></i>Agent program</span><span><i class="legend-square"></i>Human review</span></div>`;
 }
-function queueCard(id,title,tag,avatar,running = false) {
-  return `<div class="queue-card ${running ? 'running' : ''}"><span class="queue-id">${id}</span><h4>${title}</h4><div class="queue-meta"><span class="queue-tag">${tag}</span><span class="queue-avatar">${avatar}</span></div>${running ? '<div class="running-line"><i class="dot violet"></i>Building + self-review</div>' : ''}</div>`;
+// --- Factory: the same loop, read live. Agents sit on the programs they run.
+function avatar(a) {
+  return a.person ? `<span class="agent-avatar person" aria-hidden="true">${a.name[0]}</span>` : `<span class="agent-avatar" style="--h:${a.hue}" aria-hidden="true"></span>`;
+}
+function stageAvatars(program) {
+  const list = agentsOn(program);
+  if (!list.length) return '';
+  return `<span class="stage-avatars">${list.map(a => `<button class="stage-avatar ${a.status}" data-agent="${a.id}" aria-label="${a.name}: ${a.slice} ${a.title} — ${a.head}">${avatar(a)}<i class="st"></i></button>`).join('')}</span>`;
+}
+function station(id, position, name, items, extra = '') {
+  const rows = items.map(([code, title, st]) => `<div><i class="dot ${st}"></i><code>${code}</code><span>${title}</span></div>`).join('');
+  return `<button class="graph-node station ${position} ${extra}" data-node="${id}" aria-label="Inspect ${name}"><small><span class="node-icon" aria-hidden="true">▤</span>ARTIFACT GROUP<b>${items.length}</b></small><strong>${name}</strong><div class="node-items">${rows}</div></button>`;
 }
 function factoryView() {
-  return `<div class="canvas-title"><strong>Work in motion</strong><span class="version-badge">4 slices</span></div><div class="queue-board"><div class="queue-column"><h3><i class="dot" style="background:#7c8293"></i>Ready to build <b>2</b></h3>${queueCard('AM–142','Keyboard navigation','Ready','✳')}${queueCard('AM–143','Recover unsent drafts','Ready','✳')}<div class="board-bottom">Dependencies resolved</div></div><div class="queue-column"><h3><i class="dot violet"></i>In progress <b>1</b></h3>${queueCard('AM–140','Search across threads','Agent working','✳',true)}<div class="board-bottom">Isolated worker branch</div></div><div class="queue-column"><h3><i class="dot" style="background:#c8ad74"></i>In review <b>1</b></h3>${queueCard('AM–139','Inbox keyboard shortcuts','PR #128','S')}<div class="board-bottom">Waiting for human review</div></div></div>`;
+  const running = agents.filter(a => a.status === 'running').length, waiting = agents.filter(a => a.status === 'waiting').length;
+  const workers = agentsOn('build').concat(agentsOn('review'));
+  return `<div class="canvas-title"><strong>Work in motion</strong><span class="fleet-chip"><span><i class="dot violet"></i>${running} running</span><span><i class="dot amber"></i>${waiting} needs you</span><span><i class="dot green"></i>1 done</span></span></div>
+  <div class="system-graph live-graph">
+    <svg class="graph-wires" viewBox="0 0 800 340" preserveAspectRatio="none" aria-hidden="true"><path class="wire" d="M200 70H300 M500 70H550Q580 70 580 100V150Q580 180 600 180 M600 180H580V260Q580 290 550 290H500 M300 290H200 M100 240V120"/><path class="wire wire-flow" d="M200 70H300 M500 70H550Q580 70 580 100V150Q580 180 600 180 M600 180H580V260Q580 290 550 290H500 M300 290H200 M100 240V120"/><path class="wire wire-muted" d="M400 120V134 M400 214V240"/></svg>
+    ${station('spec', 'node-spec', 'Product spec', [['§3', 'Thread summaries', 'violet'], ['§4', 'Agent runtime', 'idle']])}
+    ${station('plans', 'node-plans', 'Build plans', [['AM-142', 'Keyboard navigation', 'idle'], ['AM-143', 'Attachment preview', 'idle']])}
+    <div class="graph-node node-delivery live-delivery"><button class="node-hit" data-node="delivery" aria-label="Inspect Delivery"><small><span class="node-icon" aria-hidden="true">▧</span>SUBSYSTEM<b>${workers.length}</b></small><strong>Delivery<span aria-hidden="true">↗</span></strong></button><span class="node-workers">${workers.map(a => `<button class="stage-avatar ${a.status}" data-agent="${a.id}" aria-label="${a.name}: ${a.slice} ${a.title} — ${a.head}">${avatar(a)}<i class="st"></i></button>`).join('')}<code>2 building · 1 review</code></span></div>
+    ${station('merged', 'node-merged', 'Merged work', [['AM-138', 'Thread view polish', 'green'], ['AM-137', 'Archive shortcuts', 'green']])}
+    ${station('feedback', 'node-feedback', 'Feedback', [['FB-88', 'Labels wrong after archive', 'violet'], ['FB-87', 'Digest too long', 'idle']])}
+    <span class="program-label label-plan"><span>✳</span>plan feature${stageAvatars('plan')}</span><span class="program-label label-triage"><span>◇</span>triage${stageAvatars('triage')}</span><span class="program-label label-learn"><span>✳</span>capture lessons${stageAvatars('learn')}</span><span class="program-label label-dispatch">dispatch ↘</span><span class="program-label label-land">↙ land</span>
+    <div class="loop-center">${mark}<span><strong>Everything in one view.</strong>Agents, artifacts, and you.</span></div>
+  </div><div class="canvas-legend"><span><i class="legend-agent"></i>Agent on a program</span><span><i class="legend-person"></i>Needs a person</span></div><div class="canvas-hint">Click an agent to see its work ↗</div>`;
+}
+const LOG_KIND = { read: 'Read', edit: 'Edit', write: 'Write', grep: 'Grep', bash: '$', say: '✳', ci: 'CI', agent: '✳' };
+function inspectAgent(id) {
+  if (selectedNode === id) { closeInspector(true); return; }
+  closeInspector();
+  selectedNode = id;
+  const a = agents.find(x => x.id === id);
+  appView.querySelector('.agent-callout')?.remove();
+  appView.querySelectorAll('.stage-avatar.spot').forEach(b => b.classList.remove('spot'));
+  appView.querySelectorAll(`[data-agent="${id}"]`).forEach(b => b.classList.add('active'));
+  const log = a.log.map(([k, arg, sub]) => `<div class="${k === 'say' ? 'say' : ''}"><b>${LOG_KIND[k] || k}</b><span>${arg}${sub ? `<i>${sub}</i>` : ''}</span></div>`).join('');
+  const status = a.status === 'waiting' ? 'NEEDS YOU' : a.status.toUpperCase();
+  appView.insertAdjacentHTML('beforeend', `<aside class="node-inspector agent-inspector" aria-label="${a.name} details"><div class="inspector-head"><span>${a.person ? 'HUMAN' : 'AGENT'} · <em class="${a.status}">${status}</em></span><button data-close aria-label="Close details">×</button></div><div class="agent-id">${avatar(a)}<div><h3>${a.name}</h3><small>${programName(a.program)} · <code>${a.slice}</code></small></div></div><p>${a.title}</p><div class="agent-log">${log}</div>${a.person ? '<button class="inspector-button">Review PR #128 →</button>' : '<button class="inspector-button">Open worker →</button>'}</aside>`);
+  appView.querySelector('[data-close]').focus({ preventScroll: true });
+}
+const programName = p => ({ plan: 'plan feature', triage: 'triage', build: 'build + self-review', learn: 'capture lessons', review: 'review + merge' })[p];
+// Spotlight: every few seconds, point at a different agent and say what it's doing.
+let spotTimer = 0, spotIndex = 0;
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+function stopSpotlight() { clearInterval(spotTimer); spotTimer = 0; appView.querySelector('.agent-callout')?.remove(); appView.querySelectorAll('.stage-avatar.spot').forEach(b => b.classList.remove('spot')); }
+function spotlight() {
+  const graph = appView.querySelector('.live-graph');
+  if (!graph) return;
+  appView.querySelectorAll('.stage-avatar.spot').forEach(b => b.classList.remove('spot'));
+  appView.querySelector('.agent-callout')?.remove();
+  const a = agents[spotIndex % agents.length]; spotIndex++;
+  const btn = graph.querySelector(`[data-agent="${a.id}"]`);
+  if (!btn) return;
+  btn.classList.add('spot');
+  const callout = document.createElement('div');
+  callout.className = `agent-callout ${a.status}`;
+  callout.innerHTML = `<b>${a.name}</b><span>${a.head}</span><small>${a.slice}</small>`;
+  graph.appendChild(callout);
+  const g = graph.getBoundingClientRect(), r = btn.getBoundingClientRect();
+  const w = callout.offsetWidth, cx = r.left + r.width / 2 - g.left;
+  callout.style.left = `${Math.max(0, Math.min(cx - w / 2, g.width - w))}px`;
+  callout.style.top = `${r.bottom - g.top + 8}px`;
+}
+function startSpotlight() {
+  stopSpotlight();
+  if (!appView.querySelector('.live-graph')) return;
+  spotIndex = 0;
+  spotlight();
+  if (!reducedMotion.matches) spotTimer = setInterval(() => { if (!document.hidden && !selectedNode) spotlight(); }, 3400);
 }
 function outputsView() {
   return `<div class="canvas-title"><strong>Product releases</strong><span class="version-badge">agent-mail</span></div><div class="release-view"><div class="release-preview"><div class="mail-toolbar">Inbox <span>3 unread</span></div><div class="mail-item"><span class="mail-avatar">M</span><div><strong>Morgan Lee</strong><p>The new inbox feels great.<br>Those shortcuts make a difference.</p></div></div><div class="mail-item"><span class="mail-avatar">A</span><div><strong>Alex Chen</strong><p>Re: next week’s plans<br>Here’s what I had in mind…</p></div></div><div class="mail-item"><span class="mail-avatar">J</span><div><strong>Jamie Park</strong><p>A few ideas for the next release</p></div></div></div><div class="release-copy"><small>● SHIPPED · V0.3.2</small><h3>A faster way<br>through your inbox.</h3><p>Keyboard shortcuts, a cleaner thread view, and the details that make a product feel right.</p><div class="release-meta">v0.3.2 &nbsp;·&nbsp; 3 merged slices &nbsp;·&nbsp; Shipped 2 days ago<br><br>Reviewed and approved by a person</div></div></div>`;
 }
 function closeInspector(restoreFocus = false) {
   appView.querySelector('.node-inspector')?.remove();
-  const selected = appView.querySelector('.graph-node.active');
-  selected?.classList.remove('active');
+  const selected = appView.querySelector('.graph-node.active, .stage-avatar.active');
+  appView.querySelectorAll('.graph-node.active, .stage-avatar.active').forEach(n => n.classList.remove('active'));
   if (restoreFocus) selected?.focus();
   selectedNode = null;
 }
 function inspectNode(id) {
   if(selectedNode === id) { closeInspector(true); return; }
   closeInspector();
+  appView.querySelector('.agent-callout')?.remove();
+  appView.querySelectorAll('.stage-avatar.spot').forEach(b => b.classList.remove('spot'));
   selectedNode = id;
   const entry = descriptions[id];
-  appView.querySelector(`[data-node="${id}"]`)?.classList.add('active');
+  appView.querySelector(`[data-node="${id}"]`)?.closest('.graph-node')?.classList.add('active');
   appView.insertAdjacentHTML('beforeend', `<aside class="node-inspector" aria-label="${entry.title} details"><div class="inspector-head"><span>${entry.type}</span><button data-close aria-label="Close details">×</button></div><h3>${entry.title}</h3><p>${entry.description}</p><div class="inspector-contract"><span>${entry.label}</span><code>${entry.contract}</code></div>${entry.action ? '<button class="inspector-button" data-open-delivery>Open subsystem →</button>' : ''}</aside>`);
   appView.querySelector('[data-close]').focus({preventScroll:true});
 }
 function renderView() {
   selectedNode = null;
+  stopSpotlight();
   appView.innerHTML = currentMode === 'system' ? (currentCanvas === 'delivery' ? deliveryGraph() : rootGraph()) : currentMode === 'factory' ? factoryView() : outputsView();
+  if (currentMode === 'factory') requestAnimationFrame(startSpotlight);
   const mode = modes[currentMode];
   document.querySelector('#app-crumb').textContent = mode.crumb;
   document.querySelector('#app-context').textContent = currentCanvas === 'delivery' && currentMode === 'system' ? 'Delivery subsystem' : mode.context;
@@ -100,6 +180,8 @@ tabs.forEach((tab,index) => {
   });
 });
 appView.addEventListener('click', event => {
+  const agentButton = event.target.closest('[data-agent]');
+  if(agentButton) { event.stopPropagation(); inspectAgent(agentButton.dataset.agent); return; }
   const nodeButton = event.target.closest('[data-node]');
   if(nodeButton) inspectNode(nodeButton.dataset.node);
   if(event.target.closest('[data-close]')) closeInspector(true);
