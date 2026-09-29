@@ -99,7 +99,7 @@
     const [dx0] = P(CY[0], -1, -1);
     path(`M${dx0 - 22},${CY[0]}V${CY[2]}M${dx0 - 27},${CY[0]}H${dx0 - 17}M${dx0 - 27},${CY[2]}H${dx0 - 17}`, 'dim');
 
-    const labels = ['01 — SYSTEM', '02 — FACTORY', '03 — OUTPUTS'];
+    const labels = ['01 — LAYOUT', '02 — LIVE', '03 — ARTIFACTS'];
     CY.forEach((cy, li) => {
       i = 2 + li;
       const g = svgEl('g', { style: `--i:${li}` }, 'bp-layer');
@@ -137,7 +137,7 @@
     i = 6;
     // Registration mark + drafting notes.
     path('M150,520m-9,0a9,9 0 1,0 18,0a9,9 0 1,0 -18,0M137,520H163M150,507V533', 'dim');
-    text(176, 523.5, 'FIG. 01 — SYSTEM STACK', 'faint');
+    text(176, 523.5, 'FIG. 01 — LAYOUT STACK', 'faint');
     text(616, 523.5, 'SCALE 1:1 · REV v57', 'faint', 'end');
     host.appendChild(svg);
     host.appendChild(el('div', 'bg-fade'));

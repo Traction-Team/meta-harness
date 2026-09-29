@@ -25,9 +25,9 @@ const agents = [
 ];
 const agentsOn = program => agents.filter(a => a.program === program);
 const modes = {
-  system: { crumb: 'The factory', context: 'System overview', status: 'All contracts valid', caption: 'Design the system. Every step has a purpose. Every handoff has a contract.' },
-  factory: { crumb: 'The factory', context: 'Work in motion', status: '4 agents running · 1 needs you', caption: 'Follow the work. See where every agent is, what it’s doing, and what needs your judgment.' },
-  outputs: { crumb: 'Outputs', context: 'Environments', status: '0.16.2 in production · 0.17.0 staged', caption: 'See the outcome. Every environment, what’s running on it, and what’s ready to promote.' }
+  system: { crumb: 'The factory', context: 'Fab layout', status: 'All contracts valid', caption: 'Define the programs, connections, and human gates your agents will work through.' },
+  factory: { crumb: 'The factory', context: 'Shared worker pool', status: '4 agents running · 1 needs you', caption: 'Your team contributes agents. They pick up eligible work automatically. Decisions route to the right operator.' },
+  outputs: { crumb: 'Artifacts', context: 'Releases & deployments', status: '0.16.2 in production · 0.17.0 staged', caption: 'Inspect what the fab produces, from pull requests to releases. Human approval controls what ships.' }
 };
 function node(id, position, kind, name, filter, extra = '') {
   return `<button class="graph-node ${position} ${extra}" data-node="${id}" aria-label="Inspect ${name}"><small><span class="node-icon" aria-hidden="true">${id === 'delivery' ? '▧' : '▤'}</span>${kind}</small><strong>${name}${id === 'delivery' ? '<span aria-hidden="true">↗</span>' : ''}</strong><code>${filter}</code></button>`;
@@ -42,7 +42,7 @@ function rootGraph() {
     ${node('merged', 'node-merged', 'ARTIFACT GROUP', 'Merged work', 'merged = true')}
     ${node('feedback', 'node-feedback', 'ARTIFACT GROUP', 'Feedback', 'status = open')}
     <span class="program-label label-plan"><span>✳</span>plan feature</span><span class="program-label label-triage"><span>◇</span>triage</span><span class="program-label label-learn"><span>✳</span>capture lessons</span><span class="program-label label-dispatch">dispatch ↘</span><span class="program-label label-land">↙ land</span>
-    <div class="loop-center">${mark}<span><strong>A continuous loop.</strong>Intent. Execution. Improvement.</span></div>
+    <div class="loop-center">${mark}<span><strong>Define once. Run continuously.</strong>Programs. Queues. Human gates.</span></div>
   </div><div class="canvas-legend"><span><i class="legend-square"></i>Artifact group</span><span><i class="legend-circle"></i>Program</span></div><div class="canvas-hint">Click any group to inspect ↗</div>`;
 }
 function deliveryGraph() {
@@ -64,7 +64,7 @@ function station(id, position, name, items, extra = '') {
 function factoryView() {
   const running = agents.filter(a => a.status === 'running').length, waiting = agents.filter(a => a.status === 'waiting').length;
   const workers = agentsOn('build').concat(agentsOn('review'));
-  return `<div class="canvas-title"><strong>Work in motion</strong><span class="fleet-chip"><span><i class="dot violet"></i>${running} running</span><span><i class="dot amber"></i>${waiting} needs you</span><span><i class="dot green"></i>1 done</span></span></div>
+  return `<div class="canvas-title"><strong>Live · team agents at work</strong><span class="fleet-chip"><span><i class="dot violet"></i>${running} running</span><span><i class="dot amber"></i>${waiting} needs you</span><span><i class="dot green"></i>1 done</span></span></div>
   <div class="system-graph live-graph">
     <svg class="graph-wires" viewBox="0 0 800 340" preserveAspectRatio="none" aria-hidden="true"><path class="wire" d="M200 70H300 M500 70H550Q580 70 580 100V150Q580 180 600 180 M600 180H580V260Q580 290 550 290H500 M300 290H200 M100 240V120"/><path class="wire wire-flow" d="M200 70H300 M500 70H550Q580 70 580 100V150Q580 180 600 180 M600 180H580V260Q580 290 550 290H500 M300 290H200 M100 240V120"/><path class="wire wire-muted" d="M400 120V134 M400 214V240"/></svg>
     ${station('spec', 'node-spec', 'Product spec', [['§3', 'Thread summaries', 'violet'], ['§4', 'Agent runtime', 'idle']])}
@@ -73,7 +73,7 @@ function factoryView() {
     ${station('merged', 'node-merged', 'Merged work', [['AM-138', 'Thread view polish', 'green'], ['AM-137', 'Archive shortcuts', 'green']])}
     ${station('feedback', 'node-feedback', 'Feedback', [['FB-88', 'Labels wrong after archive', 'violet'], ['FB-87', 'Digest too long', 'idle']])}
     <span class="program-label label-plan"><span>✳</span>plan feature${stageAvatars('plan')}</span><span class="program-label label-triage"><span>◇</span>triage${stageAvatars('triage')}</span><span class="program-label label-learn"><span>✳</span>capture lessons${stageAvatars('learn')}</span><span class="program-label label-dispatch">dispatch ↘</span><span class="program-label label-land">↙ land</span>
-    <div class="loop-center">${mark}<span><strong>Everything in one view.</strong>Agents, artifacts, and you.</span></div>
+    <div class="loop-center">${mark}<span><strong>One shared worker pool.</strong>Pick up. Execute. Repeat.</span></div>
   </div><div class="canvas-legend"><span><i class="legend-agent"></i>Agent on a program</span><span><i class="legend-person"></i>Needs a person</span></div><div class="canvas-hint">Click an agent to see its work ↗</div>`;
 }
 const LOG_KIND = { read: 'Read', edit: 'Edit', write: 'Write', grep: 'Grep', bash: '$', say: '✳', ci: 'CI', agent: '✳' };
@@ -229,9 +229,38 @@ appView.addEventListener('keydown', event => {
     else if(currentCanvas === 'delivery') {currentCanvas='root';renderView();appView.querySelector('[data-node="delivery"]').focus({preventScroll:true});}
   }
 });
+document.querySelector('#show-layout').addEventListener('click', () => showView('system'));
 document.querySelector('#show-factory').addEventListener('click', () => showView('factory'));
 showView('system');
 
 // The prominent perspective controls mirror the keyboard-accessible demo tabs.
 const previewButtons = [...document.querySelectorAll('[data-preview]')];
 previewButtons.forEach(button => button.addEventListener('click', () => showView(button.dataset.preview)));
+
+// Illustrative worker allocation: capacity stays local to this product tour.
+const capacitySelect = document.querySelector('#your-capacity');
+const runFab = document.querySelector('#run-fab');
+const dispatchLog = document.querySelector('#dispatch-log');
+let fabRunning = false;
+function updateCapacity() {
+  const sharedCapacity = [...document.querySelectorAll('[data-agent-capacity]')]
+    .reduce((total, runner) => total + Number(runner.dataset.agentCapacity), 0);
+  const total = Number(capacitySelect.value) + sharedCapacity;
+  document.querySelector('#capacity-total').textContent = `${total} agents`;
+  if (fabRunning) {
+    dispatchLog.classList.add('is-running');
+    dispatchLog.textContent = `${total} agents assigned · picking up eligible work. Planning, build, test, and triage programs are active. Reviews route to code owners.`;
+  }
+}
+capacitySelect.addEventListener('change', updateCapacity);
+runFab.addEventListener('click', () => {
+  fabRunning = !fabRunning;
+  runFab.innerHTML = fabRunning ? 'Pause the fab <span>Ⅱ</span>' : 'Run the fab <span>→</span>';
+  if (fabRunning) {
+    updateCapacity();
+    showView('factory');
+  } else {
+    dispatchLog.classList.remove('is-running');
+    dispatchLog.textContent = 'Dispatch paused · agents finish their current tasks. Run again to resume picking up work.';
+  }
+});
