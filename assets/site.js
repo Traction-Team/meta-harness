@@ -239,13 +239,18 @@ previewButtons.forEach(button => button.addEventListener('click', () => showView
 
 // Illustrative worker allocation: capacity stays local to this product tour.
 const capacitySelect = document.querySelector('#your-capacity');
+const capacityCard = document.querySelector('.capacity-card');
 const runFab = document.querySelector('#run-fab');
 const dispatchLog = document.querySelector('#dispatch-log');
 let fabRunning = false;
+function renderPips(row, count) {
+  row.querySelector('.agent-pips').innerHTML = Array.from({ length: count }, (_, i) => `<i style="--i:${i}"></i>`).join('');
+}
 function updateCapacity() {
-  const sharedCapacity = [...document.querySelectorAll('[data-agent-capacity]')]
-    .reduce((total, runner) => total + Number(runner.dataset.agentCapacity), 0);
-  const total = Number(capacitySelect.value) + sharedCapacity;
+  const runners = [...document.querySelectorAll('[data-agent-capacity]')];
+  runners.forEach(runner => renderPips(runner, Number(runner.dataset.agentCapacity)));
+  renderPips(document.querySelector('#your-runner'), Number(capacitySelect.value));
+  const total = Number(capacitySelect.value) + runners.reduce((sum, runner) => sum + Number(runner.dataset.agentCapacity), 0);
   document.querySelector('#capacity-total').textContent = `${total} agents`;
   if (fabRunning) {
     dispatchLog.classList.add('is-running');
@@ -253,8 +258,10 @@ function updateCapacity() {
   }
 }
 capacitySelect.addEventListener('change', updateCapacity);
+updateCapacity();
 runFab.addEventListener('click', () => {
   fabRunning = !fabRunning;
+  capacityCard.classList.toggle('is-running', fabRunning);
   runFab.innerHTML = fabRunning ? 'Pause the fab <span>Ⅱ</span>' : 'Run the fab <span>→</span>';
   if (fabRunning) {
     updateCapacity();
