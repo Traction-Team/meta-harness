@@ -63,49 +63,100 @@ You change the factory to fix the cause. Then you discard the bad output and run
 
 You can still fix an output by hand when that is the practical choice. But the default action is to fix the factory.
 
-## Readiness score
+## Two sources in every frame
 
-Each step in the factory gets a **readiness score** before it runs. The readiness score estimates how likely the frame is to give a good projection. It measures the input, not the output.
+Each frame has parts from two sources:
 
-A low readiness score means the frame is not ready. The task does not run. Metafab sends the task to a clarification program, or to a person with a list of questions.
+- **The blueprint.** The program instructions, skills, and the recipe that says which parts go in the frame. These parts are the same on every run of the program.
+- **The work.** The specification, the plan, and the code for this item. These parts change with each item.
 
-This is cheaper than building the wrong thing and then finding the problem at review. Manufacturing calls this incoming inspection. You check the material before it enters the machine.
+A defect can come from either source. A weak plan is a problem with the work. A frame that leaves out the constraints is a problem with the blueprint. The trace must show which source caused the defect, because the fix is different. You fix the work for one item. You fix the blueprint for all items after it.
 
-### How Metafab calculates the score
+When a frame leaves too much open, the agent asks a question instead of guessing. The question goes to the person who owns that decision.
 
-The readiness score combines three signals:
+## Scorers
 
-1. **Rubric checks.** Metafab checks the frame against a list. Is the intent clear? Are there acceptance criteria? Are the constraints stated? Is the relevant code included? Is the scope small enough? Are there open questions or conflicts? Some checks apply to every factory. Each program can add its own checks.
-2. **Open questions.** Before the work starts, the model lists the questions it would ask and the assumptions it would make. Many important assumptions give a low score. Metafab can send these questions to the correct person.
-3. **Projection variance.** Metafab projects the same frame a few times at low cost, for example as short plans. Then it measures how much the results differ. A clear frame gives similar results. An unclear frame gives different results, because the model fills the gaps in different ways each time.
+A **scorer** gives a score to an artifact. It reads one artifact, for example a spec, a plan slice, or a diff. It returns a score and the reasons for the score. A scorer is attached to a type of artifact, not to a program.
 
-Projection variance is the strongest signal. It works for every type of step and does not need a rubric.
+The output of one program is the input of the next program. So one scorer does two jobs. It measures how well the first program did its work. It also measures if the item is ready for the next program.
 
-### Keeping the score honest
+Scores are **leading indicators**. They are available as soon as the artifact exists. Defects, rework, and changes at gates are **lagging indicators**. They arrive days or weeks later. The factory needs both. Leading indicators let you act early. Lagging indicators tell you which leading indicators to trust.
 
-The readiness score is useful only if it predicts the result. The factory already records the result. It knows which work passed its gates, which work needed rework, and which defects appeared later.
+### Kinds of scorer
 
-Metafab compares readiness scores with these results for each program. Over time, the score becomes more accurate. At the start, treat the score as an early warning, not as a measure of quality.
+- **Deterministic.** A script measures the artifact. Examples: required fields, test coverage, the size of a diff.
+- **Rubric.** A model checks the artifact against a list of questions.
+- **Human.** The changes that a person makes at a gate. This score costs nothing extra, and it is the most useful score for calibration.
 
-The readiness score also helps to fix the factory. If a defect came from a step with a low score, the fix is usually in the step that made the frame. That step can be the specification, the plan, or a skill. It is not usually the code.
+A scorer returns one or more named dimensions, for example *constraints covered* and *slice size*. Each dimension has its reasons.
 
-## Measuring the factory
+A scorer can be **shown** to the program that makes the artifact, or **held out**. A shown scorer helps the agent get the output right the first time. But the agent learns to satisfy the scorer, and then the score stops being a good measure. A held-out scorer stays an honest measure. You choose for each scorer.
 
-A factory that you cannot measure is only a workflow. Metafab shows these measures for each program:
+### Checks, scorers, and gates
 
-- **Readiness**: the average readiness score of the frames that the program receives.
-- **Yield**: the percentage of outputs that pass their gates the first time.
-- **Rework**: how often an output goes back for changes.
-- **Escaped defects**: defects found after the output left the program.
-- **Gate load**: how often a person must make a decision.
+| | Output | Stops the item? | Purpose |
+| --- | --- | --- | --- |
+| Check | Pass or fail | Yes | The minimum standard |
+| Scorer | A score with reasons | No, unless its policy says to hold | A leading indicator |
+| Gate | A human decision | Yes | Judgement |
 
-These measures show where the factory gives its agents poor context, and where it makes poor output.
+### Two loops
+
+Scores go to two loops. Only the second loop makes the factory better.
+
+**The item loop.** A low score routes one item. Each scorer has a policy for a low score:
+
+- **Continue, flagged.** The item goes on. Use this when the score only shows a risk.
+- **Retry once.** The program runs again with its first output and the reasons for the score.
+- **Hold for a person.** The item goes to a gate. The rest of the factory continues.
+
+The item loop fixes one output. It does not change the factory. A retry is a lower limit on quality, not a fix. Count the retries. A program that often needs a retry has a problem in the factory.
+
+**The factory loop.** All scores go to a blueprint revision pass, not only the low scores. You need the full spread to see patterns, and high scores show what works. The pass looks across many items and changes the blueprint:
+
+- **Find the weak part.** Plans from one program always score low on the same dimension. The fix is in the instructions of that program, or in its frame.
+- **Promote repeated reasons.** When the same reason comes back again and again, it becomes part of the blueprint: an instruction, a skill, or a check.
+- **Test a blueprint change before rollout.** Defects take weeks to arrive. Scores arrive now. Replay recent items on the new version and compare the scores with the old version. Scores are a regression suite for the factory.
+
+Scores do not go back into the frame. They change the blueprint, and the blueprint changes the frame. The agent does not see a number to match. It sees better instructions.
+
+The revision pass can be a person who reads the scores. It can also be a program that proposes a blueprint change. A proposal goes through a gate, the same as a fix for a defect.
+
+### Scorers earn trust
+
+A scorer is part of the blueprint. "Fix the factory" applies to scorers too.
+
+To calibrate a scorer, compare its scores with the defects that come later. For this, each score is stored with the version of the artifact (a content hash), the version of the scorer, the program revision, and the blueprint version. Each artifact also records the artifacts it came from. Then a defect in shipped code can reach the score on the plan two steps before it.
+
+- A scorer that predicts defects can control a gate.
+- A scorer that does not predict defects must be fixed or removed.
+- If a defect comes from an artifact that scored high, the scorer missed it. The fix can be in the scorer, not in the program.
+
+## When the blueprint changes
+
+The factory does not stop for a blueprint change, and nothing is undone in place. Build tools such as `make` work in the same way: when a source changes, outputs built from it are stale, and only stale outputs are built again.
+
+1. **Each run is pinned to a version.** Every run of a program records the blueprint version it ran on. A run that started on v14 finishes on v14.
+2. **Outputs become stale.** When v15 is live, every artifact made by a program that changed in v15 is stale. Staleness goes downstream through the artifact history. If a plan is stale, the code built from that plan is stale too. A stale artifact is not deleted. The item goes back to its earlier state, for example *planned*, and it goes forward again from there.
+3. **A rebuild policy decides what runs again.** The policy depends on how much human time the item has used.
+
+| Where the stale item is | Default |
+| --- | --- |
+| No human gate passed | Rebuild. It is cheap, and no human time was used. |
+| Past a human gate | Keep, unless it also scored low. A rebuild discards a human decision. |
+| Merged or shipped | Fix forward. |
+
+One case stops part of the line. If the scores of one program fall sharply, or a serious defect traces back to it, pause that program only. Its input buffer fills, and the other programs continue. When the fix is live, the program starts again, and its recent outputs are already marked stale.
 
 ## The autonomy dial
 
 Gates are not permanent. They are temporary support for a new factory.
 
-When a program has high readiness and high yield for a long time, you can remove its gate or make the gate a sample check. When a program starts to fail, you can add the gate again.
+When people stop changing the output of a program at its gate, you can remove the gate or make it a sample check. When defects start to come from a program, you can add the gate again.
+
+A trusted scorer makes the dial work for each item, not only for each program. A high score can skip a sampled gate. A low score can send the item to a person.
+
+The main measure is the number of human decisions for each shipped slice. This number goes down as the factory improves.
 
 The factory moves toward full autonomy one step at a time. Each step must show the data that it is ready.
 
@@ -114,8 +165,9 @@ The factory moves toward full autonomy one step at a time. Each step must show t
 - **Agents are not deterministic.** A server built from the same image is the same each time. An agent that runs the same program twice can give different output. So "run it again" does not guarantee a fix. The checks must be strong enough that any output that passes is acceptable. The specification and the checks are the most valuable part of the factory.
 - **What to discard.** It is expensive and risky to rebuild a full product that has users and data. The usual unit to discard is a slice or a subsystem, not the full product.
 - **Existing code.** Most teams have a codebase that no factory made. Metafab needs a way to bring existing code into a factory.
+- **Scorers can be gamed.** If a program sees its scorer, the agent learns to satisfy the scorer. When to show a scorer and when to hold it out is a decision for each scorer.
+- **Slow and sparse feedback.** Defects arrive weeks later, and most items have none. Calibration may need faster signals, such as changes at gates and rework, with defects as the final test.
 - **Trust.** "Fully autonomous" causes doubt. The better claim is that the factory moves toward autonomy, and you can see the progress in the data.
-- **Score accuracy.** The readiness score is new. It needs real results to show that it predicts outcomes.
 
 ## Summary of the ideas
 
@@ -124,6 +176,8 @@ The factory moves toward full autonomy one step at a time. Each step must show t
 | The factory is the product you maintain | The software is the output. The factory and the specification are the source of truth. |
 | Fix the factory, not the output | Trace each defect to its cause in the factory. Fix the cause and run again. |
 | LLMs are projectors | The model projects the next state from the frame you give it. The factory makes the frames. |
-| Readiness before work | Score each frame before the step runs. Do not project a frame that is not ready. |
-| Measure the factory | Readiness, yield, rework, escaped defects, and gate load for each program. |
-| Earn autonomy | Remove gates when the data shows that a step is reliable. |
+| Two sources in every frame | Each frame has parts from the blueprint and parts from the work. A trace shows which one caused a defect. |
+| Score early, calibrate late | Scorers on artifacts are leading indicators. Later defects show which scorers to trust. |
+| Two loops | A low score routes one item. A pattern of scores changes the blueprint. |
+| Stale, not undone | A blueprint change marks outputs stale. A rebuild policy decides what runs again. |
+| Earn autonomy | Remove a gate when people stop changing the output at that gate. |
