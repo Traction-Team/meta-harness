@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Metafab · Mark III</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ───────────────────────── Library ───────────────────────── -->
+<div id="home" class="screen">
+  <header class="home-top">
+    <div class="brand"><span class="brand-mark"></span>metafab</div>
+    <div class="home-search"><span class="k">⌘K</span> Search metafabs, templates, items…</div>
+    <div class="home-actions">
+      <button class="btn ghost" id="btn-templates" title="Community templates come later">Templates</button>
+      <button class="btn primary" id="btn-new">New metafab</button>
+    </div>
+  </header>
+  <main class="home-main">
+    <div class="home-head">
+      <h1>Metafabs</h1>
+      <div class="muted">One factory per project. Open one to watch it run.</div>
+    </div>
+    <div class="cards" id="cards"></div>
+  </main>
+</div>
+
+<!-- ───────────────────────── Studio ───────────────────────── -->
+<div id="studio" class="screen hidden">
+  <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
+        <circle cx="1" cy="1" r="1" class="grid-dot"/>
+      </pattern>
+      <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="3" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="8"/>
+      </filter>
+    </defs>
+    <rect id="grid-bg" x="-20000" y="-20000" width="40000" height="40000" fill="url(#grid)"/>
+    <g id="world">
+      <g id="l-wires"></g>
+      <g id="l-plugs"></g>
+      <g id="l-stops"></g>
+      <g id="l-stations"></g>
+      <g id="l-items"></g>
+      <g id="l-fx"></g>
+    </g>
+  </svg>
+
+  <div class="hud top-left" id="crumb"></div>
+  <div class="hud top-right" id="legend">
+    <div class="legend-row"><span class="lg station"></span>Program</div>
+    <div class="legend-row"><span class="lg gate"></span>Gate</div>
+    <div class="legend-row"><span class="lg bin"></span>Bin</div>
+    <div class="legend-row"><span class="lg item"></span>Item · marks</div>
+  </div>
+
+  <div class="hud left" id="inbox"></div>
+
+  <div class="hud bottom-left" id="agents-pane"></div>
+  <div class="hud bottom-center" id="command"></div>
+  <div class="hud bottom-right" id="stats-pane"></div>
+
+  <aside id="side" class="side hidden"></aside>
+  <div id="toasts"></div>
+</div>
+
+<div id="modal-root"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
