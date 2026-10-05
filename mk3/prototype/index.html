@@ -61,9 +61,11 @@
     <div class="legend-row"><span class="lg item"></span>Item · marks</div>
   </div>
 
-  <div class="hud left" id="inbox"></div>
-
-  <div class="hud bottom-left" id="agents-pane"></div>
+  <!-- left column: inbox (list ⇄ question) stacked above agents -->
+  <div class="left-col">
+    <section class="hud hidden" id="inbox"></section>
+    <div class="hud" id="agents-pane"></div>
+  </div>
   <div class="hud bottom-center" id="command"></div>
   <div class="hud bottom-right" id="stats-pane"></div>
 

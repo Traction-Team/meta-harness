@@ -271,9 +271,12 @@ function buildCanvas(reveal) {
 }
 
 function fitView() {
-  const b = designBounds(); const sideOpen = ui.side && !$('#side').classList.contains('hidden'); const vw = innerWidth - 40 - (sideOpen ? 400 : 0), vh = innerHeight - 150;
+  // keep the line clear of the HUD: left column (inbox + agents), side pane, top bar, command bar
+  const b = designBounds(); const sideOpen = ui.side && !$('#side').classList.contains('hidden');
+  const L0 = 372, R0 = sideOpen ? 416 : 24, T0 = 84, B0 = 100;
+  const vw = innerWidth - L0 - R0, vh = innerHeight - T0 - B0;
   const z = clamp(Math.min(vw / b.w, vh / b.h), .4, 1.4);
-  ui.zoom = z; ui.tx = 20 + (vw - b.w * z) / 2 - b.x * z; ui.ty = 20 + (vh - b.h * z) / 2 - b.y * z;
+  ui.zoom = z; ui.tx = L0 + (vw - b.w * z) / 2 - b.x * z; ui.ty = T0 + (vh - b.h * z) / 2 - b.y * z;
   applyView();
 }
 function applyView() { world.setAttribute('transform', `translate(${ui.tx},${ui.ty}) scale(${ui.zoom})`); $('#grid-bg').setAttribute('transform', `translate(${ui.tx % (28 * ui.zoom)},${ui.ty % (28 * ui.zoom)}) scale(${ui.zoom})`); }
@@ -460,13 +463,15 @@ function askQuestion(g, it, reason) {
   M.questions.push(q); it.questionId = q.id; touch();
 }
 function answerQuestion(q, decision, edit) {
+  const idx = M.questions.indexOf(q);
   const g = G(q.gate); const it = IT(q.item); M.questions = M.questions.filter(x => x !== q); it.questionId = null;
   if (it && it.loc.kind === 'gate') {
     if (decision === 'sendback') sendBack(it, g, edit || 'Sent back by ' + g.owner);
     else { if (decision === 'edited') { M.feedback.push({ gate: g.id, item: it.id, at: M.sim.now, edit }); g.edits++; } it.flags.hold = false; clearGate(it, g, { decision, by: 'person' }); }
   }
   // operate by exception: go straight to the next question
-  if (M.questions.length) openSide('question', M.questions[0].id); else closeSide();
+  if (ui.inboxOpen === q.id) { const next = M.questions[Math.min(idx, M.questions.length - 1)]; next ? openQuestion(next.id) : closeQuestion(); }
+  touch();
 }
 function clearGate(it, g, { decision, by }) {
   g.waiting = g.waiting.filter(x => x !== it.id); g.decisions.push({ decision, by, item: it.id, at: M.sim.now });
@@ -594,54 +599,173 @@ function openSide(type, id) { ui.side = { type, id }; ui.editing = false; render
 function closeSide() { if (M && M.status === 'maintaining' && !ui.worldDim) { M.status = 'running'; M.sim.paused = false; M.maintenance = null; } ui.side = null; ui.selection = null; $$('.station.selected,.stop.selected').forEach(e => e.classList.remove('selected')); renderSide(); touch(); }
 
 // ───────────────────────────────────────────── HUD
+// Lucide-style stroke icons (24px grid, 2px stroke). `solid` icons are also filled.
+const ICONS = {
+  play: { d: 'M6 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L7.5 3.64A1 1 0 0 0 6 4.5z', solid: true },
+  pause: { d: 'M7 4h3v16H7zM14 4h3v16h-3z', solid: true },
+  wrench: { d: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z' },
+  fit: { d: 'M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M8 12h8M12 8v8' },
+  loader: { d: 'M21 12a9 9 0 1 1-6.22-8.56' },
+  back: { d: 'M15 18l-6-6 6-6' },
+  chev: { d: 'M9 18l6-6-6-6' },
+  up: { d: 'M18 15l-6-6-6 6' },
+  down: { d: 'M6 9l6 6 6-6' },
+  check: { d: 'M20 6 9 17l-5-5' },
+  pencil: { d: 'M12 20h9M16.38 3.62a1 1 0 0 1 3 3L7.37 18.64a2 2 0 0 1-.85.5l-2.87.84a.5.5 0 0 1-.62-.62l.84-2.87a2 2 0 0 1 .5-.85z' },
+  undo: { d: 'M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11' },
+  x: { d: 'M18 6 6 18M6 6l12 12' },
+};
 function icon(name) {
-  const d = { play: 'M8 5v14l11-7z', pause: 'M6 5h4v14H6zM14 5h4v14h-4z', wrench: 'M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z', fit: 'M3 5v4h2V5h4V3H5c-1.1 0-2 .9-2 2zm2 10H3v4c0 1.1.9 2 2 2h4v-2H5v-4zm14 4h-4v2h4c1.1 0 2-.9 2-2v-4h-2v4zm0-16h-4v2h4v4h2V5c0-1.1-.9-2-2-2z', sync: 'M12 4V1L8 5l4 4V6c3.3 0 6 2.7 6 6 0 1-.3 2-.7 2.8l1.5 1.5C19.5 15 20 13.6 20 12c0-4.4-3.6-8-8-8zm0 14c-3.3 0-6-2.7-6-6 0-1 .3-2 .7-2.8L5.2 7.7C4.5 9 4 10.4 4 12c0 4.4 3.6 8 8 8v3l4-4-4-4v3z' };
-  const sv = document.createElementNS(SVGNS, 'svg'); sv.setAttribute('viewBox', '0 0 24 24'); const p = document.createElementNS(SVGNS, 'path'); p.setAttribute('d', d[name]); sv.append(p); return sv;
+  const ic = ICONS[name];
+  return s('svg', { viewBox: '0 0 24 24', fill: ic.solid ? 'currentColor' : 'none', stroke: 'currentColor', 'stroke-width': ic.solid ? 1.5 : 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' }, s('path', { d: ic.d }));
+}
+function renderCommand() {
+  const st = M.status, paused = M.sim.paused, due = M.defectsSinceMaint;
+  const key = [st, paused, due, M.agents.length, M.name, M.version].join('|');
+  if (key === ui.cmdKey) return; // rebuild only on change so hover + ping animations don't reset
+  ui.cmdKey = key;
+
+  const running = st === 'running' && !paused;
+  const dot = st === 'maintaining' ? 'maint' : running ? 'live' : paused ? 'paused' : '';
+  const state = st === 'designed' ? [h('b', {}, 'Ready'), ' · not run yet']
+    : st === 'maintaining' ? [h('b', {}, 'Maintaining'), ' · line paused']
+    : paused ? [h('b', {}, 'Paused'), ` · ${M.agents.length} agents idle`]
+    : [h('b', {}, 'Running'), ` · ${M.agents.length} agents`];
+
+  const kbd = h('kbd', {}, 'Space');
+  let transport;
+  if (st === 'designed') transport = h('button', { class: 'tbtn primary', title: 'Play', onclick: play }, icon('play'), 'Play');
+  else if (st === 'maintaining') transport = h('button', { class: 'tbtn', disabled: true }, icon('pause'), 'Pause');
+  else if (paused) transport = h('button', { class: 'tbtn primary', title: 'Resume (Space)', onclick: () => { M.sim.paused = false; touch(); } }, icon('play'), 'Resume', kbd);
+  else transport = h('button', { class: 'tbtn', title: 'Pause (Space)', onclick: () => { M.sim.paused = true; touch(); } }, icon('pause'), 'Pause', kbd);
+
+  const maint = st === 'maintaining'
+    ? h('button', { class: 'tbtn busy', disabled: true }, icon('loader'), 'Maintaining…')
+    : h('button', { class: 'tbtn' + (due >= 2 ? ' warn' : ''), title: 'Pause the line and let the maintenance agent improve it', disabled: st === 'designed', onclick: maintain }, icon('wrench'), 'Maintain', due ? h('span', { class: 'count', title: `${due} defects since last maintenance` }, due) : null);
+
+  $('#command').replaceChildren(
+    h('div', { class: 'cmd-status' },
+      h('div', { class: 'cmd-name' }, M.name, h('span', { class: 'cmd-ver' }, 'v' + M.version)),
+      h('div', { class: 'cmd-state' }, h('span', { class: 'sdot ' + dot }), h('span', {}, state))),
+    h('div', { class: 'cmd-sep' }),
+    h('div', { class: 'cmd-group' }, transport, maint),
+    h('div', { class: 'cmd-sep' }),
+    h('button', { class: 'tbtn icon', title: 'Fit to screen', onclick: fitView }, icon('fit')));
 }
 function renderHUD() {
   // crumb
-  $('#crumb').replaceChildren(
-    h('button', { class: 'back', onclick: goHome }, '◂ Metafabs'), h('span', { class: 'crumb-sep' }, '/'),
-    h('span', {}, M.name), h('span', { class: 'path' }, `.metafab/ · v${M.version}`));
+  const crumbKey = M.name + '|' + M.version;
+  if (crumbKey !== ui.crumbKey) {
+    ui.crumbKey = crumbKey;
+    $('#crumb').replaceChildren(
+      h('button', { class: 'crumb-back', onclick: goHome }, icon('back'), 'Metafabs'),
+      h('span', { class: 'crumb-sep' }, '/'),
+      h('span', { class: 'crumb-name' }, M.name),
+      h('span', { class: 'crumb-path' }, '.metafab/'),
+      h('span', { class: 'cmd-ver' }, 'v' + M.version));
+  }
   // agents
-  const ap = $('#agents-pane');
-  ap.replaceChildren(
-    h('div', { class: 'pane-title' }, 'Agents', h('span', { class: 'n' }, M.agents.length ? `${M.agents.filter(a => a.busy).length}/${M.agents.length} busy` : '')),
-    M.agents.length ? h('div', { class: 'agents' }, M.agents.map(a => { const run = a.busy && M.runs.find(r => r.id === a.busy); return h('div', { class: 'agent' + (a.busy ? ' busy' : '') }, h('span', { class: 'av' }), `${a.id} · ${run ? P(run.program).name : 'idle'}`); }))
-      : h('div', { class: 'agents-empty' }, 'No agents assigned. Press Play.'),
-    h('div', { class: 'agents-foot' }, h('span', {}, 'Team: not connected'), h('button', { onclick: () => M.status === 'designed' ? play() : openAssign(true) }, M.agents.length ? 'Change' : 'Connect')));
+  const agentRows = M.agents.map(a => { const run = a.busy && M.runs.find(r => r.id === a.busy); return { id: a.id, what: run ? P(run.program).name : null }; });
+  const agentsKey = M.status + '|' + agentRows.map(a => a.id + ':' + a.what).join(',');
+  if (agentsKey !== ui.agentsKey) {
+    ui.agentsKey = agentsKey;
+    const busy = agentRows.filter(a => a.what).length;
+    $('#agents-pane').replaceChildren(
+      h('div', { class: 'pane-title' }, 'Agents', h('span', { class: 'n' }, M.agents.length ? `${busy}/${M.agents.length} busy` : '')),
+      M.agents.length ? h('div', { class: 'agents' }, agentRows.map(a => h('div', { class: 'agent' + (a.what ? ' busy' : '') }, h('span', { class: 'adot' }), h('span', { class: 'aid' }, a.id), h('span', { class: 'awhat' }, a.what || 'Idle'))))
+        : h('div', { class: 'agents-empty' }, 'No agents yet. Press Play to assign some.'),
+      h('div', { class: 'agents-foot' }, h('span', {}, 'Team · not connected'), h('button', { class: 'btn sm ghost', onclick: () => M.status === 'designed' ? play() : openAssign(true) }, M.agents.length ? 'Change' : 'Assign')));
+  }
   // command
-  const st = M.status; const cmd = $('#command');
-  const big = h('button', { class: 'big', title: '' });
-  if (st === 'designed') { big.append(icon('play')); big.classList.add('attn'); big.title = 'Play'; big.onclick = play; }
-  else if (st === 'maintaining') { big.append(icon('sync')); big.classList.add('busy'); big.title = 'Maintenance agent running'; }
-  else { big.append(icon('wrench')); big.classList.add('maint'); if (M.defectsSinceMaint >= 2) big.classList.add('attn'); big.title = 'Maintain'; big.onclick = maintain; if (M.defectsSinceMaint) big.append(h('span', { class: 'badge' }, M.defectsSinceMaint)); }
-  const label = st === 'designed' ? 'Play' : st === 'maintaining' ? 'Maintaining' : 'Maintain';
-  const pauseBtn = h('button', { class: 'mini' + (M.sim.paused ? ' on' : ''), title: M.sim.paused ? 'Resume' : 'Pause', disabled: st !== 'running', onclick: () => { M.sim.paused = !M.sim.paused; touch(); } }, icon(M.sim.paused ? 'play' : 'pause'));
-  const fitBtn = h('button', { class: 'mini', title: 'Fit to screen', onclick: fitView }, icon('fit'));
-  const statusText = st === 'designed' ? 'Designed · not run yet' : st === 'maintaining' ? 'Paused · maintenance agent running' : M.sim.paused ? 'Paused' : `Running · ${M.agents.length} agents`;
-  cmd.replaceChildren(
-    h('div', { class: 'cmd-status' }, h('div', { class: 'nm' }, M.name, h('span', { class: 'pill ' + (st === 'running' && !M.sim.paused ? 'live' : st === 'maintaining' ? 'maint' : M.sim.paused ? 'paused' : '') }, h('span', { class: 'dot' }), 'v' + M.version)), h('div', { class: 'st' }, statusText)),
-    h('div', {}, big, h('div', { class: 'big-lab' }, label)),
-    h('div', { class: 'cmd-mini' }, pauseBtn, fitBtn));
+  renderCommand();
   // stats
   const inflight = M.items.filter(i => i.loc && !['done', 'parent'].includes(i.loc.kind)).length;
+  const stat = (cls, v, l, extra = {}) => h('div', { class: `stat ${cls}${v ? '' : ' zero'}`, ...extra }, h('div', { class: 'v' }, v), h('div', { class: 'l' }, l));
   $('#stats-pane').replaceChildren(
-    h('div', { class: 'stat cyan' }, h('div', { class: 'v' }, inflight), h('div', { class: 'l' }, 'in flight')),
-    h('div', { class: 'stat amber' + (M.questions.length ? '' : ' dimv') }, h('div', { class: 'v' }, M.questions.length), h('div', { class: 'l' }, 'waiting on you')),
-    h('div', { class: 'stat green' }, h('div', { class: 'v' }, M.shipped), h('div', { class: 'l' }, 'shipped')),
-    h('div', { class: 'stat red clickable', onclick: () => openSide('defects') }, h('div', { class: 'v' }, M.defects.length), h('div', { class: 'l' }, 'defects')));
+    stat('cyan', inflight, 'In flight'),
+    stat('amber', M.questions.length, 'Waiting on you'),
+    stat('green', M.shipped, 'Shipped'),
+    stat('red clickable', M.defects.length, 'Defects', { onclick: () => openSide('defects'), title: 'Show defects' }));
   // inbox
-  const inbox = $('#inbox'); const key = M.questions.map(q => q.id).join(',') + '|' + (ui.side?.type === 'question' ? ui.side.id : '');
-  if (key !== ui.inboxKey) {
-    ui.inboxKey = key;
-    if (!M.questions.length) inbox.classList.add('hidden'); else {
-      inbox.classList.remove('hidden');
-      inbox.replaceChildren(h('div', { class: 'pane-title' }, 'Inbox', h('span', { class: 'n' }, `${M.questions.length} waiting`)),
-        h('div', { class: 'inbox-list' }, M.questions.map(q => { const g = G(q.gate), it = IT(q.item); return h('div', { class: 'qcard' + (q.reason === 'escalated' ? ' esc' : q.reason === 'held' ? ' held' : '') + (ui.side?.type === 'question' && ui.side.id === q.id ? ' selected' : ''), onclick: () => openSide('question', q.id) }, h('div', { class: 'q' }, g.question), h('div', { class: 'm' }, h('span', {}, it.id), h('span', {}, '·'), h('span', {}, it.form), q.reason && h('span', { class: 'tagx ' + q.reason }, q.reason === 'escalated' ? 'escalated by agent' : 'held by scorer'))); })));
-    }
-  }
+  renderInbox();
 }
+
+// ───────────────────────────────────────────── inbox (list ⇄ question, one panel)
+const qTone = q => q.reason === 'escalated' ? 'esc' : q.reason === 'held' ? 'held' : 'ask';
+const qTag = q => q.reason && h('span', { class: 'tagx ' + qTone(q) }, q.reason === 'escalated' ? 'Escalated' : 'Held');
+function openQuestion(id) { ui.inboxOpen = id; ui.inboxEdit = false; ui.inboxKey = ''; markGate(); renderInbox(); }
+function closeQuestion() { ui.inboxOpen = null; ui.inboxEdit = false; ui.inboxKey = ''; markGate(); renderInbox(); }
+function markGate() {
+  $$('.stop.q-open').forEach(e => e.classList.remove('q-open'));
+  const q = M?.questions.find(x => x.id === ui.inboxOpen); if (q) G(q.gate).el.classList.add('q-open');
+}
+function renderInbox() {
+  const box = $('#inbox');
+  if (ui.inboxOpen && !M.questions.some(q => q.id === ui.inboxOpen)) { ui.inboxOpen = null; ui.inboxEdit = false; markGate(); }
+  if (ui.editing && ui.inboxOpen) return; // never rebuild under someone's cursor
+  const key = M.questions.map(q => q.id).join(',') + '|' + ui.inboxOpen + '|' + ui.inboxEdit;
+  if (key === ui.inboxKey) return; ui.inboxKey = key;
+  if (!M.questions.length) { box.classList.add('hidden'); box.replaceChildren(); return; }
+  const scroller = box.querySelector('.ib-body,.ib-list'); const keep = scroller?.scrollTop || 0;
+  box.classList.remove('hidden'); box.classList.toggle('detail', !!ui.inboxOpen);
+  box.replaceChildren(...(ui.inboxOpen ? inboxDetail(M.questions.find(q => q.id === ui.inboxOpen)) : inboxList()));
+  const next = box.querySelector('.ib-body,.ib-list'); if (next) next.scrollTop = keep;
+}
+function inboxList() {
+  return [
+    h('div', { class: 'ib-head' },
+      h('div', { class: 'ib-title' }, 'Inbox', h('span', { class: 'ib-count' }, M.questions.length)),
+      h('span', { class: 'ib-sub' }, 'Waiting on you')),
+    h('div', { class: 'ib-list' }, M.questions.map(q => {
+      const g = G(q.gate), it = IT(q.item);
+      return h('button', { class: 'ib-row ' + qTone(q), onclick: () => openQuestion(q.id) },
+        h('span', { class: 'ib-dot' }),
+        h('span', { class: 'ib-main' },
+          h('span', { class: 'ib-q' }, g.question),
+          h('span', { class: 'ib-meta' }, h('span', { class: 'id' }, it.id), h('span', { class: 't' }, it.title))),
+        qTag(q), icon('chev'));
+    })),
+  ];
+}
+function inboxDetail(q) {
+  const g = G(q.gate), it = IT(q.item); const idx = M.questions.indexOf(q), n = M.questions.length;
+  const go = d => openQuestion(M.questions[(idx + d + n) % n].id);
+  const lastRun = [...it.history].reverse().find(x => x.kind === 'run-end');
+  const out = fakeOutput(it);
+  const editBox = ui.inboxEdit && h('textarea', { class: 'edit', rows: 12, onfocus: () => { ui.editing = true; }, onblur: () => { ui.editing = false; } }, out);
+  const from = P(WR(g.wireId).from[0]).name;
+  const foot = ui.inboxEdit
+    ? [h('button', { class: 'btn primary', onclick: () => { answerQuestion(q, 'edited', editBox.value); toast(`${it.id} approved with edits · saved as feedback`, 'green'); } }, icon('check'), 'Approve with edits'),
+       h('span', { class: 'grow' }),
+       h('button', { class: 'btn ghost', onclick: () => { ui.editing = false; ui.inboxEdit = false; renderInbox(); } }, 'Cancel')]
+    : [h('button', { class: 'btn primary', onclick: () => answerQuestion(q, 'approve') }, icon('check'), 'Approve'),
+       h('button', { class: 'btn', onclick: () => { ui.inboxEdit = true; renderInbox(); $('#inbox textarea')?.focus(); } }, icon('pencil'), 'Edit'),
+       h('span', { class: 'grow' }),
+       h('button', { class: 'btn danger', title: `Send back to ${from}`, onclick: () => { toast(`${it.id} sent back to ${from}`, 'amber'); answerQuestion(q, 'sendback', 'Sent back by ' + g.owner); } }, icon('undo'), 'Send back')];
+  return [
+    h('div', { class: 'ib-head nav' },
+      h('button', { class: 'crumb-back', onclick: closeQuestion, title: 'Back to inbox (Esc)' }, icon('back'), 'Inbox'),
+      h('div', { class: 'ib-pager' },
+        h('button', { class: 'tbtn icon sm', title: 'Previous', disabled: n < 2, onclick: () => go(-1) }, icon('up')),
+        h('span', {}, `${idx + 1} of ${n}`),
+        h('button', { class: 'tbtn icon sm', title: 'Next', disabled: n < 2, onclick: () => go(1) }, icon('down')))),
+    h('div', { class: 'ib-body' },
+      h('div', { class: 'ib-hero ' + qTone(q) },
+        h('div', { class: 'ib-kicker' }, h('span', { class: 'ib-dot' }), `Gate · for ${g.owner}`, qTag(q)),
+        h('div', { class: 'ib-qtitle' }, g.question)),
+      q.reason === 'escalated' ? h('div', { class: 'callout violet' }, h('b', {}, 'The agent gate was not sure. '), q.agentNote) : null,
+      q.reason === 'held' ? h('div', { class: 'callout red' }, h('b', {}, `Held by ${it.flags.holdBy?.name} at ${f2(it.flags.holdBy?.value || 0)}. `), 'The check failed, so the item stopped here.') : null,
+      sec('Item', h('div', { class: 'row click ib-item', onclick: () => select('item', it.id) }, h('span', { class: 'dot', style: `background:${FORM_COLOR[it.form]}` }), h('span', { class: 'id' }, it.id), h('span', { class: 'mono' }, it.title), h('span', { class: 'sp' }), h('span', { class: 'tagx v' }, 'v' + it.version), icon('chev'))),
+      sec(ui.inboxEdit ? 'Edit output' : 'Output', editBox || h('div', { class: 'box' }, out)),
+      lastRun ? sec('Marks from ' + P(lastRun.program).name, h('div', { class: 'scores' }, lastRun.scores.map(scoreRow)), ...lastRun.scores.filter(sc => !sc.ok).map(sc => h('div', { class: 'hint' }, `${sc.name}: ${sc.reason}`))) : null),
+    h('div', { class: 'ib-foot' }, foot),
+  ];
+}
+
+// ───────────────────────────────────────────── panel building blocks
+const sec = (t, ...kids) => h('div', { class: 'sec' }, t && h('h4', {}, t), ...kids);
+const scoreRow = (sc) => h('div', { class: 'score ' + (sc.ok ? 'ok' : sc.check ? 'bad' : 'warn') }, h('span', { class: 'nm' }, sc.name), h('span', { class: 'bar' }, h('i', { style: `width:${sc.value * 100}%` })), h('span', { class: 'val' }, f2(sc.value)));
+const itemLink = (it) => h('span', { class: 'link', onclick: () => select('item', it.id) }, it.id);
 
 // ───────────────────────────────────────────── side pane
 function renderSide() {
@@ -649,9 +773,6 @@ function renderSide() {
   side.classList.remove('hidden');
   const { type, id } = ui.side; let kind = '', title = '', body = [];
   const head = (k, t) => { kind = k; title = t; };
-  const sec = (t, ...kids) => h('div', { class: 'sec' }, t && h('h4', {}, t), ...kids);
-  const scoreRow = (sc) => h('div', { class: 'score ' + (sc.ok ? 'ok' : sc.check ? 'bad' : 'warn') }, h('span', { class: 'nm' }, sc.name), h('span', { class: 'bar' }, h('i', { style: `width:${sc.value * 100}%` })), h('span', { class: 'val' }, f2(sc.value)));
-  const itemLink = (it) => h('span', { class: 'link', onclick: () => select('item', it.id) }, it.id);
 
   if (type === 'program') {
     const p = P(id); head('Program · ' + p.runner, p.name);
@@ -670,7 +791,7 @@ function renderSide() {
     const dial = ['person', 'sampled', 'agent', 'off'];
     body = [
       sec('Autonomy dial', h('div', { class: 'seg' }, dial.map(d => h('button', { class: d === g.autonomy ? 'on' : '', onclick: () => { g.autonomy = d; M.changes.push({ at: M.sim.now, what: `Gate "${g.question}" → ${d}` }); touch(); } }, d))), h('div', { class: 'hint' }, { person: 'Every item waits for ' + g.owner + '.', sampled: g.owner + ' sees about a third of the items. The rest pass.', agent: 'A fresh agent decides. It escalates when it is not sure.', off: 'Items pass. The gate has earned trust.' }[g.autonomy])),
-      sec('Waiting', g.waiting.length ? h('div', { class: 'rows' }, g.waiting.map(iid => { const it = IT(iid); return h('div', { class: 'row click', onclick: () => select('item', iid) }, h('span', { class: 'dot', style: `background:${FORM_COLOR[it.form]}` }), it.id, h('span', { class: 'mono' }, it.title), h('span', { class: 'sp' }), it.decideAt ? h('span', { class: 'tagx esc' }, 'agent deciding') : it.questionId ? h('span', { class: 'tagx' }, 'asked') : null); })) : h('div', { class: 'dim' }, 'Nothing waiting.')),
+      sec('Waiting', g.waiting.length ? h('div', { class: 'rows' }, g.waiting.map(iid => { const it = IT(iid); return h('div', { class: 'row click', title: it.questionId ? 'Open in inbox' : '', onclick: () => it.questionId ? openQuestion(it.questionId) : select('item', iid) }, h('span', { class: 'dot', style: `background:${FORM_COLOR[it.form]}` }), it.id, h('span', { class: 'mono' }, it.title), h('span', { class: 'sp' }), it.decideAt ? h('span', { class: 'tagx esc' }, 'Agent deciding') : it.questionId ? h('span', { class: 'tagx' }, 'In inbox') : null); })) : h('div', { class: 'dim' }, 'Nothing waiting.')),
       sec('Decisions', h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Approved'), h('span', { class: 'v' }, g.decisions.filter(d => d.decision === 'approve').length), h('span', { class: 'k' }, 'Edited'), h('span', { class: 'v' }, g.decisions.filter(d => d.decision === 'edited').length), h('span', { class: 'k' }, 'Sent back'), h('span', { class: 'v' }, g.decisions.filter(d => d.decision === 'sendback').length), h('span', { class: 'k' }, 'By agent'), h('span', { class: 'v' }, g.decisions.filter(d => d.by === 'agent').length)), h('div', { class: 'hint' }, 'Edits are the most useful signal for calibration. When people stop editing, the gate can move to sampled.')),
     ];
   }
@@ -696,22 +817,6 @@ function renderSide() {
           x.scores && h('div', { style: 'margin-top:4px;display:flex;flex-direction:column;gap:2px' }, x.scores.map(scoreRow)),
           x.scores && x.scores.filter(sc => !sc.ok).map(sc => h('div', { class: 'hint' }, `${sc.name}: ${sc.reason}`))))))),
       sec('', h('div', { class: 'actions' }, h('button', { class: 'btn sm', disabled: !it.history.some(x => x.kind === 'run-end'), onclick: () => rewindItem(it, 'build-slice', 'manual') }, '⟲ Rewind to Build slice'), h('button', { class: 'btn sm', disabled: true }, 'Open trace'))),
-    ];
-  }
-  if (type === 'question') {
-    const q = M.questions.find(x => x.id === id); if (!q) { closeSide(); return; }
-    const g = G(q.gate), it = IT(q.item); head(`Question · for ${g.owner}`, g.question);
-    const lastRun = [...it.history].reverse().find(x => x.kind === 'run-end');
-    const out = fakeOutput(it);
-    const editBox = h('textarea', { class: 'edit', onfocus: () => { ui.editing = true; }, onblur: () => { ui.editing = false; } }, out);
-    const editWrap = h('div', { class: 'hidden' }, editBox, h('div', { class: 'actions', style: 'margin-top:8px' }, h('button', { class: 'btn sm primary', onclick: () => { answerQuestion(q, 'edited', editBox.value); toast(`${it.id} approved with edits · stored as feedback`, 'green'); } }, 'Approve with edits')));
-    body = [
-      q.reason === 'escalated' ? h('div', { class: 'callout' }, 'Escalated by the agent gate. ', h('span', { class: 'mono' }, q.agentNote)) : null,
-      q.reason === 'held' ? h('div', { class: 'callout' }, `Held by scorer ${it.flags.holdBy?.name} at ${f2(it.flags.holdBy?.value || 0)}. The check failed, so the item stopped here.`) : null,
-      sec('Item', h('div', { class: 'row click', onclick: () => select('item', it.id) }, h('span', { class: 'dot', style: `background:${FORM_COLOR[it.form]}` }), it.id, h('span', { class: 'mono' }, it.title), h('span', { class: 'sp' }), h('span', { class: 'tagx v' }, 'v' + it.version))),
-      sec('Output', h('div', { class: 'box' }, out)),
-      lastRun ? sec('Marks from ' + P(lastRun.program).name, ...lastRun.scores.map(scoreRow), ...lastRun.scores.filter(sc => !sc.ok).map(sc => h('div', { class: 'hint' }, `${sc.name}: ${sc.reason}`))) : null,
-      sec('Decide', h('div', { class: 'actions' }, h('button', { class: 'btn sm primary', onclick: () => answerQuestion(q, 'approve') }, 'Approve'), h('button', { class: 'btn sm', onclick: () => { editWrap.classList.toggle('hidden'); editBox.focus(); } }, 'Edit & approve'), h('button', { class: 'btn sm danger', onclick: () => { toast(`${it.id} sent back to ${P(WR(g.wireId).from[0]).name}`, 'amber'); answerQuestion(q, 'sendback', 'Sent back by ' + g.owner); } }, 'Send back')), editWrap),
     ];
   }
   if (type === 'defects') {
@@ -745,7 +850,7 @@ function renderSide() {
     body = [h('div', { class: 'log', id: 'maint-log' }), h('div', { id: 'maint-proposal' })];
   }
   side.replaceChildren(
-    h('div', { class: 'side-head' }, h('div', {}, h('div', { class: 'kind' }, kind), h('div', { class: 'title' }, title)), h('button', { class: 'x', onclick: closeSide, disabled: ui.worldDim }, '×')),
+    h('div', { class: 'side-head' }, h('div', {}, h('div', { class: 'kind' }, kind), h('div', { class: 'title' }, title)), h('button', { class: 'tbtn icon sm x', title: 'Close (Esc)', onclick: closeSide, disabled: ui.worldDim }, icon('x'))),
     h('div', { class: 'side-body' }, ...body.filter(Boolean)));
   if (type === 'designer' && M._designerLines) M._designerLines.forEach(l => appendLog('#designer-log', l));
   if (type === 'maintenance' && M.maintenance) { M.maintenance.lines.forEach(l => appendLog('#maint-log', l)); if (M.maintenance.proposalEl) $('#maint-proposal').append(M.maintenance.proposalEl); }
@@ -982,12 +1087,12 @@ async function revealDesign() {
 
 // ───────────────────────────────────────────── screens
 function openMetafab(mf, reveal = false) {
-  M = mf; D = mf.design; ui.selection = null; ui.side = null; ui.inboxKey = '';
+  M = mf; D = mf.design; ui.selection = null; ui.side = null; ui.inboxKey = ''; ui.inboxOpen = null; ui.inboxEdit = false;
   $('#home').classList.add('hidden'); $('#studio').classList.remove('hidden');
   buildCanvas(reveal);
   // re-attach item elements for items still in play
   for (const it of M.items) if (it.loc && !['done', 'parent'].includes(it.loc.kind)) { const g = s('g', { class: 'item', 'data-id': it.id, onclick: (e) => { e.stopPropagation(); select('item', it.id); } }); g.append(s('circle', { class: 'halo', r: 13 }), s('circle', { class: 'ball', r: 6.5 }), s('g', { class: 'marks' }), s('text', { class: 'tag', y: 24 }), s('text', { class: 'idlab', y: -17 }, it.id), s('title', {})); L.items.append(g); itemEls.set(it.id, g); drawMarks(it); }
-  fitView(); renderSide(); touch(); renderHUD();
+  ui.cmdKey = ui.crumbKey = ui.agentsKey = ''; fitView(); renderSide(); touch(); renderHUD();
   if (!ui.raf) ui.raf = requestAnimationFrame(loop);
   if (reveal) revealDesign();
 }
@@ -1017,14 +1122,14 @@ function renderHome() {
 
 // ───────────────────────────────────────────── toasts
 function toast(text, cls = '') {
-  const t = h('div', { class: 'toast ' + cls }, text); $('#toasts').append(t);
+  const t = h('div', { class: 'toast ' + cls }, h('span', { class: 'tdot' }), h('span', {}, text)); $('#toasts').append(t);
   setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 450); }, 2800);
 }
 
 // ───────────────────────────────────────────── boot
 $('#btn-new').addEventListener('click', openNew);
 $('#btn-templates').addEventListener('click', () => toast('Community templates come later', ''));
-addEventListener('keydown', e => { if (e.key === 'Escape') { if ($('#modal-root').children.length) closeModal(); else if (ui.side && !ui.worldDim) closeSide(); } if (e.key === ' ' && M && !e.target.matches('input,textarea') && $('#studio').offsetParent !== null) { e.preventDefault(); if (M.status === 'running') { M.sim.paused = !M.sim.paused; touch(); } } });
+addEventListener('keydown', e => { if (e.key === 'Escape') { if ($('#modal-root').children.length) closeModal(); else if (ui.side && !ui.worldDim) closeSide(); else if (ui.inboxEdit) { ui.editing = false; ui.inboxEdit = false; renderInbox(); } else if (ui.inboxOpen) closeQuestion(); } if (e.key === ' ' && M && !e.target.matches('input,textarea') && !$('#studio').classList.contains('hidden')) { e.preventDefault(); if (M.status === 'running') { M.sim.paused = !M.sim.paused; touch(); } } });
 renderHome();
 // keep the home cards fresh while a metafab runs in the background
 setInterval(() => { if (!$('#home').classList.contains('hidden') && library.some(e => e.mf)) renderHome(); }, 1500);
