@@ -12,7 +12,8 @@ The flow to try:
 
 1. **New metafab.** Name it, say what it should build. The designer agent lays out the workflow on the canvas while it explains each part.
 2. **Play.** Choose how many agents from your machine. Team and cloud runners are shown but not connected.
-3. Watch items move as balls. Each program run adds a mark. Items stop at gates and raise questions in the inbox. Click one to decide.
+3. Watch artifacts move as balls. Each program run adds a score dot around the ball. Artifacts stop at gates and raise questions in the inbox. Click one to decide.
+4. Click an artifact to see its trace: a waterfall of every program run, queue, gate and bin it went through, with time and cost per step and totals for the whole feature. Click a program name in the trace (or on the canvas) to open that program.
 4. Shipped code comes back as defects through the Sentry connection and loops through Triage to the start.
 5. **Maintain.** The metafab pauses. The maintenance agent finds the weak program, proposes a change to `.metafab/`, and shows the replay. Choose roll over now or drain.
 

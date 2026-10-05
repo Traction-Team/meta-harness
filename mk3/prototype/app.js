@@ -273,7 +273,7 @@ function buildCanvas(reveal) {
 function fitView() {
   // keep the line clear of the HUD: left column (inbox + agents), side pane, top bar, command bar
   const b = designBounds(); const sideOpen = ui.side && !$('#side').classList.contains('hidden');
-  const L0 = 372, R0 = sideOpen ? 416 : 24, T0 = 84, B0 = 100;
+  const L0 = 372, R0 = sideOpen ? $('#side').offsetWidth + 32 : 24, T0 = 84, B0 = 100;
   const vw = innerWidth - L0 - R0, vh = innerHeight - T0 - B0;
   const z = clamp(Math.min(vw / b.w, vh / b.h), .4, 1.4);
   ui.zoom = z; ui.tx = L0 + (vw - b.w * z) / 2 - b.x * z; ui.ty = T0 + (vh - b.h * z) / 2 - b.y * z;
@@ -284,9 +284,17 @@ function applyView() { world.setAttribute('transform', `translate(${ui.tx},${ui.
 // pan & zoom
 (() => {
   let drag = null;
-  svg.addEventListener('pointerdown', e => { if (e.button !== 0) return; drag = { x: e.clientX, y: e.clientY, tx: ui.tx, ty: ui.ty, moved: false }; svg.setPointerCapture(e.pointerId); });
-  svg.addEventListener('pointermove', e => { if (!drag) return; const dx = e.clientX - drag.x, dy = e.clientY - drag.y; if (Math.hypot(dx, dy) > 3) { drag.moved = true; svg.classList.add('panning'); } ui.tx = drag.tx + dx; ui.ty = drag.ty + dy; applyView(); });
-  svg.addEventListener('pointerup', e => { if (drag && !drag.moved && (e.target === svg || e.target.id === 'grid-bg')) select(null); drag = null; svg.classList.remove('panning'); });
+  // Capture the pointer only once a real drag starts. Capturing on pointerdown retargets the
+  // click to <svg>, so clicks on programs, gates, bins and artifacts never fired.
+  svg.addEventListener('pointerdown', e => { if (e.button !== 0) return; drag = { x: e.clientX, y: e.clientY, tx: ui.tx, ty: ui.ty, moved: false, pid: e.pointerId, bg: e.target === svg || e.target.id === 'grid-bg' }; });
+  svg.addEventListener('pointermove', e => {
+    if (!drag) return; const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!drag.moved) { if (Math.hypot(dx, dy) <= 3) return; drag.moved = true; svg.classList.add('panning'); try { svg.setPointerCapture(drag.pid); } catch {} }
+    ui.tx = drag.tx + dx; ui.ty = drag.ty + dy; applyView();
+  });
+  const endDrag = () => { if (drag && !drag.moved && drag.bg) select(null); drag = null; svg.classList.remove('panning'); };
+  svg.addEventListener('pointerup', endDrag);
+  svg.addEventListener('pointercancel', () => { drag = null; svg.classList.remove('panning'); });
   svg.addEventListener('wheel', e => { e.preventDefault(); const k = Math.exp(-e.deltaY * 0.0015); const z = clamp(ui.zoom * k, .3, 2.5); const r = z / ui.zoom; ui.tx = e.clientX - (e.clientX - ui.tx) * r; ui.ty = e.clientY - (e.clientY - ui.ty) * r; ui.zoom = z; applyView(); }, { passive: false });
   addEventListener('resize', () => { if (M) fitView(); });
 })();
@@ -298,11 +306,19 @@ function newItem({ form, title, parent = null, origin = null }) {
   if (!it.root) it.root = id;
   if (parent) { parent.children.push(id); it.history = parent.history.map(x => ({ ...x, inherited: true })); it.marks = parent.marks.slice(); }
   M.items.push(it);
-  const g = s('g', { class: 'item', 'data-id': id, onclick: (e) => { e.stopPropagation(); select('item', id); } });
-  g.append(s('circle', { class: 'halo', r: 13 }), s('circle', { class: 'ball', r: 6.5, fill: FORM_COLOR[form] }), s('g', { class: 'marks' }), s('text', { class: 'tag', y: 24 }), s('text', { class: 'idlab', y: -17 }, id));
-  g.append(s('title', {}, `${id} · ${form} · ${title}`));
-  L.items.append(g); itemEls.set(id, g); drawMarks(it);
+  makeItemEl(it);
   return it;
+}
+// Artifacts move, so a normal click often lands on empty canvas. Select on pointerdown and
+// give the ball a larger invisible hit area.
+function makeItemEl(it) {
+  const id = it.id;
+  const pick = (e) => { if (e.button !== 0) return; e.stopPropagation(); select('item', id); };
+  const g = s('g', { class: 'item', 'data-id': id, onpointerdown: pick, onclick: (e) => e.stopPropagation() });
+  g.append(s('circle', { class: 'hit', r: 16 }), s('circle', { class: 'halo', r: 13 }), s('circle', { class: 'ball', r: 6.5, fill: FORM_COLOR[it.form] }), s('g', { class: 'marks' }), s('text', { class: 'tag', y: 24 }), s('text', { class: 'idlab', y: -17 }, id));
+  g.append(s('title', {}, `${id} · ${it.form} · ${it.title}`));
+  L.items.append(g); itemEls.set(id, g); drawMarks(it);
+  return g;
 }
 function drawMarks(it) {
   const g = itemEls.get(it.id); if (!g) return;
@@ -343,7 +359,7 @@ function spawnBugEvent(defect) {
 }
 
 // ───────────────────────────────────────────── program runs
-function enqueue(it, p) { it.loc = { kind: 'queue', program: p.id }; p.queue.push(it.id); }
+function enqueue(it, p) { it.loc = { kind: 'queue', program: p.id }; p.queue.push(it.id); it.history.push({ kind: 'queue', program: p.id, at: M.sim.now }); }
 function freeAgent() { return M.agents.find(a => !a.busy); }
 function startRun(p) {
   const a = freeAgent(); if (!a) return false;
@@ -368,7 +384,7 @@ function finishRun(run) {
   popScores(p, sc.scores);
   // retry policy
   const retryHit = sc.scores.find(x => !x.ok && x.policy === 'retry');
-  if (retryHit && !run.retried) { it.retries++; const r2 = { ...run, id: uid('r'), retried: true, startedAt: M.sim.now, dur: p.dur * rand(.6, .9) }; M.runs.push(r2); const ag = freeAgent() || a; if (ag) { ag.busy = r2.id; r2.agent = ag.id; } p.running.push(r2.id); it.loc = { kind: 'run', program: p.id, run: r2.id, t: 0 }; it.history.push({ kind: 'retry', program: p.id, reason: `${retryHit.name} ${f2(retryHit.value)}`, at: M.sim.now }); toast(`${p.name} retried ${it.id} · ${retryHit.name} ${f2(retryHit.value)}`, 'amber'); touch(); return; }
+  if (retryHit && !run.retried) { it.retries++; const r2 = { ...run, id: uid('r'), retried: true, startedAt: M.sim.now, dur: p.dur * rand(.6, .9), endedAt: undefined, cost: 0, scores: null, verdict: null, output: undefined }; M.runs.push(r2); const ag = freeAgent() || a; if (ag) { ag.busy = r2.id; r2.agent = ag.id; } p.running.push(r2.id); it.loc = { kind: 'run', program: p.id, run: r2.id, t: 0 }; it.history.push({ kind: 'retry', program: p.id, reason: `${retryHit.name} ${f2(retryHit.value)}`, at: M.sim.now }); toast(`${p.name} retried ${it.id} · ${retryHit.name} ${f2(retryHit.value)}`, 'amber'); touch(); return; }
   it.marks.push({ kind: 'run', program: p.id, verdict: sc.verdict, run: run.id });
   if (sc.scores.some(x => !x.ok && x.policy === 'hold')) { it.flags.hold = true; it.flags.holdBy = sc.scores.find(x => !x.ok && x.policy === 'hold'); }
   it.version = run.version;
@@ -430,6 +446,7 @@ function popScores(p, scores) {
 function enterStop(it, w) {
   if (w.stop.kind === 'gate') {
     const g = G(w.stop.id); it.loc = { kind: 'gate', gate: g.id, wire: w.id }; g.waiting.push(it.id);
+    it.history.push({ kind: 'gate-wait', gate: g.id, at: M.sim.now });
     let mode = g.autonomy; const held = !!it.flags.hold;
     if (held) mode = 'person';
     if (mode === 'off') return clearGate(it, g, { decision: 'approve', by: 'off' });
@@ -580,7 +597,12 @@ function renderFrame() {
 // ───────────────────────────────────────────── loop
 function loop(t) {
   const dt = Math.min(.05, (t - ui.lastT) / 1000 || 0); ui.lastT = t;
-  if (M) { tick(dt); renderFrame(); if (t - ui.hudT > 250 || ui.hudDirty) { renderHUD(); ui.hudT = t; ui.hudDirty = false; } if (ui.sideDirty) { renderSide(); ui.sideDirty = false; } }
+  if (M) {
+    tick(dt); renderFrame(); if (t - ui.hudT > 250 || ui.hudDirty) { renderHUD(); ui.hudT = t; ui.hudDirty = false; }
+    // live traces grow with time, so refresh artifact/program panes about once a second while the line runs
+    if (!ui.editing && (ui.side?.type === 'item' || ui.side?.type === 'program') && M.status === 'running' && !M.sim.paused && t - (ui.sideT || 0) > 1000) ui.sideDirty = true;
+    if (ui.sideDirty) { renderSide(); ui.sideDirty = false; ui.sideT = t; }
+  }
   ui.raf = requestAnimationFrame(loop);
 }
 function touch() { ui.hudDirty = true; if (!ui.editing) ui.sideDirty = true; }
@@ -665,14 +687,14 @@ function renderHUD() {
       h('span', { class: 'cmd-ver' }, 'v' + M.version));
   }
   // agents
-  const agentRows = M.agents.map(a => { const run = a.busy && M.runs.find(r => r.id === a.busy); return { id: a.id, what: run ? P(run.program).name : null }; });
+  const agentRows = M.agents.map(a => { const run = a.busy && M.runs.find(r => r.id === a.busy); return { id: a.id, what: run ? P(run.program).name : null, program: run?.program }; });
   const agentsKey = M.status + '|' + agentRows.map(a => a.id + ':' + a.what).join(',');
   if (agentsKey !== ui.agentsKey) {
     ui.agentsKey = agentsKey;
     const busy = agentRows.filter(a => a.what).length;
     $('#agents-pane').replaceChildren(
       h('div', { class: 'pane-title' }, 'Agents', h('span', { class: 'n' }, M.agents.length ? `${busy}/${M.agents.length} busy` : '')),
-      M.agents.length ? h('div', { class: 'agents' }, agentRows.map(a => h('div', { class: 'agent' + (a.what ? ' busy' : '') }, h('span', { class: 'adot' }), h('span', { class: 'aid' }, a.id), h('span', { class: 'awhat' }, a.what || 'Idle'))))
+      M.agents.length ? h('div', { class: 'agents' }, agentRows.map(a => h('div', { class: 'agent' + (a.what ? ' busy' : ''), title: a.program ? `Open ${a.what}` : null, onclick: a.program ? () => select('program', a.program) : null }, h('span', { class: 'adot' }), h('span', { class: 'aid' }, a.id), h('span', { class: 'awhat' }, a.what || 'Idle'))))
         : h('div', { class: 'agents-empty' }, 'No agents yet. Press Play to assign some.'),
       h('div', { class: 'agents-foot' }, h('span', {}, 'Team · not connected'), h('button', { class: 'btn sm ghost', onclick: () => M.status === 'designed' ? play() : openAssign(true) }, M.agents.length ? 'Change' : 'Assign')));
   }
@@ -754,10 +776,10 @@ function inboxDetail(q) {
         h('div', { class: 'ib-kicker' }, h('span', { class: 'ib-dot' }), `Gate · for ${g.owner}`, qTag(q)),
         h('div', { class: 'ib-qtitle' }, g.question)),
       q.reason === 'escalated' ? h('div', { class: 'callout violet' }, h('b', {}, 'The agent gate was not sure. '), q.agentNote) : null,
-      q.reason === 'held' ? h('div', { class: 'callout red' }, h('b', {}, `Held by ${it.flags.holdBy?.name} at ${f2(it.flags.holdBy?.value || 0)}. `), 'The check failed, so the item stopped here.') : null,
-      sec('Item', h('div', { class: 'row click ib-item', onclick: () => select('item', it.id) }, h('span', { class: 'dot', style: `background:${FORM_COLOR[it.form]}` }), h('span', { class: 'id' }, it.id), h('span', { class: 'mono' }, it.title), h('span', { class: 'sp' }), h('span', { class: 'tagx v' }, 'v' + it.version), icon('chev'))),
+      q.reason === 'held' ? h('div', { class: 'callout red' }, h('b', {}, `Held by ${it.flags.holdBy?.name} at ${f2(it.flags.holdBy?.value || 0)}. `), 'The check failed, so the artifact stopped here.') : null,
+      sec('Artifact', h('div', { class: 'row click ib-item', onclick: () => select('item', it.id) }, h('span', { class: 'dot', style: `background:${FORM_COLOR[it.form]}` }), h('span', { class: 'id' }, it.id), h('span', { class: 'mono' }, it.title), h('span', { class: 'sp' }), h('span', { class: 'tagx v' }, 'v' + it.version), icon('chev'))),
       sec(ui.inboxEdit ? 'Edit output' : 'Output', editBox || h('div', { class: 'box' }, out)),
-      lastRun ? sec('Marks from ' + P(lastRun.program).name, h('div', { class: 'scores' }, lastRun.scores.map(scoreRow)), ...lastRun.scores.filter(sc => !sc.ok).map(sc => h('div', { class: 'hint' }, `${sc.name}: ${sc.reason}`))) : null),
+      lastRun ? sec('Scores from ' + P(lastRun.program).name, h('div', { class: 'scores' }, lastRun.scores.map(scoreRow)), ...lastRun.scores.filter(sc => !sc.ok).map(sc => h('div', { class: 'hint' }, `${sc.name}: ${sc.reason}`))) : null),
     h('div', { class: 'ib-foot' }, foot),
   ];
 }
@@ -769,8 +791,10 @@ const itemLink = (it) => h('span', { class: 'link', onclick: () => select('item'
 
 // ───────────────────────────────────────────── side pane
 function renderSide() {
-  const side = $('#side'); if (!ui.side) { side.classList.add('hidden'); return; }
+  const side = $('#side'); if (!ui.side) { side.classList.add('hidden'); side.classList.remove('wide'); return; }
   side.classList.remove('hidden');
+  side.classList.toggle('wide', ui.side.type === 'item');
+  const sideKey = ui.side.type + ':' + ui.side.id; const keepScroll = side.dataset.key === sideKey ? side.querySelector('.side-body')?.scrollTop || 0 : 0; side.dataset.key = sideKey;
   const { type, id } = ui.side; let kind = '', title = '', body = [];
   const head = (k, t) => { kind = k; title = t; };
 
@@ -778,7 +802,19 @@ function renderSide() {
     const p = P(id); head('Program · ' + p.runner, p.name);
     const runs = M.runs.filter(r => r.program === p.id && r.scores);
     const avg = {}; for (const r of runs) for (const sc of r.scores) (avg[sc.name] ||= []).push(sc.value);
+    const done = M.runs.filter(r => r.program === p.id && r.endedAt != null && !r.cancelled);
+    const totCost = done.reduce((a, r) => a + (r.cost || 0), 0), totDur = done.reduce((a, r) => a + (r.endedAt - r.startedAt), 0);
+    const live = M.runs.filter(r => p.running.includes(r.id));
+    const recent = [...live, ...done.slice().reverse()].slice(0, 8);
     body = [
+      sec('Time & cost', h('div', { class: 'wf-sum' },
+          sumTile('Runs', done.length, live.length ? `${live.length} running` : `${p.queue.length} queued`),
+          sumTile('Avg time', done.length ? fmtDur(totDur / done.length) : '—', 'per run'),
+          sumTile('Avg cost', done.length ? fmt$(totCost / done.length) : '—', 'per run'),
+          sumTile('Total cost', fmt$(totCost), fmtDur(totDur) + ' agent time')),
+        recent.length ? h('div', { class: 'rows', style: 'margin-top:10px' }, recent.map(r => { const ri = IT(r.item); const running = r.endedAt == null; return h('div', { class: 'row click', title: 'Open artifact trace', onclick: () => select('item', r.item) },
+          h('span', { class: 'dot ' + (running ? 'blue' : r.verdict === 'passed' ? 'green' : r.verdict === 'scored' ? 'amber' : 'red') }), h('span', {}, r.item), h('span', { class: 'mono' }, ri?.title || ''), h('span', { class: 'sp' }),
+          h('span', { class: 'mono', style: 'flex:none' }, running ? `${r.agent} · running ${fmtDur(M.sim.now - r.startedAt)}` : `${fmtDur(r.endedAt - r.startedAt)} · ${fmt$(r.cost)}`)); })) : h('div', { class: 'dim', style: 'margin-top:8px' }, 'No runs yet.')),
       sec('Contract', h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Inputs'), h('span', { class: 'v' }, p.inputs.map(i => `${i.name}: ${i.type}`).join(', ')), h('span', { class: 'k' }, 'Outputs'), h('span', { class: 'v' }, p.outputs.map(o => `${o.name}: ${o.type}${o.many ? '[]' : ''}`).join(', ')), h('span', { class: 'k' }, 'Effects'), h('span', { class: 'v' }, p.effects.length ? p.effects.join('; ') : '—'), h('span', { class: 'k' }, 'Version'), h('span', { class: 'v' }, `v${p.version} · ${runs.length} runs`), p.entry && h('span', { class: 'k' }, 'Entry point'), p.entry && h('span', { class: 'v' }, p.entry.kind === 'form' ? 'form (click Run)' : 'connection · ' + p.entry.label))),
       sec('Frame', h('div', { class: 'box' }, `# ${p.id}.md\n\n${p.frame.instructions}\n\nskills: ${p.frame.skills.length ? p.frame.skills.join(', ') : '—'}`)),
       sec('Scorers on its output', h('div', { class: 'rows' }, D.scorers.filter(sc => !sc.on || sc.on === p.outputs[0].type).map(sc => h('div', { class: 'row' }, h('span', { class: 'dot ' + (sc.check ? 'red' : sc.policy === 'retry' ? 'amber' : 'grey') }), sc.name, h('span', { class: 'sp' }), h('span', { class: 'mono' }, `${sc.threshold.min != null ? '≥' + sc.threshold.min : '≤' + sc.threshold.max} · ${sc.check ? 'check · hold' : sc.policy} · ${sc.shown ? 'shown' : 'held out'}`))))),
@@ -790,7 +826,7 @@ function renderSide() {
     const g = G(id); head('Gate · ' + g.owner, g.question);
     const dial = ['person', 'sampled', 'agent', 'off'];
     body = [
-      sec('Autonomy dial', h('div', { class: 'seg' }, dial.map(d => h('button', { class: d === g.autonomy ? 'on' : '', onclick: () => { g.autonomy = d; M.changes.push({ at: M.sim.now, what: `Gate "${g.question}" → ${d}` }); touch(); } }, d))), h('div', { class: 'hint' }, { person: 'Every item waits for ' + g.owner + '.', sampled: g.owner + ' sees about a third of the items. The rest pass.', agent: 'A fresh agent decides. It escalates when it is not sure.', off: 'Items pass. The gate has earned trust.' }[g.autonomy])),
+      sec('Autonomy dial', h('div', { class: 'seg' }, dial.map(d => h('button', { class: d === g.autonomy ? 'on' : '', onclick: () => { g.autonomy = d; M.changes.push({ at: M.sim.now, what: `Gate "${g.question}" → ${d}` }); touch(); } }, d))), h('div', { class: 'hint' }, { person: 'Every artifact waits for ' + g.owner + '.', sampled: g.owner + ' sees about a third of the artifacts. The rest pass.', agent: 'A fresh agent decides. It escalates when it is not sure.', off: 'Artifacts pass. The gate has earned trust.' }[g.autonomy])),
       sec('Waiting', g.waiting.length ? h('div', { class: 'rows' }, g.waiting.map(iid => { const it = IT(iid); return h('div', { class: 'row click', title: it.questionId ? 'Open in inbox' : '', onclick: () => it.questionId ? openQuestion(it.questionId) : select('item', iid) }, h('span', { class: 'dot', style: `background:${FORM_COLOR[it.form]}` }), it.id, h('span', { class: 'mono' }, it.title), h('span', { class: 'sp' }), it.decideAt ? h('span', { class: 'tagx esc' }, 'Agent deciding') : it.questionId ? h('span', { class: 'tagx' }, 'In inbox') : null); })) : h('div', { class: 'dim' }, 'Nothing waiting.')),
       sec('Decisions', h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Approved'), h('span', { class: 'v' }, g.decisions.filter(d => d.decision === 'approve').length), h('span', { class: 'k' }, 'Edited'), h('span', { class: 'v' }, g.decisions.filter(d => d.decision === 'edited').length), h('span', { class: 'k' }, 'Sent back'), h('span', { class: 'v' }, g.decisions.filter(d => d.decision === 'sendback').length), h('span', { class: 'k' }, 'By agent'), h('span', { class: 'v' }, g.decisions.filter(d => d.by === 'agent').length)), h('div', { class: 'hint' }, 'Edits are the most useful signal for calibration. When people stop editing, the gate can move to sampled.')),
     ];
@@ -805,18 +841,12 @@ function renderSide() {
   }
   if (type === 'item') {
     const it = IT(id); if (!it) { closeSide(); return; }
-    head('Item · ' + it.form, `${it.id} · ${it.title}`);
+    head('Artifact · ' + it.form, `${it.id} · ${it.title}`);
     const where = it.loc?.kind === 'run' ? `running at ${P(it.loc.program).name}` : it.loc?.kind === 'queue' ? `queued at ${P(it.loc.program).name}` : it.loc?.kind === 'gate' ? `waiting at gate: ${G(it.loc.gate).question}` : it.loc?.kind === 'bin' ? `in bin ${B(it.loc.bin).name}` : it.loc?.kind === 'wire' ? 'on a wire' : it.loc?.kind || '—';
     body = [
       sec('Now', h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Where'), h('span', { class: 'v' }, where), h('span', { class: 'k' }, 'Metafab version'), h('span', { class: 'v' }, 'v' + it.version + (it.draining ? ' · draining' : '')), it.parent && h('span', { class: 'k' }, 'Parent'), it.parent && h('span', { class: 'v' }, itemLink(IT(it.parent))), it.children.length ? h('span', { class: 'k' }, 'Children') : null, it.children.length ? h('span', { class: 'v' }, it.children.map(c => [itemLink(IT(c)), ' '])) : null, it.origin && h('span', { class: 'k' }, 'Came from'), it.origin && h('span', { class: 'v' }, IT(it.origin) ? itemLink(IT(it.origin)) : it.origin), it.flags.hold && h('span', { class: 'k' }, 'Held'), it.flags.hold && h('span', { class: 'v', style: 'color:var(--red)' }, `${it.flags.holdBy.name} ${f2(it.flags.holdBy.value)}`))),
-      sec('History', h('div', { class: 'timeline' }, it.history.filter(x => x.kind !== 'run-start').map(x => h('div', { class: 'tl' },
-        h('div', { class: 'rail' }, h('span', { class: 'dot ' + histDot(x) }), h('span', { class: 'ln' })),
-        h('div', { class: 'c' },
-          h('div', { class: 't' }, histText(x)),
-          h('div', { class: 'd' }, [x.version && `v${x.version} · `, x.cost && `$${x.cost} · `, ago(M.sim.now - x.at)].filter(Boolean).join('')),
-          x.scores && h('div', { style: 'margin-top:4px;display:flex;flex-direction:column;gap:2px' }, x.scores.map(scoreRow)),
-          x.scores && x.scores.filter(sc => !sc.ok).map(sc => h('div', { class: 'hint' }, `${sc.name}: ${sc.reason}`))))))),
-      sec('', h('div', { class: 'actions' }, h('button', { class: 'btn sm', disabled: !it.history.some(x => x.kind === 'run-end'), onclick: () => rewindItem(it, 'build-slice', 'manual') }, '⟲ Rewind to Build slice'), h('button', { class: 'btn sm', disabled: true }, 'Open trace'))),
+      ...traceView(it),
+      sec('', h('div', { class: 'actions' }, h('button', { class: 'btn sm', disabled: !it.history.some(x => x.kind === 'run-end') || ['done', 'parent'].includes(it.loc?.kind), onclick: () => rewindItem(it, 'build-slice', 'manual') }, '⟲ Rewind to Build slice'))),
     ];
   }
   if (type === 'defects') {
@@ -852,25 +882,198 @@ function renderSide() {
   side.replaceChildren(
     h('div', { class: 'side-head' }, h('div', {}, h('div', { class: 'kind' }, kind), h('div', { class: 'title' }, title)), h('button', { class: 'tbtn icon sm x', title: 'Close (Esc)', onclick: closeSide, disabled: ui.worldDim }, icon('x'))),
     h('div', { class: 'side-body' }, ...body.filter(Boolean)));
+  if (keepScroll) side.querySelector('.side-body').scrollTop = keepScroll;
   if (type === 'designer' && M._designerLines) M._designerLines.forEach(l => appendLog('#designer-log', l));
   if (type === 'maintenance' && M.maintenance) { M.maintenance.lines.forEach(l => appendLog('#maint-log', l)); if (M.maintenance.proposalEl) $('#maint-proposal').append(M.maintenance.proposalEl); }
 }
 function scrollSideTo(sel) { const e = $(sel); if (e) setTimeout(() => e.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); }
 const tl = (c, t, d) => h('div', { class: 'tl' }, h('div', { class: 'rail' }, h('span', { class: 'dot ' + c }), h('span', { class: 'ln' })), h('div', { class: 'c' }, h('div', { class: 't' }, t), h('div', { class: 'd' }, d)));
-function histDot(x) { if (x.kind === 'run-end') return x.verdict === 'passed' ? 'green' : x.verdict === 'scored' ? 'amber' : 'red'; if (x.kind === 'gate') return x.decision === 'sendback' ? 'amber' : x.by === 'agent' ? 'violet' : 'blue'; if (x.kind === 'rewind') return 'white'; if (x.kind === 'shipped') return 'green'; return 'grey'; }
-function histText(x) {
-  switch (x.kind) {
-    case 'enter': return `Entered at ${P(x.program).name} via ${x.via}`;
-    case 'run-end': return `${P(x.program).name} · ${x.verdict}`;
-    case 'retry': return `Retried at ${P(x.program).name} · ${x.reason}`;
-    case 'gate': return `Gate "${G(x.gate).question}" · ${x.decision}${x.by ? ' by ' + x.by : ''}`;
-    case 'bin': return `Waiting in bin ${B(x.bin).name}`;
-    case 'release': return `Released from ${B(x.bin).name}`;
-    case 'split': return `Split from ${x.from}`;
-    case 'shipped': return `Shipped · PR #${x.pr}`;
-    case 'rewind': return `Rewound to ${P(x.program).name} · ${x.why}`;
-    default: return x.kind;
+// ───────────────────────────────────────────── trace (waterfall)
+// An artifact's history becomes spans: queue waits, program runs, gate waits, bin waits, plus
+// instant events. Each artifact contributes only its own (non-inherited) history, so a trace that
+// covers a spec and its slices never counts a run twice.
+const fmtDur = (x) => { x = Math.max(0, x); if (x < 10) return x.toFixed(1) + 's'; if (x < 60) return Math.round(x) + 's'; const m = Math.floor(x / 60), r = Math.floor(x % 60); return `${m}m ${String(r).padStart(2, '0')}s`; };
+const fmt$ = (n) => '$' + (n || 0).toFixed(2);
+const sumTile = (l, v, sub) => h('div', { class: 'wf-tile' }, h('div', { class: 'l' }, l), h('div', { class: 'v' }, v), sub && h('div', { class: 's' }, sub));
+
+function ownSpans(it) {
+  const out = [], open = {};
+  const start = (key, sp) => { if (open[key]) close(key, sp.start); sp.owner = it.id; open[key] = sp; out.push(sp); return sp; };
+  const close = (key, at, extra) => { const sp = open[key]; if (!sp) return null; sp.end = at; Object.assign(sp, extra); delete open[key]; return sp; };
+  const instant = (sp) => { sp.owner = it.id; sp.end = sp.start; sp.instant = true; out.push(sp); };
+  for (const x of it.history) {
+    if (x.inherited) continue;
+    switch (x.kind) {
+      case 'enter': instant({ kind: 'enter', program: x.program, via: x.via, start: x.at }); break;
+      case 'split': instant({ kind: 'split', from: x.from, start: x.at }); break;
+      case 'queue': start('q', { kind: 'queue', program: x.program, start: x.at }); break;
+      case 'run-start': close('q', x.at); start('run', { kind: 'run', program: x.program, start: x.at, version: x.version, agent: x.agent, run: x.run }); break;
+      case 'retry': close('q', x.at); start('run', { kind: 'run', program: x.program, start: x.at, retry: x.reason }); break;
+      case 'run-end': { const sp = close('run', x.at, { verdict: x.verdict, scores: x.scores, cost: x.cost, version: x.version, run: x.run }); if (sp) { const r = M.runs.find(r => r.id === x.run); if (r) sp.agent = r.agent; } break; }
+      case 'gate-wait': start('gate', { kind: 'gate', gate: x.gate, start: x.at }); break;
+      case 'gate': if (!close('gate', x.at, { decision: x.decision, by: x.by, reason: x.reason })) instant({ kind: 'gate', gate: x.gate, start: x.at, decision: x.decision, by: x.by }); break;
+      case 'bin': start('bin', { kind: 'bin', bin: x.bin, start: x.at }); break;
+      case 'release': close('bin', x.at); break;
+      case 'rewind': for (const k of Object.keys(open)) close(k, x.at, { cancelled: true }); instant({ kind: 'rewind', program: x.program, why: x.why, start: x.at }); break;
+      case 'shipped': instant({ kind: 'shipped', pr: x.pr, start: x.at }); break;
+    }
   }
+  // drop zero-length queue waits (an agent was free) so the trace stays readable
+  return out.filter(sp => !(sp.kind === 'queue' && sp.end != null && sp.end - sp.start < 0.05));
+}
+function lineage(it) {
+  // the artifact, its parents, and what it came from (e.g. the bug report that became this request)
+  const path = [], seen = new Set(); let cur = it;
+  while (cur && !seen.has(cur.id)) { seen.add(cur.id); path.unshift(cur); cur = (cur.parent && IT(cur.parent)) || (cur.origin && IT(cur.origin)) || null; }
+  return path;
+}
+function descendants(it, out = [], seen = new Set([it.id])) {
+  for (const x of M.items) if (!seen.has(x.id) && (x.parent === it.id || (!x.parent && x.origin === it.id))) { seen.add(x.id); out.push(x); descendants(x, out, seen); }
+  return out;
+}
+function traceStats(spans) {
+  const now = M.sim.now; const st = { t0: Infinity, t1: -Infinity, cost: 0, work: 0, wait: 0, runs: 0, progs: new Map(), stops: new Map() };
+  for (const sp of spans) {
+    const e = sp.end ?? now, d = e - sp.start; st.t0 = Math.min(st.t0, sp.start); st.t1 = Math.max(st.t1, e);
+    if (sp.instant) continue;
+    if (sp.kind === 'run' || sp.kind === 'queue') {
+      const bp = st.progs.get(sp.program) || { run: 0, queue: 0, cost: 0, n: 0 }; st.progs.set(sp.program, bp);
+      if (sp.kind === 'run') { st.work += d; st.cost += sp.cost || 0; st.runs++; bp.run += d; bp.cost += sp.cost || 0; bp.n++; }
+      else { st.wait += d; bp.queue += d; }
+    } else if (sp.kind === 'gate' || sp.kind === 'bin') {
+      st.wait += d; const k = sp.kind + ':' + (sp.gate || sp.bin); const bs = st.stops.get(k) || { kind: sp.kind, id: sp.gate || sp.bin, wait: 0, n: 0 }; bs.wait += d; bs.n++; st.stops.set(k, bs);
+    }
+  }
+  if (!isFinite(st.t0)) { st.t0 = now; st.t1 = now; }
+  return st;
+}
+function spanTone(sp) {
+  if (sp.kind === 'run') return sp.end == null ? 'live' : sp.cancelled ? 'cancel' : sp.verdict === 'passed' ? 'ok' : sp.verdict === 'scored' ? 'warn' : 'bad';
+  if (sp.kind === 'gate') return sp.end == null ? 'gate live' : sp.decision === 'sendback' ? 'warn' : sp.by === 'agent' ? 'agent' : sp.by === 'person' ? 'gate' : 'gate auto';
+  if (sp.kind === 'bin') return 'bin' + (sp.end == null ? ' live' : '');
+  if (sp.kind === 'queue') return 'queue' + (sp.end == null ? ' live' : '');
+  if (sp.kind === 'shipped') return 'ok'; if (sp.kind === 'rewind') return 'rewind';
+  return 'mute';
+}
+function spanLabel(sp) {
+  switch (sp.kind) {
+    case 'run': return P(sp.program).name + (sp.retry ? ' · retry' : '');
+    case 'queue': return 'queued';
+    case 'gate': return G(sp.gate).owner + ' gate';
+    case 'bin': return 'bin · ' + B(sp.bin).name;
+    case 'enter': return 'entered · ' + sp.via;
+    case 'split': return 'split from ' + sp.from;
+    case 'shipped': return 'shipped' + (sp.pr ? ' · PR #' + sp.pr : '');
+    case 'rewind': return '⟲ rewound';
+  }
+  return sp.kind;
+}
+function spanTarget(sp) {
+  if (sp.kind === 'run' || sp.kind === 'queue' || sp.kind === 'enter' || sp.kind === 'rewind') return sp.program && (() => select('program', sp.program));
+  if (sp.kind === 'gate') return () => select('gate', sp.gate);
+  if (sp.kind === 'bin') return () => select('bin', sp.bin);
+  if (sp.kind === 'split') return () => select('item', sp.from);
+  return null;
+}
+function spanTitle(sp) {
+  const d = (sp.end ?? M.sim.now) - sp.start;
+  const bits = [spanLabel(sp)];
+  if (!sp.instant) bits.push(fmtDur(d) + (sp.end == null ? ' so far' : ''));
+  if (sp.kind === 'run') { if (sp.cost) bits.push(fmt$(sp.cost)); if (sp.agent) bits.push(sp.agent); if (sp.version) bits.push('v' + sp.version); bits.push(sp.end == null ? 'running' : sp.cancelled ? 'cancelled' : sp.verdict); }
+  if (sp.kind === 'gate' && sp.decision) bits.push(sp.decision + (sp.by ? ' by ' + sp.by : ''));
+  if (sp.kind === 'gate') bits.push('"' + G(sp.gate).question + '"');
+  if (sp.retry) bits.push('retry: ' + sp.retry);
+  if (sp.why) bits.push(sp.why);
+  return bits.join(' · ');
+}
+function niceStep(range) {
+  for (const s of [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600]) if (range / s <= 5) return s;
+  return 7200;
+}
+
+function traceView(it) {
+  const path = lineage(it); const root = path[0];
+  const seen = new Set(); const uniq = (xs) => xs.filter(x => !seen.has(x.id) && seen.add(x.id));
+  const pathArts = uniq([...path, ...descendants(it)]);
+  const feature = [root, ...descendants(root)];
+  const hasFeature = feature.length > pathArts.length;
+  const scope = hasFeature && ui.traceScope === 'feature' ? 'feature' : 'path';
+  const arts = (scope === 'feature' ? feature : pathArts).slice().sort((a, b) => a.bornAt - b.bornAt);
+  const groups = arts.map(a => ({ a, spans: ownSpans(a) }));
+  const all = groups.flatMap(g => g.spans);
+  const st = traceStats(all); const featSt = hasFeature && scope === 'path' ? traceStats(feature.flatMap(ownSpans)) : null;
+  const now = M.sim.now; const t0 = st.t0, range = Math.max(1, st.t1 - t0);
+  const pct = (t) => clamp((t - t0) / range * 100, 0, 100);
+  const live = it.loc && !['done', 'parent'].includes(it.loc.kind);
+
+  // summary
+  const elapsed = st.t1 - st.t0;
+  const summary = h('div', { class: 'wf-sum' },
+    sumTile('Elapsed', fmtDur(elapsed), live ? 'still in flight' : it.loc?.kind === 'done' ? 'finished' : ''),
+    sumTile('Cost', fmt$(st.cost), `${st.runs} run${st.runs === 1 ? '' : 's'}`),
+    sumTile('Agent time', fmtDur(st.work), elapsed ? Math.round(st.work / elapsed * 100) + '% of elapsed' : ''),
+    sumTile('Waiting', fmtDur(st.wait), elapsed ? Math.round(st.wait / elapsed * 100) + '% of elapsed' : ''));
+
+  const scopeBar = hasFeature ? h('div', { class: 'wf-scope' },
+    h('div', { class: 'seg' },
+      h('button', { class: scope === 'path' ? 'on' : '', onclick: () => { ui.traceScope = 'path'; renderSide(); } }, 'This artifact'),
+      h('button', { class: scope === 'feature' ? 'on' : '', onclick: () => { ui.traceScope = 'feature'; renderSide(); } }, `Whole feature · ${root.id}`)),
+    featSt ? h('span', { class: 'wf-feat' }, `${feature.length} artifacts · ${fmt$(featSt.cost)} · ${fmtDur(featSt.t1 - featSt.t0)}`) : h('span', { class: 'wf-feat' }, `${feature.length} artifacts`)) : null;
+
+  // breakdown: where the time and money went, per program and per stop
+  const progRows = [...st.progs.entries()];
+  const stopRows = [...st.stops.values()];
+  const maxT = Math.max(0.001, ...progRows.map(([, b]) => b.run + b.queue), ...stopRows.map(b => b.wait));
+  const breakdown = h('div', { class: 'bk' },
+    progRows.map(([pid, b]) => h('div', { class: 'bk-row click', title: `Open ${P(pid).name}`, onclick: () => select('program', pid) },
+      h('span', { class: 'bk-name' }, P(pid).name),
+      h('span', { class: 'bk-bar' }, h('i', { class: 'run', style: `width:${b.run / maxT * 100}%` }), h('i', { class: 'queue', style: `width:${b.queue / maxT * 100}%` })),
+      h('span', { class: 'bk-t' }, fmtDur(b.run + b.queue)),
+      h('span', { class: 'bk-c' }, b.cost ? fmt$(b.cost) : '—'))),
+    stopRows.map(b => { const nm = b.kind === 'gate' ? G(b.id).owner + ' gate' : 'Bin · ' + B(b.id).name; return h('div', { class: 'bk-row click', title: `Open ${nm}`, onclick: () => select(b.kind, b.id) },
+      h('span', { class: 'bk-name dim' }, nm),
+      h('span', { class: 'bk-bar' }, h('i', { class: b.kind, style: `width:${b.wait / maxT * 100}%` })),
+      h('span', { class: 'bk-t' }, fmtDur(b.wait)),
+      h('span', { class: 'bk-c' }, '—')); }),
+    h('div', { class: 'bk-legend' }, h('span', {}, h('i', { class: 'run' }), 'running'), h('span', {}, h('i', { class: 'queue' }), 'queued'), h('span', {}, h('i', { class: 'gate' }), 'gate'), h('span', {}, h('i', { class: 'bin' }), 'bin')));
+
+  // waterfall
+  const step = niceStep(range); const ticks = [];
+  for (let v = 0; v <= range + 1e-6; v += step) ticks.push(v);
+  ui.traceOpen ||= new Set();
+  const rows = [];
+  for (const g of groups) {
+    const gs = traceStats(g.spans); const a = g.a;
+    rows.push(h('div', { class: 'wf-group' + (a.id === it.id ? ' self' : ''), title: a.id === it.id ? '' : 'Open this artifact', onclick: () => a.id !== it.id && select('item', a.id) },
+      h('span', { class: 'dot', style: `background:${FORM_COLOR[a.form] || '#fff'}` }), h('span', { class: 'gid' }, a.id), h('span', { class: 'gt' }, a.title),
+      h('span', { class: 'gm' }, `${gs.cost ? fmt$(gs.cost) + ' · ' : ''}${fmtDur(gs.t1 - gs.t0)}`)));
+    for (const sp of g.spans) {
+      const key = sp.owner + ':' + sp.kind + ':' + sp.start.toFixed(3);
+      const end = sp.end ?? now; const l = pct(sp.start), w = Math.max(0, pct(end) - l);
+      const tone = spanTone(sp); const go = spanTarget(sp); const isOpen = ui.traceOpen.has(key);
+      const canOpen = sp.kind === 'run' && sp.scores;
+      const toggle = () => { if (!canOpen) return go && go(); isOpen ? ui.traceOpen.delete(key) : ui.traceOpen.add(key); renderSide(); };
+      rows.push(h('div', { class: 'wf-row k-' + sp.kind + (sp.instant ? ' inst' : ''), title: spanTitle(sp) },
+        h('span', { class: 'wf-lab' + (go ? ' click' : ''), onclick: go || null }, spanLabel(sp)),
+        h('span', { class: 'wf-track' + (canOpen ? ' click' : ''), onclick: toggle },
+          sp.instant ? h('i', { class: 'wf-pin ' + tone, style: `left:${l}%` })
+            : h('i', { class: 'wf-bar ' + tone, style: `left:${l}%;width:max(2px,${w}%)` })),
+        h('span', { class: 'wf-meta' }, sp.instant ? '' : [fmtDur(end - sp.start), sp.cost ? h('b', {}, fmt$(sp.cost)) : null])));
+      if (isOpen && canOpen) rows.push(h('div', { class: 'wf-detail' },
+        h('div', { class: 'wf-dmeta' }, [sp.agent, sp.version && 'v' + sp.version, sp.verdict, fmt$(sp.cost)].filter(Boolean).join(' · ')),
+        h('div', { class: 'scores' }, sp.scores.map(scoreRow)),
+        sp.scores.filter(sc => !sc.ok).map(sc => h('div', { class: 'hint' }, `${sc.name}: ${sc.reason}`))));
+    }
+  }
+  const waterfall = h('div', { class: 'wf' },
+    h('div', { class: 'wf-axis' }, h('span', {}), h('span', { class: 'wf-ticks' }, ticks.map(v => h('span', { style: `left:${v / range * 100}%` }, fmtDur(v)))), h('span', {})),
+    h('div', { class: 'wf-rows' }, h('div', { class: 'wf-grid' }, ticks.map(v => h('i', { style: `left:${v / range * 100}%` })), live ? h('i', { class: 'now', style: 'left:100%' }) : null), rows));
+
+  return [
+    sec('Trace', scopeBar, summary),
+    progRows.length || stopRows.length ? sec('Where the time and money went', breakdown) : null,
+    sec('', waterfall, h('div', { class: 'hint' }, 'Click a program, gate or bin name to open it. Click a run bar to see its scores.')),
+  ];
 }
 function fakeOutput(it) {
   const t = it.title;
@@ -886,7 +1089,7 @@ function appendLog(sel, l) { const box = $(sel); if (!box) return; box.append(h(
 function onPlugClick(p) {
   if (p.entry.kind === 'connection') { toast(`${p.entry.label} connection · ${M.defects.length} events so far`, ''); return; }
   const inp = h('input', { placeholder: 'e.g. Export invoices as CSV', autofocus: true });
-  showModal({ title: `Run ${p.name}`, sub: `Fill its open input: ${p.inputs[0].name}. Each run makes a new item.`, body: [h('div', { class: 'field' }, h('label', {}, 'Request'), inp, h('div', { class: 'hint' }, 'This form can also be a chat with an agent that asks until the input is complete.'))], ok: 'Run', onOk: () => { const t = inp.value.trim() || 'Untitled request'; spawnRequest(t); toast(`${t} queued at Write spec`, 'green'); closeModal(); } });
+  showModal({ title: `Run ${p.name}`, sub: `Fill its open input: ${p.inputs[0].name}. Each run makes a new artifact.`, body: [h('div', { class: 'field' }, h('label', {}, 'Request'), inp, h('div', { class: 'hint' }, 'This form can also be a chat with an agent that asks until the input is complete.'))], ok: 'Run', onOk: () => { const t = inp.value.trim() || 'Untitled request'; spawnRequest(t); toast(`${t} queued at Write spec`, 'green'); closeModal(); } });
   setTimeout(() => inp.focus(), 50);
 }
 
@@ -952,7 +1155,7 @@ async function maintain() {
   await say(`Reading ${allScores} scores across ${M.runs.filter(r => r.scores).length} runs, ${M.defects.length} defects, ${M.feedback.length} gate edits.`, 'dimm', 900);
   if (bsRuns.length < 2) {
     await say(`Not enough runs to see a pattern. ${bsRuns.length} run${bsRuns.length === 1 ? '' : 's'} of Build slice so far.`, 'hl');
-    await say('Come back after a few items have shipped.', 'dimm');
+    await say('Come back after a few artifacts have shipped.', 'dimm');
     M.maintenance.proposalEl = h('div', { class: 'actions', style: 'margin-top:8px' }, h('button', { class: 'btn sm', onclick: endMaintenance }, 'Close')); $('#maint-proposal')?.append(M.maintenance.proposalEl); return;
   }
   const weak = P('build-slice').weak;
@@ -968,10 +1171,10 @@ async function maintain() {
     const reasons = {}; for (const t of tds) if (t.value < .6) reasons[t.reason] = (reasons[t.reason] || 0) + 1;
     const top = Object.entries(reasons).sort((a, b) => b[1] - a[1])[0];
     if (top) await say(`Repeated reason: "${top[0]}" ×${top[1]}.`, '', 800);
-    await say('Cause: the Build slice frame has no testing standard. Test depth flags, but its policy does not hold the item.', '', 900);
+    await say('Cause: the Build slice frame has no testing standard. Test depth flags, but its policy does not hold the artifact.', '', 900);
     if (M.feedback.length) await say(`${M.feedback.length} gate edit${M.feedback.length > 1 ? 's' : ''} at Release lead also mention tests.`, 'dimm', 700);
     await say('Writing a change to .metafab/ …', 'dimm', 900);
-    await say(`Replaying ${Math.min(6, bsRuns.length)} items on v${M.version} and v${M.version + 1}. Effects mocked.`, 'dimm', 1400);
+    await say(`Replaying ${Math.min(6, bsRuns.length)} artifacts on v${M.version} and v${M.version + 1}. Effects mocked.`, 'dimm', 1400);
     await say('Proposal ready. A PR on .metafab/, through the gate as any other change.', 'ok', 300);
     M.maintenance.title = 'Proposal: Build slice v' + (M.version + 1);
     const inflight = staleItems().length;
@@ -979,16 +1182,16 @@ async function maintain() {
       h('div', { class: 'diff' }, h('div', { class: 'f' }, 'programs/build-slice.md'), h('div', { class: 'l ctx' }, ' Implement the slice on a new branch.'), h('div', { class: 'l ctx' }, ' Follow repo conventions. Keep the diff small.'), h('div', { class: 'l add' }, '+Write tests for each acceptance criterion'), h('div', { class: 'l add' }, '+before the implementation. Cover the empty'), h('div', { class: 'l add' }, '+state and every error path.'), h('div', { class: 'l ctx' }, ' '), h('div', { class: 'l ctx' }, ' skills: repo-conventions'), h('div', { class: 'l add' }, '+skills: repo-conventions, testing-standard')),
       h('div', { class: 'diff' }, h('div', { class: 'f' }, 'skills/testing-standard.md · new'), h('div', { class: 'l add' }, '+# Testing standard'), h('div', { class: 'l add' }, '+One test per acceptance criterion. Assert on'), h('div', { class: 'l add' }, '+behaviour, not implementation. Empty state and'), h('div', { class: 'l add' }, '+error paths are not optional.')),
       h('div', { class: 'diff' }, h('div', { class: 'f' }, 'scorers/test-depth.md'), h('div', { class: 'l del' }, '-policy: continue, flagged'), h('div', { class: 'l add' }, '+policy: hold          # now a check'), h('div', { class: 'l add' }, '+pass: 0.60')),
-      h('div', { class: 'sec' }, h('h4', {}, 'Replay set · ' + Math.min(6, bsRuns.length) + ' items'), h('div', { class: 'replay' }, h('span', { class: 'h' }), h('span', { class: 'h' }, 'v' + M.version), h('span', { class: 'h' }, 'v' + (M.version + 1)), h('span', { class: 'h' }, 'Δ'),
+      h('div', { class: 'sec' }, h('h4', {}, 'Replay set · ' + Math.min(6, bsRuns.length) + ' artifacts'), h('div', { class: 'replay' }, h('span', { class: 'h' }), h('span', { class: 'h' }, 'v' + M.version), h('span', { class: 'h' }, 'v' + (M.version + 1)), h('span', { class: 'h' }, 'Δ'),
         h('span', {}, 'Test depth'), h('span', {}, f2(avg)), h('span', {}, '0.83'), h('span', { class: 'up' }, '+' + f2(.83 - avg)),
         h('span', {}, 'AI slop'), h('span', {}, '0.24'), h('span', {}, '0.23'), h('span', { class: 'same' }, '—'),
         h('span', {}, 'Code reuse'), h('span', {}, '0.68'), h('span', {}, '0.70'), h('span', { class: 'same' }, '—'),
         h('span', {}, 'Cost / run'), h('span', {}, '$0.92'), h('span', {}, '$1.04'), h('span', { class: 'dn' }, '+13%'),
         h('span', {}, 'Time / run'), h('span', {}, '6.8s'), h('span', {}, '7.9s'), h('span', { class: 'dn' }, '+16%'))),
-      h('div', { class: 'sec' }, h('h4', {}, 'Roll over'), h('div', { class: 'hint', style: 'margin:0 0 8px' }, `${inflight} item${inflight === 1 ? ' is' : 's are'} past Build slice on v${M.version} and not yet past a person gate.`),
+      h('div', { class: 'sec' }, h('h4', {}, 'Roll over'), h('div', { class: 'hint', style: 'margin:0 0 8px' }, `${inflight} artifact${inflight === 1 ? ' is' : 's are'} past Build slice on v${M.version} and not yet past a person gate.`),
         h('div', { style: 'display:flex;flex-direction:column;gap:8px' },
-          h('div', { class: 'opt', onclick: () => applyProposal('hard') }, h('div', { class: 't' }, 'Roll over now', h('span', { class: 'tagx' }, 'rewind stale')), h('div', { class: 'd' }, `Stale items rewind to Build slice and rebuild on v${M.version + 1}. Items past a person gate are kept. Shipped code is fixed forward.`)),
-          h('div', { class: 'opt', onclick: () => applyProposal('drain') }, h('div', { class: 't' }, 'Drain, then roll over', h('span', { class: 'tagx' }, 'no rewind')), h('div', { class: 'd' }, `Items in flight finish on v${M.version}. New runs of Build slice use v${M.version + 1}.`)),
+          h('div', { class: 'opt', onclick: () => applyProposal('hard') }, h('div', { class: 't' }, 'Roll over now', h('span', { class: 'tagx' }, 'rewind stale')), h('div', { class: 'd' }, `Stale artifacts rewind to Build slice and rebuild on v${M.version + 1}. Artifacts past a person gate are kept. Shipped code is fixed forward.`)),
+          h('div', { class: 'opt', onclick: () => applyProposal('drain') }, h('div', { class: 't' }, 'Drain, then roll over', h('span', { class: 'tagx' }, 'no rewind')), h('div', { class: 'd' }, `Artifacts in flight finish on v${M.version}. New runs of Build slice use v${M.version + 1}.`)),
           h('div', { class: 'opt', onclick: () => { toast('Proposal discarded', ''); endMaintenance(); } }, h('div', { class: 't' }, 'Discard'), h('div', { class: 'd' }, 'Keep v' + M.version + '. The maintenance agent will see the same pattern next time.')))));
     M.maintenance.proposalEl = el; $('#maint-proposal')?.append(el); renderSide(); scrollSideTo('#maint-proposal');
     return;
@@ -1034,8 +1237,8 @@ function applyProposal(mode) {
   const td = SC('test-depth'); td.check = true; td.policy = 'hold'; td.version++;
   M.changes.push({ at: M.sim.now, what: `Build slice v${M.version}: testing standard; Test depth is now a check` });
   p.el.classList.remove('weak'); p.el.classList.add('changed'); setTimeout(() => p.el.classList.remove('changed'), 4000);
-  if (mode === 'hard') { for (const it of stale) rewindItem(it, 'build-slice', `v${M.version} rollover`); toast(`v${M.version} live · ${stale.length} stale item${stale.length === 1 ? '' : 's'} rewound to Build slice`, 'green'); }
-  else { for (const it of stale) { it.draining = true; drawMarks(it); } toast(`v${M.version} live · ${stale.length} item${stale.length === 1 ? '' : 's'} draining on v${M.version - 1}`, 'green'); }
+  if (mode === 'hard') { for (const it of stale) rewindItem(it, 'build-slice', `v${M.version} rollover`); toast(`v${M.version} live · ${stale.length} stale artifact${stale.length === 1 ? '' : 's'} rewound to Build slice`, 'green'); }
+  else { for (const it of stale) { it.draining = true; drawMarks(it); } toast(`v${M.version} live · ${stale.length} artifact${stale.length === 1 ? '' : 's'} draining on v${M.version - 1}`, 'green'); }
   M.defectsSinceMaint = 0; endMaintenance();
 }
 function endMaintenance() {
@@ -1091,7 +1294,7 @@ function openMetafab(mf, reveal = false) {
   $('#home').classList.add('hidden'); $('#studio').classList.remove('hidden');
   buildCanvas(reveal);
   // re-attach item elements for items still in play
-  for (const it of M.items) if (it.loc && !['done', 'parent'].includes(it.loc.kind)) { const g = s('g', { class: 'item', 'data-id': it.id, onclick: (e) => { e.stopPropagation(); select('item', it.id); } }); g.append(s('circle', { class: 'halo', r: 13 }), s('circle', { class: 'ball', r: 6.5 }), s('g', { class: 'marks' }), s('text', { class: 'tag', y: 24 }), s('text', { class: 'idlab', y: -17 }, it.id), s('title', {})); L.items.append(g); itemEls.set(it.id, g); drawMarks(it); }
+  for (const it of M.items) if (it.loc && !['done', 'parent'].includes(it.loc.kind)) makeItemEl(it);
   ui.cmdKey = ui.crumbKey = ui.agentsKey = ''; fitView(); renderSide(); touch(); renderHUD();
   if (!ui.raf) ui.raf = requestAnimationFrame(loop);
   if (reveal) revealDesign();
