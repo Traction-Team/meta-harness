@@ -54,16 +54,9 @@
   </svg>
 
   <div class="hud top-left" id="crumb"></div>
-  <div class="hud top-right" id="legend">
-    <div class="legend-row"><span class="lg station"></span>Program</div>
-    <div class="legend-row"><span class="lg gate"></span>Gate</div>
-    <div class="legend-row"><span class="lg bin"></span>Bin</div>
-    <div class="legend-row"><span class="lg item"></span>Artifact</div>
-  </div>
-
-  <!-- left column: inbox (list ⇄ question) stacked above agents -->
+  <!-- left column: what needs you, above the agents and what each one is doing -->
   <div class="left-col">
-    <section class="hud hidden" id="inbox"></section>
+    <section class="hud hidden" id="attn"></section>
     <div class="hud" id="agents-pane"></div>
   </div>
   <div class="hud bottom-center" id="command"></div>
@@ -73,8 +66,30 @@
   <div id="toasts"></div>
 </div>
 
+<!-- ───────────────────────── Work view: one item's workspace ───────────────────────── -->
+<div id="work" class="screen hidden">
+  <header id="wk-head"></header>
+  <div class="wk-main">
+    <section class="wk-chat">
+      <div id="wk-sessions"></div>
+      <div id="wk-msgs"></div>
+      <div class="wk-composer">
+        <textarea id="wk-input" rows="2"></textarea>
+        <button id="wk-send" class="btn primary sm">Send</button>
+      </div>
+    </section>
+    <section class="wk-art">
+      <div id="wk-tabs"></div>
+      <div id="wk-pane"></div>
+    </section>
+  </div>
+  <footer id="wk-term"></footer>
+</div>
+
 <div id="modal-root"></div>
 
+<script src="data.js"></script>
 <script src="app.js"></script>
+<script src="work.js"></script>
 </body>
 </html>

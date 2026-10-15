@@ -34,37 +34,24 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const f2 = n => n.toFixed(2);
 let _uid = 0; const uid = (p = '') => p + (++_uid).toString(36);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const ago = (secs) => secs < 60 ? `${Math.max(0, Math.round(secs))}s ago` : `${Math.round(secs / 60)}m ago`;
+
+// ───────────────────────────────────────────── time
+// The simulation runs fast so you can watch it. Everything shown to a person is in
+// factory time: one real second is two minutes, and the line opens Monday 9:00.
+const TS = 120;
+const T0 = new Date(2026, 9, 5, 9, 0, 0).getTime();
+const simDate = (t) => new Date(T0 + t * TS * 1000);
+const clock = (t) => { const d = simDate(t); return d.toLocaleDateString('en-AU', { weekday: 'short' }) + ' ' + d.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false }); };
+const hhmm = (t) => simDate(t).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false });
+const ago = (secs) => { const x = Math.max(0, secs * TS); if (x < 60) return 'just now'; if (x < 3600) return `${Math.round(x / 60)}m ago`; if (x < 86400) return `${Math.floor(x / 3600)}h ${Math.round((x % 3600) / 60)}m ago`; return `${Math.round(x / 86400)}d ago`; };
 
 // ───────────────────────────────────────────── constants
 const W = 152, H = 66;          // station size
 const SPEED = 165;              // px / s along wires
 const FORM_COLOR = { request: '#aab8cc', spec: '#5ad1ff', slice: '#a78bfa', branch: '#2dd4bf', pr: '#f472b6', merged: '#4ade80', report: '#fb7185' };
-const STARTER_REQUESTS = [
-  'Walking skeleton: repo, CI, deploy',
-  'Sign in and accounts',
-  'First core flow end to end',
-  'Settings and billing',
-  'Notifications',
-  'Admin view',
-  'Import from CSV',
-  'Public API v1',
-];
-const SLICE_KINDS = ['data model', 'API', 'UI', 'tests & docs', 'migration'];
 const DEFECT_TITLES = [
-  "TypeError: cannot read 'total' of undefined",
-  'POST /invoices returns 500 when customer is missing',
   'Unhandled promise rejection in sync job',
-  'Date parsing off by one in weekly report',
-  'Null currency crashes PDF export',
   'Session not cleared on sign out',
-  'Race on save: last write loses',
-];
-const LOW_REASONS = [
-  'no tests for error paths',
-  'happy path only; no edge cases',
-  'tests assert on implementation, not behaviour',
-  'no test for the empty state',
 ];
 
 // ───────────────────────────────────────────── template design
@@ -131,8 +118,8 @@ function createMetafab({ name, brief }) {
     id: uid('mf'), name, brief, version: 1, status: 'designed',
     design: makeDesign(), items: [], runs: [], questions: [], defects: [], feedback: [],
     shipped: 0, agents: [], team: null,
-    sim: { now: 0, paused: false, intakeAt: 0, requestsLeft: STARTER_REQUESTS.slice(3) },
-    pendingDefects: [], counters: { req: 0, pr: 212, defect: 0 },
+    sim: { now: 0, paused: false, intakeAt: 0, requestsLeft: LATER_REQUESTS.slice() },
+    pendingDefects: [], counters: { req: 11, pr: 212, defect: 0, sha: 0 },
     defectsSinceMaint: 0, maintenance: null, changes: [], openedAt: Date.now(),
   };
 }
@@ -151,7 +138,14 @@ const WR = id => D.wires.find(w => w.id === id);
 const IT = id => M.items.find(i => i.id === id);
 const SC = id => D.scorers.find(x => x.id === id);
 
-const ui = { side: null, selection: null, hudDirty: true, sideDirty: true, inboxKey: '', zoom: 1, tx: 0, ty: 0, raf: null, lastT: 0, hudT: 0, worldDim: false, editing: false };
+const ui = { side: null, selection: null, hudDirty: true, sideDirty: true, attnKey: '', zoom: 1, tx: 0, ty: 0, raf: null, lastT: 0, hudT: 0, worldDim: false, editing: false, work: null };
+
+// ───────────────────────────────────────────── agents & content lookups
+const AG = id => M.agents.find(a => a.id === id);
+const agentName = (id) => { const a = typeof id === 'object' ? id : AG(id); return a ? `${a.name} ${a.n}` : 'agent'; };
+const sliceOf = (it) => it && it.content && it.slice != null ? it.content.slices[it.slice] : null;
+const rootOf = (it) => { let c = it; while (c && c.parent) c = IT(c.parent); return c; };
+const fakeSha = () => (0x9f2c1ab + (++M.counters.sha) * 7919).toString(16).slice(0, 7);
 
 // ───────────────────────────────────────────── geometry
 function portIn(p) { return p.flip ? { x: p.x + W / 2, y: p.y } : { x: p.x - W / 2, y: p.y }; }
@@ -300,9 +294,10 @@ function applyView() { world.setAttribute('transform', `translate(${ui.tx},${ui.
 })();
 
 // ───────────────────────────────────────────── items
-function newItem({ form, title, parent = null, origin = null }) {
-  const id = parent ? `${parent.id}.${String.fromCharCode(97 + parent.children.length)}` : (form === 'report' ? `D${++M.counters.defect}` : `F${++M.counters.req}`);
-  const it = { id, form, title, parent: parent?.id || null, children: [], marks: [], history: [], loc: null, pos: { x: 0, y: 0 }, flags: {}, sendbacks: 0, retries: 0, version: M.version, draining: false, origin, cleared: {}, bornAt: M.sim.now, root: parent ? parent.root : null, expectedChildren: 0 };
+function newItem({ form, title, parent = null, origin = null, content = null, slice = null }) {
+  const id = parent ? `${parent.id}${String.fromCharCode(97 + parent.children.length)}` : (form === 'report' ? `BUG-${++M.counters.defect}` : `IS-${++M.counters.req}`);
+  const it = { id, form, title, parent: parent?.id || null, children: [], marks: [], history: [], loc: null, pos: { x: 0, y: 0 }, flags: {}, sendbacks: 0, retries: 0, version: M.version, draining: false, origin, cleared: {}, bornAt: M.sim.now, root: parent ? parent.root : null, expectedChildren: 0,
+    content: content || parent?.content || null, slice, reviews: [], answers: {}, specText: null, specEdited: false };
   if (!it.root) it.root = id;
   if (parent) { parent.children.push(id); it.history = parent.history.map(x => ({ ...x, inherited: true })); it.marks = parent.marks.slice(); }
   M.items.push(it);
@@ -310,46 +305,37 @@ function newItem({ form, title, parent = null, origin = null }) {
   return it;
 }
 // Artifacts move, so a normal click often lands on empty canvas. Select on pointerdown and
-// give the ball a larger invisible hit area.
+// give the ball a larger invisible hit area. Clicking an artifact opens its workspace.
 function makeItemEl(it) {
   const id = it.id;
-  const pick = (e) => { if (e.button !== 0) return; e.stopPropagation(); select('item', id); };
+  const pick = (e) => { if (e.button !== 0) return; e.stopPropagation(); openWork(id); };
   const g = s('g', { class: 'item', 'data-id': id, onpointerdown: pick, onclick: (e) => e.stopPropagation() });
-  g.append(s('circle', { class: 'hit', r: 16 }), s('circle', { class: 'halo', r: 13 }), s('circle', { class: 'ball', r: 6.5, fill: FORM_COLOR[it.form] }), s('g', { class: 'marks' }), s('text', { class: 'tag', y: 24 }), s('text', { class: 'idlab', y: -17 }, id));
-  g.append(s('title', {}, `${id} · ${it.form} · ${it.title}`));
+  g.append(s('circle', { class: 'hit', r: 16 }), s('circle', { class: 'halo', r: 11 }), s('circle', { class: 'ball', r: 6.5, fill: FORM_COLOR[it.form] }), s('text', { class: 'tag', y: 24 }), s('text', { class: 'idlab', y: -15 }, id));
+  g.append(s('title', {}, `${id} · ${it.title}`));
   L.items.append(g); itemEls.set(id, g); drawMarks(it);
   return g;
 }
+// The ball says three things only: what form the work is in, whether it is held, and
+// whether it is waiting on a person. Scores live in the workspace, not on the canvas.
 function drawMarks(it) {
   const g = itemEls.get(it.id); if (!g) return;
-  const mg = g.querySelector('.marks'); mg.innerHTML = '';
-  const ms = it.marks.slice(-12); const n = Math.max(ms.length, 1);
-  ms.forEach((m, i) => {
-    const a = -Math.PI / 2 + i * (Math.PI * 2 / Math.max(10, n));
-    const r = 11.5; const cx = Math.cos(a) * r, cy = Math.sin(a) * r;
-    mg.append(s('circle', { class: 'mark' + (m.kind === 'rewind' ? ' rewind' : ''), cx, cy, r: 2.3, fill: m.kind === 'rewind' ? 'none' : markColor(m) }));
-  });
   g.querySelector('.ball').setAttribute('fill', FORM_COLOR[it.form] || '#fff');
   g.classList.toggle('held', !!it.flags.hold);
   g.classList.toggle('draining', !!it.draining);
   g.querySelector('.tag').textContent = it.draining ? 'v' + it.version : '';
-  g.querySelector('title').textContent = `${it.id} · ${it.form} · ${it.title}`;
-}
-function markColor(m) {
-  if (m.kind === 'run') return m.verdict === 'passed' ? 'var(--green)' : m.verdict === 'scored' ? 'var(--amber)' : 'var(--red)';
-  if (m.kind === 'gate') return m.decision === 'edited' ? 'var(--violet)' : m.decision === 'sendback' ? 'var(--amber)' : m.by === 'agent' ? 'var(--violet)' : 'var(--blue)';
-  return '#fff';
+  g.querySelector('title').textContent = `${it.id} · ${it.title}`;
 }
 function removeItemEl(id) { const g = itemEls.get(id); if (g) g.remove(); itemEls.delete(id); }
 
-function spawnRequest(title, origin = null) {
-  const it = newItem({ form: 'request', title, origin });
+function spawnRequest(content, origin = null) {
+  if (typeof content === 'string') content = REQUESTS.find(r => r.key === content) || genericRequest(content);
+  const it = newItem({ form: 'request', title: content.title, origin, content });
   it.history.push({ kind: 'enter', program: 'write-spec', via: origin ? 'Triage feedback' : 'form', at: M.sim.now });
   const p = P('write-spec'); it.pos = { ...portIn(p) }; enqueue(it, p);
   touch(); return it;
 }
 function spawnBugEvent(defect) {
-  const p = P('log-bug'); const it = newItem({ form: 'report', title: defect.title, origin: defect.id });
+  const p = P('log-bug'); const it = newItem({ form: 'report', title: defect.title, origin: defect.id }); it.defect = defect;
   it.history.push({ kind: 'enter', program: 'log-bug', via: 'Sentry', at: M.sim.now });
   it.pos = { ...portIn(p) }; enqueue(it, p);
   if (p.plugEl) { p.plugEl.classList.add('flash'); setTimeout(() => p.plugEl.classList.remove('flash'), 900); }
@@ -364,7 +350,13 @@ function freeAgent() { return M.agents.find(a => !a.busy); }
 function startRun(p) {
   const a = freeAgent(); if (!a) return false;
   const id = p.queue.shift(); const it = IT(id);
-  const run = { id: uid('r'), program: p.id, item: id, version: p.version, agent: a.id, startedAt: M.sim.now, dur: p.dur * rand(.8, 1.3), scores: null, verdict: null, cost: 0 };
+  const run = { id: uid('r'), program: p.id, item: id, version: p.version, agent: a.id, startedAt: M.sim.now, dur: p.dur * rand(.8, 1.3), scores: null, verdict: null, cost: 0, extras: [] };
+  // When the frame leaves a decision open, the agent stops and asks instead of guessing.
+  const c = it.content, sl = sliceOf(it);
+  if (p.id === 'write-spec' && c?.ask && !it.answers.spec) run.ask = { ...c.ask, key: 'spec', at: .45 };
+  if (p.id === 'build-slice' && sl?.ask && !it.answers.build) run.ask = { ...sl.ask, key: 'build', at: .32 };
+  const sb = [...it.history].reverse().find(x => x.kind === 'gate' && x.decision === 'sendback' && !x.inherited && !x.used);
+  if (sb) { run.sentBack = sb.reason; sb.used = true; }
   M.runs.push(run); a.busy = run.id; p.running.push(run.id); p.runs++;
   it.loc = { kind: 'run', program: p.id, run: run.id, t: 0 };
   it.history.push({ kind: 'run-start', program: p.id, run: run.id, version: p.version, agent: a.id, at: M.sim.now });
@@ -373,38 +365,37 @@ function startRun(p) {
 function finishRun(run) {
   const p = P(run.program); const it = IT(run.item); const a = M.agents.find(x => x.id === run.agent);
   if (a) a.busy = null; p.running = p.running.filter(x => x !== run.id);
-  run.endedAt = M.sim.now; run.cost = +(run.dur * rand(.08, .18)).toFixed(2);
-  // output form
-  const outName = p.id === 'triage' ? (Math.random() < .75 ? 'bug' : 'feature') : p.outputs[0].name;
+  run.endedAt = M.sim.now; run.cost = +(run.dur * (p.runner === 'script' ? rand(.005, .01) : rand(.3, .5))).toFixed(2);
+  // output form. Triage sends every defect back to the start as a Fix request.
+  const outName = p.id === 'triage' ? (it.defect ? 'bug' : 'feature') : p.outputs[0].name;
   const outType = p.outputs.find(o => o.name === outName).type;
   // scoring
   const sc = scoreOutput(p, outType, run, it);
   run.scores = sc.scores; run.verdict = sc.verdict; run.output = outName;
+  if (p.id === 'build-slice') { run.sha = fakeSha(); run.strong = !p.weak || !sliceOf(it)?.weakTests; }
   it.history.push({ kind: 'run-end', program: p.id, run: run.id, version: run.version, verdict: sc.verdict, scores: sc.scores, at: M.sim.now, cost: run.cost });
-  popScores(p, sc.scores);
   // retry policy
   const retryHit = sc.scores.find(x => !x.ok && x.policy === 'retry');
-  if (retryHit && !run.retried) { it.retries++; const r2 = { ...run, id: uid('r'), retried: true, startedAt: M.sim.now, dur: p.dur * rand(.6, .9), endedAt: undefined, cost: 0, scores: null, verdict: null, output: undefined }; M.runs.push(r2); const ag = freeAgent() || a; if (ag) { ag.busy = r2.id; r2.agent = ag.id; } p.running.push(r2.id); it.loc = { kind: 'run', program: p.id, run: r2.id, t: 0 }; it.history.push({ kind: 'retry', program: p.id, reason: `${retryHit.name} ${f2(retryHit.value)}`, at: M.sim.now }); toast(`${p.name} retried ${it.id} · ${retryHit.name} ${f2(retryHit.value)}`, 'amber'); touch(); return; }
+  if (retryHit && !run.retried) { it.retries++; const r2 = { ...run, id: uid('r'), retried: true, retryOf: run.id, retryReason: `${retryHit.name} ${f2(retryHit.value)}: ${retryHit.reason}`, startedAt: M.sim.now, dur: p.dur * rand(.6, .9), endedAt: undefined, cost: 0, scores: null, verdict: null, output: undefined, ask: null, extras: [] }; M.runs.push(r2); const ag = freeAgent() || a; if (ag) { ag.busy = r2.id; r2.agent = ag.id; } p.running.push(r2.id); it.loc = { kind: 'run', program: p.id, run: r2.id, t: 0 }; it.history.push({ kind: 'retry', program: p.id, reason: `${retryHit.name} ${f2(retryHit.value)}`, at: M.sim.now }); touch(); return; }
   it.marks.push({ kind: 'run', program: p.id, verdict: sc.verdict, run: run.id });
   if (sc.scores.some(x => !x.ok && x.policy === 'hold')) { it.flags.hold = true; it.flags.holdBy = sc.scores.find(x => !x.ok && x.policy === 'hold'); }
   it.version = run.version;
   // terminal
   if (p.terminal) {
-    it.form = 'merged'; it.loc = { kind: 'done' }; M.shipped++; it.history.push({ kind: 'shipped', at: M.sim.now, pr: it.pr });
+    it.form = 'merged'; it.loc = { kind: 'done' }; M.shipped++; it.mergeSha = fakeSha(); it.history.push({ kind: 'shipped', at: M.sim.now, pr: it.pr });
     removeItemEl(it.id); scheduleDefect(it); touch(); return;
   }
   // transition
   if (p.id === 'plan-slices') {
-    const n = 2 + Math.floor(Math.random() * 2); it.expectedChildren = n;
-    const kinds = SLICE_KINDS.slice().sort(() => Math.random() - .5).slice(0, n);
+    const slices = it.content.slices; const n = slices.length; it.expectedChildren = n;
     const wire = D.wires.find(w => w.from[0] === p.id);
-    for (let i = 0; i < n; i++) { const ch = newItem({ form: 'slice', title: `${it.title} · ${kinds[i]}`, parent: it }); ch.marks = it.marks.slice(); ch.history.push({ kind: 'split', from: it.id, at: M.sim.now }); ch.pos = { ...portOut(p, 'slice') }; ch.loc = { kind: 'wire', wire: wire.id, d: -i * 16 }; ch.version = run.version; drawMarks(ch); }
+    for (let i = 0; i < n; i++) { const ch = newItem({ form: 'slice', title: slices[i].title, parent: it, slice: i }); ch.marks = it.marks.slice(); ch.history.push({ kind: 'split', from: it.id, at: M.sim.now }); ch.pos = { ...portOut(p, 'slice') }; ch.loc = { kind: 'wire', wire: wire.id, d: -i * 16 }; ch.version = run.version; drawMarks(ch); }
     it.loc = { kind: 'parent' }; it.form = 'spec'; removeItemEl(it.id); touch(); return;
   }
   if (p.id === 'triage') {
     // loops back as a new request; it keeps the item it came from
-    const title = (outName === 'bug' ? 'Fix: ' : 'Idea: ') + it.title;
-    const nx = newItem({ form: 'request', title, origin: it.id }); nx.history.push({ kind: 'enter', program: 'write-spec', via: `Triage feedback · ${outName}`, from: it.id, at: M.sim.now });
+    const content = it.defect ? fixRequest(it.defect) : genericRequest('Idea: ' + it.title);
+    const nx = newItem({ form: 'request', title: content.title, origin: it.id, content }); nx.history.push({ kind: 'enter', program: 'write-spec', via: `Triage feedback · ${outName}`, from: it.id, at: M.sim.now });
     nx.traced = it.traced; nx.marks = []; drawMarks(nx);
     const wire = D.wires.find(w => w.from[0] === p.id && w.from[1] === outName);
     nx.pos = { ...portOut(p, outName) }; nx.loc = { kind: 'wire', wire: wire.id, d: 0 };
@@ -421,25 +412,21 @@ function scoreOutput(p, outType, run, it) {
     if (sc.on && sc.on !== outType) continue;
     let v, reason = '';
     if (sc.id === 'test-depth') {
-      const weak = p.weak; v = weak ? (Math.random() < .7 ? rand(.22, .55) : rand(.6, .8)) : (Math.random() < .15 ? rand(.4, .58) : rand(.66, .96));
-      reason = v < .6 ? pick(LOW_REASONS) : 'covers happy path and two error paths';
-    } else if (sc.id === 'ai-slop') { v = rand(.08, .52); reason = v > .4 ? 'hedging phrases; restates the input' : 'direct, no filler'; }
-    else if (sc.id === 'scope-creep') { v = rand(.05, .55); reason = v > .5 ? 'adds a settings page not in the spec' : 'stays inside the spec'; }
-    else if (sc.id === 'slice-size') { v = rand(.4, .97); reason = v < .5 ? 'slice touches 4 subsystems' : 'one subsystem, under a day'; }
-    else if (sc.id === 'code-reuse') { v = rand(.38, .92); reason = v < .5 ? 'reimplements the date helper' : 'uses existing helpers'; }
+      // Deterministic from the content: a weak Build slice skips the error-path tests.
+      const sl = sliceOf(it); const skipped = sl ? sl.tests.filter(t => t.err) : [];
+      const weak = p.weak && sl?.weakTests && skipped.length;
+      v = weak ? rand(.28, .5) : rand(.72, .93);
+      reason = weak ? `no test for: ${skipped.map(t => t.n).join('; ')}` : `one test per criterion, including ${skipped.length || 'the'} error path${skipped.length === 1 ? '' : 's'}`;
+    } else if (sc.id === 'ai-slop') { v = rand(.08, .44); reason = v > .4 ? 'restates the request in the goal; two hedging phrases' : 'direct, no filler'; }
+    else if (sc.id === 'scope-creep') { v = rand(.05, .5); reason = v > .5 ? 'adds behaviour that is not in the spec' : 'stays inside the spec'; }
+    else if (sc.id === 'slice-size') { v = rand(.55, .97); reason = 'one subsystem each, under a day'; }
+    else if (sc.id === 'code-reuse') { v = rand(.52, .92); reason = 'uses the existing helpers in src/lib'; }
     else { v = rand(.5, .95); }
     const ok = sc.threshold.min != null ? v >= sc.threshold.min : v <= sc.threshold.max;
     scores.push({ id: sc.id, name: sc.name, value: +v.toFixed(2), ok, reason, policy: sc.policy, check: !!sc.check, version: sc.version });
   }
   const failed = scores.some(x => !x.ok && x.check); const missed = scores.some(x => !x.ok);
   return { scores, verdict: failed ? 'failed' : missed ? 'scored' : 'passed' };
-}
-function popScores(p, scores) {
-  const po = portOut(p, p.outputs[0].name); const dir = p.flip ? -1 : 1;
-  scores.forEach((sc, i) => {
-    const t = s('text', { class: 'pop ' + (sc.ok ? 'ok' : sc.check ? 'bad' : 'warn'), x: po.x + dir * 14, y: po.y - 12 - i * 13, 'text-anchor': dir > 0 ? 'start' : 'end' }, `${sc.name.toLowerCase()} ${f2(sc.value)}${sc.ok ? ' ✓' : ' ✗'}`);
-    t.style.animationDelay = (i * 0.12) + 's'; L.fx.append(t); setTimeout(() => t.remove(), 1900 + i * 120);
-  });
 }
 
 // ───────────────────────────────────────────── gates & bins
@@ -451,7 +438,7 @@ function enterStop(it, w) {
     if (held) mode = 'person';
     if (mode === 'off') return clearGate(it, g, { decision: 'approve', by: 'off' });
     if (mode === 'sampled') { if (Math.random() < .35) mode = 'person'; else return clearGate(it, g, { decision: 'approve', by: 'sampled' }); }
-    if (mode === 'agent') { it.decideAt = M.sim.now + rand(2.2, 3.6); touch(); return; }
+    if (mode === 'agent') { it.decideStart = M.sim.now; it.decideAt = M.sim.now + rand(2.6, 4); touch(); return; }
     askQuestion(g, it, held ? 'held' : null);
   } else {
     const b = B(w.stop.id); it.loc = { kind: 'bin', bin: b.id, wire: w.id }; b.items.push(it.id);
@@ -475,19 +462,28 @@ function releaseFromBin(b, id, stagger = 0) {
   it.cleared[w.id] = true; it.loc = { kind: 'wire', wire: w.id, d: w.stopLen - stagger * 16 };
   it.history.push({ kind: 'release', bin: b.id, at: M.sim.now }); touch();
 }
-function askQuestion(g, it, reason) {
-  const q = { id: uid('q'), gate: g.id, item: it.id, reason, at: M.sim.now, agentNote: reason === 'escalated' ? pick(['The diff changes a shared helper; cannot verify callers.', 'Tests pass but the slice mentions a migration that is not here.', 'Behaviour matches, but the error copy differs from the spec.']) : null };
+const ESCALATIONS = [
+  'The branch changes `parseListFilters()`, which two other routes call. I cannot tell from the slice whether that is intended.',
+  'The tests pass, but the slice says "dated filename" and I cannot find a test for the date format.',
+  'Behaviour matches the slice, but the error message differs from the wording in the spec.',
+];
+function askQuestion(g, it, reason, note) {
+  const q = { id: uid('q'), kind: 'gate', gate: g.id, item: it.id, reason, at: M.sim.now, agentNote: reason === 'escalated' ? (note || pick(ESCALATIONS)) : null };
   M.questions.push(q); it.questionId = q.id; touch();
 }
 function answerQuestion(q, decision, edit) {
-  const idx = M.questions.indexOf(q);
   const g = G(q.gate); const it = IT(q.item); M.questions = M.questions.filter(x => x !== q); it.questionId = null;
   if (it && it.loc.kind === 'gate') {
     if (decision === 'sendback') sendBack(it, g, edit || 'Sent back by ' + g.owner);
     else { if (decision === 'edited') { M.feedback.push({ gate: g.id, item: it.id, at: M.sim.now, edit }); g.edits++; } it.flags.hold = false; clearGate(it, g, { decision, by: 'person' }); }
   }
-  // operate by exception: go straight to the next question
-  if (ui.inboxOpen === q.id) { const next = M.questions[Math.min(idx, M.questions.length - 1)]; next ? openQuestion(next.id) : closeQuestion(); }
+  touch();
+}
+// An agent asked a question in the middle of a run. The run waits; the agent stays on it.
+function answerAsk(q, answer) {
+  const run = M.runs.find(r => r.id === q.run); const it = IT(q.item);
+  M.questions = M.questions.filter(x => x !== q);
+  if (run && run.ask) { run.ask.answer = answer; run.ask.answeredAt = M.sim.now; it.answers[run.ask.key] = answer; }
   touch();
 }
 function clearGate(it, g, { decision, by }) {
@@ -503,24 +499,30 @@ function sendBack(it, g, reason) {
   it.flags.hold = false; it.form = p.inputs[0].type; it.pos = { ...portIn(p) }; enqueue(it, p); drawMarks(it); touch();
 }
 function agentDecide(it) {
-  const g = G(it.loc.gate); const r = Math.random(); it.decideAt = null;
-  if (r < .72) return clearGate(it, g, { decision: 'approve', by: 'agent' });
-  if (r < .82) return sendBack(it, g, 'Agent gate: branch does not cover the acceptance criteria for the empty state.');
-  askQuestion(g, it, 'escalated');
+  const g = G(it.loc.gate); const r = Math.random(); const start = it.decideStart; it.decideAt = null;
+  const rv = { id: uid('rv'), gate: g.id, start, end: M.sim.now, version: M.version };
+  it.reviews.push(rv);
+  if (r < .74) { rv.decision = 'approve'; return clearGate(it, g, { decision: 'approve', by: 'agent' }); }
+  if (r < .84) { const sl = sliceOf(it); rv.decision = 'sendback'; rv.note = sl ? `Criterion ${sl.criteria[sl.criteria.length - 1]} in the spec has no test on this branch.` : 'The branch does not cover every acceptance criterion.'; return sendBack(it, g, 'Reviewer agent: ' + rv.note); }
+  rv.decision = 'escalated'; rv.note = pick(ESCALATIONS);
+  askQuestion(g, it, 'escalated', rv.note);
 }
 
 // ───────────────────────────────────────────── defects (lagging)
 function scheduleDefect(it) {
   const bs = [...it.history].reverse().find(x => x.kind === 'run-end' && x.program === 'build-slice');
   const td = bs?.scores?.find(x => x.id === 'test-depth');
-  const low = td && td.value < .6; const pr = low ? .75 : .08;
-  if (Math.random() < pr) M.pendingDefects.push({ at: M.sim.now + rand(7, 16), item: it.id, run: bs?.run, td: td?.value });
+  const low = td && td.value < .6; const sl = sliceOf(it);
+  const pr = low ? (sl?.defect ? .85 : .25) : .04;
+  if (Math.random() < pr) M.pendingDefects.push({ at: M.sim.now + rand(8, 16), item: it.id, run: bs?.run, td: td?.value });
 }
 function raiseDefect(pd) {
-  const it = IT(pd.item); const run = M.runs.find(r => r.id === pd.run);
-  const d = { id: 'DEF-' + (M.defects.length + 1), title: pick(DEFECT_TITLES), item: it.id, run: run?.id, program: 'build-slice', version: run?.version || 1, td: pd.td, at: M.sim.now };
+  const it = IT(pd.item); const run = M.runs.find(r => r.id === pd.run); const sl = sliceOf(it);
+  const usedAlready = M.defects.some(x => x.content && x.content === sl?.defect);
+  const content = pd.td != null && pd.td < .6 && sl?.defect && !usedAlready ? sl.defect : null;
+  const d = { id: 'DEF-' + (M.defects.length + 1), title: content ? content.title : pick(DEFECT_TITLES), content, item: it.id, run: run?.id, program: 'build-slice', version: run?.version || 1, td: pd.td, at: M.sim.now, sha: it.mergeSha, prTitle: `${it.title} (#${it.pr})` };
   M.defects.push(d); M.defectsSinceMaint++;
-  spawnBugEvent(d); toast(`Defect ${d.id} · ${d.title} → traced to Build slice v${d.version}`, 'red');
+  spawnBugEvent(d);
   const nx = M.items[M.items.length - 1]; nx.traced = d.id;
   touch();
 }
@@ -530,7 +532,7 @@ function tick(dt) {
   if (!M || M.status !== 'running' || M.sim.paused) return;
   const sim = M.sim; sim.now += dt;
   // intake
-  if (sim.requestsLeft.length && sim.now >= sim.intakeAt) { spawnRequest(sim.requestsLeft.shift()); sim.intakeAt = sim.now + rand(22, 34); toast('New request from the form', ''); }
+  if (sim.requestsLeft.length && sim.now >= sim.intakeAt) { spawnRequest(sim.requestsLeft.shift()); sim.intakeAt = sim.now + rand(40, 60); }
   // defects
   for (const pd of M.pendingDefects.slice()) if (sim.now >= pd.at) { M.pendingDefects.splice(M.pendingDefects.indexOf(pd), 1); raiseDefect(pd); }
   // items
@@ -541,7 +543,14 @@ function tick(dt) {
       if (w.stop && !it.cleared[w.id] && l.d >= w.stopLen) { l.d = w.stopLen; enterStop(it, w); continue; }
       if (l.d >= w.len) { const p = P(w.to); it.pos = { ...portIn(p) }; enqueue(it, p); touch(); }
     } else if (l.kind === 'run') {
-      const run = M.runs.find(r => r.id === l.run); l.t += dt / run.dur; if (l.t >= 1) finishRun(run);
+      const run = M.runs.find(r => r.id === l.run);
+      if (run.ask && !run.ask.answer && l.t >= run.ask.at) {
+        // the agent has asked; the run holds here until a person answers
+        l.t = run.ask.at;
+        if (!run.ask.qid) { const q = { id: uid('q'), kind: 'ask', item: it.id, run: run.id, program: run.program, agent: run.agent, at: sim.now }; run.ask.qid = q.id; run.ask.askedAt = sim.now; M.questions.push(q); touch(); }
+        continue;
+      }
+      l.t += dt / run.dur; if (l.t >= 1) finishRun(run);
     } else if (l.kind === 'gate') {
       if (it.decideAt && sim.now >= it.decideAt) agentDecide(it);
     } else if (l.kind === 'rewind') {
@@ -561,7 +570,9 @@ function renderFrame() {
     const g = p.el; if (!g) continue;
     const running = p.running.length > 0; g.classList.toggle('running', running);
     const run = running ? M.runs.find(r => r.id === p.running[0]) : null; const it = run ? IT(run.item) : null;
-    const meta = running ? `${run.agent} · ${it?.id || ''}` + (p.running.length > 1 ? ` +${p.running.length - 1}` : '') : p.queue.length ? `${p.queue.length} queued · no free agent` : 'idle';
+    const asking = running && run.ask && run.ask.qid && !run.ask.answer;
+    const meta = running ? (asking ? `${AG(run.agent)?.short} · asking you` : `${AG(run.agent)?.short} · ${it?.id || ''}`) + (p.running.length > 1 ? ` +${p.running.length - 1}` : '') : p.queue.length ? `${p.queue.length} queued · no free agent` : 'idle';
+    g.classList.toggle('asking', p.running.some(id => { const r = M.runs.find(x => x.id === id); return r?.ask?.qid && !r.ask.answer; }));
     const mt = g.querySelector('.meta'); if (mt.textContent !== meta) mt.textContent = meta;
     const prog = running ? Math.max(...p.running.map(id => IT(M.runs.find(r => r.id === id).item)?.loc?.t || 0)) : 0;
     g.querySelector('.prog').setAttribute('width', (W - 24) * clamp(prog, 0, 1));
@@ -590,7 +601,7 @@ function renderFrame() {
     else if (l.kind === 'bin') { const w = WR(l.wire); const i = (binIdx[l.bin] = (binIdx[l.bin] ?? -1) + 1); x = w.stopPt.x - 12 + (i % 3) * 12; y = w.stopPt.y + 2 - Math.floor(i / 3) * 10; it.pos = { x, y }; }
     else if (l.kind === 'rewind') { const t = l.t < .5 ? 2 * l.t * l.t : -1 + (4 - 2 * l.t) * l.t; x = l.from.x + (l.to.x - l.from.x) * t; y = l.from.y + (l.to.y - l.from.y) * t - Math.sin(t * Math.PI) * 60; it.pos = { x, y }; }
     g.setAttribute('transform', `translate(${x},${y})`);
-    g.classList.toggle('selected', ui.selection?.type === 'item' && ui.selection.id === it.id);
+    g.classList.toggle('needs', M.questions.some(q => q.item === it.id));
   }
 }
 
@@ -602,13 +613,16 @@ function loop(t) {
     // live traces grow with time, so refresh artifact/program panes about once a second while the line runs
     if (!ui.editing && (ui.side?.type === 'item' || ui.side?.type === 'program') && M.status === 'running' && !M.sim.paused && t - (ui.sideT || 0) > 1000) ui.sideDirty = true;
     if (ui.sideDirty) { renderSide(); ui.sideDirty = false; ui.sideT = t; }
+    if (ui.work && (ui.workDirty || t - (ui.workT || 0) > 200)) { renderWork(); ui.workDirty = false; ui.workT = t; }
   }
   ui.raf = requestAnimationFrame(loop);
 }
-function touch() { ui.hudDirty = true; if (!ui.editing) ui.sideDirty = true; }
+function touch() { ui.hudDirty = true; ui.workDirty = true; if (!ui.editing) ui.sideDirty = true; }
 
 // ───────────────────────────────────────────── selection
 function select(type, id) {
+  if (type === 'item') return openWork(id);
+  if (ui.work) closeWork();
   if (ui.worldDim && type) return;
   ui.selection = type ? { type, id } : null; ui.side = type ? { type, id } : null; ui.editing = false;
   $$('.station.selected,.stop.selected').forEach(e => e.classList.remove('selected'));
@@ -667,7 +681,7 @@ function renderCommand() {
 
   $('#command').replaceChildren(
     h('div', { class: 'cmd-status' },
-      h('div', { class: 'cmd-name' }, M.name, h('span', { class: 'cmd-ver' }, 'v' + M.version)),
+      h('div', { class: 'cmd-name' }, M.name, h('span', { class: 'cmd-ver' }, 'v' + M.version), h('span', { class: 'cmd-clock', id: 'cmd-clock' }, clock(M.sim.now))),
       h('div', { class: 'cmd-state' }, h('span', { class: 'sdot ' + dot }), h('span', {}, state))),
     h('div', { class: 'cmd-sep' }),
     h('div', { class: 'cmd-group' }, transport, maint),
@@ -686,20 +700,29 @@ function renderHUD() {
       h('span', { class: 'crumb-path' }, '.metafab/'),
       h('span', { class: 'cmd-ver' }, 'v' + M.version));
   }
-  // agents
-  const agentRows = M.agents.map(a => { const run = a.busy && M.runs.find(r => r.id === a.busy); return { id: a.id, what: run ? P(run.program).name : null, program: run?.program }; });
-  const agentsKey = M.status + '|' + agentRows.map(a => a.id + ':' + a.what).join(',');
+  // agents: real harness sessions. Each row says what the agent is doing right now.
+  const agentRows = M.agents.map(a => {
+    const run = a.busy && M.runs.find(r => r.id === a.busy); const it = run && IT(run.item);
+    const asking = run?.ask?.qid && !run.ask.answer;
+    return { a, run, it, asking, act: run ? (asking ? 'Waiting for your answer' : currentActivity(run)) : null };
+  });
+  const agentsKey = M.status + '|' + agentRows.map(r => r.a.id + ':' + (r.run?.id || '') + ':' + r.act + ':' + r.asking).join(',');
   if (agentsKey !== ui.agentsKey) {
     ui.agentsKey = agentsKey;
-    const busy = agentRows.filter(a => a.what).length;
+    const busy = agentRows.filter(r => r.run).length;
     $('#agents-pane').replaceChildren(
-      h('div', { class: 'pane-title' }, 'Agents', h('span', { class: 'n' }, M.agents.length ? `${busy}/${M.agents.length} busy` : '')),
-      M.agents.length ? h('div', { class: 'agents' }, agentRows.map(a => h('div', { class: 'agent' + (a.what ? ' busy' : ''), title: a.program ? `Open ${a.what}` : null, onclick: a.program ? () => select('program', a.program) : null }, h('span', { class: 'adot' }), h('span', { class: 'aid' }, a.id), h('span', { class: 'awhat' }, a.what || 'Idle'))))
+      h('div', { class: 'pane-title' }, 'Agents', h('span', { class: 'n' }, M.agents.length ? `${busy} of ${M.agents.length} working` : '')),
+      M.agents.length ? h('div', { class: 'agents' }, agentRows.map(r => h('div', { class: 'agent' + (r.run ? ' busy' : '') + (r.asking ? ' asking' : ''), title: r.it ? `Open ${r.it.id} · ${r.it.title}` : `${r.a.model} · ${r.a.machine}`, onclick: r.it ? () => openWork(r.it.id, { session: r.run.id }) : null },
+          harnessMark(r.a.harness),
+          h('div', { class: 'a-main' },
+            h('div', { class: 'a-top' }, h('span', { class: 'a-name' }, agentName(r.a)), r.run ? h('span', { class: 'a-prog' }, P(r.run.program).name) : h('span', { class: 'a-idle' }, 'idle')),
+            r.run ? h('div', { class: 'a-act' }, h('span', { class: 'a-item' }, r.it.title), h('span', { class: 'a-sep' }, '·'), h('span', {}, r.act)) : null))))
         : h('div', { class: 'agents-empty' }, 'No agents yet. Press Play to assign some.'),
-      h('div', { class: 'agents-foot' }, h('span', {}, 'Team · not connected'), h('button', { class: 'btn sm ghost', onclick: () => M.status === 'designed' ? play() : openAssign(true) }, M.agents.length ? 'Change' : 'Assign')));
+      h('div', { class: 'agents-foot' }, h('span', {}, "Seb's MacBook Pro · team not connected"), h('button', { class: 'btn sm ghost', onclick: () => M.status === 'designed' ? play() : openAssign(true) }, M.agents.length ? 'Change' : 'Assign')));
   }
   // command
   renderCommand();
+  const ck = $('#cmd-clock'); if (ck) ck.textContent = clock(M.sim.now);
   // stats
   const inflight = M.items.filter(i => i.loc && !['done', 'parent'].includes(i.loc.kind)).length;
   const stat = (cls, v, l, extra = {}) => h('div', { class: `stat ${cls}${v ? '' : ' zero'}`, ...extra }, h('div', { class: 'v' }, v), h('div', { class: 'l' }, l));
@@ -708,80 +731,47 @@ function renderHUD() {
     stat('amber', M.questions.length, 'Waiting on you'),
     stat('green', M.shipped, 'Shipped'),
     stat('red clickable', M.defects.length, 'Defects', { onclick: () => openSide('defects'), title: 'Show defects' }));
-  // inbox
-  renderInbox();
+  renderAttention();
+}
+function harnessMark(harness) {
+  return h('span', { class: 'hmark ' + harness, title: harness === 'claude' ? 'Claude Code' : 'Codex' }, harness === 'claude' ? '✳' : '◎');
 }
 
-// ───────────────────────────────────────────── inbox (list ⇄ question, one panel)
-const qTone = q => q.reason === 'escalated' ? 'esc' : q.reason === 'held' ? 'held' : 'ask';
-const qTag = q => q.reason && h('span', { class: 'tagx ' + qTone(q) }, q.reason === 'escalated' ? 'Escalated' : 'Held');
-function openQuestion(id) { ui.inboxOpen = id; ui.inboxEdit = false; ui.inboxKey = ''; markGate(); renderInbox(); }
-function closeQuestion() { ui.inboxOpen = null; ui.inboxEdit = false; ui.inboxKey = ''; markGate(); renderInbox(); }
-function markGate() {
-  $$('.stop.q-open').forEach(e => e.classList.remove('q-open'));
-  const q = M?.questions.find(x => x.id === ui.inboxOpen); if (q) G(q.gate).el.classList.add('q-open');
+// ───────────────────────────────────────────── needs you
+// Like Orca: the canvas tells you which agents need you. Opening one takes you into its
+// workspace, where the question sits at the end of the conversation that led to it.
+const qTone = q => q.kind === 'ask' ? 'ask' : q.reason === 'escalated' ? 'esc' : q.reason === 'held' ? 'held' : 'gate';
+function qSummary(q) {
+  const it = IT(q.item);
+  if (q.kind === 'ask') { const run = M.runs.find(r => r.id === q.run); return { who: `${agentName(q.agent)} asks`, text: run?.ask?.q || '', where: P(q.program).name }; }
+  const g = G(q.gate);
+  if (q.reason === 'escalated') return { who: 'Reviewer agent escalated', text: g.question, where: g.owner + ' gate' };
+  if (q.reason === 'held') return { who: `Held · ${it.flags.holdBy?.name} ${f2(it.flags.holdBy?.value || 0)}`, text: g.question, where: g.owner + ' gate' };
+  return { who: `Review · ${g.owner}`, text: g.question, where: g.owner + ' gate' };
 }
-function renderInbox() {
-  const box = $('#inbox');
-  if (ui.inboxOpen && !M.questions.some(q => q.id === ui.inboxOpen)) { ui.inboxOpen = null; ui.inboxEdit = false; markGate(); }
-  if (ui.editing && ui.inboxOpen) return; // never rebuild under someone's cursor
-  const key = M.questions.map(q => q.id).join(',') + '|' + ui.inboxOpen + '|' + ui.inboxEdit;
-  if (key === ui.inboxKey) return; ui.inboxKey = key;
-  if (!M.questions.length) { box.classList.add('hidden'); box.replaceChildren(); return; }
-  const scroller = box.querySelector('.ib-body,.ib-list'); const keep = scroller?.scrollTop || 0;
-  box.classList.remove('hidden'); box.classList.toggle('detail', !!ui.inboxOpen);
-  box.replaceChildren(...(ui.inboxOpen ? inboxDetail(M.questions.find(q => q.id === ui.inboxOpen)) : inboxList()));
-  const next = box.querySelector('.ib-body,.ib-list'); if (next) next.scrollTop = keep;
-}
-function inboxList() {
-  return [
-    h('div', { class: 'ib-head' },
-      h('div', { class: 'ib-title' }, 'Inbox', h('span', { class: 'ib-count' }, M.questions.length)),
-      h('span', { class: 'ib-sub' }, 'Waiting on you')),
-    h('div', { class: 'ib-list' }, M.questions.map(q => {
-      const g = G(q.gate), it = IT(q.item);
-      return h('button', { class: 'ib-row ' + qTone(q), onclick: () => openQuestion(q.id) },
+function renderAttention() {
+  const box = $('#attn');
+  const key = M.questions.map(q => q.id).join(',') + '|' + Math.floor(M.sim.now / 2);
+  if (key === ui.attnKey) return; ui.attnKey = key;
+  if (!M.questions.length) {
+    box.classList.toggle('hidden', M.status === 'designed');
+    box.replaceChildren(h('div', { class: 'pane-title' }, 'Needs you', h('span', { class: 'n' }, '0')), h('div', { class: 'attn-empty' }, 'Nothing is waiting on you.'));
+    return;
+  }
+  box.classList.remove('hidden');
+  const qs = M.questions.slice().sort((a, b) => a.at - b.at);
+  box.replaceChildren(
+    h('div', { class: 'pane-title' }, 'Needs you', h('span', { class: 'n warn' }, qs.length)),
+    h('div', { class: 'attn-list' }, qs.map(q => {
+      const it = IT(q.item); const sm = qSummary(q);
+      return h('button', { class: 'attn-row ' + qTone(q), onclick: () => openWork(it.id, { question: q.id }) },
         h('span', { class: 'ib-dot' }),
-        h('span', { class: 'ib-main' },
-          h('span', { class: 'ib-q' }, g.question),
-          h('span', { class: 'ib-meta' }, h('span', { class: 'id' }, it.id), h('span', { class: 't' }, it.title))),
-        qTag(q), icon('chev'));
-    })),
-  ];
-}
-function inboxDetail(q) {
-  const g = G(q.gate), it = IT(q.item); const idx = M.questions.indexOf(q), n = M.questions.length;
-  const go = d => openQuestion(M.questions[(idx + d + n) % n].id);
-  const lastRun = [...it.history].reverse().find(x => x.kind === 'run-end');
-  const out = fakeOutput(it);
-  const editBox = ui.inboxEdit && h('textarea', { class: 'edit', rows: 12, onfocus: () => { ui.editing = true; }, onblur: () => { ui.editing = false; } }, out);
-  const from = P(WR(g.wireId).from[0]).name;
-  const foot = ui.inboxEdit
-    ? [h('button', { class: 'btn primary', onclick: () => { answerQuestion(q, 'edited', editBox.value); toast(`${it.id} approved with edits · saved as feedback`, 'green'); } }, icon('check'), 'Approve with edits'),
-       h('span', { class: 'grow' }),
-       h('button', { class: 'btn ghost', onclick: () => { ui.editing = false; ui.inboxEdit = false; renderInbox(); } }, 'Cancel')]
-    : [h('button', { class: 'btn primary', onclick: () => answerQuestion(q, 'approve') }, icon('check'), 'Approve'),
-       h('button', { class: 'btn', onclick: () => { ui.inboxEdit = true; renderInbox(); $('#inbox textarea')?.focus(); } }, icon('pencil'), 'Edit'),
-       h('span', { class: 'grow' }),
-       h('button', { class: 'btn danger', title: `Send back to ${from}`, onclick: () => { toast(`${it.id} sent back to ${from}`, 'amber'); answerQuestion(q, 'sendback', 'Sent back by ' + g.owner); } }, icon('undo'), 'Send back')];
-  return [
-    h('div', { class: 'ib-head nav' },
-      h('button', { class: 'crumb-back', onclick: closeQuestion, title: 'Back to inbox (Esc)' }, icon('back'), 'Inbox'),
-      h('div', { class: 'ib-pager' },
-        h('button', { class: 'tbtn icon sm', title: 'Previous', disabled: n < 2, onclick: () => go(-1) }, icon('up')),
-        h('span', {}, `${idx + 1} of ${n}`),
-        h('button', { class: 'tbtn icon sm', title: 'Next', disabled: n < 2, onclick: () => go(1) }, icon('down')))),
-    h('div', { class: 'ib-body' },
-      h('div', { class: 'ib-hero ' + qTone(q) },
-        h('div', { class: 'ib-kicker' }, h('span', { class: 'ib-dot' }), `Gate · for ${g.owner}`, qTag(q)),
-        h('div', { class: 'ib-qtitle' }, g.question)),
-      q.reason === 'escalated' ? h('div', { class: 'callout violet' }, h('b', {}, 'The agent gate was not sure. '), q.agentNote) : null,
-      q.reason === 'held' ? h('div', { class: 'callout red' }, h('b', {}, `Held by ${it.flags.holdBy?.name} at ${f2(it.flags.holdBy?.value || 0)}. `), 'The check failed, so the artifact stopped here.') : null,
-      sec('Artifact', h('div', { class: 'row click ib-item', onclick: () => select('item', it.id) }, h('span', { class: 'dot', style: `background:${FORM_COLOR[it.form]}` }), h('span', { class: 'id' }, it.id), h('span', { class: 'mono' }, it.title), h('span', { class: 'sp' }), h('span', { class: 'tagx v' }, 'v' + it.version), icon('chev'))),
-      sec(ui.inboxEdit ? 'Edit output' : 'Output', editBox || h('div', { class: 'box' }, out)),
-      lastRun ? sec('Scores from ' + P(lastRun.program).name, h('div', { class: 'scores' }, lastRun.scores.map(scoreRow)), ...lastRun.scores.filter(sc => !sc.ok).map(sc => h('div', { class: 'hint' }, `${sc.name}: ${sc.reason}`))) : null),
-    h('div', { class: 'ib-foot' }, foot),
-  ];
+        h('span', { class: 'attn-main' },
+          h('span', { class: 'attn-who' }, h('b', {}, sm.who), h('span', { class: 'attn-ago' }, ago(M.sim.now - q.at))),
+          h('span', { class: 'attn-q' }, sm.text),
+          h('span', { class: 'attn-meta' }, h('span', { class: 'id' }, it.id), h('span', { class: 't' }, it.title))),
+        icon('chev'));
+    })));
 }
 
 // ───────────────────────────────────────────── panel building blocks
@@ -814,7 +804,7 @@ function renderSide() {
           sumTile('Total cost', fmt$(totCost), fmtDur(totDur) + ' agent time')),
         recent.length ? h('div', { class: 'rows', style: 'margin-top:10px' }, recent.map(r => { const ri = IT(r.item); const running = r.endedAt == null; return h('div', { class: 'row click', title: 'Open artifact trace', onclick: () => select('item', r.item) },
           h('span', { class: 'dot ' + (running ? 'blue' : r.verdict === 'passed' ? 'green' : r.verdict === 'scored' ? 'amber' : 'red') }), h('span', {}, r.item), h('span', { class: 'mono' }, ri?.title || ''), h('span', { class: 'sp' }),
-          h('span', { class: 'mono', style: 'flex:none' }, running ? `${r.agent} · running ${fmtDur(M.sim.now - r.startedAt)}` : `${fmtDur(r.endedAt - r.startedAt)} · ${fmt$(r.cost)}`)); })) : h('div', { class: 'dim', style: 'margin-top:8px' }, 'No runs yet.')),
+          h('span', { class: 'mono', style: 'flex:none' }, running ? `${agentName(r.agent)} · running ${fmtDur(M.sim.now - r.startedAt)}` : `${fmtDur(r.endedAt - r.startedAt)} · ${fmt$(r.cost)}`)); })) : h('div', { class: 'dim', style: 'margin-top:8px' }, 'No runs yet.')),
       sec('Contract', h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Inputs'), h('span', { class: 'v' }, p.inputs.map(i => `${i.name}: ${i.type}`).join(', ')), h('span', { class: 'k' }, 'Outputs'), h('span', { class: 'v' }, p.outputs.map(o => `${o.name}: ${o.type}${o.many ? '[]' : ''}`).join(', ')), h('span', { class: 'k' }, 'Effects'), h('span', { class: 'v' }, p.effects.length ? p.effects.join('; ') : '—'), h('span', { class: 'k' }, 'Version'), h('span', { class: 'v' }, `v${p.version} · ${runs.length} runs`), p.entry && h('span', { class: 'k' }, 'Entry point'), p.entry && h('span', { class: 'v' }, p.entry.kind === 'form' ? 'form (click Run)' : 'connection · ' + p.entry.label))),
       sec('Frame', h('div', { class: 'box' }, `# ${p.id}.md\n\n${p.frame.instructions}\n\nskills: ${p.frame.skills.length ? p.frame.skills.join(', ') : '—'}`)),
       sec('Scorers on its output', h('div', { class: 'rows' }, D.scorers.filter(sc => !sc.on || sc.on === p.outputs[0].type).map(sc => h('div', { class: 'row' }, h('span', { class: 'dot ' + (sc.check ? 'red' : sc.policy === 'retry' ? 'amber' : 'grey') }), sc.name, h('span', { class: 'sp' }), h('span', { class: 'mono' }, `${sc.threshold.min != null ? '≥' + sc.threshold.min : '≤' + sc.threshold.max} · ${sc.check ? 'check · hold' : sc.policy} · ${sc.shown ? 'shown' : 'held out'}`))))),
@@ -827,7 +817,7 @@ function renderSide() {
     const dial = ['person', 'sampled', 'agent', 'off'];
     body = [
       sec('Autonomy dial', h('div', { class: 'seg' }, dial.map(d => h('button', { class: d === g.autonomy ? 'on' : '', onclick: () => { g.autonomy = d; M.changes.push({ at: M.sim.now, what: `Gate "${g.question}" → ${d}` }); touch(); } }, d))), h('div', { class: 'hint' }, { person: 'Every artifact waits for ' + g.owner + '.', sampled: g.owner + ' sees about a third of the artifacts. The rest pass.', agent: 'A fresh agent decides. It escalates when it is not sure.', off: 'Artifacts pass. The gate has earned trust.' }[g.autonomy])),
-      sec('Waiting', g.waiting.length ? h('div', { class: 'rows' }, g.waiting.map(iid => { const it = IT(iid); return h('div', { class: 'row click', title: it.questionId ? 'Open in inbox' : '', onclick: () => it.questionId ? openQuestion(it.questionId) : select('item', iid) }, h('span', { class: 'dot', style: `background:${FORM_COLOR[it.form]}` }), it.id, h('span', { class: 'mono' }, it.title), h('span', { class: 'sp' }), it.decideAt ? h('span', { class: 'tagx esc' }, 'Agent deciding') : it.questionId ? h('span', { class: 'tagx' }, 'In inbox') : null); })) : h('div', { class: 'dim' }, 'Nothing waiting.')),
+      sec('Waiting', g.waiting.length ? h('div', { class: 'rows' }, g.waiting.map(iid => { const it = IT(iid); return h('div', { class: 'row click', title: 'Open workspace', onclick: () => openWork(iid) }, h('span', { class: 'dot', style: `background:${FORM_COLOR[it.form]}` }), it.id, h('span', { class: 'mono' }, it.title), h('span', { class: 'sp' }), it.decideAt ? h('span', { class: 'tagx esc' }, 'Agent deciding') : it.questionId ? h('span', { class: 'tagx' }, 'Needs you') : null); })) : h('div', { class: 'dim' }, 'Nothing waiting.')),
       sec('Decisions', h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Approved'), h('span', { class: 'v' }, g.decisions.filter(d => d.decision === 'approve').length), h('span', { class: 'k' }, 'Edited'), h('span', { class: 'v' }, g.decisions.filter(d => d.decision === 'edited').length), h('span', { class: 'k' }, 'Sent back'), h('span', { class: 'v' }, g.decisions.filter(d => d.decision === 'sendback').length), h('span', { class: 'k' }, 'By agent'), h('span', { class: 'v' }, g.decisions.filter(d => d.by === 'agent').length)), h('div', { class: 'hint' }, 'Edits are the most useful signal for calibration. When people stop editing, the gate can move to sampled.')),
     ];
   }
@@ -864,7 +854,7 @@ function renderSide() {
       sec('Trace', h('div', { class: 'timeline' },
         tl('red', `Defect ${d.id} reported`, ago(M.sim.now - d.at)),
         tl('green', ['Shipped as ', itemLink(it), ` · PR #${it.pr}`], `merged ${ago(M.sim.now - (it.history.find(x => x.kind === 'shipped')?.at || d.at))}`),
-        tl('amber', `Built by Build slice v${d.version}`, run ? `${run.agent} · $${run.cost}` : ''),
+        tl('amber', `Built by Build slice v${d.version}`, run ? `${agentName(run.agent)} · ${fmt$(run.cost)}` : ''),
         tl('grey', ['Planned from ', it.parent ? itemLink(IT(it.parent)) : '—'], 'spec'))),
       run && sec('Scores at build', ...run.scores.map(scoreRow), ...run.scores.filter(sc => !sc.ok).map(sc => h('div', { class: 'hint' }, `${sc.name}: ${sc.reason}`))),
       h('div', { class: 'callout' }, d.td != null && d.td < .6 ? `What let this through? Test depth scored ${f2(d.td)}. The scorer flagged it, but its policy was "continue, flagged", so the PR merged. The frame for Build slice has no testing standard.` : 'What let this through? The scores were fine. The scorers missed it. The fix may be in a scorer, not in the program.'),
@@ -892,7 +882,7 @@ const tl = (c, t, d) => h('div', { class: 'tl' }, h('div', { class: 'rail' }, h(
 // An artifact's history becomes spans: queue waits, program runs, gate waits, bin waits, plus
 // instant events. Each artifact contributes only its own (non-inherited) history, so a trace that
 // covers a spec and its slices never counts a run twice.
-const fmtDur = (x) => { x = Math.max(0, x); if (x < 10) return x.toFixed(1) + 's'; if (x < 60) return Math.round(x) + 's'; const m = Math.floor(x / 60), r = Math.floor(x % 60); return `${m}m ${String(r).padStart(2, '0')}s`; };
+const fmtDur = (x) => { x = Math.max(0, x) * TS; if (x < 60) return Math.round(x) + 's'; if (x < 3600) return Math.round(x / 60) + 'm'; const hh = Math.floor(x / 3600), m = Math.round((x % 3600) / 60); return `${hh}h ${String(m).padStart(2, '0')}m`; };
 const fmt$ = (n) => '$' + (n || 0).toFixed(2);
 const sumTile = (l, v, sub) => h('div', { class: 'wf-tile' }, h('div', { class: 'l' }, l), h('div', { class: 'v' }, v), sub && h('div', { class: 's' }, sub));
 
@@ -979,7 +969,7 @@ function spanTitle(sp) {
   const d = (sp.end ?? M.sim.now) - sp.start;
   const bits = [spanLabel(sp)];
   if (!sp.instant) bits.push(fmtDur(d) + (sp.end == null ? ' so far' : ''));
-  if (sp.kind === 'run') { if (sp.cost) bits.push(fmt$(sp.cost)); if (sp.agent) bits.push(sp.agent); if (sp.version) bits.push('v' + sp.version); bits.push(sp.end == null ? 'running' : sp.cancelled ? 'cancelled' : sp.verdict); }
+  if (sp.kind === 'run') { if (sp.cost) bits.push(fmt$(sp.cost)); if (sp.agent) bits.push(agentName(sp.agent)); if (sp.version) bits.push('v' + sp.version); bits.push(sp.end == null ? 'running' : sp.cancelled ? 'cancelled' : sp.verdict); }
   if (sp.kind === 'gate' && sp.decision) bits.push(sp.decision + (sp.by ? ' by ' + sp.by : ''));
   if (sp.kind === 'gate') bits.push('"' + G(sp.gate).question + '"');
   if (sp.retry) bits.push('retry: ' + sp.retry);
@@ -1016,8 +1006,8 @@ function traceView(it) {
 
   const scopeBar = hasFeature ? h('div', { class: 'wf-scope' },
     h('div', { class: 'seg' },
-      h('button', { class: scope === 'path' ? 'on' : '', onclick: () => { ui.traceScope = 'path'; renderSide(); } }, 'This artifact'),
-      h('button', { class: scope === 'feature' ? 'on' : '', onclick: () => { ui.traceScope = 'feature'; renderSide(); } }, `Whole feature · ${root.id}`)),
+      h('button', { class: scope === 'path' ? 'on' : '', onclick: () => { ui.traceScope = 'path'; refreshTrace(); } }, 'This artifact'),
+      h('button', { class: scope === 'feature' ? 'on' : '', onclick: () => { ui.traceScope = 'feature'; refreshTrace(); } }, `Whole feature · ${root.id}`)),
     featSt ? h('span', { class: 'wf-feat' }, `${feature.length} artifacts · ${fmt$(featSt.cost)} · ${fmtDur(featSt.t1 - featSt.t0)}`) : h('span', { class: 'wf-feat' }, `${feature.length} artifacts`)) : null;
 
   // breakdown: where the time and money went, per program and per stop
@@ -1044,7 +1034,7 @@ function traceView(it) {
   const rows = [];
   for (const g of groups) {
     const gs = traceStats(g.spans); const a = g.a;
-    rows.push(h('div', { class: 'wf-group' + (a.id === it.id ? ' self' : ''), title: a.id === it.id ? '' : 'Open this artifact', onclick: () => a.id !== it.id && select('item', a.id) },
+    rows.push(h('div', { class: 'wf-group' + (a.id === it.id ? ' self' : ''), title: a.id === it.id ? '' : 'Open this artifact', onclick: () => a.id !== it.id && openWork(a.id) },
       h('span', { class: 'dot', style: `background:${FORM_COLOR[a.form] || '#fff'}` }), h('span', { class: 'gid' }, a.id), h('span', { class: 'gt' }, a.title),
       h('span', { class: 'gm' }, `${gs.cost ? fmt$(gs.cost) + ' · ' : ''}${fmtDur(gs.t1 - gs.t0)}`)));
     for (const sp of g.spans) {
@@ -1052,7 +1042,7 @@ function traceView(it) {
       const end = sp.end ?? now; const l = pct(sp.start), w = Math.max(0, pct(end) - l);
       const tone = spanTone(sp); const go = spanTarget(sp); const isOpen = ui.traceOpen.has(key);
       const canOpen = sp.kind === 'run' && sp.scores;
-      const toggle = () => { if (!canOpen) return go && go(); isOpen ? ui.traceOpen.delete(key) : ui.traceOpen.add(key); renderSide(); };
+      const toggle = () => { if (!canOpen) return go && go(); isOpen ? ui.traceOpen.delete(key) : ui.traceOpen.add(key); refreshTrace(); };
       rows.push(h('div', { class: 'wf-row k-' + sp.kind + (sp.instant ? ' inst' : ''), title: spanTitle(sp) },
         h('span', { class: 'wf-lab' + (go ? ' click' : ''), onclick: go || null }, spanLabel(sp)),
         h('span', { class: 'wf-track' + (canOpen ? ' click' : ''), onclick: toggle },
@@ -1060,7 +1050,7 @@ function traceView(it) {
             : h('i', { class: 'wf-bar ' + tone, style: `left:${l}%;width:max(2px,${w}%)` })),
         h('span', { class: 'wf-meta' }, sp.instant ? '' : [fmtDur(end - sp.start), sp.cost ? h('b', {}, fmt$(sp.cost)) : null])));
       if (isOpen && canOpen) rows.push(h('div', { class: 'wf-detail' },
-        h('div', { class: 'wf-dmeta' }, [sp.agent, sp.version && 'v' + sp.version, sp.verdict, fmt$(sp.cost)].filter(Boolean).join(' · ')),
+        h('div', { class: 'wf-dmeta' }, [sp.agent && agentName(sp.agent), sp.version && 'v' + sp.version, sp.verdict, fmt$(sp.cost)].filter(Boolean).join(' · ')),
         h('div', { class: 'scores' }, sp.scores.map(scoreRow)),
         sp.scores.filter(sc => !sc.ok).map(sc => h('div', { class: 'hint' }, `${sc.name}: ${sc.reason}`))));
     }
@@ -1075,21 +1065,13 @@ function traceView(it) {
     sec('', waterfall, h('div', { class: 'hint' }, 'Click a program, gate or bin name to open it. Click a run bar to see its scores.')),
   ];
 }
-function fakeOutput(it) {
-  const t = it.title;
-  if (it.form === 'spec') return `# Spec: ${t}\n\nGoal: ${t.toLowerCase()} works end to end for one user.\nNon-goals: admin tooling, bulk actions.\n\nAcceptance criteria\n1. Happy path completes in under 3 clicks.\n2. Empty state explains the next step.\n3. Errors show a recoverable message.\n4. Works on mobile widths.\n\nOpen question: should this be behind a flag?`;
-  if (it.form === 'branch') return `feat/${t.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 32)}\n\n7 files changed, +214 −38\n  src/… (5)\n  test/… (1)\n  docs/… (1)\n\nChecks: lint ✓  typecheck ✓  unit ✓ (12 passed)`;
-  if (it.form === 'pr') return `PR #${it.pr}: ${t}\n\nImplements slice "${t}" from spec ${it.parent}.\n\n- 7 files, +214 −38\n- CI green\n- Test summary: 12 unit, 0 integration\n\nSpec: ${it.parent}  Slice: ${it.id}`;
-  if (it.form === 'slice') return `Slice ${it.id}: ${t}\n\nScope: one subsystem. Ships alone.\nDepends on: ${it.parent}.a\nEstimate: < 1 day`;
-  return `${it.form}: ${t}`;
-}
 function appendLog(sel, l) { const box = $(sel); if (!box) return; box.append(h('div', { class: 'ln ' + (l.cls || '') }, h('span', { class: 'pfx' }, l.pfx || '›'), h('span', {}, l.text))); box.parentNode.scrollTop = 1e6; }
 
 // ───────────────────────────────────────────── plugs / forms
 function onPlugClick(p) {
   if (p.entry.kind === 'connection') { toast(`${p.entry.label} connection · ${M.defects.length} events so far`, ''); return; }
   const inp = h('input', { placeholder: 'e.g. Export invoices as CSV', autofocus: true });
-  showModal({ title: `Run ${p.name}`, sub: `Fill its open input: ${p.inputs[0].name}. Each run makes a new artifact.`, body: [h('div', { class: 'field' }, h('label', {}, 'Request'), inp, h('div', { class: 'hint' }, 'This form can also be a chat with an agent that asks until the input is complete.'))], ok: 'Run', onOk: () => { const t = inp.value.trim() || 'Untitled request'; spawnRequest(t); toast(`${t} queued at Write spec`, 'green'); closeModal(); } });
+  showModal({ title: `Run ${p.name}`, sub: `Fill its open input: ${p.inputs[0].name}. Each run makes a new artifact.`, body: [h('div', { class: 'field' }, h('label', {}, 'Request'), inp, h('div', { class: 'hint' }, 'This form can also be a chat with an agent that asks until the input is complete.'))], ok: 'Run', onOk: () => { const t = inp.value.trim() || 'Untitled request'; spawnRequest(genericRequest(t)); toast(`${t} queued at Write spec`, 'green'); closeModal(); } });
   setTimeout(() => inp.focus(), 50);
 }
 
@@ -1132,14 +1114,18 @@ function openAssign(change) {
 }
 function setAgents(n) {
   const cur = M.agents.length;
-  if (n > cur) for (let i = cur; i < n; i++) M.agents.push({ id: 'A' + (i + 1), busy: null });
+  if (n > cur) for (let i = cur; i < n; i++) {
+    const def = AGENT_POOL[i % AGENT_POOL.length];
+    const k = M.agents.filter(a => a.harness === def.harness).length + 1;
+    M.agents.push({ id: 'ag' + (i + 1), ...def, n: k, short: (def.harness === 'claude' ? 'Claude ' : 'Codex ') + k, busy: null });
+  }
   else if (n < cur) { const idle = M.agents.filter(a => !a.busy); let rm = cur - n; M.agents = M.agents.filter(a => { if (rm > 0 && !a.busy && idle.includes(a)) { rm--; return false; } return true; }); }
   touch();
 }
 function startRunning() {
   M.status = 'running'; M.sim.paused = false;
   // starter requests from the brief
-  STARTER_REQUESTS.slice(0, 3).forEach((t, i) => setTimeout(() => spawnRequest(t), 300 + i * 700));
+  FIRST_REQUESTS.forEach((k, i) => setTimeout(() => spawnRequest(k), 300 + i * 900));
   M.sim.intakeAt = M.sim.now + 26;
   toast(`${M.name} is running with ${M.agents.length} agents`, 'green'); closeSide(); touch();
 }
@@ -1186,8 +1172,8 @@ async function maintain() {
         h('span', {}, 'Test depth'), h('span', {}, f2(avg)), h('span', {}, '0.83'), h('span', { class: 'up' }, '+' + f2(.83 - avg)),
         h('span', {}, 'AI slop'), h('span', {}, '0.24'), h('span', {}, '0.23'), h('span', { class: 'same' }, '—'),
         h('span', {}, 'Code reuse'), h('span', {}, '0.68'), h('span', {}, '0.70'), h('span', { class: 'same' }, '—'),
-        h('span', {}, 'Cost / run'), h('span', {}, '$0.92'), h('span', {}, '$1.04'), h('span', { class: 'dn' }, '+13%'),
-        h('span', {}, 'Time / run'), h('span', {}, '6.8s'), h('span', {}, '7.9s'), h('span', { class: 'dn' }, '+16%'))),
+        h('span', {}, 'Cost / run'), h('span', {}, '$2.84'), h('span', {}, '$3.21'), h('span', { class: 'dn' }, '+13%'),
+        h('span', {}, 'Time / run'), h('span', {}, '14m'), h('span', {}, '16m'), h('span', { class: 'dn' }, '+16%'))),
       h('div', { class: 'sec' }, h('h4', {}, 'Roll over'), h('div', { class: 'hint', style: 'margin:0 0 8px' }, `${inflight} artifact${inflight === 1 ? ' is' : 's are'} past Build slice on v${M.version} and not yet past a person gate.`),
         h('div', { style: 'display:flex;flex-direction:column;gap:8px' },
           h('div', { class: 'opt', onclick: () => applyProposal('hard') }, h('div', { class: 't' }, 'Roll over now', h('span', { class: 'tagx' }, 'rewind stale')), h('div', { class: 'd' }, `Stale artifacts rewind to Build slice and rebuild on v${M.version + 1}. Artifacts past a person gate are kept. Shipped code is fixed forward.`)),
@@ -1248,9 +1234,10 @@ function endMaintenance() {
 function rewindItem(it, programId, why) {
   const l = it.loc; if (!l) return;
   // leave wherever it is
-  if (l.kind === 'run') { const run = M.runs.find(r => r.id === l.run); const a = M.agents.find(x => x.id === run.agent); if (a) a.busy = null; const p = P(l.program); p.running = p.running.filter(x => x !== run.id); run.endedAt = M.sim.now; run.cancelled = true; }
+  if (l.kind === 'run') { const run = M.runs.find(r => r.id === l.run); const a = M.agents.find(x => x.id === run.agent); if (a) a.busy = null; const p = P(l.program); p.running = p.running.filter(x => x !== run.id); run.endedAt = M.sim.now; run.cancelled = true; run.cancelT = l.t; run.cancelWhy = why; }
   if (l.kind === 'queue') { const p = P(l.program); p.queue = p.queue.filter(x => x !== it.id); }
-  if (l.kind === 'gate') { const g = G(l.gate); g.waiting = g.waiting.filter(x => x !== it.id); M.questions = M.questions.filter(q => q.item !== it.id); it.decideAt = null; }
+  if (l.kind === 'gate') { const g = G(l.gate); g.waiting = g.waiting.filter(x => x !== it.id); it.decideAt = null; it.questionId = null; }
+  M.questions = M.questions.filter(q => q.item !== it.id);
   if (l.kind === 'bin') { const b = B(l.bin); b.items = b.items.filter(x => x !== it.id); }
   const p = P(programId); const to = portIn(p);
   for (const w of D.wires) if (w.from[0] === programId || w.to === programId) delete it.cleared[w.id];
@@ -1290,7 +1277,7 @@ async function revealDesign() {
 
 // ───────────────────────────────────────────── screens
 function openMetafab(mf, reveal = false) {
-  M = mf; D = mf.design; ui.selection = null; ui.side = null; ui.inboxKey = ''; ui.inboxOpen = null; ui.inboxEdit = false;
+  M = mf; D = mf.design; ui.selection = null; ui.side = null; ui.attnKey = ''; ui.work = null;
   $('#home').classList.add('hidden'); $('#studio').classList.remove('hidden');
   buildCanvas(reveal);
   // re-attach item elements for items still in play
@@ -1332,7 +1319,7 @@ function toast(text, cls = '') {
 // ───────────────────────────────────────────── boot
 $('#btn-new').addEventListener('click', openNew);
 $('#btn-templates').addEventListener('click', () => toast('Community templates come later', ''));
-addEventListener('keydown', e => { if (e.key === 'Escape') { if ($('#modal-root').children.length) closeModal(); else if (ui.side && !ui.worldDim) closeSide(); else if (ui.inboxEdit) { ui.editing = false; ui.inboxEdit = false; renderInbox(); } else if (ui.inboxOpen) closeQuestion(); } if (e.key === ' ' && M && !e.target.matches('input,textarea') && !$('#studio').classList.contains('hidden')) { e.preventDefault(); if (M.status === 'running') { M.sim.paused = !M.sim.paused; touch(); } } });
+addEventListener('keydown', e => { if (e.key === 'Escape') { if ($('#modal-root').children.length) closeModal(); else if (ui.work) { if (!e.target.matches('input,textarea')) closeWork(); else e.target.blur(); } else if (ui.side && !ui.worldDim) closeSide(); } if (e.key === ' ' && M && !e.target.matches('input,textarea') && !ui.work && !$('#studio').classList.contains('hidden')) { e.preventDefault(); if (M.status === 'running') { M.sim.paused = !M.sim.paused; touch(); } } });
 renderHome();
 // keep the home cards fresh while a metafab runs in the background
 setInterval(() => { if (!$('#home').classList.contains('hidden') && library.some(e => e.mf)) renderHome(); }, 1500);
