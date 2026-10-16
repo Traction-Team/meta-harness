@@ -126,7 +126,7 @@ function renderMenubar() {
   const w = waiting().length;
   const r = running().length;
   const icon = $("#fabIcon");
-  icon.innerHTML = `${ICONS.fab(16)}${w ? `<span class="mb-n waits">${w}</span>` : r ? `<span class="mb-n">${r}</span>` : ""}`;
+  icon.innerHTML = `${ICONS.fab(16)}${w ? `<i class="mb-w"></i>` : ""}${r ? `<span class="mb-n">${r}</span>` : ""}`;
   icon.title = w ? `${w} session${w > 1 ? "s" : ""} wait for you` : `${r} session${r === 1 ? "" : "s"} running`;
   icon.classList.toggle("on", state.open);
 }
@@ -134,42 +134,40 @@ function renderMenubar() {
 function renderHead() {
   const all = state.fab === "all";
   const fab = all ? null : fabById(state.fab);
-  const sub = all ? `${FABS.length} fabs on this machine` : fab.path;
   $("#pnHead").innerHTML = `
-    <button class="fab-pick ${state.picker ? "open" : ""}" data-act="picker">
-      ${all ? `<span class="fab-av all">${ICONS.fab(14)}</span>` : `<span class="fab-av" style="--h:${fab.hue}">${esc(fab.name.slice(0, 2).toUpperCase())}</span>`}
-      <span style="min-width:0"><span class="fab-nm">${all ? "All fabs" : esc(fab.name)}</span><span class="fab-sub">${esc(sub)}</span></span>
+    <button class="fab-pick ${state.picker ? "open" : ""}" data-act="picker" title="${all ? "" : esc(fab.path)}">
+      <span class="fab-nm">${all ? "All fabs" : esc(fab.name)}</span>
       <span class="fab-chev">${ICONS.chevD}</span>
     </button>
     <span class="sp"></span>
-    <button class="ico ${state.pinned ? "on" : ""}" data-act="pin" title="${state.pinned ? "Unpin: close when you click away" : "Pin: keep on top as a floating window"}">${ICONS.pin}</button>
+    <button class="ico ${state.pinned ? "on" : ""}" data-act="pin" title="${state.pinned ? "Unpin" : "Pin"}">${ICONS.pin}</button>
     <button class="ico" data-act="settings" title="Settings">${ICONS.gear}</button>
     ${state.picker ? pickerHtml() : ""}`;
 }
 
 function pickerHtml() {
-  const opt = (id, av, name, cnt) => `
-    <button class="pop-o" data-act="fab" data-id="${id}">${av}<span>${esc(name)}</span>
-      ${state.fab === id ? `<span class="tick">${ICONS.tick}</span>` : `<span class="cnt">${cnt}</span>`}</button>`;
+  const opt = (id, name, cnt) => `
+    <button class="pop-o" data-act="fab" data-id="${id}">
+      <span class="tick">${state.fab === id ? ICONS.tick.replace('width="13" height="13"', 'width="11" height="11"').replace('stroke-width="1.3"', 'stroke-width="1.8"') : ""}</span>
+      <span>${esc(name)}</span><span class="cnt">${cnt}</span></button>`;
   return `<div class="pop">
-    ${opt("all", `<span class="fab-av all" style="width:20px;height:20px;border-radius:6px">${ICONS.fab(12)}</span>`, "All fabs", running().length || "")}
+    ${opt("all", "All Fabs", running().length || "")}
     <div class="pop-sep"></div>
-    ${FABS.map((f) => opt(f.id, `<span class="fab-av" style="--h:${f.hue};width:20px;height:20px;border-radius:6px;font-size:9px">${esc(f.name.slice(0, 2).toUpperCase())}</span>`, f.name, running(live(f.id)).length || "")).join("")}
+    ${FABS.map((f) => opt(f.id, f.name, running(live(f.id)).length || "")).join("")}
     <div class="pop-sep"></div>
-    <button class="pop-new" data-act="addfab">${ICONS.plus}<span>Add a folder…</span><span class="mono">fab fabs add</span></button>
+    <button class="pop-new" data-act="addfab"><span>Add Folder…</span></button>
   </div>`;
 }
 
 function renderTabs() {
   const list = state.fab === "all" ? SESSIONS : live(state.fab);
   const w = waiting(list).length;
-  const n = list.length;
-  const tab = (id, icon, label, extra = "") =>
-    `<button class="${state.tab === id ? "on" : ""}" data-act="tab" data-id="${id}">${icon}${label}${extra}</button>`;
+  const tab = (id, label, extra = "") =>
+    `<button class="${state.tab === id ? "on" : ""}" data-act="tab" data-id="${id}">${label}${extra}</button>`;
   $("#pnTabs").innerHTML = `<div class="seg">
-    ${tab("now", ICONS.now, "Now", w ? ` <span class="n waits">${w}</span>` : n ? ` <span class="n">${n}</span>` : "")}
-    ${tab("start", ICONS.start, "Start")}
-    ${tab("map", ICONS.map, "Map")}
+    ${tab("now", "Now", w ? `<span class="n waits">${w}</span>` : "")}
+    ${tab("start", "Start")}
+    ${tab("map", "Map")}
   </div>`;
 }
 
@@ -196,8 +194,8 @@ function renderFoot() {
   $("#pnFoot").innerHTML = `
     <span class="live" title="fab status --all --watch --json">watching ${SESSIONS.length} sessions</span>
     <button class="chk ${bad.length ? "bad" : ""}" data-act="check">
-      ${bad.length ? `${ICONS.warn} fab check: ${bad.length === 1 && !all ? "1 problem" : `${bad.length} fab${bad.length > 1 ? "s" : ""} out of date`}`
-        : `${ICONS.check} ${all ? "all installed" : `installed · <span class="mono">${fab.commit}</span>`}`}
+      ${bad.length ? `${ICONS.warn} ${bad.length === 1 && !all ? "Out of date" : `${bad.length} out of date`}`
+        : all ? "Up to date" : `<span class="mono">${fab.commit}</span>`}
     </button>`;
 }
 
@@ -206,39 +204,38 @@ function renderFoot() {
 function rowHtml(s) {
   const fab = fabById(s.fab);
   const hz = hzById(s.harness);
-  const stLabel = { working: "working", waits: "waits for you", idle: "idle", unknown: "unknown", starting: "starting…" }[s.state];
   const unknown = !s.program;
-  return `<div class="row r-${s.state} ${unknown ? "r-unknown" : ""}" data-act="focus" data-sid="${s.id}">
+  /* one quiet line: what it asks when it waits, otherwise where it runs */
+  const sub = s.state === "waits" && s.asks ? esc(s.asks)
+    : s.state === "starting" ? `Starting in ${esc(hz.label)}…`
+    : `${esc(hz.short)}${s.branch && s.branch !== "main" ? ` · ${esc(s.branch)}` : ""}`;
+  return `<div class="row r-${s.state} ${unknown ? "r-unknown" : ""}" data-act="focus" data-sid="${s.id}" title="${esc(fab.name)} · ${esc(s.state === "waits" ? "waits for you" : s.state)}">
     <span class="dot ${s.state}"></span>
     <div class="row-m">
-      <div class="row-t"><span class="row-l">${unknown ? `“${esc(s.label)}”` : esc(s.label)}</span>${s.state === "waits" ? `<span class="needs">Needs you</span>` : ""}</div>
-      <div class="row-s">
-        <span class="hz" style="--c:${HZ_COLOR[s.harness]}"><i></i>${esc(hz.short)}</span><span class="sep">·</span>
-        <span class="st-${s.state}">${stLabel}</span><span class="sep">·</span>
-        <span class="mono">${esc(s.branch)}</span>
-      </div>
+      <span class="row-l">${esc(s.label)}</span>
+      <div class="row-s">${sub}</div>
     </div>
-    <div class="row-r"><span class="row-age" data-since="${s.startedAt}">${ago(s.startedAt)}</span></div>
-    <button class="row-i" data-act="session" data-sid="${s.id}" title="Details">${ICONS.info}</button>
+    <span class="row-age" data-since="${s.startedAt}">${ago(s.startedAt)}</span>
+    <button class="row-i" data-act="session" data-sid="${s.id}" title="Details">${ICONS.chevR}</button>
   </div>`;
 }
 
 function nowFabHtml(fab, showFabHead) {
   const list = live(fab.id);
-  let h = showFabHead ? `<div class="sec fab"><span class="sec-t">${esc(fab.name)}</span><span class="sec-n">${list.length}</span></div>` : "";
-  if (!list.length) return h + (showFabHead ? `<div class="hint" style="padding-top:0">Nothing runs here now.</div>` : "");
+  if (!list.length) return "";
+  let h = showFabHead ? `<div class="sec fab"><span class="sec-t">${esc(fab.name)}</span></div>` : "";
   /* groups in flow order, waiting-first inside a group */
   const rank = { waits: 0, starting: 1, working: 2, idle: 3, unknown: 4 };
   for (const name of order(fab)) {
     const g = list.filter((s) => s.program === name).sort((a, b) => rank[a.state] - rank[b.state] || b.startedAt - a.startedAt);
     if (!g.length) continue;
     const p = progOf(fab, name);
-    h += `<div class="sec"><button class="sec-t" data-act="program" data-fab="${fab.id}" data-p="${name}">${esc(p.title)}</button><span class="sec-n">${g.length}</span></div>`;
+    h += `<div class="sec"><button class="sec-t" data-act="program" data-fab="${fab.id}" data-p="${name}">${esc(p.title)}</button></div>`;
     h += g.map(rowHtml).join("");
   }
   const unk = list.filter((s) => !s.program);
   if (unk.length) {
-    h += `<div class="sec"><span class="sec-t" style="color:var(--text-3)">In this repo, program unknown</span><span class="sec-n">${unk.length}</span></div>`;
+    h += `<div class="sec"><span class="sec-t">Other</span></div>`;
     h += unk.map(rowHtml).join("");
   }
   return h;
@@ -250,9 +247,7 @@ function nowHtml() {
   const any = fabs.some((f) => live(f.id).length);
   let h = "";
   if (!any) {
-    h += `<div class="empty"><b>Nothing runs in ${all ? "your fabs" : esc(fabs[0].name)} right now</b>
-      Start a program, or start a session in your harness as you always do.
-      <br><button class="btn" data-act="tab" data-id="start">${ICONS.start} Start something</button></div>`;
+    h += `<div class="empty">Nothing running<br><button class="btn" data-act="tab" data-id="start">Start…</button></div>`;
   } else {
     h += fabs.map((f) => nowFabHtml(f, all)).join("");
   }
@@ -264,9 +259,9 @@ function nowHtml() {
         const p = progOf(fabById(f.fab), f.program);
         return `<div class="row fin" title="${esc(f.wrote)}">
           <span class="dot done">${ICONS.tick}</span>
-          <div class="row-m"><div class="row-t"><span class="row-l">${esc(f.label)}</span></div>
-            <div class="row-s"><span>${esc(p?.title || f.program)}</span><span class="sep">·</span><span class="hz" style="--c:${HZ_COLOR[f.harness]}"><i></i>${esc(hzById(f.harness).short)}</span><span class="sep">·</span><span class="mono">${esc(f.wrote)}</span></div></div>
-          <div class="row-r"><span class="row-age" data-since="${f.endedAt}">${ago(f.endedAt)}</span></div>
+          <div class="row-m"><span class="row-l">${esc(f.label)}</span>
+            <div class="row-s">${esc(p?.title || f.program)} · ${esc(hzById(f.harness).short)}</div></div>
+          <span class="row-age" data-since="${f.endedAt}">${ago(f.endedAt)}</span>
         </div>`;
       }).join("");
     }
@@ -292,9 +287,6 @@ function startHtml() {
     if (all) h += `<div class="sec fab"><span class="sec-t">${esc(f.name)}</span></div>`;
     h += `<div class="starts">${startsOf(f).map(goHtml).join("")}</div>`;
   }
-  const hz = hzById(state.settings.harness);
-  h += `<div class="hint">Starts in <b>${esc(hz.label)}</b> unless you pick another. A program with no questions starts at once (⌥-click to pick a harness).
-    Only programs with <span class="mono">entry: true</span> show here. <span class="lnk" data-act="tab" data-id="map">See the whole fab</span></div>`;
   return h;
 }
 
@@ -302,11 +294,10 @@ function startHtml() {
 
 function mapHtml() {
   if (state.fab === "all") {
-    return `<div class="hint" style="padding:12px 10px 4px">Each fab has its own map. Pick one.</div>
-      <div class="fab-list">${FABS.map((f) => `
+    return `<div class="fab-list">${FABS.map((f) => `
         <button class="go" data-act="fab" data-id="${f.id}" data-then="map">
-          <span class="fab-av" style="--h:${f.hue};width:30px;height:30px;border-radius:8px">${esc(f.name.slice(0, 2).toUpperCase())}</span>
-          <span class="go-m"><span class="go-t">${esc(f.name)}</span><span class="go-d">${f.programs.length} programs · ${Object.keys(f.decisions).length} decisions · ${running(live(f.id)).length} running</span></span>
+          <span class="fab-av">${ICONS.folder}</span>
+          <span class="go-m"><span class="go-t">${esc(f.name)}</span><span class="go-d">${f.programs.length} programs</span></span>
           <span class="go-run">${ICONS.chevR}</span></button>`).join("")}</div>`;
   }
   const fab = fabById(state.fab);
@@ -336,11 +327,10 @@ function mapHtml() {
     const a = fab.artifacts[id];
     if (!a) return "";
     return `<span class="art" data-act="artifact" data-fab="${fab.id}" data-a="${id}" data-art="${fab.id}:${id}" title="${esc(a.says)} — ${esc(a.path)}">
-      ${ICONS.doc}<b>${esc(id)}</b>${a.unit ? `<span class="cnt ${a.waiting ? "" : "zero"}">${a.waiting} ${esc(a.unit)}</span>` : ""}</span>`;
+      ${ICONS.doc}<b>${esc(id)}</b>${a.unit && a.waiting ? `<span class="cnt">${a.waiting}</span>` : ""}</span>`;
   };
 
-  let h = `<div class="map">
-    <div class="map-sum">${fab.programs.length} programs · ${Object.keys(fab.decisions).length} decisions · ${Object.keys(fab.artifacts).length} artifacts<span class="mono">fab map</span></div>`;
+  let h = `<div class="map">`;
   lv.forEach((row, i) => {
     h += `<div class="lvl">${row.map(node).join("")}</div>`;
     const ps = row.map((n) => progOf(fab, n));
@@ -350,15 +340,9 @@ function mapHtml() {
     if (!last || decs.length || arts.length) {
       h += `<div class="link"><div class="chips">${decs.map(decChip).join("")}${arts.map(artChip).join("")}</div></div>`;
     }
-    if (last && (decs.length || arts.length)) h += `<div class="map-end"><span class="mono" style="color:var(--text-3);font-size:10px">shipped</span></div>`;
+    if (last && (decs.length || arts.length)) h += `<div class="map-end">Shipped</div>`;
   });
-  h += `<div class="map-legend">
-      <span><span class="pg-k entry" style="width:12px;height:12px">${ICONS.start.replace('width="13" height="13"', 'width="8" height="8"')}</span>entry, a button</span>
-      <span><span class="lg-d">${ICONS.diamond}</span>a person decides</span>
-      <span>${ICONS.doc}artifact, with what waits</span>
-      <span><span class="pg-run" style="color:var(--green)"><i></i></span>sessions now</span>
-    </div></div>`;
-  return h;
+  return h + `</div>`;
 }
 
 /* ═════════════════════════════════════════════════════════════ sheets ══ */
@@ -373,13 +357,15 @@ function openSheet(sheet) {
 function closeSheet() {
   state.sheet = null;
   $("#pnSheet").classList.remove("open");
+  $("#panel").classList.remove("sheeted");
   if (state.tab === "map") renderBody();
 }
 
 function renderSheet() {
   const sh = state.sheet;
   const el = $("#pnSheet");
-  if (!sh) { el.classList.remove("open"); return; }
+  if (!sh) { el.classList.remove("open"); $("#panel").classList.remove("sheeted"); return; }
+  $("#panel").classList.add("sheeted");
   const back = `<button class="sh-back" data-act="back">${ICONS.chevL}${sh.backLabel || "Back"}</button>`;
   let title = "", body = "", foot = "";
   if (sh.kind === "start") ({ title, body, foot } = startSheet(sh));
@@ -421,8 +407,7 @@ function startSheet(sh) {
     const v = esc(sh.values[inp.name] ?? "");
     let ctl;
     if (inp.choices) {
-      ctl = `<select class="inp" data-in="${inp.name}"><option value="">Choose…</option>${inp.choices.map((c) => `<option ${sh.values[inp.name] === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
-        <div class="fld-h">${ICONS.doc}Choices read from <span class="mono">${esc(fab.artifacts[inp.from]?.path || inp.from)}</span></div>`;
+      ctl = `<select class="inp" data-in="${inp.name}"><option value="">Choose…</option>${inp.choices.map((c) => `<option ${sh.values[inp.name] === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>`;
     } else if (inp.long) {
       ctl = `<textarea class="inp" data-in="${inp.name}" placeholder="${esc(inp.hint || "")}">${v}</textarea>`;
     } else {
@@ -436,35 +421,33 @@ function startSheet(sh) {
     const sub = dis ? h.why : h.where(state.settings.terminal);
     return `<button class="hzo ${sh.harness === h.id ? "on" : ""}" data-act="harness" data-id="${h.id}" ${dis ? "disabled" : ""}>
       <span class="radio"></span>
-      <span class="hzo-m"><span class="hzo-t"><span class="hz" style="--c:${HZ_COLOR[h.id]}"><i></i></span>${esc(h.label)}${state.settings.harness === h.id ? `<span class="dflt">default</span>` : ""}</span>
-      <span class="hzo-s">${esc(sub)}</span></span></button>`;
+      <span class="hzo-m"><span class="hzo-t">${esc(h.label)}${state.settings.harness === h.id ? `<span class="dflt">Default</span>` : ""}</span>
+      ${dis ? "" : `<span class="hzo-s">${esc(sub)}</span>`}</span></button>`;
   }).join("");
 
   const wt = p.worktree === "new" ? `
-    <div class="lbl">New worktree</div>
-    <div class="wt">${ICONS.branch}<input data-branch value="${esc(sh.branch ?? "")}" placeholder="fab/${esc(p.name)}/…" /></div>
-    <div class="fld-h" style="margin-top:5px">This program runs on its own branch, beside your work.</div>` : "";
+    <div class="lbl">Branch</div>
+    <div class="wt">${ICONS.branch}<input data-branch value="${esc(sh.branch ?? "")}" placeholder="fab/${esc(p.name)}/…" /></div>` : "";
 
   const body = `
     <div class="hero">
       <span class="go-ic ${icon}">${ICONS[icon] || ICONS.start}</span>
       <div style="min-width:0">
         <div class="hero-t">${esc(title)}</div>
-        <div class="hero-s"><span class="mono">${esc(fab.name)} · ${esc(p.name)}</span>${e ? Object.entries(e.fixed).map(([k, v]) => `<span class="fix">${esc(k)}=${esc(v)}</span>`).join("") : ""}</div>
-        <div class="hero-d">${esc(p.description)}</div>
+        <div class="hero-s">${esc(fab.name)}</div>
       </div>
     </div>
-    ${fields || `<div class="quote">No questions. The session asks them, as a conversation.</div>`}
+    ${fields}
     <div class="lbl">Start in</div>
     <div class="hzs">${hzs}</div>
     ${wt}
     <div class="disc ${sh.showCmd ? "open" : ""}">
-      <button class="disc-h" data-act="showcmd">${ICONS.chevR}What runs <span class="mono" style="color:var(--text-3)">fab run --dry-run</span></button>
+      <button class="disc-h" data-act="showcmd">${ICONS.chevR}Command</button>
       <div class="disc-b"><div class="code" id="cmdPreview"></div><div class="code" id="promptPreview"></div></div>
     </div>`;
   const foot = `<span class="kbd">⌘↩</span><span class="sp"></span>
     <button class="btn ghost" data-act="back">Cancel</button>
-    <button class="btn pri" data-act="go" id="goBtn">${ICONS.start} Start</button>`;
+    <button class="btn pri" data-act="go" id="goBtn">Start</button>`;
   return { title: "", body, foot };
 }
 
@@ -529,7 +512,7 @@ function doStart(sh) {
   if (state.fab !== "all" && state.fab !== fab.id) state.fab = fab.id;
   state.flash = s.id;
   render();
-  toast(`Run record written <span class="mono">${s.run}</span> · starting in ${esc(hz.label)}`);
+  toast(`Starting in ${esc(hz.label)}`);
   /* the adapter confirms the session: exact for Claude Code and Orca (session
      id at launch), by transcript for Codex (the fab-run: line). */
   const t = hz.can.match === "exact" ? 1500 : 3600;
@@ -552,38 +535,38 @@ function programSheet(sh) {
   const fab = fabById(sh.fab);
   const p = progOf(fab, sh.program);
   const ss = live(fab.id).filter((s) => s.program === p.name);
-  const tags = (arr, cls, act) => arr?.length ? `<span class="tags">${arr.map((n) => `<span class="tg ${cls}" ${act ? `data-act="${act}" data-fab="${fab.id}" data-p="${n}"` : ""}>${esc(n)}</span>`).join("")}</span>` : `<span style="color:var(--text-3)">—</span>`;
+  const dash = `<span class="dim">—</span>`;
+  const tags = (arr, cls, act) => arr?.length ? `<span class="tags">${arr.map((n) => `<span class="tg ${cls}" ${act ? `data-act="${act}" data-fab="${fab.id}" data-p="${n}"` : ""}>${esc(n)}</span>`).join("")}</span>` : dash;
   const before = fab.programs.filter((x) => (x.next || []).includes(p.name)).map((x) => x.name);
   const kv = [
-    ["When", esc(p.when)],
     ["Reads", tags(p.reads, "")],
     ["Writes", tags(p.writes, "")],
-    ["Decides", p.decides ? `<span class="tags"><span class="tg d">◆ ${esc(p.decides)}</span></span> <span style="color:var(--text-3);font-size:11px">${esc(fab.decisions[p.decides].who)}</span>` : `<span style="color:var(--text-3)">nobody</span>`],
+    ["Decides", p.decides ? esc(fab.decisions[p.decides].who) : dash],
     ["After", tags(before, "a", "program")],
     ["Next", tags(p.next, "a", "program")],
-    ["Worktree", p.worktree],
+    ["Worktree", p.worktree === "new" ? "New" : "Current"],
   ].map(([k, v]) => `<div class="kv-r"><span class="kv-k">${k}</span><span class="kv-v">${v}</span></div>`).join("");
   const inputs = p.inputs?.length
-    ? `<div class="kv">${p.inputs.map((i) => `<div class="kv-r"><span class="kv-k mono">${esc(i.name)}</span><span class="kv-v">${esc(i.ask)}${i.optional ? ` <span style="color:var(--text-3)">· optional</span>` : ""}${i.default ? ` <span style="color:var(--text-3)">· default ${esc(i.default)}</span>` : ""}</span></div>`).join("")}</div>`
-    : `<div class="quote">${p.entry ? "No inputs. It starts at once, and asks its questions in the session." : "No inputs. Another program starts it."}</div>`;
+    ? `<div class="lbl">Inputs</div><div class="kv">${p.inputs.map((i) => `<div class="kv-r"><span class="kv-k mono">${esc(i.name)}</span><span class="kv-v">${esc(i.ask)}${i.optional ? ` <span class="dim">optional</span>` : ""}</span></div>`).join("")}</div>`
+    : "";
   const body = `
     <div class="hero">
       <span class="go-ic ${p.icon || (p.entries ? p.entries[0].icon : "")}">${ICONS[p.icon] || (p.entries ? ICONS[p.entries[0].icon] : ICONS.program)}</span>
       <div><div class="hero-t">${esc(p.title)}</div>
-        <div class="hero-s"><span class="mono">.fab/programs/${esc(p.name)}/SKILL.md</span></div>
-        <div class="hero-d">${esc(p.description)}</div></div>
+        <div class="hero-s"><span class="mono">${esc(p.name)}</span></div></div>
     </div>
+    <div class="hero-d">${esc(p.description)}</div>
     <div class="kv">${kv}</div>
-    <div class="lbl">Inputs</div>${inputs}
-    ${ss.length ? `<div class="lbl">Running now · ${ss.length}</div><div class="mini">${ss.map(rowHtml).join("")}</div>` : ""}
+    ${inputs}
+    ${ss.length ? `<div class="lbl">Running</div><div class="mini">${ss.map(rowHtml).join("")}</div>` : ""}
   `;
-  let foot = `<button class="btn ghost" data-act="openfile" data-path=".fab/programs/${esc(p.name)}/SKILL.md">${ICONS.doc} Open SKILL.md</button><span class="sp"></span>`;
+  let foot = `<button class="btn ghost" data-act="openfile" data-path=".fab/programs/${esc(p.name)}/SKILL.md">Open SKILL.md</button><span class="sp"></span>`;
   if (p.entry) {
     foot += p.entries
       ? p.entries.map((e, i) => `<button class="btn ${i === 0 ? "pri" : ""}" data-act="start" data-fab="${fab.id}" data-p="${p.name}" data-e="${i}">${esc(e.title.replace(/^Log /, ""))}</button>`).join("")
-      : `<button class="btn pri" data-act="start" data-fab="${fab.id}" data-p="${p.name}" data-e="">${ICONS.start} Start</button>`;
+      : `<button class="btn pri" data-act="start" data-fab="${fab.id}" data-p="${p.name}" data-e="">Start</button>`;
   }
-  return { title: p.title, body, foot };
+  return { title: "", body, foot };
 }
 
 /* ── a session: where it is, and how the monitor knows ── */
@@ -593,36 +576,30 @@ function sessionSheet(sh) {
   const fab = fabById(s.fab);
   const p = s.program ? progOf(fab, s.program) : null;
   const hz = hzById(s.harness);
-  const matchTxt = {
-    exact: "Exact. The run record names this session's id.",
-    transcript: "By transcript. The fab-run: line was found in the first prompt.",
-    inferred: "Inferred. The first prompt names the program.",
-    folder: "Folder only. This fab, program unknown.",
-    pending: "Pending. Waiting for the harness to report the session.",
-  }[s.match];
+  const stTxt = { waits: "Waiting for you", working: "Working", idle: "Idle", unknown: "Unknown", starting: "Starting" }[s.state];
   const kv = [
-    ["Program", p ? `<span class="lnk" data-act="program" data-fab="${fab.id}" data-p="${p.name}">${esc(p.title)}</span> <span class="mono" style="color:var(--text-3)">${esc(p.name)}</span>` : `<span style="color:var(--text-3)">unknown</span>`],
-    ["Harness", `<span class="hz" style="--c:${HZ_COLOR[s.harness]}"><i></i>${esc(hz.label)}</span>`],
-    ["State", `${esc(s.state === "waits" ? "waits for you" : s.state)}${!hz.can.waits && s.state !== "waits" ? ` <span style="color:var(--text-3);font-size:11px">· ${esc(hz.short)} can't report "waits"</span>` : ""}`],
+    ["Program", p ? `<span class="lnk" data-act="program" data-fab="${fab.id}" data-p="${p.name}">${esc(p.title)}</span>` : `<span class="dim">Unknown</span>`],
+    ["Harness", esc(hz.label)],
     ["Running", `<span data-since="${s.startedAt}">${ago(s.startedAt)}</span>`],
     ["Branch", `<span class="mono">${esc(s.branch)}</span>`],
     ["Worktree", `<span class="mono">${esc(s.worktree)}</span>`],
     ["Started by", esc(s.startedBy)],
-    ["Match", `<span class="match ${s.match}">${esc(s.match)}</span>`],
+    ["Match", esc(s.match[0].toUpperCase() + s.match.slice(1))],
   ];
   if (s.run) kv.push(["Run", `<span class="lnk mono" data-act="openfile" data-path="~/.fab/runs/${esc(s.run)}.json">${esc(s.run)}</span>`]);
-  if (s.run) kv.push(["Fab version", `<span class="mono">${esc(fab.commit)}</span>`]);
   const inputs = s.inputs && Object.keys(s.inputs).length
     ? `<div class="lbl">Inputs</div><div class="kv">${Object.entries(s.inputs).map(([k, v]) => `<div class="kv-r"><span class="kv-k mono">${esc(k)}</span><span class="kv-v">${esc(v)}</span></div>`).join("")}</div>` : "";
   const body = `
-    ${s.state === "waits" ? `<div class="ask">${ICONS.hand}<div>${esc(s.asks || "It is waiting for an answer.")}<small>Answer it in ${esc(hz.label)}. The monitor does not type into sessions.</small></div></div>` : ""}
-    ${s.first ? `<div class="quote">“${esc(s.first)}”</div>` : ""}
+    <div class="hero" style="margin-bottom:12px"><div style="min-width:0">
+      <div class="hero-t">${esc(s.label)}</div>
+      <div class="hero-s"><span class="dot ${s.state}"></span>${stTxt}</div>
+    </div></div>
+    ${s.state === "waits" && s.asks ? `<div class="quote">${esc(s.asks)}</div>` : s.first ? `<div class="quote">“${esc(s.first)}”</div>` : ""}
     <div class="kv">${kv.map(([k, v]) => `<div class="kv-r"><span class="kv-k">${k}</span><span class="kv-v">${v}</span></div>`).join("")}</div>
-    <div class="fld-h" style="margin-top:6px">${esc(matchTxt)}</div>
     ${inputs}`;
   const can = hz.can.focus && !(s.harness === "opencode" && s.startedBy === "by hand");
-  const foot = `<span class="sp"></span><button class="btn pri" data-act="focus" data-sid="${s.id}" ${can ? "" : "disabled"}>${ICONS.term} Go to session</button>`;
-  return { title: s.label.length > 30 ? s.label.slice(0, 30) + "…" : s.label, body, foot };
+  const foot = `<span class="sp"></span><button class="btn pri" data-act="focus" data-sid="${s.id}" ${can ? "" : "disabled"}>Go to Session</button>`;
+  return { title: "", body, foot };
 }
 
 function refreshSheetFor(sid) {
@@ -635,21 +612,22 @@ function settingsSheet() {
   const st = state.settings;
   const tgl = (k) => `<button class="tgl ${st[k] ? "on" : ""}" data-act="toggle" data-k="${k}"></button>`;
   const body = `
-    <div class="lbl">Default harness</div>
-    <select class="inp" data-set="harness">${HARNESSES.map((h) => `<option value="${h.id}" ${st.harness === h.id ? "selected" : ""} ${h.ok ? "" : "disabled"}>${esc(h.label)}${h.ok ? "" : ` — ${h.why}`}</option>`).join("")}<option value="ask">Ask each time</option></select>
-    <div class="lbl">Terminal for plain CLIs</div>
-    <div class="seg sm">${TERMINALS.map((t) => `<button class="${st.terminal === t ? "on" : ""}" data-act="term" data-id="${t}">${t}</button>`).join("")}</div>
-    <div class="lbl">Fabs on this machine</div>
-    <div class="kv">${FABS.map((f) => `<div class="fabrow"><span class="fab-av" style="--h:${f.hue}">${esc(f.name.slice(0, 2).toUpperCase())}</span>${esc(f.name)}<span class="mono">${esc(f.path)}</span></div>`).join("")}
-      <div class="fabrow"><button class="lnk" data-act="addfab" style="display:flex;align-items:center;gap:6px">${ICONS.plus} Add a folder…</button></div></div>
-    <div class="lbl">General</div>
     <div class="kv">
-      <div class="set-r"><span>Notify when a session waits for you</span><span class="sp"></span>${tgl("notify")}</div>
-      <div class="set-r"><span>Launch at login</span><span class="sp"></span>${tgl("login")}</div>
+      <div class="set-r"><span>Default harness</span><span class="sp"></span>
+        <select class="inp" data-set="harness" style="width:auto">${HARNESSES.map((h) => `<option value="${h.id}" ${st.harness === h.id ? "selected" : ""} ${h.ok ? "" : "disabled"}>${esc(h.label)}</option>`).join("")}<option value="ask">Ask each time</option></select></div>
+      <div class="set-r"><span>Terminal</span><span class="sp"></span>
+        <select class="inp" data-set="terminal" style="width:auto">${TERMINALS.map((t) => `<option ${st.terminal === t ? "selected" : ""}>${t}</option>`).join("")}</select></div>
       <div class="set-r"><span>Appearance</span><span class="sp"></span>
-        <div class="seg sm" style="width:150px">${["system", "light", "dark"].map((t) => `<button class="${st.theme === t ? "on" : ""}" data-act="theme" data-id="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join("")}</div></div>
+        <div class="seg sm" style="width:156px">${["system", "light", "dark"].map((t) => `<button class="${st.theme === t ? "on" : ""}" data-act="theme" data-id="${t}">${t === "system" ? "Auto" : t[0].toUpperCase() + t.slice(1)}</button>`).join("")}</div></div>
     </div>
-    <div class="hint" style="padding:12px 2px 0">The monitor keeps no state of its own except these settings and its window position. Everything else comes from <span class="mono">fab status --all --watch --json</span>.</div>`;
+    <div class="lbl">Notifications</div>
+    <div class="kv">
+      <div class="set-r"><span>When a session waits</span><span class="sp"></span>${tgl("notify")}</div>
+      <div class="set-r"><span>Launch at login</span><span class="sp"></span>${tgl("login")}</div>
+    </div>
+    <div class="lbl">Fabs</div>
+    <div class="kv">${FABS.map((f) => `<div class="fabrow">${ICONS.folder}${esc(f.name)}<span class="mono">${esc(f.path)}</span></div>`).join("")}
+      <div class="fabrow"><button class="lnk" data-act="addfab">Add Folder…</button></div></div>`;
   return { title: "Settings", body, foot: "" };
 }
 
@@ -724,16 +702,14 @@ document.addEventListener("click", (ev) => {
       if (d.then) state.tab = d.then;
       if (state.sheet && state.sheet.kind !== "settings") closeSheet();
       render(); break;
-    case "addfab": state.picker = false; renderHead(); toast(`Choose a folder with a <span class="mono">.fab/</span>, or run <span class="mono">fab init</span> in one`); break;
+    case "addfab": state.picker = false; renderHead(); toast(`Opens a folder picker`); break;
     case "pin": {
       if (!state.pinned) {
         const r = $("#panel").getBoundingClientRect();
         state.pos = state.pos || { x: r.left, y: r.top + 8 };
         state.pinned = true;
-        toast("Pinned. It stays on top and keeps its place. Drag it by its head.");
       } else {
         state.pinned = false;
-        toast("Unpinned. It closes when you click away.");
       }
       render(); if (state.sheet) renderSheet(); break;
     }
@@ -777,7 +753,7 @@ document.addEventListener("click", (ev) => {
     case "check": {
       const bad = visibleFabs().filter((f) => !f.check.ok);
       if (bad.length) toast(`${esc(bad[0].name)}: ${esc(bad[0].check.problem)}`, 4200);
-      else toast(`<span class="mono">fab check</span> passed. Installed files match <span class="mono">.fab/</span>`);
+      else toast(`Up to date`);
       break;
     }
     case "toggle": state.settings[d.k] = !state.settings[d.k]; t.classList.toggle("on"); break;
@@ -796,7 +772,8 @@ document.addEventListener("input", (ev) => {
 document.addEventListener("change", (ev) => {
   const sh = state.sheet;
   if (sh?.kind === "start" && ev.target.dataset.in) { sh.values[ev.target.dataset.in] = ev.target.value; syncStart(); }
-  if (ev.target.dataset.set === "harness") { state.settings.harness = ev.target.value === "ask" ? state.settings.harness : ev.target.value; toast(ev.target.value === "ask" ? "The Start sheet will ask each time" : `New sessions start in ${esc(hzById(ev.target.value).label)}`); renderBody(); }
+  if (ev.target.dataset.set === "harness") { state.settings.harness = ev.target.value === "ask" ? state.settings.harness : ev.target.value; renderBody(); }
+  if (ev.target.dataset.set === "terminal") { state.settings.terminal = ev.target.value; }
 });
 
 document.addEventListener("keydown", (ev) => {
@@ -822,7 +799,7 @@ window.addEventListener("resize", place);
 function focusSession(s) {
   const hz = hzById(s.harness);
   if (!hz.can.focus || (s.harness === "opencode" && s.startedBy === "by hand")) {
-    toast(`Can't reach this session. It was started by hand in a ${esc(hz.label)} tab of its own.`, 3600);
+    toast(`Can't open this ${esc(hz.label)} session`);
     return;
   }
   const where = s.harness === "orca" ? `Orca · ${s.branch}` : s.harness === "nodeterm" ? "nodeterm node" : `${state.settings.terminal} · ${hz.short}`;
@@ -898,7 +875,7 @@ function finish(s, wrote) {
   });
   render();
   if (state.sheet?.kind === "session" && state.sheet.sid === s.id) closeSheet();
-  toast(`${esc(p?.title || "Session")} finished: <span class="mono">${esc(wrote)}</span>`, 3400);
+  toast(`${esc(s.label)} finished`);
 }
 
 const BEATS = [
