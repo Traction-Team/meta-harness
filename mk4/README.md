@@ -9,6 +9,7 @@ Mark III ([`../mk3/`](../mk3/)) is the full runner. Mark IV keeps its main idea,
 | [`overview.md`](overview.md) | What Mark IV is, the parts of a fab, the `.fab/` folder, install, and what changed from Mark III |
 | [`cli.md`](cli.md) | The `fab` commands, for people and agents, run records, and the `fab` skill |
 | [`monitor.md`](monitor.md) | The fab monitor: Now, Start and Map, how it reads the CLI, and the build order |
+| [`prototype/`](prototype/) | A click-through of the monitor: the menu bar panel with Now, Start and Map, over fixtures |
 | [`research/agent-sessions.md`](research/agent-sessions.md) | How to find, read and start sessions in Claude Code, Codex, opencode, Orca and nodeterm |
 | [`research/dragonfly-factory.md`](research/dragonfly-factory.md) | What worked and what was hard in the Dragonfly `.factory/`, and how it converts to `.fab/` |
 
