@@ -51,7 +51,7 @@ function startJob(fabId, name, entry, artId, alt) {
   const fab = fabById(fabId);
   const j = jobOf(fab, name);
   const sh = { kind: "start", fab: fabId, job: name, entry, art: artId || null,
-    backLabel: state.sheet ? "Back" : state.tab === "jobs" ? "Jobs" : "Work" };
+    backLabel: state.sheet ? "Back" : state.tab === "jobs" ? "Jobs" : "Pipeline" };
   if (!(j.inputs || []).length && !j.takes && !alt && hzById(state.settings.harness)?.ok) {
     sh.values = {}; sh.harness = state.settings.harness; sh.run = newRunId();
     state.sheet = sh; doStart(sh);
@@ -66,6 +66,7 @@ document.addEventListener("click", (ev) => {
   const onIcon = ev.target.closest("#fabIcon");
 
   if (onIcon) { state.open = !state.open; state.picker = false; render(); return; }
+  if (ev.target.closest(".look-sw")) { if (t?.dataset.act === "look") setLook(t.dataset.id); return; }
   if (!inPanel && !ev.target.closest(".note, .toast, .focusfx")) {
     if (state.open && !state.pinned) { state.open = false; state.picker = false; render(); }
     return;
@@ -76,6 +77,7 @@ document.addEventListener("click", (ev) => {
   const d = t.dataset;
 
   switch (d.act) {
+    case "look": setLook(d.id); break;
     case "picker": state.picker = !state.picker; renderHead(); break;
     case "fab":
       state.fab = d.id; state.picker = false;
@@ -104,10 +106,10 @@ document.addEventListener("click", (ev) => {
       const fab = fabById(d.fab);
       startJob(d.fab, stageOf(fab, d.s).next, null, null, ev.altKey); break;
     }
-    case "art": openSheet({ kind: "art", fab: d.fab, a: d.a, backLabel: state.sheet ? "Back" : "Work" }); break;
-    case "job": openSheet({ kind: "job", fab: d.fab, job: d.j, backLabel: state.sheet ? "Back" : state.tab === "jobs" ? "Jobs" : "Work" }); break;
+    case "art": openSheet({ kind: "art", fab: d.fab, a: d.a, backLabel: state.sheet ? "Back" : "Pipeline" }); break;
+    case "job": openSheet({ kind: "job", fab: d.fab, job: d.j, backLabel: state.sheet ? "Back" : state.tab === "jobs" ? "Jobs" : "Pipeline" }); break;
     case "focus": { const s = SESSIONS.find((x) => x.id === d.sid); if (s) focusSession(s); break; }
-    case "session": openSheet({ kind: "session", sid: d.sid, snapshot: SESSIONS.find((x) => x.id === d.sid), backLabel: state.sheet ? "Back" : "Work" }); break;
+    case "session": openSheet({ kind: "session", sid: d.sid, snapshot: SESSIONS.find((x) => x.id === d.sid), backLabel: state.sheet ? "Back" : "Pipeline" }); break;
     case "start": startJob(d.fab, d.j, d.e === "" || d.e == null ? null : Number(d.e), d.a, ev.altKey); break;
     case "harness": state.sheet.harness = d.id; renderSheet(); break;
     case "showcmd": state.sheet.showCmd = !state.sheet.showCmd; t.closest(".disc").classList.toggle("open"); break;
@@ -156,6 +158,7 @@ document.addEventListener("keydown", (ev) => {
     return;
   }
   if (typing || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+  if (ev.key === "v" || ev.key === "V") { const i = LOOKS.findIndex((l) => l.id === state.look); setLook(LOOKS[(i + (ev.key === "V" ? LOOKS.length - 1 : 1)) % LOOKS.length].id); return; }
   const tabs = { 1: "work", 2: "jobs" };
   if (tabs[ev.key] && state.open) { state.tab = tabs[ev.key]; closeSheet(); renderTabs(); renderBody(); }
 });
@@ -215,3 +218,21 @@ function toast(html, ms = 2600) {
   $("#toasts").appendChild(t);
   setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 320); }, ms);
 }
+
+/* ══════════════════════════════════════════════ the look switcher ══
+   Not part of the product: a chip on the desk to compare artifact looks.
+   `v` cycles forward, shift-V back. */
+function setLook(id) {
+  state.look = id;
+  localStorage.setItem("mk4.look", id);
+  renderLook();
+  renderBody();
+  if (state.sheet) renderSheet();
+}
+function renderLook() {
+  let el = document.getElementById("lookSw");
+  if (!el) { el = document.createElement("div"); el.id = "lookSw"; el.className = "look-sw"; document.getElementById("desk").appendChild(el); }
+  el.innerHTML = `<span class="look-k">Artifact look <kbd>v</kbd></span>${LOOKS.map((l) =>
+    `<button data-act="look" data-id="${l.id}" class="${l.id === state.look ? "on" : ""}">${l.label}</button>`).join("")}`;
+}
+renderLook();

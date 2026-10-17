@@ -55,6 +55,7 @@ const TERMINALS = ["Terminal", "iTerm2", "Ghostty", "Warp"];
 const KINDS = {
   note:  { one: "note",         icon: "doc" },
   line:  { one: "roadmap line", icon: "list" },
+  spec:  { one: "spec",         icon: "doc" },
   plan:  { one: "plan",         icon: "map" },
   slice: { one: "slice",        icon: "layers" },
   pr:    { one: "pull request", icon: "pr" },
@@ -77,10 +78,10 @@ const FABS = [
       { id: "intake",   title: "Intake",         kind: "note",
         find: "files docs/roadmap/intake/*.md", where: "status: open",
         next: "prioritise", slow: 7 * D, scoredBy: ["clear"] },
-      { id: "roadmap",  title: "On the roadmap", kind: "line",
-        find: "lines in docs/roadmap/roadmap.md", where: "no plan links the line",
+      { id: "roadmap",  title: "Approved specs", kind: "spec",
+        find: "files docs/specs/*.md", where: "status: approved, no plan links it",
         next: "plan-feature", slow: 7 * D },
-      { id: "planning", title: "Plan in review", kind: "plan",
+      { id: "planning", title: "WIP plans", kind: "plan",
         find: "prs label:plan", where: "open",
         next: "review-plan", waitsFor: "tech lead", slow: 2 * D, scoredBy: ["edge", "pdebt"] },
       { id: "ready",    title: "Ready to build", kind: "slice",
@@ -119,13 +120,13 @@ const FABS = [
       {
         name: "prioritise", title: "What's next?", from: "intake", to: "roadmap", takes: false,
         icon: "compass", blurb: "Read the intake and pick what the team builds next",
-        description: "A conversation with the product lead. Reads every open intake note and rewrites the roadmap, at most six lines.",
+        description: "A conversation with the product lead. Reads every open intake note and writes a spec in docs/specs/ for each one picked, at most six.",
         inputs: [], decides: "whats-next", worktree: "current",
       },
       {
         name: "plan-feature", title: "Plan feature", from: "roadmap", to: "planning", takes: true,
-        icon: "map", blurb: "Turn a roadmap line into a plan with slices",
-        description: "Writes a plan for one roadmap line, ending in its slices. Opens the plan as a docs PR for the tech lead.",
+        icon: "map", blurb: "Turn an approved spec into a plan with slices",
+        description: "Writes a plan for one approved spec, ending in its slices. Opens the plan as a docs PR for the tech lead.",
         inputs: [], worktree: "new",
       },
       {
@@ -135,7 +136,7 @@ const FABS = [
         inputs: [], decides: "plan", worktree: "current",
       },
       {
-        name: "pull-work", title: "Pull next work", from: "ready", to: "building", takes: true,
+        name: "pull-work", title: "Start next plan", from: "ready", to: "building", takes: true,
         icon: "download", blurb: "Claim a ready slice and start building it",
         description: "Claims one ready slice with a draft PR and opens a worktree session to build it.",
         inputs: [], decides: "pick", worktree: "new",
@@ -193,10 +194,10 @@ const FABS = [
       { id: "i7", stage: "intake", title: "Flaky e2e on checkout",          ref: "docs/roadmap/intake/2026-10-12-flaky-checkout.md", age: 4 * D, who: "seb", scores: { clear: 3.9 } },
       { id: "i8", stage: "intake", title: "Idea: weekly digest email",      ref: "docs/roadmap/intake/2026-10-10-digest.md", age: 6 * D, who: "jo" },
 
-      /* roadmap */
-      { id: "r1", stage: "roadmap", title: "Safari session handling", ref: "docs/roadmap/roadmap.md:3", age: 2 * D, who: "seb" },
-      { id: "r2", stage: "roadmap", title: "Team billing",            ref: "docs/roadmap/roadmap.md:4", age: 5 * D, who: "seb" },
-      { id: "r3", stage: "roadmap", title: "Faster search",           ref: "docs/roadmap/roadmap.md:5", age: 1 * D, who: "seb",
+      /* approved specs */
+      { id: "r1", stage: "roadmap", title: "Safari session handling", ref: "docs/specs/safari-sessions.md", age: 2 * D, who: "seb" },
+      { id: "r2", stage: "roadmap", title: "Team billing",            ref: "docs/specs/team-billing.md", age: 5 * D, who: "seb" },
+      { id: "r3", stage: "roadmap", title: "Faster search",           ref: "docs/specs/faster-search.md", age: 1 * D, who: "seb",
         trail: [
           { stage: "intake", title: "Search is slow on big workspaces (2)", ref: "docs/roadmap/intake/2026-10-09-search.md", job: "file-work", who: "kat", hz: "claude-code", ago: 8 * D, via: "run", scores: { clear: 7.0 } },
           { stage: "roadmap", job: "prioritise", who: "seb", hz: "claude-code", ago: 1 * D, via: "run" },
@@ -205,7 +206,7 @@ const FABS = [
       /* planning */
       { id: "p1", stage: "planning", title: "Audit log", ref: "docs PR #418 · docs/plans/audit-log.md", age: 1 * D + 6 * H, who: "seb", scores: { edge: 5.2, pdebt: 7.4 },
         trail: [
-          { stage: "roadmap", title: "Audit log", ref: "docs/roadmap/roadmap.md:2", ago: 6 * D, via: "found" },
+          { stage: "roadmap", title: "Audit log", ref: "docs/specs/audit-log.md", ago: 6 * D, via: "found" },
           { stage: "planning", job: "plan-feature", who: "seb", hz: "orca", ago: 1 * D + 6 * H, via: "run", scores: { edge: 5.2, pdebt: 7.4 } },
         ] },
 
@@ -224,7 +225,7 @@ const FABS = [
       { id: "v1", stage: "review", title: "context-packs S2", ref: "feat/context-packs-s2 · #412", age: 1 * D + 2 * H, who: "seb", scores: { tdebt: 7.1, tests: 8.3 },
         trail: [
           { stage: "intake", title: "Agents forget context between sessions", ref: "docs/roadmap/intake/2026-10-04-agent-context.md", job: "file-work", who: "kat", hz: "claude-code", ago: 12 * D, via: "run", scores: { clear: 8.0 } },
-          { stage: "roadmap", title: "Context packs for agents", ref: "docs/roadmap/roadmap.md:1", job: "prioritise", who: "seb", hz: "claude-code", ago: 10 * D, via: "run" },
+          { stage: "roadmap", title: "Context packs for agents", ref: "docs/specs/context-packs.md", job: "prioritise", who: "seb", hz: "claude-code", ago: 10 * D, via: "run" },
           { stage: "planning", title: "Context packs for agents", ref: "docs PR #405 · docs/plans/context-packs.md", job: "plan-feature", who: "seb", hz: "orca", ago: 9 * D, via: "run", scores: { edge: 6.0, pdebt: 8.2 } },
           { stage: "ready", title: "context-packs S2", ref: "docs/plans/context-packs.md § S2", job: "review-plan", who: "seb", hz: "codex", ago: 8 * D, via: "run", scores: { edge: 8.4, pdebt: 8.2 }, note: "Approved by Jo (tech lead) after two edge cases were added" },
           { stage: "building", ref: "feat/context-packs-s2 · draft #412", job: "pull-work", who: "seb", hz: "claude-code", ago: 2 * D, via: "branch" },
@@ -259,7 +260,7 @@ const FABS = [
     check: { ok: false, problem: "AGENTS.md fab block is out of date with .fab/. Run fab install." },
     stages: [
       { id: "intake",  title: "Intake",         kind: "issue", find: "linear team:INV", where: "state: triage", next: "prioritise", slow: 3 * D, scoredBy: ["clear"] },
-      { id: "roadmap", title: "On the roadmap", kind: "line",  find: "lines in docs/roadmap.md", where: "no plan links the line", next: "plan-feature", slow: 7 * D },
+      { id: "roadmap", title: "Approved specs", kind: "spec",  find: "files docs/specs/*.md", where: "status: approved, no plan links it", next: "plan-feature", slow: 7 * D },
       { id: "ready",   title: "Ready to build", kind: "slice", find: "slices in docs/plans/*.md", where: "status: ready", next: "build-slice", slow: 5 * D },
       { id: "review",  title: "Needs review",   kind: "pr",    find: "prs", where: "open, not approved", waitsFor: "code owner", slow: 1 * D, scoredBy: ["tdebt"] },
       { id: "shipped", title: "Shipped",        kind: "pr",    find: "prs", where: "merged in the last 7 days", done: true },
@@ -276,9 +277,9 @@ const FABS = [
         description: "Records an idea as a Linear issue with the problem it solves.",
         inputs: [{ name: "what", ask: "What's the idea?", long: true }, { name: "why", ask: "What problem does it solve?", optional: true }], worktree: "current" },
       { name: "prioritise", title: "What's next?", from: "intake", to: "roadmap", takes: false, icon: "compass", blurb: "Pick what the team builds next",
-        description: "Talks the triage queue through with the product lead and rewrites the roadmap.", inputs: [], decides: "whats-next", worktree: "current" },
-      { name: "plan-feature", title: "Plan feature", from: "roadmap", to: "ready", takes: true, icon: "map", blurb: "Turn a roadmap line into slices",
-        description: "Writes a plan for one roadmap line, ending in its slices.", inputs: [], decides: "plan", worktree: "new" },
+        description: "Talks the triage queue through with the product lead and writes a spec for each one picked.", inputs: [], decides: "whats-next", worktree: "current" },
+      { name: "plan-feature", title: "Plan feature", from: "roadmap", to: "ready", takes: true, icon: "map", blurb: "Turn an approved spec into slices",
+        description: "Writes a plan for one approved spec, ending in its slices.", inputs: [], decides: "plan", worktree: "new" },
       { name: "build-slice", title: "Build slice", from: "ready", to: "review", takes: true, icon: "hammer", blurb: "Build one slice and open its PR",
         description: "Builds one slice in a new worktree and opens its PR.", inputs: [], worktree: "new" },
     ],
@@ -294,9 +295,9 @@ const FABS = [
       { id: "n1", stage: "intake", title: "CHF rounding off by 1c", ref: "INV-2038", age: 70 * M, who: "seb", scores: { clear: 7.7 } },
       { id: "n2", stage: "intake", title: "Dunning email bounces",  ref: "INV-2036", age: 2 * D, who: "seb", scores: { clear: 5.0 } },
       { id: "n3", stage: "intake", title: "PDF export cuts totals", ref: "INV-2031", age: 4 * D, who: "seb", scores: { clear: 4.1 } },
-      { id: "q1", stage: "roadmap", title: "Partial refunds", ref: "docs/roadmap.md:1", age: 3 * D, who: "seb" },
-      { id: "q2", stage: "roadmap", title: "Dunning emails",  ref: "docs/roadmap.md:2", age: 3 * D, who: "seb" },
-      { id: "q3", stage: "roadmap", title: "Tax by region",   ref: "docs/roadmap.md:3", age: 9 * D, who: "seb" },
+      { id: "q1", stage: "roadmap", title: "Partial refunds", ref: "docs/specs/partial-refunds.md", age: 3 * D, who: "seb" },
+      { id: "q2", stage: "roadmap", title: "Dunning emails",  ref: "docs/specs/dunning-emails.md", age: 3 * D, who: "seb" },
+      { id: "q3", stage: "roadmap", title: "Tax by region",   ref: "docs/specs/tax-by-region.md", age: 9 * D, who: "seb" },
       { id: "k1", stage: "ready", title: "refund-total S1", ref: "docs/plans/refund-total.md § S1", age: 1 * D, who: "seb" },
       { id: "w1", stage: "review", title: "fix-currency-format", ref: "#88", age: 6 * H, who: "seb", scores: { tdebt: 8.5 } },
       { id: "z1", stage: "shipped", title: "fix-vat-label", ref: "#85 merged", age: 2 * D, who: "seb" },

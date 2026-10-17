@@ -1,4 +1,4 @@
-/* work.js: the Work tab (stages, as bars of artifacts) and the Jobs tab. */
+/* work.js: the Pipeline tab (stages, as bars of artifacts) and the Jobs tab. */
 
 /* ─────────────────────────────────────────────────────────── agents ──
    A running session is an agent: its harness tile and its name. Click to
@@ -36,67 +36,67 @@ function cube(fab, a) {
   const w = worst(fab, a);
   const ags = agentsOn(fab, a);
   const t = `${a.title} · ${ago(a.since)} here${ags.length ? ` · ${ags.length} agent${ags.length > 1 ? "s" : ""}` : ""}${w != null ? ` · worst score ${w.toFixed(1)}` : ""}`;
-  return `<i class="cb ${st} ${w != null && w < 5 ? "lo" : ""}" data-act="art" data-fab="${fab.id}" data-a="${a.id}" title="${esc(t)}"></i>`;
+  return `<span class="gl ${st}" data-act="art" data-fab="${fab.id}" data-a="${a.id}" title="${esc(t)}">${artGlyph(fab, a)}</span>`;
 }
 const pendingCube = (s) =>
-  `<i class="cb make ${s.state === "waits" ? "wait" : ""}" data-act="session" data-sid="${s.id}" title="${esc(`Being made: ${s.label}`)}"></i>`;
+  `<span class="gl" data-act="session" data-sid="${s.id}" title="${esc(`Being made: ${s.label}`)}">${makingGlyph(s)}</span>`;
 
 function stageHtml(fab, st) {
   const arts = artsIn(fab, st.id);
   const making = makingIn(fab, st.id);
   const open = state.expanded.has(`${fab.id}:${st.id}`);
   const slow = st.slow ? arts.filter((a) => now() - a.since > st.slow * 60000) : [];
-  const cap = 14;
+  const cap = { squares: 16, cubes: 14, "cubes-agents": 13, rings: 10, "rings-agents": 9 }[state.look] || 12;
   const cubes = [...making.map(pendingCube), ...arts.map((a) => cube(fab, a))];
   const bar = cubes.slice(0, cap).join("") + (cubes.length > cap ? `<span class="cb-more">+${cubes.length - cap}</span>` : "");
   const sub = st.done ? "last 7 days"
     : slow.length ? `${slow.length} over ${dur(st.slow)}`
     : arts.length ? `oldest ${ago(arts[0].since)}` : making.length ? "being made" : "empty";
-  const nx = st.next && jobOf(fab, st.next);
-  const go = nx
-    ? `<button class="st-go" data-act="stgo" data-fab="${fab.id}" data-s="${st.id}" title="Run ${esc(nx.title)}${st.waitsFor ? `, then the ${esc(st.waitsFor)} approves` : ""}">${ICONS.play}</button>`
-    : `<span class="st-go none"></span>`;
   return `<div class="st ${open ? "open" : ""} ${slow.length ? "slow" : ""} ${st.done ? "done" : ""}" data-act="sttoggle" data-fab="${fab.id}" data-s="${st.id}">
     <div class="st-h">
       <span class="st-chev">${ICONS.chevR}</span>
       <div class="st-m"><span class="st-t">${esc(st.title)}</span><span class="st-s">${sub}</span></div>
       <div class="st-bar"><span class="st-n">${arts.length}</span>${bar}</div>
-      ${go}
     </div>
     ${open ? stageDetail(fab, st, arts, making) : ""}
   </div>`;
 }
 
 function stageDetail(fab, st, arts, making) {
-  const avgs = (st.scoredBy || []).map((k) => {
-    const v = avgScore(arts, k);
-    return v == null ? "" : `<span class="sca" title="${esc(fab.scorers[k].ask)}">${esc(fab.scorers[k].title)} ${scoreChip(v)}</span>`;
-  }).join("");
   const nx = st.next && jobOf(fab, st.next);
   return `<div class="st-d">
     <div class="st-src" title="A stage is a filter. Anything it matches shows here, made by fab or not.">
       ${ICONS.filter}<span class="mono">${esc(st.find)}</span><span class="dim">where</span><span class="mono">${esc(st.where)}</span></div>
-    ${avgs ? `<div class="st-q"><span class="dim">avg</span>${avgs}</div>` : ""}
-    ${nx || st.waitsFor ? `<div class="st-w">${nx ? `<span>Next: <span class="lnk" data-act="job" data-fab="${fab.id}" data-j="${nx.name}">${esc(nx.title)}</span></span>` : ""}${st.waitsFor ? `<span>${ICONS.hand}${esc(st.waitsFor)} approves</span>` : ""}</div>` : ""}
     <div class="its">${making.map(makingItem).join("")}${arts.map((a) => itemHtml(fab, a)).join("")}</div>
     ${!arts.length && !making.length ? `<div class="st-empty">Nothing matches</div>` : ""}
+    ${nx ? `<button class="st-next" data-act="stgo" data-fab="${fab.id}" data-s="${st.id}" title="Run ${esc(nx.title)} (⌥-click to choose the harness)">
+      <span class="st-go">${ICONS.play}</span><span class="st-next-t">${esc(nx.title)}</span>
+      ${st.waitsFor ? `<span class="st-next-w">then the ${esc(st.waitsFor)} approves</span>` : ""}</button>` : ""}
   </div>`;
+}
+
+/* in the opened list the agents have their own column, so the glyph leaves them out */
+function listGlyph(fab, a) {
+  if (state.look === "cubes-agents") return `<i class="ga-cube ${(worst(fab, a) ?? 10) < 5 ? "lo" : ""}">${CUBE_SVG}</i>`;
+  if (state.look === "rings-agents") { const sc = stageScores(fab, a); return scoreRing(sc.vals, { size: 16, cls: "ga-ring", title: sc.title || "Not scored" }); }
+  return artGlyph(fab, a, true);
 }
 
 function itemHtml(fab, a) {
   const ags = agentsOn(fab, a);
-  const w = worst(fab, a);
+  const sc = stageScores(fab, a);
+  const ringLook = state.look.startsWith("rings");
   return `<div class="it" data-act="art" data-fab="${fab.id}" data-a="${a.id}" title="${esc(a.ref)}">
-    <i class="cb ${cubeState(fab, a)} ${w != null && w < 5 ? "lo" : ""}"></i>
+    <span class="gl">${listGlyph(fab, a)}</span>
     <span class="it-t">${esc(a.title)}</span>
     ${ags.length ? agentStack(ags, 4) : ""}
-    ${w != null ? scoreChip(w, "Worst score in this stage") : ""}
+    ${sc.vals.length && !ringLook ? scoreRing(sc.vals, { size: 16, sw: 2.4, title: sc.title }) : ""}
     <span class="it-age" data-since="${a.since}">${ago(a.since)}</span>
   </div>`;
 }
 
 const makingItem = (s) => `<div class="it making" data-act="session" data-sid="${s.id}">
-    <i class="cb make ${s.state === "waits" ? "wait" : ""}"></i>
+    <span class="gl">${makingGlyph(s, true)}</span>
     <span class="it-t">${esc(s.label)}</span>
     ${agentStack([s])}
     <span class="it-age">being made</span>
@@ -121,12 +121,7 @@ function workHtml() {
   const team = onWork.filter((s) => s.who !== ME).length;
   let h = `<div class="wk-sum"><span><b>${inFlight}</b> in flight</span><span><b>${onWork.length}</b> agents on it${team ? ` · ${team} teammates'` : ""}</span></div>`;
   h += `<div class="stages">${fab.stages.map((st) => stageHtml(fab, st)).join("")}</div>`;
-  const loose = looseIn(fab).sort(byRank);
-  if (loose.length) {
-    h += `<div class="sec"><span class="sec-t">Not on any work</span><span class="sec-n">${loose.length}</span></div>`;
-    h += `<div class="mini">${loose.map((s) => agentHtml(s)).join("")}</div>`;
-  }
-  h += `<div class="legend">
+  if (state.look === "squares") h += `<div class="legend">
     <span><i class="cb"></i>waiting</span><span><i class="cb run"></i>agent on it</span>
     <span><i class="cb wait"></i>needs a person</span><span><i class="cb lo"></i>low score</span><span><i class="cb make"></i>being made</span></div>`;
   return h;
@@ -149,13 +144,13 @@ function moveHtml(fab, j) {
   const to = stageOf(fab, j.to);
   const n = artsIn(fab, j.from).length;
   const ss = live(fab.id).filter((s) => s.job === j.name).sort(byRank);
-  return `<button class="go" data-act="start" data-fab="${fab.id}" data-j="${j.name}" data-e="">
+  return `<button class="go" data-act="job" data-fab="${fab.id}" data-j="${j.name}" title="About ${esc(j.title)}">
     <span class="go-ic ${j.icon}">${ICONS[j.icon] || ICONS.start}</span>
     <span class="go-m"><span class="go-t">${esc(j.title)}</span>
       <span class="go-d">${esc(from.title)} <span class="arr">→</span> ${esc(to.title)}</span></span>
     ${ss.length ? agentStack(ss, 3) : ""}
     <span class="go-n" title="${n} in ${esc(from.title)}">${n}</span>
-    <span class="go-i" data-act="job" data-fab="${fab.id}" data-j="${j.name}" title="About ${esc(j.title)}">${ICONS.info}</span>
+    <span class="go-run">${ICONS.chevR}</span>
   </button>`;
 }
 

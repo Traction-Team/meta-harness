@@ -24,12 +24,12 @@ Iteration 1 showed programs and the agents that ran them. Iteration 2 shows the 
 
 ## What to try
 
-1. **Work.** There is one row per stage, in flow order. Each cube is one artifact that the stage's filter finds, so a pile-up shows before you read anything. Here, *Needs review* is the bottleneck. Cube colours: grey waits, green has an agent on it, amber needs a person, and dashed is being made. A red underline means a low score. A stage label turns amber when artifacts sit there longer than its `slow-after` limit.
+1. **Pipeline.** There is one row per stage, in flow order. Each cube is one artifact that the stage's filter finds, so a pile-up shows before you read anything. Here, *Needs review* is the bottleneck. Cube colours: grey waits, green has an agent on it, amber needs a person, and dashed is being made. A red underline means a low score. A stage label turns amber when artifacts sit there longer than its `slow-after` limit.
 2. **Open a stage** (click its row). It shows the stage's filter, the average of each scorer, the next job, who approves, and each artifact with its agents and its worst score.
 3. **Open an artifact** (click a cube or a row). It shows the agents on it, grouped by person, with the job each one runs. It shows the scores, and the **history** back to the first intake note, with the job, harness, person and scores at each step. Try *context-packs S2* in Needs review, and *billing-fix S1*, which was built by hand outside fab.
 4. **▶ on a stage** runs the job that moves work out of it. A job that takes one artifact opens a sheet with the oldest unclaimed artifact already selected. *What's next?* reads the whole Intake, so it starts at once. About 15 seconds after a job starts, its artifact moves to the next stage, the stage's scorers add scores, and a step is added to its history.
 5. **Jobs.** *Start something* lists the jobs that make new work. *Move work along* lists each job as `from → to`, with how many artifacts wait for it. ⓘ opens a job: what it takes, what decides, and the scores it gets on average.
-6. Keys: `1` Work, `2` Jobs. Esc closes the sheet, and then the panel. ⌥-click a ▶ to choose the harness.
+6. Keys: `1` Pipeline, `2` Jobs. Esc closes the sheet, and then the panel. ⌥-click a ▶ to choose the harness.
 
 The prototype plays changes on a timer. At about 7 s an agent waits for you. At about 19 s a bug note lands in Intake. At about 30 s Kat's build moves into Needs review. At about 40 s Mo's review moves billing-fix to Ready to merge.
 
@@ -46,7 +46,7 @@ The prototype plays changes on a timer. At about 7 s an agent waits for you. At 
 | --- | --- |
 | `data.js` | Harnesses, people, two fabs (stages, jobs, scorers, artifacts with history), sessions |
 | `core.js` | Icons, state, helpers, the panel shell |
-| `work.js` | The Work tab (stage bars) and the Jobs tab |
+| `work.js` | The Pipeline tab (stage bars) and the Jobs tab |
 | `sheets.js` | Start a job, and the job sheet |
 | `artifact.js` | The artifact sheet (agents, scores, history), the session sheet, settings |
 | `events.js` | Clicks, keys, focus, notifications |

@@ -94,6 +94,7 @@ const state = {
   expanded: new Set(["dragonfly:review"]), // "fabId:stage" rows opened to list their artifacts
   flash: null,             // session id to flash once
   bump: null,              // artifact id to bump once
+  look: localStorage.getItem("mk4.look") || "cubes", // how an artifact is drawn: see LOOKS
   settings: { harness: "claude-code", terminal: "Ghostty", notify: true, login: true, theme: "system", team: true },
 };
 
@@ -143,6 +144,82 @@ function worst(fab, a) {
 function avgScore(arts, k) {
   const vs = arts.map((a) => a.scores?.[k]).filter((v) => v != null);
   return vs.length ? vs.reduce((x, y) => x + y, 0) / vs.length : null;
+}
+
+/* the score ring: a round bar chart. Each scorer owns an equal share of the
+   circle and fills it by its score; the fills are laid end to end, so the arc
+   reads as the total. One colour for the whole ring, from the total. */
+function scoreRing(vals, o = {}) {
+  vals = vals.filter((v) => v != null);
+  const size = o.size || 16, sw = o.sw || Math.max(2, size * 0.16);
+  const r = (size - sw) / 2, c = size / 2;
+  const n = vals.length;
+  const total = n ? vals.reduce((x, y) => x + y, 0) / n : null;
+  const gap = n > 1 ? 2.2 : 0;
+  let at = 0;
+  const segs = vals.map((v) => {
+    const len = Math.max(0, (v / 10) * (100 / n) - gap);
+    const s = `<circle class="sr-f" cx="${c}" cy="${c}" r="${r}" pathLength="100" stroke-width="${sw}"
+      stroke-dasharray="${len} 100" stroke-dashoffset="${-at}"/>`;
+    at += len + gap;
+    return s;
+  }).join("");
+  const label = o.label && total != null ? `<b class="sr-n">${total.toFixed(1)}</b>` : "";
+  const t = o.title ?? (total != null ? `Score ${total.toFixed(1)}` : "Not scored");
+  return `<span class="sr ${total == null ? "none" : scCls(total)} ${o.cls || ""}" style="--sz:${size}px" title="${esc(t)}">
+    <svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}"><circle class="sr-t" cx="${c}" cy="${c}" r="${r}" stroke-width="${sw}"/><g transform="rotate(-90 ${c} ${c})">${segs}</g></svg>${o.inner || ""}${label}</span>`;
+}
+/* the scores the artifact's own stage asks for, with a tooltip naming each */
+function stageScores(fab, a) {
+  const ks = (stageOf(fab, a.stage).scoredBy || []).filter((k) => a.scores?.[k] != null);
+  return { vals: ks.map((k) => a.scores[k]), title: ks.map((k) => `${fab.scorers[k].title} ${a.scores[k].toFixed(1)}`).join(" · ") };
+}
+
+/* the isometric cube used for an artifact */
+const CUBE_SVG = `<svg class="cu" viewBox="0 0 14 16"><path class="cu-t" d="M7 1.2 12.8 4.5 7 7.8 1.2 4.5z"/><path class="cu-l" d="M1.2 4.5 7 7.8v6.9l-5.8-3.3z"/><path class="cu-r" d="M12.8 4.5 7 7.8v6.9l5.8-3.3z"/></svg>`;
+
+/* LOOKS: the ways an artifact can be drawn in a stage bar, to compare */
+const LOOKS = [
+  { id: "squares", label: "Squares" },
+  { id: "cubes", label: "Cubes" },
+  { id: "cubes-agents", label: "Cubes + agents" },
+  { id: "rings", label: "Rings" },
+  { id: "rings-agents", label: "Rings + agents" },
+];
+
+/* the agent that best speaks for an artifact: one that waits, then one working */
+const leadAgent = (ags) =>
+  ags.find((s) => s.state === "waits") || ags.find((s) => s.state === "working" || s.state === "starting") || ags[0];
+
+/* one artifact glyph, in the current look. `small` is the expanded-list size. */
+function artGlyph(fab, a, small) {
+  const look = state.look;
+  const st = cubeState(fab, a);
+  const w = worst(fab, a);
+  const lo = w != null && w < 5 ? "lo" : "";
+  const ags = agentsOn(fab, a);
+  if (look === "squares") return `<i class="cb ${st} ${lo}"></i>`;
+  if (look === "cubes" || look === "cubes-agents") {
+    if (look === "cubes-agents" && ags.length) return `<span class="ga-ag">${hzIcon(leadAgent(ags).harness, leadAgent(ags))}${ags.length > 1 ? `<b class="ga-n">${ags.length}</b>` : ""}</span>`;
+    return `<i class="ga-cube ${st} ${lo}">${CUBE_SVG}</i>`;
+  }
+  const sc = stageScores(fab, a);
+  const size = small ? 16 : 17;
+  if (look === "rings-agents" && ags.length) {
+    const s = leadAgent(ags);
+    return scoreRing(sc.vals, { size: small ? 18 : 20, sw: 2.2, cls: `ga-ring has-ag`, title: sc.title || "Not scored", inner: hzIcon(s.harness, s) });
+  }
+  return scoreRing(sc.vals, { size, cls: `ga-ring ${st ? "s-" + st : ""}`, title: sc.title || "Not scored", inner: `<i class="ga-dot"></i>` });
+}
+/* an artifact still being made, in the current look */
+function makingGlyph(s, small) {
+  const look = state.look;
+  const wt = s.state === "waits" ? "wait" : "";
+  if (look === "squares") return `<i class="cb make ${wt}"></i>`;
+  if (look === "cubes") return `<i class="ga-cube make ${wt}">${CUBE_SVG}</i>`;
+  if (look === "cubes-agents") return `<span class="ga-ag making">${hzIcon(s.harness, s)}</span>`;
+  if (look === "rings-agents") return scoreRing([], { size: small ? 18 : 20, sw: 2.2, cls: "ga-ring make has-ag", title: `Being made: ${s.label}`, inner: hzIcon(s.harness, s) });
+  return scoreRing([], { size: small ? 16 : 17, cls: `ga-ring make ${wt}`, title: `Being made: ${s.label}` });
 }
 
 /* a cube's state is the state of the agents on its artifact */
@@ -213,7 +290,7 @@ function pickerHtml() {
 function renderTabs() {
   const tab = (id, label) =>
     `<button class="${state.tab === id ? "on" : ""}" data-act="tab" data-id="${id}">${label}</button>`;
-  $("#pnTabs").innerHTML = `<div class="seg">${tab("work", "Work")}${tab("jobs", "Jobs")}</div>`;
+  $("#pnTabs").innerHTML = `<div class="seg">${tab("work", "Pipeline")}${tab("jobs", "Jobs")}</div>`;
 }
 
 function renderBody() {

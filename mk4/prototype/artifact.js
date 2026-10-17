@@ -13,7 +13,7 @@ function trailHtml(fab, a) {
     const st = stageOf(fab, t.stage);
     const j = t.job && jobOf(fab, t.job);
     const ref = t.ref || (i === 0 ? a.ref : "");
-    const sc = t.scores ? Object.entries(t.scores).map(([k, v]) => `<span class="sca" title="${esc(fab.scorers[k]?.ask)}">${esc(fab.scorers[k]?.title || k)} ${scoreChip(v)}</span>`).join("") : "";
+    const sc = t.scores ? Object.entries(t.scores).map(([k, v]) => `<span class="sca" title="${esc(fab.scorers[k]?.ask)}">${scoreRing([v], { size: 12, sw: 2.2 })}${esc(fab.scorers[k]?.title || k)} <b class="sca-v">${v.toFixed(1)}</b></span>`).join("") : "";
     return `<div class="tr-s ${i === 0 ? "cur" : ""} ${t.via}">
       <span class="tr-dot"></span>
       <div class="tr-m">
@@ -49,12 +49,15 @@ function artSheet(sh) {
 
   /* scores: this stage's scorers first, then older ones, dimmed */
   const keys = [...new Set([...(st.scoredBy || []).filter((k) => a.scores?.[k] != null), ...Object.keys(a.scores || {})])];
-  const scoresH = keys.length ? `<div class="kv">${keys.map((k) => {
+  const hereVals = (st.scoredBy || []).map((k) => a.scores?.[k]).filter((v) => v != null);
+  const scoresH = keys.length ? `<div class="sc-sum">${scoreRing(hereVals, { size: 44, sw: 4.5, label: true, title: "Total for this stage" })}
+    <span class="sc-sum-t">${hereVals.length ? `${hereVals.length > 1 ? `${hereVals.length} scorers, added up` : "One scorer"}` : "No score for this stage yet"}</span></div>
+    <div class="kv">${keys.map((k) => {
     const v = a.scores[k];
     const here = (st.scoredBy || []).includes(k);
     return `<div class="sc-r ${here ? "" : "old"}" title="${esc(fab.scorers[k].ask)}">
       <span class="sc-k">${esc(fab.scorers[k].title)}</span>
-      <span class="sc-bar"><i class="${scCls(v)}" style="width:${v * 10}%"></i></span>${scoreChip(v)}</div>`;
+      ${scoreRing([v], { size: 16, sw: 2.6 })}<span class="sc-v ${scCls(v)}">${v.toFixed(1)}</span></div>`;
   }).join("")}</div>` : `<div class="none">${(st.scoredBy || []).length ? "Not scored yet." : `No scorers on ${esc(st.title)}.`}</div>`;
 
   const nx = st.next && jobOf(fab, st.next);
