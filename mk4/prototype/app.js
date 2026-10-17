@@ -42,6 +42,24 @@ const ICONS = {
 
 const HZ_COLOR = { "claude-code": "#d97757", codex: "#10a37f", orca: "#6a7cff", opencode: "#888", nodeterm: "#a78bfa" };
 
+/* Harness marks: a small app-icon tile per agent, so a glance says which
+   agents run where. Drawn in a 16-unit box; the tile colour comes from CSS. */
+const HZ_GLYPH = {
+  /* Claude: the starburst */
+  "claude-code": `<g stroke="#fff" stroke-width="1.05" stroke-linecap="round">${[0, 36, 72, 108, 144, 180, 216, 252, 288, 324]
+    .map((a, i) => `<path d="M8 6.6V${i % 2 ? 3.4 : 2.5}" transform="rotate(${a + (i % 3) * 4} 8 8)"/>`).join("")}</g>`,
+  /* Codex / ChatGPT: the knot, as three crossed loops */
+  codex: `<g fill="none" stroke="currentColor" stroke-width="1.15">${[0, 60, 120]
+    .map((a) => `<ellipse cx="8" cy="8" rx="4.6" ry="2.3" transform="rotate(${a} 8 8)"/>`).join("")}</g>`,
+  /* opencode: the nested square */
+  opencode: `<g fill="none" stroke="currentColor" stroke-width="1.3"><rect x="4.2" y="3.6" width="7.6" height="8.8" rx=".6"/><path d="M6.4 6.2h3.2v5" /></g>`,
+  /* Orca: a fin over a wave */
+  orca: `<g fill="none" stroke="#fff" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.6c1.3-.9 2.7-.9 4 0s2.7.9 4 0"/><path d="M6.6 9.2 8.6 4.2l1 4.6"/></g>`,
+  /* nodeterm: three linked nodes */
+  nodeterm: `<g stroke="#fff" stroke-width="1.2" fill="#fff"><path d="M5 5.4 11 8 5 10.6" fill="none"/><circle cx="5" cy="5.4" r="1.4"/><circle cx="11" cy="8" r="1.4"/><circle cx="5" cy="10.6" r="1.4"/></g>`,
+};
+const hzIcon = (id, s) => `<span class="hzi hz-${id}${s ? ` st-${s.state}` : ""}" title="${esc(hzById(id).label)}"><svg viewBox="0 0 16 16" width="100%" height="100%">${HZ_GLYPH[id] || ""}</svg></span>`;
+
 /* ─────────────────────────────────────────────────────────────── state ── */
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -55,11 +73,11 @@ const state = {
   open: true,
   pinned: false,
   pos: null,               // pinned position {x, y}
-  tab: "now",              // now | start | map
+  tab: "map",              // map | start
   fab: "dragonfly",        // a fab id, or "all"
   picker: false,
   sheet: null,             // { kind: "start" | "program" | "session" | "settings", ... }
-  finishedOpen: false,
+  expanded: new Set(),     // "fabId:program" cards opened to list their agents
   flash: null,             // session id to flash once
   bumpArt: null,           // "fabId:artifact" to bump once
   settings: { harness: "claude-code", terminal: "Ghostty", notify: true, login: true, theme: "system" },
@@ -160,24 +178,18 @@ function pickerHtml() {
 }
 
 function renderTabs() {
-  const list = state.fab === "all" ? SESSIONS : live(state.fab);
-  const w = waiting(list).length;
-  const tab = (id, label, extra = "") =>
-    `<button class="${state.tab === id ? "on" : ""}" data-act="tab" data-id="${id}">${label}${extra}</button>`;
-  $("#pnTabs").innerHTML = `<div class="seg">
-    ${tab("now", "Now", w ? `<span class="n waits">${w}</span>` : "")}
-    ${tab("start", "Start")}
-    ${tab("map", "Map")}
-  </div>`;
+  const tab = (id, label) =>
+    `<button class="${state.tab === id ? "on" : ""}" data-act="tab" data-id="${id}">${label}</button>`;
+  $("#pnTabs").innerHTML = `<div class="seg">${tab("map", "Map")}${tab("start", "Start")}</div>`;
 }
 
 function renderBody() {
   const body = $("#pnBody");
   const keep = body.scrollTop;
-  body.innerHTML = state.tab === "now" ? nowHtml() : state.tab === "start" ? startHtml() : mapHtml();
+  body.innerHTML = state.tab === "start" ? startHtml() : mapHtml();
   body.scrollTop = keep;
   if (state.flash) {
-    const el = body.querySelector(`[data-sid="${state.flash}"]`);
+    const el = body.querySelector(`.ag[data-sid="${state.flash}"]`);
     if (el) { el.classList.add("flash"); el.scrollIntoView({ block: "nearest" }); }
     state.flash = null;
   }
@@ -199,74 +211,28 @@ function renderFoot() {
     </button>`;
 }
 
-/* ──────────────────────────────────────────────────────────────── Now ── */
+/* ─────────────────────────────────────────────────────────── agents ──
+   A running session is an agent: its harness icon and its name. Click to
+   bring it to front; the chevron opens its details. */
 
-function rowHtml(s) {
-  const fab = fabById(s.fab);
-  const hz = hzById(s.harness);
-  const unknown = !s.program;
-  /* one quiet line: what it asks when it waits, otherwise where it runs */
-  const sub = s.state === "waits" && s.asks ? esc(s.asks)
-    : s.state === "starting" ? `Starting in ${esc(hz.label)}…`
-    : `${esc(hz.short)}${s.branch && s.branch !== "main" ? ` · ${esc(s.branch)}` : ""}`;
-  return `<div class="row r-${s.state} ${unknown ? "r-unknown" : ""}" data-act="focus" data-sid="${s.id}" title="${esc(fab.name)} · ${esc(s.state === "waits" ? "waits for you" : s.state)}">
-    <span class="dot ${s.state}"></span>
-    <div class="row-m">
-      <span class="row-l">${esc(s.label)}</span>
-      <div class="row-s">${sub}</div>
-    </div>
-    <span class="row-age" data-since="${s.startedAt}">${ago(s.startedAt)}</span>
-    <button class="row-i" data-act="session" data-sid="${s.id}" title="Details">${ICONS.chevR}</button>
+const RANK = { waits: 0, starting: 1, working: 2, idle: 3, unknown: 4 };
+const byRank = (a, b) => RANK[a.state] - RANK[b.state] || b.startedAt - a.startedAt;
+const stTitle = (s) => ({ waits: "waits for you", working: "working", idle: "idle", unknown: "unknown", starting: "starting" }[s.state]);
+
+function agentHtml(s) {
+  return `<div class="ag r-${s.state}" data-act="focus" data-sid="${s.id}" title="${esc(hzById(s.harness).label)} · ${stTitle(s)}">
+    ${hzIcon(s.harness, s)}
+    <span class="ag-l">${esc(s.label)}</span>
+    <span class="ag-age" data-since="${s.startedAt}">${ago(s.startedAt)}</span>
+    <button class="ag-i" data-act="session" data-sid="${s.id}" title="Details">${ICONS.chevR}</button>
   </div>`;
 }
 
-function nowFabHtml(fab, showFabHead) {
-  const list = live(fab.id);
-  if (!list.length) return "";
-  let h = showFabHead ? `<div class="sec fab"><span class="sec-t">${esc(fab.name)}</span></div>` : "";
-  /* groups in flow order, waiting-first inside a group */
-  const rank = { waits: 0, starting: 1, working: 2, idle: 3, unknown: 4 };
-  for (const name of order(fab)) {
-    const g = list.filter((s) => s.program === name).sort((a, b) => rank[a.state] - rank[b.state] || b.startedAt - a.startedAt);
-    if (!g.length) continue;
-    const p = progOf(fab, name);
-    h += `<div class="sec"><button class="sec-t" data-act="program" data-fab="${fab.id}" data-p="${name}">${esc(p.title)}</button></div>`;
-    h += g.map(rowHtml).join("");
-  }
-  const unk = list.filter((s) => !s.program);
-  if (unk.length) {
-    h += `<div class="sec"><span class="sec-t">Other</span></div>`;
-    h += unk.map(rowHtml).join("");
-  }
-  return h;
-}
-
-function nowHtml() {
-  const fabs = visibleFabs();
-  const all = state.fab === "all";
-  const any = fabs.some((f) => live(f.id).length);
-  let h = "";
-  if (!any) {
-    h += `<div class="empty">Nothing running<br><button class="btn" data-act="tab" data-id="start">Start…</button></div>`;
-  } else {
-    h += fabs.map((f) => nowFabHtml(f, all)).join("");
-  }
-  const fin = FINISHED.filter((f) => fabs.some((x) => x.id === f.fab)).sort((a, b) => b.endedAt - a.endedAt);
-  if (fin.length) {
-    h += `<div class="sec fold ${state.finishedOpen ? "open" : ""}" data-act="fold">${ICONS.chevR}<span class="sec-t">Finished today</span><span class="sec-n">${fin.length}</span></div>`;
-    if (state.finishedOpen) {
-      h += fin.map((f) => {
-        const p = progOf(fabById(f.fab), f.program);
-        return `<div class="row fin" title="${esc(f.wrote)}">
-          <span class="dot done">${ICONS.tick}</span>
-          <div class="row-m"><span class="row-l">${esc(f.label)}</span>
-            <div class="row-s">${esc(p?.title || f.program)} · ${esc(hzById(f.harness).short)}</div></div>
-          <span class="row-age" data-since="${f.endedAt}">${ago(f.endedAt)}</span>
-        </div>`;
-      }).join("");
-    }
-  }
-  return h;
+/* the collapsed form: one tile per agent, at most six, then a count */
+function agentStack(ss) {
+  if (!ss.length) return "";
+  const shown = ss.slice(0, 6);
+  return `<span class="ags">${shown.map((s) => hzIcon(s.harness, s)).join("")}${ss.length > shown.length ? `<span class="ags-more">+${ss.length - shown.length}</span>` : ""}</span>`;
 }
 
 /* ────────────────────────────────────────────────────────────── Start ── */
@@ -294,30 +260,38 @@ function startHtml() {
 
 function mapHtml() {
   if (state.fab === "all") {
-    return `<div class="fab-list">${FABS.map((f) => `
-        <button class="go" data-act="fab" data-id="${f.id}" data-then="map">
+    return `<div class="fab-list">${FABS.map((f) => {
+      const ss = live(f.id).sort(byRank);
+      return `<button class="go" data-act="fab" data-id="${f.id}" data-then="map">
           <span class="fab-av">${ICONS.folder}</span>
-          <span class="go-m"><span class="go-t">${esc(f.name)}</span><span class="go-d">${f.programs.length} programs</span></span>
-          <span class="go-run">${ICONS.chevR}</span></button>`).join("")}</div>`;
+          <span class="go-m"><span class="go-t">${esc(f.name)}</span>${ss.length ? agentStack(ss) : `<span class="go-d">Nothing running</span>`}</span>
+          <span class="go-run">${ICONS.chevR}</span></button>`;
+    }).join("")}</div>`;
   }
   const fab = fabById(state.fab);
   const lv = levels(fab);
   const list = live(fab.id);
   const selP = state.sheet?.kind === "program" ? state.sheet.program : null;
 
+  /* a program card: its title, its entry buttons, and the agents running in
+     it, as icons. Opened, the icons become a list. */
+  const card = (key, title, ss, opts = {}) => {
+    const open = state.expanded.has(`${fab.id}:${key}`) && ss.length;
+    return `<div class="pg ${opts.sel ? "sel" : ""} ${open ? "open" : ""} ${ss.length ? "has" : ""}" data-act="pgtoggle" data-fab="${fab.id}" data-p="${key}">
+      <div class="pg-h">${opts.k || ""}<span class="pg-t">${esc(title)}</span>
+        ${opts.info ? `<button class="pg-i" data-act="program" data-fab="${fab.id}" data-p="${key}" title="About ${esc(title)}">${ICONS.info}</button>` : ""}
+        ${ss.length ? `<span class="pg-chev">${ICONS.chevR}</span>` : ""}</div>
+      ${opts.ents || ""}
+      ${open ? `<div class="pg-list">${ss.map(agentHtml).join("")}</div>` : agentStack(ss) ? `<div class="pg-ags">${agentStack(ss)}</div>` : ""}
+    </div>`;
+  };
   const node = (name) => {
     const p = progOf(fab, name);
-    const ss = list.filter((s) => s.program === name);
-    const w = ss.filter((s) => s.state === "waits").length;
-    const runBadge = ss.length ? `<span class="pg-run ${w ? "waits" : ""}" title="${ss.length} running${w ? `, ${w} wait for you` : ""}"><i></i>${ss.length}</span>` : "";
+    const ss = list.filter((s) => s.program === name).sort(byRank);
     const ents = p.entries ? `<div class="pg-ents">${p.entries.map((e, i) =>
       `<span class="chip-go" data-act="start" data-fab="${fab.id}" data-p="${p.name}" data-e="${i}">${ICONS.start}${esc(e.title)}</span>`).join("")}</div>` : "";
-    return `<div class="pg ${selP === name ? "sel" : ""}" data-act="program" data-fab="${fab.id}" data-p="${name}">
-      <div class="pg-h"><span class="pg-k ${p.entry ? "entry" : ""}">${p.entry ? ICONS.start.replace('width="13" height="13"', 'width="9" height="9"') : ICONS.program}</span>
-        <span class="pg-t">${esc(p.title)}</span>${runBadge}</div>
-      <div class="pg-n mono">${esc(p.name)}${p.worktree === "new" ? " · new worktree" : ""}</div>
-      ${ents}
-    </div>`;
+    const k = `<span class="pg-k ${p.entry ? "entry" : ""}">${p.entry ? ICONS.start.replace('width="13" height="13"', 'width="9" height="9"') : ICONS.program}</span>`;
+    return card(name, p.title, ss, { sel: selP === name, ents, k, info: true });
   };
   const decChip = (id) => {
     const d = fab.decisions[id];
@@ -342,6 +316,8 @@ function mapHtml() {
     }
     if (last && (decs.length || arts.length)) h += `<div class="map-end">Shipped</div>`;
   });
+  const other = list.filter((s) => !s.program).sort(byRank);
+  if (other.length) h += `<div class="lvl other">${card("_other", "Other sessions", other)}</div>`;
   return h + `</div>`;
 }
 
@@ -508,8 +484,9 @@ function doStart(sh) {
   };
   SESSIONS.unshift(s);
   closeSheet();
-  state.tab = "now";
-  if (state.fab !== "all" && state.fab !== fab.id) state.fab = fab.id;
+  state.tab = "map";
+  if (state.fab !== fab.id) state.fab = fab.id;
+  state.expanded.add(`${fab.id}:${p.name}`);
   state.flash = s.id;
   render();
   toast(`Starting in ${esc(hz.label)}`);
@@ -558,7 +535,7 @@ function programSheet(sh) {
     <div class="hero-d">${esc(p.description)}</div>
     <div class="kv">${kv}</div>
     ${inputs}
-    ${ss.length ? `<div class="lbl">Running</div><div class="mini">${ss.map(rowHtml).join("")}</div>` : ""}
+    ${ss.length ? `<div class="lbl">Running</div><div class="mini">${ss.sort(byRank).map(agentHtml).join("")}</div>` : ""}
   `;
   let foot = `<button class="btn ghost" data-act="openfile" data-path=".fab/programs/${esc(p.name)}/SKILL.md">Open SKILL.md</button><span class="sp"></span>`;
   if (p.entry) {
@@ -715,7 +692,13 @@ document.addEventListener("click", (ev) => {
     }
     case "settings": openSheet({ kind: "settings" }); break;
     case "tab": state.tab = d.id; closeSheet(); renderTabs(); renderBody(); break;
-    case "fold": state.finishedOpen = !state.finishedOpen; renderBody(); break;
+    case "pgtoggle": {
+      /* a card with agents opens to list them; one without shows the program */
+      if (!t.classList.contains("has")) { if (d.p !== "_other") openSheet({ kind: "program", fab: d.fab, program: d.p }); break; }
+      const k = `${d.fab}:${d.p}`;
+      state.expanded.has(k) ? state.expanded.delete(k) : state.expanded.add(k);
+      renderBody(); break;
+    }
 
     case "focus": {
       const s = SESSIONS.find((x) => x.id === d.sid);
@@ -788,7 +771,7 @@ document.addEventListener("keydown", (ev) => {
     return;
   }
   if (typing || ev.metaKey || ev.ctrlKey || ev.altKey) return;
-  const tabs = { 1: "now", 2: "start", 3: "map" };
+  const tabs = { 1: "map", 2: "start" };
   if (tabs[ev.key] && state.open) { state.tab = tabs[ev.key]; closeSheet(); renderTabs(); renderBody(); }
 });
 
