@@ -4,6 +4,8 @@ Researched 16 Oct 2026, on one macOS machine with Claude Code 2.1.289, Codex, op
 
 The question: the monitor does not host agents. Can it still see which sessions run, in which fab and which program, and can it start new ones in each harness?
 
+> **Names.** Mark IV now calls programs *jobs*, and a session also has an *artifact*: the piece of work it is on, found by a stage filter. Below, "program" reads as "job". The matching steps are updated for artifacts.
+
 ## Summary
 
 Yes. Every harness writes enough to disk, or has a CLI, to find its sessions and the folder each one runs in. The folder gives the fab and the worktree. The program is harder: the folder does not say which program a session follows. So:
@@ -46,13 +48,13 @@ The monitor shows `unknown` when it cannot tell. **Unknown is not gone.** A chec
 ## Match a session to the fab
 
 1. **Fab.** Find the fab whose root contains the session's folder. A worktree of the repository is the same fab. Check its `.fab/` folder, because a branch can have a different fab version or none.
-2. **Run record.** If a run record names this session ID, the program and inputs are known. Done.
+2. **Run record.** If a run record names this session ID, the job, the artifact (`on`) and inputs are known. Done.
 3. **`fab-run:` line.** Search the start of the transcript for `fab-run: <id>`. If found, link the session to that run record and write the session ID into it.
-4. **Branch.** If the branch matches a program's branch pattern (for example `fab/build-slice/…`, or the team's own pattern in `fab.yaml`), use that program.
-5. **Transcript.** If the first prompt names a program (`build-slice`, or `.fab/programs/build-slice/`), use that program. Mark the match `inferred`.
-6. **Else:** "in this fab, program unknown".
+4. **Artifact by branch.** If a stage filter found an artifact on the session's branch (a PR on `feat/context-packs-s2`), the session is on that artifact. If the artifact's stage has a `next` job, assume that job, and mark the match `inferred`.
+5. **Job by transcript.** If the first prompt names a job (`build-slice`, or `.fab/jobs/build-slice/`), use that job. Mark the match `inferred`.
+6. **Else:** "in this fab, not on any work".
 
-Step 5 reads only the first user message and the first skill load, not the whole transcript. That keeps it cheap, and it avoids a later mention of a program being read as the program the session follows.
+Step 5 reads only the first user message and the first skill load, not the whole transcript. That keeps it cheap, and it avoids a later mention of a job being read as the job the session follows.
 
 ## Start: one launch per harness
 
@@ -60,10 +62,10 @@ Step 5 reads only the first user message and the first skill load, not the whole
 
 | Harness | Launch | How the session is matched |
 | --- | --- | --- |
-| Claude Code | In a new terminal window: `claude --session-id <uuid> -n "<fab> · <program>" "<prompt>"` | Exact. `--session-id` sets the ID, and it appears in `~/.claude/sessions/<pid>.json` |
+| Claude Code | In a new terminal window: `claude --session-id <uuid> -n "<fab> · <job>" "<prompt>"` | Exact. `--session-id` sets the ID, and it appears in `~/.claude/sessions/<pid>.json` |
 | Codex | In a new terminal window: `codex "<prompt>"` | By transcript: the `fab-run:` line in the newest rollout file with the same `cwd` |
 | opencode | In a new terminal window: `opencode <dir>` with the prompt, or `opencode run "<prompt>"` without a window | By the `session` table: `directory`, start time, and the `fab-run:` line in the first message. Confirm how to pass a first prompt to the opencode TUI |
-| Orca, current worktree | `orca terminal create --worktree path:<dir> --title "<program>" --command "<agent command>" --json` | Exact. The JSON gives the terminal handle |
+| Orca, current worktree | `orca terminal create --worktree path:<dir> --title "<job>" --command "<agent command>" --json` | Exact. The JSON gives the terminal handle |
 | Orca, new worktree | `orca worktree create --name <branch> --repo path:<dir> --agent <id> --prompt "<prompt>" --json` | Exact. Read `result.agentTerminalHandle` |
 | nodeterm | Not possible from outside. Its control CLI needs a verified nodeterm node | The session can still be seen, through Claude Code or Codex |
 
@@ -87,3 +89,4 @@ For a new worktree without Orca, `fab run` runs `git worktree add`, then `fab in
 - How does opencode take a first prompt in the TUI, and does it read `.claude/skills/` and `AGENTS.md`?
 - Can nodeterm add a way for an outside process to open a node? Without it, the monitor can show nodeterm sessions but not start them.
 - Which environment variable does Orca set in its terminals? A runtime file can use it to check that it is in the correct harness.
+- **Cursor** is not researched yet. The prototype treats it as a harness that can start and focus an agent and match by transcript. Find where Cursor keeps agent sessions, whether a session can be started from outside with a prompt, and which folders it reads skills and rules from (`.cursor/rules/`, `AGENTS.md`).

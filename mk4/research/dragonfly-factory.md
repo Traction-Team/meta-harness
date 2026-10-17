@@ -4,6 +4,8 @@ Researched 16 Oct 2026, from the `docs/factory-proposal` branch of the Dragonfly
 
 The question: Dragonfly has a factory that works with no runner. What made it work, what was hard, and what should Mark IV change?
 
+> **Names.** Dragonfly calls its steps *programs*. Mark IV now calls them *jobs*, and adds *stages* (filters over existing work) and *scorers*. This document keeps Dragonfly's word when it describes Dragonfly, and uses Mark IV's words in the "Mark IV answer" columns.
+
 ## What it is
 
 ```
@@ -38,15 +40,17 @@ The question: Dragonfly has a factory that works with no runner. What made it wo
 
 | Problem | Mark IV answer |
 | --- | --- |
-| **You cannot see the factory.** The flow is an ASCII drawing in a README | `fab map`, and the monitor's Map tab, drawn from each program's `reads`, `writes` and `next` |
-| **You must know what to ask.** A person who does not know "file-work" or "pull the next chunk" cannot start the work well | Entry programs with `inputs` become buttons and forms in the monitor |
-| **You cannot see what runs.** Sessions are spread across Orca worktrees and terminals | The monitor's Now tab, from run records and the session adapters |
+| **You cannot see the factory.** The flow is an ASCII drawing in a README | `stages:` in `fab.yaml`, drawn by `fab map` and the monitor's Work tab, with each job between two stages |
+| **You must know what to ask.** A person who does not know "file-work" or "pull the next chunk" cannot start the work well | Jobs become buttons in the monitor's Jobs tab, and a ▶ on each stage. `inputs` become forms |
+| **You cannot see what runs.** Sessions are spread across Orca worktrees and terminals | Agents show on the artifact they work on, in the Work tab, from run records and the session adapters |
+| **You cannot see where the work is.** How many slices are ready, how many PRs wait for review, is a question for `next.mjs` and GitHub | Stages are filters over the plans, branches and PRs. The Work tab shows a bar of artifacts for each |
+| **You cannot see if the work is good.** Review is a step, but nothing says how plans or PRs score over time | Scorers on stages: *edge cases* on plans, *tech debt* and *tests* on PRs |
 | **Root `AGENTS.md` is generated and shows as modified.** It is easy to commit by mistake, and `check.mjs` must catch a stale copy | A marked block inside a committed `AGENTS.md`. Text outside the markers is the team's own |
 | **Opt-in local install.** It was right for a proposal, but each person installs it, and alignment depends on them doing it | Committed install by default. `fab install --local` stays for trials |
 | **Copy `.factory` into each new worktree.** `pull-work` has to `cp -R` it when the base branch does not have it | Once the fab is committed, every branch has it. `fab run --worktree new` runs `fab install --runtime` in the new folder |
 | **Each repository writes its own install and check scripts** | `fab install` and `fab check` are generic. Project scripts such as `next.mjs` stay in `.fab/scripts/` |
-| **The words live in a README table** | `artifacts:` in `fab.yaml`, with paths, so the CLI and monitor can use them |
-| **The six decisions live in a README** | `decisions:` in `fab.yaml`, named by each program's `decides:` |
+| **The words live in a README table** | `stages:` in `fab.yaml`. Each word becomes a stage with a `find` and `where`, so the CLI and monitor can find the work |
+| **The six decisions live in a README** | `decisions:` in `fab.yaml`, named by each job's `decides:` and each stage's `waits-for:` |
 
 ## Converting `.factory/` to `.fab/`
 
@@ -54,23 +58,29 @@ The question: Dragonfly has a factory that works with no runner. What made it wo
 
 | `.factory/` | `.fab/` |
 | --- | --- |
-| `programs/*/SKILL.md` | The same. Add `title`, and `entry`, `inputs`, `writes`, `next` and `decides` where they are clear from the text |
+| `programs/*/SKILL.md` | `jobs/*/SKILL.md`. Add `title`, `from`, `to`, `takes`, `inputs` and `decides` where they are clear from the text |
 | `skills/`, `templates/`, `scripts/` | The same |
 | `AGENTS.md` with `<!-- factory:programs -->` | `AGENTS.md`. The placeholder becomes the `fab:start` / `fab:end` block |
-| README "The words" table | `artifacts:` in `fab.yaml` |
+| README "The words" table | `stages:` in `fab.yaml`: intake notes, roadmap lines, plan PRs, ready slices, draft PRs, PRs in review, approved PRs, merged |
 | README decisions list | `decisions:` in `fab.yaml` |
 | RFC runtimes (not built yet) | `runtimes/orca.md`, `nodeterm.md`, `claude-code.md` |
 
-The entry programs for Dragonfly's monitor would be:
+Dragonfly's stages and jobs would be (the prototype's `dragonfly` fixture):
 
-| Button | Program | Inputs |
+| Stage | Filter | Job out of it |
 | --- | --- | --- |
-| Log bug, Log idea, Log feedback | `file-work` (one program, three buttons, with `kind` set) | What happened, where, who reported it |
-| What's next? | `prioritise-roadmap` | None. It is a conversation |
-| Plan a roadmap line | `plan-feature` | Which line in `roadmap.md` (a choice, from the file) |
-| Pull next work | `pull-work` | None, or a plan and slice |
+| Intake | `files docs/roadmap/intake/*.md` where `status: open` | `prioritise` (reads all) |
+| On the roadmap | `lines in docs/roadmap/roadmap.md` where no plan links the line | `plan-feature` |
+| Plan in review | `prs label:plan` where open | `review-plan`, then the tech lead approves |
+| Ready to build | `slices in docs/plans/*.md` where `status: ready` | `pull-work` |
+| Building | `prs head:feat/*` where draft | `build-slice` |
+| Needs review | `prs head:feat/*` where ready, not approved | `review-slice`, then the code owner approves |
+| Ready to merge | `prs head:feat/*` where approved | `finish-slice` |
+| Shipped | `prs head:feat/*` merged in the last 7 days | none |
 
-Two things the monitor needs that the current programs do not have:
+`file-work` starts new work in Intake, with three buttons: Log bug, Log idea, Log feedback.
 
-- **One program, many buttons.** `file-work` handles bugs, ideas and feedback. A program could list more than one entry, each with its own title and fixed inputs. Or each button could be a small program that loads `file-work`. Decide which.
-- **Inputs from files.** "Which roadmap line" is a choice from `roadmap.md`. An input could name an artifact and a field to list choices from. Keep this out of the first version unless it is cheap.
+Two questions this research raised, and how Mark IV answers them:
+
+- **One job, many buttons.** `file-work` handles bugs, ideas and feedback. Mark IV lets a job list `entries`, each with its own title and fixed inputs.
+- **Inputs from files.** "Which roadmap line" was a choice from `roadmap.md`. With stages, it is not an input: `plan-feature` takes one artifact from *On the roadmap*, and the monitor lists that stage.
