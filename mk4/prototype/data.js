@@ -1,14 +1,33 @@
-/* Fixtures for the Mark IV fab monitor prototype.
-   Shaped on ../overview.md, ../cli.md, ../monitor.md and the Dragonfly
-   .factory/ in ../research/dragonfly-factory.md. Nothing here is read from disk:
-   in the real monitor all of it comes from `fab status --all --watch --json`,
-   `fab list --json` and `fab map --format json`. */
+/* Fixtures for the Mark IV fab monitor prototype, iteration 2.
+
+   The shape changes from iteration 1:
+   - Programs are now JOBS. A job is a definition of work an agent can do.
+   - STAGES come back from Mark II. A stage is a FILTER over things that
+     already exist (files, roadmap lines, branches, PRs, tickets), never a
+     status that fab writes. A fab installed into a repo that already has
+     plans, branches and PRs shows them in their stages on the first run.
+   - A job moves work from one stage to the next (`from` → `to`). A job with
+     no `from` starts something new.
+   - SCORERS come back from Mark III. A scorer asks one question about the
+     artifacts in a stage and answers 0–10. Higher is always better.
+   - Sessions carry `who`. Teammates' sessions are a preview of a future
+     sync between fab clients; nothing in Mark IV reads another machine.
+
+   Nothing here is read from disk. In the real monitor it comes from
+   `fab status --all --watch --json` and `fab work --json`. */
 
 const ME = "seb";
+const M = 1, H = 60, D = 1440; /* minutes */
+
+const PEOPLE = {
+  seb: { name: "You", short: "S", hue: 211 },
+  kat: { name: "Kat", short: "K", hue: 330 },
+  mo:  { name: "Mo",  short: "M", hue: 28 },
+  jo:  { name: "Jo",  short: "J", hue: 160 },
+};
 
 /* One adapter per harness. What the monitor shows is decided by this
-   capability table, never by a check on the harness name
-   (research/agent-sessions.md, decision 4). */
+   capability table, never by a check on the harness name. */
 const HARNESSES = [
   { id: "claude-code", label: "Claude Code", short: "claude",   ok: true,
     can: { start: true, focus: true, waits: true,  match: "exact" },
@@ -19,6 +38,9 @@ const HARNESSES = [
   { id: "codex",       label: "Codex",       short: "codex",    ok: true,
     can: { start: true, focus: true, waits: false, match: "transcript" },
     where: (t) => `New ${t} window · matched by transcript` },
+  { id: "cursor",      label: "Cursor",      short: "cursor",   ok: true,
+    can: { start: true, focus: true, waits: false, match: "transcript" },
+    where: () => "Cursor agent, in the open window" },
   { id: "opencode",    label: "opencode",    short: "opencode", ok: false,
     why: "fab doctor: installed, not signed in",
     can: { start: true, focus: false, waits: false, match: "transcript" } },
@@ -29,6 +51,16 @@ const HARNESSES = [
 
 const TERMINALS = ["Terminal", "iTerm2", "Ghostty", "Warp"];
 
+/* what one artifact of each kind is called, for "Which …?" */
+const KINDS = {
+  note:  { one: "note",         icon: "doc" },
+  line:  { one: "roadmap line", icon: "list" },
+  plan:  { one: "plan",         icon: "map" },
+  slice: { one: "slice",        icon: "layers" },
+  pr:    { one: "pull request", icon: "pr" },
+  issue: { one: "issue",        icon: "dot" },
+};
+
 /* ──────────────────────────────────────────────────────────── the fabs ── */
 
 const FABS = [
@@ -38,207 +70,289 @@ const FABS = [
     path: "~/dev/dragonfly",
     commit: "4e1d9a2",
     check: { ok: true },
-    hue: 152,
-    programs: [
+
+    /* In flow order. `find` + `where` is the filter. `slow` is how long an
+       artifact may sit before the stage counts as slow. */
+    stages: [
+      { id: "intake",   title: "Intake",         kind: "note",
+        find: "files docs/roadmap/intake/*.md", where: "status: open",
+        next: "prioritise", slow: 7 * D, scoredBy: ["clear"] },
+      { id: "roadmap",  title: "On the roadmap", kind: "line",
+        find: "lines in docs/roadmap/roadmap.md", where: "no plan links the line",
+        next: "plan-feature", slow: 7 * D },
+      { id: "planning", title: "Plan in review", kind: "plan",
+        find: "prs label:plan", where: "open",
+        next: "review-plan", waitsFor: "tech lead", slow: 2 * D, scoredBy: ["edge", "pdebt"] },
+      { id: "ready",    title: "Ready to build", kind: "slice",
+        find: "slices in docs/plans/*.md", where: "status: ready",
+        next: "pull-work", slow: 5 * D, scoredBy: ["edge", "pdebt"] },
+      { id: "building", title: "Building",       kind: "pr",
+        find: "prs head:feat/*", where: "draft",
+        next: "build-slice", slow: 2 * D },
+      { id: "review",   title: "Needs review",   kind: "pr",
+        find: "prs head:feat/*", where: "ready for review, not approved",
+        next: "review-slice", waitsFor: "code owner", slow: 1 * D, scoredBy: ["tdebt", "tests"] },
+      { id: "merge",    title: "Ready to merge", kind: "pr",
+        find: "prs head:feat/*", where: "approved",
+        next: "finish-slice", slow: 1 * D, scoredBy: ["tdebt", "tests"] },
+      { id: "shipped",  title: "Shipped",        kind: "pr",
+        find: "prs head:feat/*", where: "merged in the last 7 days", done: true },
+    ],
+
+    jobs: [
       {
-        name: "file-work", title: "File work",
+        name: "file-work", title: "File work", from: null, to: "intake",
         description: "Records a bug, idea or piece of feedback as an intake note, so it is not lost. It does not prioritise or build.",
-        when: "Someone reports a bug, has an idea, or passes on feedback.",
-        entry: true,
-        /* one program, many buttons: the open question in overview.md. The
-           prototype tries "a program lists more than one entry, each with its
-           own title and fixed inputs". */
+        /* one job, many buttons */
         entries: [
-          { title: "Log bug",      icon: "bug",  fixed: { kind: "bug" },      ask: "What went wrong?",        blurb: "Something is broken" },
-          { title: "Log idea",     icon: "bulb", fixed: { kind: "idea" },     ask: "What's the idea?",        blurb: "Something we could build" },
-          { title: "Log feedback", icon: "chat", fixed: { kind: "feedback" }, ask: "What did they say?",      blurb: "What a customer told you" },
+          { title: "Log bug",      icon: "bug",  fixed: { kind: "bug" },      ask: "What went wrong?",   blurb: "Something is broken" },
+          { title: "Log idea",     icon: "bulb", fixed: { kind: "idea" },     ask: "What's the idea?",   blurb: "Something we could build" },
+          { title: "Log feedback", icon: "chat", fixed: { kind: "feedback" }, ask: "What did they say?", blurb: "What a customer told you" },
         ],
         inputs: [
           { name: "what", ask: "What went wrong?", long: true },
           { name: "where", ask: "Where did you see it?", hint: "A screen, a ticket, or a link", optional: true },
           { name: "reporter", ask: "Who found it?", default: "$USER" },
         ],
-        writes: ["intake-note"], next: ["prioritise-roadmap"], decides: null, worktree: "current",
+        worktree: "current",
       },
       {
-        name: "prioritise-roadmap", title: "What's next?",
-        description: "A conversation with the product lead. Reads the waiting intake notes and rewrites the roadmap, at most six lines.",
-        when: "Someone asks what is next, or intake notes pile up.",
-        entry: true, icon: "compass", blurb: "Pick what the team builds next",
-        inputs: [],
-        reads: ["intake-note"], writes: ["roadmap"], next: ["plan-feature"], decides: "whats-next", worktree: "current",
+        name: "prioritise", title: "What's next?", from: "intake", to: "roadmap", takes: false,
+        icon: "compass", blurb: "Read the intake and pick what the team builds next",
+        description: "A conversation with the product lead. Reads every open intake note and rewrites the roadmap, at most six lines.",
+        inputs: [], decides: "whats-next", worktree: "current",
       },
       {
-        name: "plan-feature", title: "Plan feature",
+        name: "plan-feature", title: "Plan feature", from: "roadmap", to: "planning", takes: true,
+        icon: "map", blurb: "Turn a roadmap line into a plan with slices",
         description: "Writes a plan for one roadmap line, ending in its slices. Opens the plan as a docs PR for the tech lead.",
-        when: "A roadmap line has no plan yet.",
-        entry: true, icon: "map", blurb: "Turn a roadmap line into slices",
-        inputs: [
-          { name: "line", ask: "Which roadmap line?", from: "roadmap",
-            choices: ["Context packs for agents", "Export to CSV", "Safari session handling", "Team billing"] },
-        ],
-        reads: ["roadmap"], writes: ["plan"], next: ["pull-work"], decides: "plan", worktree: "new",
+        inputs: [], worktree: "new",
       },
       {
-        name: "pull-work", title: "Pull next work",
-        description: "Lists ready slices with next.mjs, claims one with a draft PR, and opens a worktree session to build it.",
-        when: "A developer is free, or says \"pull the next chunk\".",
-        entry: true, icon: "download", blurb: "Claim the next ready slice and build it",
-        inputs: [
-          { name: "slice", ask: "Which slice?", hint: "Leave empty for the next ready one", optional: true },
-        ],
-        reads: ["plan"], writes: [], next: ["build-slice"], decides: "pick", worktree: "new",
+        name: "review-plan", title: "Review plan", from: "planning", to: "ready", takes: true,
+        icon: "eye", blurb: "Check a plan for gaps before the tech lead approves it",
+        description: "A second agent reads the plan against the code and the rules, comments on the gaps, and asks the tech lead to approve.",
+        inputs: [], decides: "plan", worktree: "current",
       },
       {
-        name: "build-slice", title: "Build slice",
+        name: "pull-work", title: "Pull next work", from: "ready", to: "building", takes: true,
+        icon: "download", blurb: "Claim a ready slice and start building it",
+        description: "Claims one ready slice with a draft PR and opens a worktree session to build it.",
+        inputs: [], decides: "pick", worktree: "new",
+      },
+      {
+        name: "build-slice", title: "Build slice", from: "building", to: "review", takes: true,
+        icon: "hammer", blurb: "Tests first, then the code, then mark the PR ready",
         description: "Builds one slice in its own worktree: tests first, then the code, then a PR that is ready for review.",
-        when: "A slice is claimed and its worktree is open.",
-        entry: false,
-        reads: ["plan"], writes: ["pr"], next: ["review-slice"], decides: null, worktree: "current",
+        inputs: [], worktree: "current",
       },
       {
-        name: "review-slice", title: "Review slice",
-        description: "A second agent reviews the slice's PR against its plan and the rules, then hands it to the developer to test.",
-        when: "A slice PR is ready for review.",
-        entry: false,
-        reads: ["pr", "plan"], writes: [], next: ["finish-slice"], decides: "done", worktree: "current",
+        name: "review-slice", title: "Review slice", from: "review", to: "merge", takes: true,
+        icon: "eye", blurb: "A second agent reviews the PR against its plan",
+        description: "A second agent reviews the slice's PR against its plan and the rules, then hands it to the code owner.",
+        inputs: [], decides: "done", worktree: "current",
       },
       {
-        name: "finish-slice", title: "Finish slice",
-        description: "Writes the changelog entry, marks the slice done in its plan, and readies the PR for merge.",
-        when: "The developer says the slice is done.",
-        entry: false,
-        reads: ["pr"], writes: ["changelog"], next: [], decides: "merge", worktree: "current",
+        name: "finish-slice", title: "Finish slice", from: "merge", to: "shipped", takes: true,
+        icon: "flag", blurb: "Changelog entry, mark the slice done, merge",
+        description: "Writes the changelog entry, marks the slice done in its plan, and merges the PR.",
+        inputs: [], decides: "merge", worktree: "current",
       },
     ],
-    artifacts: {
-      "intake-note": { path: "docs/roadmap/intake/*.md", says: "A bug, idea, feedback or follow-up that waits for a decision", waiting: 7, unit: "wait" },
-      "roadmap":     { path: "docs/roadmap/roadmap.md",  says: "What is next. At most six lines", waiting: 4, unit: "lines" },
-      "plan":        { path: "docs/plans/*.md",          says: "How we build something, ending in its slices", waiting: 3, unit: "ready slices" },
-      "pr":          { path: "GitHub pull requests",     says: "A slice, built and ready to review", waiting: 2, unit: "open" },
-      "changelog":   { path: "CHANGELOG.md",             says: "What landed, for people who use the product", waiting: 0 },
+
+    /* each scorer is a small skill in .fab/scorers/<id>/SKILL.md */
+    scorers: {
+      clear: { title: "Clear to act on", ask: "Could someone act on this note without asking a question first?" },
+      edge:  { title: "Edge cases",      ask: "Does the plan name the edge cases, and say what happens in each?" },
+      pdebt: { title: "Product debt",    ask: "Does it add little product debt: no half-features, no settings nobody asked for?" },
+      tdebt: { title: "Tech debt",       ask: "Does it add little tech debt: no copies, no skipped layers, no TODOs left behind?" },
+      tests: { title: "Tests prove it",  ask: "Do the tests fail without the change and pass with it?" },
     },
+
     decisions: {
       "whats-next": { who: "product lead", says: "Pick what is next, in the prioritise conversation" },
       "plan":       { who: "tech lead",    says: "Approve the plan, as a docs PR" },
       "pick":       { who: "developer",    says: "Pick the slice to pull" },
-      "done":       { who: "developer",    says: "The developer tested the slice and says it is done" },
-      "merge":      { who: "code owner",   says: "Review and merge the PR" },
+      "done":       { who: "code owner",   says: "Approve the PR" },
+      "merge":      { who: "code owner",   says: "Merge the PR" },
     },
+
+    /* What the stage filters find right now. `age` is minutes in the stage.
+       `trail` is the history fab could link, oldest first; without one the
+       artifact was found by its filter and has no fab runs yet. */
+    artifacts: [
+      /* intake */
+      { id: "i2", stage: "intake", title: "Export button greyed out",       ref: "docs/roadmap/intake/2026-10-16-export-greyed.md", age: 48 * M, who: "seb", scores: { clear: 8.4 },
+        trail: [{ stage: "intake", job: "file-work", who: "seb", hz: "claude-code", ago: 48, via: "run", scores: { clear: 8.4 } }] },
+      { id: "i3", stage: "intake", title: "Idea: dark mode for docs",       ref: "docs/roadmap/intake/2026-10-16-dark-docs.md", age: 3 * H, who: "seb", scores: { clear: 6.1 },
+        trail: [{ stage: "intake", job: "file-work", who: "seb", hz: "codex", ago: 3 * H, via: "run", scores: { clear: 6.1 } }] },
+      { id: "i4", stage: "intake", title: "Search is slow on big workspaces", ref: "docs/roadmap/intake/2026-10-15-slow-search.md", age: 1 * D, who: "kat", scores: { clear: 7.2 } },
+      { id: "i9", stage: "intake", title: "Billing page 500s on Firefox",   ref: "docs/roadmap/intake/2026-10-15-billing-500.md", age: 1 * D + 4 * H, who: "mo", scores: { clear: 8.8 } },
+      { id: "i5", stage: "intake", title: "Customer wants SSO",             ref: "docs/roadmap/intake/2026-10-14-sso.md", age: 2 * D, who: "jo", scores: { clear: 4.6 } },
+      { id: "i6", stage: "intake", title: "Typo in onboarding email",       ref: "docs/roadmap/intake/2026-10-13-typo.md", age: 3 * D, who: "kat", scores: { clear: 9.3 } },
+      { id: "i7", stage: "intake", title: "Flaky e2e on checkout",          ref: "docs/roadmap/intake/2026-10-12-flaky-checkout.md", age: 4 * D, who: "seb", scores: { clear: 3.9 } },
+      { id: "i8", stage: "intake", title: "Idea: weekly digest email",      ref: "docs/roadmap/intake/2026-10-10-digest.md", age: 6 * D, who: "jo" },
+
+      /* roadmap */
+      { id: "r1", stage: "roadmap", title: "Safari session handling", ref: "docs/roadmap/roadmap.md:3", age: 2 * D, who: "seb" },
+      { id: "r2", stage: "roadmap", title: "Team billing",            ref: "docs/roadmap/roadmap.md:4", age: 5 * D, who: "seb" },
+      { id: "r3", stage: "roadmap", title: "Faster search",           ref: "docs/roadmap/roadmap.md:5", age: 1 * D, who: "seb",
+        trail: [
+          { stage: "intake", title: "Search is slow on big workspaces (2)", ref: "docs/roadmap/intake/2026-10-09-search.md", job: "file-work", who: "kat", hz: "claude-code", ago: 8 * D, via: "run", scores: { clear: 7.0 } },
+          { stage: "roadmap", job: "prioritise", who: "seb", hz: "claude-code", ago: 1 * D, via: "run" },
+        ] },
+
+      /* planning */
+      { id: "p1", stage: "planning", title: "Audit log", ref: "docs PR #418 · docs/plans/audit-log.md", age: 1 * D + 6 * H, who: "seb", scores: { edge: 5.2, pdebt: 7.4 },
+        trail: [
+          { stage: "roadmap", title: "Audit log", ref: "docs/roadmap/roadmap.md:2", ago: 6 * D, via: "found" },
+          { stage: "planning", job: "plan-feature", who: "seb", hz: "orca", ago: 1 * D + 6 * H, via: "run", scores: { edge: 5.2, pdebt: 7.4 } },
+        ] },
+
+      /* ready to build */
+      { id: "sl1", stage: "ready", title: "export-csv S2",     ref: "docs/plans/export-csv.md § S2", age: 2 * D, who: "seb", scores: { edge: 8.1, pdebt: 8.0 } },
+      { id: "sl2", stage: "ready", title: "export-csv S3",     ref: "docs/plans/export-csv.md § S3", age: 2 * D, who: "seb", scores: { edge: 7.6, pdebt: 8.0 } },
+      { id: "sl3", stage: "ready", title: "context-packs S4",  ref: "docs/plans/context-packs.md § S4", age: 8 * D, who: "seb", scores: { edge: 8.4, pdebt: 6.2 } },
+      { id: "sl4", stage: "ready", title: "context-packs S5",  ref: "docs/plans/context-packs.md § S5", age: 8 * D, who: "seb", scores: { edge: 6.9, pdebt: 5.8 } },
+
+      /* building */
+      { id: "b1", stage: "building", title: "context-packs S3", ref: "feat/context-packs-s3 · draft #419", age: 14 * M, who: "seb" },
+      { id: "b2", stage: "building", title: "export-csv S1",    ref: "feat/export-csv-s1 · draft #420",   age: 3 * H, who: "seb" },
+      { id: "b3", stage: "building", title: "search-index S1",  ref: "feat/search-index-s1 · draft #421", age: 5 * H, who: "kat" },
+
+      /* review: this is where it piles up */
+      { id: "v1", stage: "review", title: "context-packs S2", ref: "feat/context-packs-s2 · #412", age: 1 * D + 2 * H, who: "seb", scores: { tdebt: 7.1, tests: 8.3 },
+        trail: [
+          { stage: "intake", title: "Agents forget context between sessions", ref: "docs/roadmap/intake/2026-10-04-agent-context.md", job: "file-work", who: "kat", hz: "claude-code", ago: 12 * D, via: "run", scores: { clear: 8.0 } },
+          { stage: "roadmap", title: "Context packs for agents", ref: "docs/roadmap/roadmap.md:1", job: "prioritise", who: "seb", hz: "claude-code", ago: 10 * D, via: "run" },
+          { stage: "planning", title: "Context packs for agents", ref: "docs PR #405 · docs/plans/context-packs.md", job: "plan-feature", who: "seb", hz: "orca", ago: 9 * D, via: "run", scores: { edge: 6.0, pdebt: 8.2 } },
+          { stage: "ready", title: "context-packs S2", ref: "docs/plans/context-packs.md § S2", job: "review-plan", who: "seb", hz: "codex", ago: 8 * D, via: "run", scores: { edge: 8.4, pdebt: 8.2 }, note: "Approved by Jo (tech lead) after two edge cases were added" },
+          { stage: "building", ref: "feat/context-packs-s2 · draft #412", job: "pull-work", who: "seb", hz: "claude-code", ago: 2 * D, via: "branch" },
+          { stage: "review", ref: "feat/context-packs-s2 · #412", job: "build-slice", who: "seb", hz: "claude-code", ago: 1 * D + 2 * H, via: "run", scores: { tdebt: 7.1, tests: 8.3 } },
+        ] },
+      { id: "v2", stage: "review", title: "onboarding-copy S1", ref: "feat/onboarding-copy-s1 · #414", age: 1 * D + 9 * H, who: "kat", scores: { tdebt: 9.0, tests: 6.2 } },
+      { id: "v3", stage: "review", title: "billing-fix S1",     ref: "fix/billing-500 · #415",          age: 2 * D, who: "mo", scores: { tdebt: 4.4, tests: 3.8 },
+        trail: [
+          { stage: "intake", title: "Billing page 500s on Firefox (first report)", ref: "Linear DF-212", ago: 3 * D, via: "found" },
+          { stage: "review", ref: "fix/billing-500 · #415", ago: 2 * D, via: "found", note: "Built by hand, outside fab. Found by the Needs review filter." },
+        ] },
+      { id: "v4", stage: "review", title: "search-ui S1",        ref: "feat/search-ui-s1 · #416", age: 3 * D, who: "kat", scores: { tdebt: 6.6, tests: 7.0 } },
+      { id: "v5", stage: "review", title: "export-csv S0",       ref: "feat/export-csv-s0 · #417", age: 3 * D + 5 * H, who: "seb", scores: { tdebt: 8.2, tests: 8.8 } },
+      { id: "v6", stage: "review", title: "audit-log spike",     ref: "spike/audit-log · #411", age: 5 * D, who: "jo" },
+
+      /* ready to merge */
+      { id: "m1", stage: "merge", title: "context-packs S1", ref: "feat/context-packs-s1 · #409", age: 2 * H, who: "seb", scores: { tdebt: 8.0, tests: 9.1 } },
+
+      /* shipped */
+      { id: "x1", stage: "shipped", title: "plan template v2",   ref: "#401 merged", age: 6 * D, who: "seb" },
+      { id: "x2", stage: "shipped", title: "fix: login redirect", ref: "#404 merged", age: 4 * D, who: "mo" },
+      { id: "x3", stage: "shipped", title: "intake form copy",   ref: "#406 merged", age: 3 * D, who: "kat" },
+      { id: "x4", stage: "shipped", title: "export-csv spike",   ref: "#408 merged", age: 1 * D, who: "seb" },
+    ],
   },
+
   {
     id: "invoice",
     name: "invoice-service",
     path: "~/dev/invoice-service",
     commit: "a1b2c3d",
     check: { ok: false, problem: "AGENTS.md fab block is out of date with .fab/. Run fab install." },
-    hue: 212,
-    programs: [
-      {
-        name: "log-bug", title: "Log bug",
-        description: "Records a bug so it is not lost. Writes an intake note, and a short bug plan when the fix is clear. It does not prioritise or build.",
-        when: "Someone reports a bug, a defect from live use, or \"this is broken\".",
-        entry: true, icon: "bug", blurb: "Something is broken",
+    stages: [
+      { id: "intake",  title: "Intake",         kind: "issue", find: "linear team:INV", where: "state: triage", next: "prioritise", slow: 3 * D, scoredBy: ["clear"] },
+      { id: "roadmap", title: "On the roadmap", kind: "line",  find: "lines in docs/roadmap.md", where: "no plan links the line", next: "plan-feature", slow: 7 * D },
+      { id: "ready",   title: "Ready to build", kind: "slice", find: "slices in docs/plans/*.md", where: "status: ready", next: "build-slice", slow: 5 * D },
+      { id: "review",  title: "Needs review",   kind: "pr",    find: "prs", where: "open, not approved", waitsFor: "code owner", slow: 1 * D, scoredBy: ["tdebt"] },
+      { id: "shipped", title: "Shipped",        kind: "pr",    find: "prs", where: "merged in the last 7 days", done: true },
+    ],
+    jobs: [
+      { name: "log-bug", title: "Log bug", from: null, to: "intake", icon: "bug", blurb: "Something is broken",
+        description: "Records a bug as a Linear issue in triage. It does not prioritise or build.",
         inputs: [
           { name: "what", ask: "What went wrong?", long: true },
           { name: "where", ask: "Where did you see it?", hint: "A screen, a ticket, or a link", optional: true },
           { name: "reporter", ask: "Who found it?", default: "$USER" },
-        ],
-        writes: ["intake-note"], next: ["prioritise"], decides: null, worktree: "current",
-      },
-      {
-        name: "log-idea", title: "Log idea",
-        description: "Records an idea as an intake note with the problem it solves. It does not plan or build.",
-        when: "Someone has an idea or a request.",
-        entry: true, icon: "bulb", blurb: "Something we could build",
-        inputs: [
-          { name: "what", ask: "What's the idea?", long: true },
-          { name: "why", ask: "What problem does it solve?", optional: true },
-        ],
-        writes: ["intake-note"], next: ["prioritise"], decides: null, worktree: "current",
-      },
-      {
-        name: "prioritise", title: "What's next?",
-        description: "Talks the waiting intake through with the product lead and rewrites the roadmap.",
-        when: "Someone asks what is next.",
-        entry: true, icon: "compass", blurb: "Pick what the team builds next",
-        inputs: [],
-        reads: ["intake-note"], writes: ["roadmap"], next: ["plan-feature"], decides: "whats-next", worktree: "current",
-      },
-      {
-        name: "plan-feature", title: "Plan feature",
-        description: "Writes a plan for one roadmap line, ending in its slices.",
-        when: "A roadmap line has no plan yet.",
-        entry: true, icon: "map", blurb: "Turn a roadmap line into slices",
-        inputs: [{ name: "line", ask: "Which roadmap line?", from: "roadmap", choices: ["Partial refunds", "Dunning emails", "Tax by region"] }],
-        reads: ["roadmap"], writes: ["plan"], next: ["build-slice"], decides: "plan", worktree: "new",
-      },
-      {
-        name: "build-slice", title: "Build slice",
-        description: "Builds one slice in a new worktree and opens its PR.",
-        when: "A planned slice is ready.",
-        entry: false,
-        reads: ["plan"], writes: ["pr"], next: [], decides: "merge", worktree: "new",
-      },
+        ], worktree: "current" },
+      { name: "log-idea", title: "Log idea", from: null, to: "intake", icon: "bulb", blurb: "Something we could build",
+        description: "Records an idea as a Linear issue with the problem it solves.",
+        inputs: [{ name: "what", ask: "What's the idea?", long: true }, { name: "why", ask: "What problem does it solve?", optional: true }], worktree: "current" },
+      { name: "prioritise", title: "What's next?", from: "intake", to: "roadmap", takes: false, icon: "compass", blurb: "Pick what the team builds next",
+        description: "Talks the triage queue through with the product lead and rewrites the roadmap.", inputs: [], decides: "whats-next", worktree: "current" },
+      { name: "plan-feature", title: "Plan feature", from: "roadmap", to: "ready", takes: true, icon: "map", blurb: "Turn a roadmap line into slices",
+        description: "Writes a plan for one roadmap line, ending in its slices.", inputs: [], decides: "plan", worktree: "new" },
+      { name: "build-slice", title: "Build slice", from: "ready", to: "review", takes: true, icon: "hammer", blurb: "Build one slice and open its PR",
+        description: "Builds one slice in a new worktree and opens its PR.", inputs: [], worktree: "new" },
     ],
-    artifacts: {
-      "intake-note": { path: "docs/intake/*.md",   says: "A bug or idea that waits for a decision", waiting: 3, unit: "wait" },
-      "roadmap":     { path: "docs/roadmap.md",    says: "What is next", waiting: 3, unit: "lines" },
-      "plan":        { path: "docs/plans/*.md",    says: "How we build something", waiting: 1, unit: "ready slices" },
-      "pr":          { path: "GitHub pull requests", says: "A slice, ready to merge", waiting: 1, unit: "open" },
+    scorers: {
+      clear: { title: "Clear to act on", ask: "Could someone act on this issue without asking a question first?" },
+      tdebt: { title: "Tech debt",       ask: "Does it add little tech debt?" },
     },
     decisions: {
       "whats-next": { who: "product lead", says: "Pick what is next" },
       "plan":       { who: "tech lead",    says: "Approve the plan" },
-      "merge":      { who: "code owner",   says: "Review and merge the PR" },
     },
+    artifacts: [
+      { id: "n1", stage: "intake", title: "CHF rounding off by 1c", ref: "INV-2038", age: 70 * M, who: "seb", scores: { clear: 7.7 } },
+      { id: "n2", stage: "intake", title: "Dunning email bounces",  ref: "INV-2036", age: 2 * D, who: "seb", scores: { clear: 5.0 } },
+      { id: "n3", stage: "intake", title: "PDF export cuts totals", ref: "INV-2031", age: 4 * D, who: "seb", scores: { clear: 4.1 } },
+      { id: "q1", stage: "roadmap", title: "Partial refunds", ref: "docs/roadmap.md:1", age: 3 * D, who: "seb" },
+      { id: "q2", stage: "roadmap", title: "Dunning emails",  ref: "docs/roadmap.md:2", age: 3 * D, who: "seb" },
+      { id: "q3", stage: "roadmap", title: "Tax by region",   ref: "docs/roadmap.md:3", age: 9 * D, who: "seb" },
+      { id: "k1", stage: "ready", title: "refund-total S1", ref: "docs/plans/refund-total.md § S1", age: 1 * D, who: "seb" },
+      { id: "w1", stage: "review", title: "fix-currency-format", ref: "#88", age: 6 * H, who: "seb", scores: { tdebt: 8.5 } },
+      { id: "z1", stage: "shipped", title: "fix-vat-label", ref: "#85 merged", age: 2 * D, who: "seb" },
+    ],
   },
 ];
 
-/* ──────────────────────────────────────────── sessions on this machine ──
-   `min` is how long ago the session started. `match` is how the monitor knows
-   the program: exact (run record + session id), transcript (the fab-run: line),
-   inferred (branch or first prompt names a program), folder (fab only). */
+/* ──────────────────────────────────────────── sessions ──
+   `art` is the artifact the session works on. `makes` is the stage a session
+   writes a NEW artifact into (file-work, prioritise). `who` is whose machine
+   it runs on: anyone but ME is a preview of team sync. */
 
 const SEED_SESSIONS = [
-  { id: "s1", fab: "dragonfly", program: "build-slice", label: "context-packs S3", harness: "claude-code",
+  { id: "s1", fab: "dragonfly", who: "seb", job: "build-slice", art: "b1", label: "context-packs S3", harness: "claude-code",
     state: "working", min: 14, branch: "feat/context-packs-s3", worktree: "~/orca/workspaces/dragonfly/context-packs-s3",
-    match: "exact", run: "r_20261016_c41e0b", startedBy: "fab run", inputs: { slice: "context-packs S3" } },
-  { id: "s2", fab: "dragonfly", program: "build-slice", label: "export-csv S1", harness: "orca",
+    match: "exact", run: "r_20261017_c41e0b", startedBy: "fab run" },
+  { id: "s2", fab: "dragonfly", who: "seb", job: "build-slice", art: "b2", label: "export-csv S1", harness: "orca",
     state: "waits", min: 2, branch: "feat/export-csv-s1", worktree: "~/orca/workspaces/dragonfly/export-csv-s1",
-    match: "exact", run: "r_20261016_9ab210", startedBy: "monitor", inputs: { slice: "export-csv S1" },
-    asks: "Permission to run pnpm db:migrate" },
-  { id: "s3", fab: "dragonfly", program: "file-work", label: "Safari login loop", harness: "claude-code",
+    match: "exact", run: "r_20261017_9ab210", startedBy: "monitor", asks: "Permission to run pnpm db:migrate" },
+  { id: "s3", fab: "dragonfly", who: "seb", job: "file-work", makes: "intake", label: "Safari login loops", harness: "claude-code",
     state: "working", min: 1, branch: "main", worktree: "~/dev/dragonfly",
-    match: "exact", run: "r_20261016_7f3a9c", startedBy: "monitor",
+    match: "exact", run: "r_20261017_7f3a9c", startedBy: "monitor",
     inputs: { kind: "bug", what: "Login on Safari loops back to the sign-in page", where: "app.dragonfly.dev/login", reporter: "kat" } },
-  { id: "s4", fab: "dragonfly", program: "review-slice", label: "context-packs S2", harness: "codex",
+  { id: "s4", fab: "dragonfly", who: "seb", job: "review-slice", art: "v1", label: "Review context-packs S2", harness: "codex",
     state: "idle", min: 31, branch: "feat/context-packs-s2", worktree: "~/orca/workspaces/dragonfly/context-packs-s2",
-    match: "transcript", run: "r_20261016_02d7e4", startedBy: "fab run", inputs: { pr: "#412" } },
-  { id: "s5", fab: "dragonfly", program: "prioritise-roadmap", label: "What's next?", harness: "claude-code",
+    match: "transcript", run: "r_20261017_02d7e4", startedBy: "fab run" },
+  { id: "s12", fab: "dragonfly", who: "seb", job: "build-slice", art: "v1", label: "Fix review notes on #412", harness: "claude-code",
+    state: "working", min: 6, branch: "feat/context-packs-s2", worktree: "~/orca/workspaces/dragonfly/context-packs-s2",
+    match: "inferred", startedBy: "by hand", first: "address the review comments on #412" },
+  { id: "s5", fab: "dragonfly", who: "seb", job: "prioritise", makes: "roadmap", label: "What's next?", harness: "claude-code",
     state: "waits", min: 9, branch: "main", worktree: "~/dev/dragonfly",
-    match: "inferred", startedBy: "by hand", first: "what should we pick up next? use the prioritise program",
+    match: "inferred", startedBy: "by hand", first: "what should we pick up next? use the prioritise job",
     asks: "Which of these three goes first?" },
-  { id: "s6", fab: "dragonfly", program: null, label: "can you look at the flaky e2e on…", harness: "opencode",
+  { id: "s6", fab: "dragonfly", who: "seb", job: null, label: "can you look at the flaky e2e on…", harness: "opencode",
     state: "unknown", min: 40, branch: "main", worktree: "~/dev/dragonfly",
     match: "folder", startedBy: "by hand", first: "can you look at the flaky e2e on checkout, it fails 1 in 5" },
 
-  { id: "s7", fab: "invoice", program: "build-slice", label: "fix-refund-total", harness: "codex",
-    state: "working", min: 22, branch: "fix/refund-total", worktree: "~/dev/invoice-service-fix-refund-total",
-    match: "transcript", run: "r_20261016_51f0aa", startedBy: "monitor", inputs: { slice: "refund-total S1" } },
-  { id: "s8", fab: "invoice", program: "log-bug", label: "INV-2041 refund total shows 0", harness: "claude-code",
-    state: "working", min: 1, branch: "main", worktree: "~/dev/invoice-service",
-    match: "exact", run: "r_20261016_e1290c", startedBy: "monitor",
-    inputs: { what: "The invoice total shows 0 after a refund", where: "https://app.example.com/invoices/INV-2041", reporter: "kat" } },
-  { id: "s9", fab: "invoice", program: "plan-feature", label: "Partial refunds", harness: "orca",
-    state: "working", min: 5, branch: "fab/plan-feature/partial-refunds", worktree: "~/orca/workspaces/invoice-service/partial-refunds",
-    match: "exact", run: "r_20261016_aa83f1", startedBy: "monitor", inputs: { line: "Partial refunds" } },
-];
+  /* teammates (sync preview) */
+  { id: "t1", fab: "dragonfly", who: "kat", job: "build-slice", art: "b3", label: "search-index S1", harness: "cursor",
+    state: "working", min: 42, branch: "feat/search-index-s1", worktree: "kat-mbp:~/dev/dragonfly-search-index", match: "exact", startedBy: "monitor" },
+  { id: "t2", fab: "dragonfly", who: "mo", job: "review-slice", art: "v3", label: "Review billing-fix S1", harness: "claude-code",
+    state: "working", min: 18, branch: "fix/billing-500", worktree: "mo-studio:~/code/dragonfly", match: "exact", startedBy: "monitor" },
+  { id: "t3", fab: "dragonfly", who: "kat", job: "review-slice", art: "v1", label: "Second review on #412", harness: "codex",
+    state: "idle", min: 55, branch: "feat/context-packs-s2", worktree: "kat-mbp:~/dev/dragonfly", match: "transcript", startedBy: "monitor" },
+  { id: "t4", fab: "dragonfly", who: "jo", job: "review-plan", art: "p1", label: "Review audit-log plan", harness: "claude-code",
+    state: "waits", min: 25, branch: "fab/plan-feature/audit-log", worktree: "jo-air:~/dragonfly", match: "exact", startedBy: "monitor",
+    asks: "Should the audit log cover read access too?" },
 
-const SEED_FINISHED = [
-  { fab: "dragonfly", program: "file-work",    label: "Export button greyed out", harness: "claude-code", ago: 48,  wrote: "docs/roadmap/intake/2026-10-16-export-greyed.md" },
-  { fab: "dragonfly", program: "finish-slice", label: "context-packs S1",         harness: "claude-code", ago: 95,  wrote: "PR #409 ready to merge" },
-  { fab: "dragonfly", program: "plan-feature", label: "Export to CSV",            harness: "orca",        ago: 160, wrote: "docs/plans/export-csv.md (docs PR #410)" },
-  { fab: "dragonfly", program: "file-work",    label: "Idea: dark mode for docs", harness: "codex",       ago: 210, wrote: "docs/roadmap/intake/2026-10-16-dark-docs.md" },
-  { fab: "invoice",   program: "log-bug",      label: "Tax rounding on CHF",      harness: "claude-code", ago: 70,  wrote: "docs/intake/2026-10-16-chf-rounding.md" },
+  { id: "s7", fab: "invoice", who: "seb", job: "build-slice", art: "k1", label: "refund-total S1", harness: "codex",
+    state: "working", min: 22, branch: "fix/refund-total", worktree: "~/dev/invoice-service-fix-refund-total",
+    match: "transcript", run: "r_20261017_51f0aa", startedBy: "monitor" },
+  { id: "s8", fab: "invoice", who: "seb", job: "log-bug", makes: "intake", label: "Refund total shows 0", harness: "claude-code",
+    state: "working", min: 1, branch: "main", worktree: "~/dev/invoice-service",
+    match: "exact", run: "r_20261017_e1290c", startedBy: "monitor",
+    inputs: { what: "The invoice total shows 0 after a refund", where: "https://app.example.com/invoices/INV-2041", reporter: "kat" } },
+  { id: "s9", fab: "invoice", who: "seb", job: "plan-feature", art: "q1", label: "Plan partial refunds", harness: "orca",
+    state: "working", min: 5, branch: "fab/plan-feature/partial-refunds", worktree: "~/orca/workspaces/invoice-service/partial-refunds",
+    match: "exact", run: "r_20261017_aa83f1", startedBy: "monitor" },
 ];

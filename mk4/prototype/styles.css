@@ -163,8 +163,8 @@ svg { display: block; }
 
 /* ═══════════════════════════════════════════════════════════ the panel ══ */
 
-.panel { position: absolute; z-index: 40; width: 340px; display: flex; flex-direction: column;
-  max-height: calc(100vh - 40px); height: 580px;
+.panel { position: absolute; z-index: 40; width: 384px; display: flex; flex-direction: column;
+  max-height: calc(100vh - 40px); height: 640px;
   border-radius: 12px; background: var(--glass);
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   box-shadow: var(--panel-shadow);
@@ -266,36 +266,6 @@ button.sec-t:hover { color: var(--text-2); }
 .go-run { width: 22px; height: 22px; display: grid; place-items: center; color: var(--text-3); flex: none; opacity: 0; }
 .go:hover .go-run { opacity: 1; }
 
-/* ── Map ── */
-.map { padding: 6px 6px 6px; }
-.lvl { display: flex; gap: 6px; justify-content: center; }
-.pg { position: relative; flex: 1; max-width: 100%; min-width: 0; border-radius: 9px; background: var(--fill-2);
-  box-shadow: inset 0 0 0 .5px var(--line-soft); padding: 7px 9px 7px 10px; text-align: left; }
-.pg:hover { background: var(--fill-3); }
-.pg.sel { box-shadow: inset 0 0 0 1.5px var(--accent); }
-.pg-h { display: flex; align-items: center; gap: 6px; }
-.pg-k { width: 14px; height: 14px; display: grid; place-items: center; flex: none; color: var(--text-3); }
-.pg-k.entry { color: var(--text); }
-.pg-t { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pg-run { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-2); flex: none; font-variant-numeric: tabular-nums; }
-.pg-run i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
-.pg-run.waits i { background: var(--amber); }
-.pg-n { font-size: 10.5px; color: var(--text-3); margin-top: 1px; }
-.pg-ents { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-.chip-go { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px 0 6px; border-radius: 6px; font-size: 11px; font-weight: 500;
-  background: var(--control); box-shadow: var(--control-shadow); color: var(--text); }
-.chip-go svg { color: var(--text); }
-.chip-go:hover { background: var(--control-on); }
-
-.pg-h .pg-t { flex: 1; min-width: 0; }
-.pg-i { width: 20px; height: 20px; margin: -3px 0; border-radius: 5px; display: grid; place-items: center; color: var(--text-3); flex: none; opacity: 0; }
-.pg:hover .pg-i { opacity: 1; }
-.pg-i:hover { color: var(--text); background: var(--hover); }
-.pg-chev { color: var(--text-3); flex: none; transition: transform .15s; }
-.pg.open .pg-chev { transform: rotate(90deg); }
-.pg-ags .ags { margin-top: 7px; }
-.pg-list { display: flex; flex-direction: column; margin: 6px -5px -3px; }
-.lvl.other { margin-top: 14px; }
 
 /* ── agents: a harness icon tile, like a tiny app icon ── */
 .hzi { position: relative; width: 16px; height: 16px; border-radius: 4px; flex: none; display: inline-block; color: #fff;
@@ -332,21 +302,6 @@ button.sec-t:hover { color: var(--text-2); }
 .ag-i:hover { color: var(--text); background: var(--hover); }
 .mini .ag { padding: 0 8px; height: 30px; }
 
-.link { position: relative; min-height: 24px; display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 5px 0 9px 0; }
-.link::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 4px; width: 1px; margin-left: -.5px; background: var(--wire); }
-.link::after { content: ""; position: absolute; left: 50%; bottom: 1px; width: 6px; height: 6px; margin-left: -3px;
-  border-right: 1px solid var(--wire); border-bottom: 1px solid var(--wire); transform: rotate(45deg); }
-.chips { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.dec, .art { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px 0 6px; border-radius: 10px; font-size: 11px;
-  white-space: nowrap; background: var(--menu); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
-  box-shadow: inset 0 0 0 .5px var(--line); color: var(--text-2); }
-.dec svg { color: var(--amber); flex: none; }
-.dec b, .art b { font-weight: 500; color: var(--text); }
-.art:hover { box-shadow: inset 0 0 0 .5px var(--text-3); }
-.art svg { color: var(--text-3); flex: none; }
-.art .cnt { color: var(--text-3); font-variant-numeric: tabular-nums; }
-.art.bump .cnt { animation: bump .6s ease; color: var(--accent); }
-.map-end { display: flex; justify-content: center; padding-top: 2px; color: var(--text-3); font-size: 11px; }
 
 .fab-list { padding: 2px 0; display: flex; flex-direction: column; gap: 2px; }
 .fab-av { width: 28px; height: 28px; border-radius: 7px; flex: none; display: grid; place-items: center; color: var(--text-2);
