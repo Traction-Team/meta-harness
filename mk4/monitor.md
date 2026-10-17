@@ -81,7 +81,7 @@ A sheet slides over the panel. Back, or Esc, returns.
 - Its title, stage, time in the stage, and its reference (path, PR, branch or ticket). **Open** opens it.
 - **On it now:** the agents on it, grouped by person, each with the job it runs and its harness. Teammates' agents are marked as synced.
 - **Scores:** a large score ring with the total in its centre, for the current stage's scorers. Under it, one row per scorer with a small ring and the number. The current stage's scorers first; scores from earlier stages are dimmed.
-- **History,** newest first: each stage it passed through, the job, harness and person that moved it, the scores it got there, and how the step was linked (run record, branch name, or found by the filter).
+- **History,** newest first: each earlier artifact of the same work (the branch, the plan, the spec) and the stage it was in, the job, harness and person that made the next one, the scores it got there, and how the step was linked (git note, trailer, link in the artifact, PR diff, work key, or found by the filter). A step linked only by the work key is marked as a guess. Fan-out and fan-in show as branches. Earlier scores are shown at their own step, not added up.
 - The footer button runs the stage's next job on this artifact.
 
 **A job.** Its description, from and to stages, whether it takes one artifact or the whole stage, who decides, the average scores its output gets, its inputs, and the agents that run it now. **Open SKILL.md** and **Start**.

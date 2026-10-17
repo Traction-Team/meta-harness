@@ -69,6 +69,7 @@ function stageDetail(fab, st, arts, making) {
       ${ICONS.filter}<span class="mono">${esc(st.find)}</span><span class="dim">where</span><span class="mono">${esc(st.where)}</span></div>
     <div class="its">${making.map(makingItem).join("")}${arts.map((a) => itemHtml(fab, a)).join("")}</div>
     ${!arts.length && !making.length ? `<div class="st-empty">Nothing matches</div>` : ""}
+    ${hiddenHtml(fab, st)}
     ${nx ? `<button class="st-next" data-act="stgo" data-fab="${fab.id}" data-s="${st.id}" title="Run ${esc(nx.title)} (⌥-click to choose the harness)">
       <span class="st-go">${ICONS.play}</span><span class="st-next-t">${esc(nx.title)}</span>
       ${st.waitsFor ? `<span class="st-next-w">then the ${esc(st.waitsFor)} approves</span>` : ""}</button>` : ""}
@@ -85,6 +86,29 @@ function itemHtml(fab, a) {
     ${sc.vals.length ? scoreRing(sc.vals, { size: 16, sw: 2.4, title: sc.title }) : ""}
     <span class="it-age" data-since="${a.since}">${ago(a.since)}</span>
   </div>`;
+}
+
+/* What the filter also matched, but history hid because the work moved on.
+   Folded by default: the stage shows each piece of work once, at its newest
+   artifact. A row opens the artifact that hides it. */
+function hiddenHtml(fab, st) {
+  const hid = hiddenIn(fab, st.id);
+  if (!hid.length) return "";
+  const k = `${fab.id}:${st.id}`;
+  const open = state.hidOpen.has(k);
+  const rows = open ? `<div class="its hid">${hid.map((h) => {
+    const by = h.by[0];
+    const to = h.by.length > 1 ? `${h.by.length} later` : stageOf(fab, by.stage).title;
+    const t = `${h.ref}\nHidden by ${h.by.map((b) => `${b.title} (${stageOf(fab, b.stage).title})`).join(", ")}`;
+    return `<div class="it hid" data-act="art" data-fab="${fab.id}" data-a="${by.id}" title="${esc(t)}">
+      <span class="gl"><i class="ga-cube ghost">${CUBE_SVG}</i></span>
+      <span class="it-t">${esc(h.title)}</span>
+      <span class="it-by">→ ${esc(to)}</span>
+    </div>`;
+  }).join("")}</div>` : "";
+  return `<button class="st-hid ${open ? "open" : ""}" data-act="hidtoggle" data-fab="${fab.id}" data-s="${st.id}"
+      title="The filter also matches these. Each has a later artifact in its history, so it shows there instead.">
+      <span class="st-chev">${ICONS.chevR}</span>${hid.length} moved on, hidden by history</button>${rows}`;
 }
 
 const makingItem = (s) => `<div class="it making" data-act="session" data-sid="${s.id}">

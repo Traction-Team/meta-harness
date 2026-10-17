@@ -98,6 +98,11 @@ document.addEventListener("click", (ev) => {
       state.expanded.has(k) ? state.expanded.delete(k) : state.expanded.add(k);
       renderBody(); break;
     }
+    case "hidtoggle": {
+      const k = `${d.fab}:${d.s}`;
+      state.hidOpen.has(k) ? state.hidOpen.delete(k) : state.hidOpen.add(k);
+      renderBody(); break;
+    }
     case "gostage":
       closeSheet(); state.tab = "work"; state.fab = d.fab; state.expanded.add(`${d.fab}:${d.s}`); render(); break;
     case "stgo": {

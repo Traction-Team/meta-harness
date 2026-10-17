@@ -79,7 +79,7 @@ const FABS = [
         find: "files docs/roadmap/intake/*.md", where: "status: open",
         next: "prioritise", slow: 7 * D, scoredBy: ["clear"] },
       { id: "roadmap",  title: "Approved specs", kind: "spec",
-        find: "files docs/specs/*.md", where: "status: approved, no plan links it",
+        find: "files docs/specs/*.md", where: "status: approved",
         next: "plan-feature", slow: 7 * D },
       { id: "planning", title: "WIP plans", kind: "plan",
         find: "prs label:plan", where: "open",
@@ -178,15 +178,34 @@ const FABS = [
       "merge":      { who: "code owner",   says: "Merge the PR" },
     },
 
-    /* What the stage filters find right now. `age` is minutes in the stage.
-       `trail` is the history fab could link, oldest first; without one the
-       artifact was found by its filter and has no fab runs yet. */
+    /* What the stage filters find right now, after history has hidden what
+       moved on. `age` is minutes in the stage. `trail` is the history fab
+       could link, oldest first: each step is an earlier artifact of the same
+       work. Without one the artifact was found by its filter and nothing
+       links it further back.
+
+       `via` is how a step links to the step before it:
+         note     a git note in refs/notes/fab, written by a fab run
+         trailer  a Fab-From: trailer in a commit
+         link     the artifact names the earlier one (PR body, frontmatter)
+         diff     the PR's diff edits the earlier artifact
+         key      only the names match (the work key): a guess
+         same     the same artifact, in a new state (a draft PR made ready)
+         back     its later artifact was abandoned, so it shows again
+         found    nothing links it further back
+       `also` is fan-in: more parents of the same step. `alsoMade` is
+       fan-out: the other artifacts the same step made. `abandoned` marks a
+       later artifact that was closed without a merge, so it hides nothing.
+
+       Earlier steps whose source still matches their stage's filter (an
+       open intake note, an approved spec, a ready slice on main) are what
+       history hides. See hiddenIn() in core.js. */
     artifacts: [
       /* intake */
       { id: "i2", stage: "intake", title: "Export button greyed out",       ref: "docs/roadmap/intake/2026-10-16-export-greyed.md", age: 48 * M, who: "seb", scores: { clear: 8.4 },
-        trail: [{ stage: "intake", job: "file-work", who: "seb", hz: "claude-code", ago: 48, via: "run", scores: { clear: 8.4 } }] },
+        trail: [{ stage: "intake", job: "file-work", who: "seb", hz: "claude-code", ago: 48, via: "note", scores: { clear: 8.4 } }] },
       { id: "i3", stage: "intake", title: "Idea: dark mode for docs",       ref: "docs/roadmap/intake/2026-10-16-dark-docs.md", age: 3 * H, who: "seb", scores: { clear: 6.1 },
-        trail: [{ stage: "intake", job: "file-work", who: "seb", hz: "codex", ago: 3 * H, via: "run", scores: { clear: 6.1 } }] },
+        trail: [{ stage: "intake", job: "file-work", who: "seb", hz: "codex", ago: 3 * H, via: "note", scores: { clear: 6.1 } }] },
       { id: "i4", stage: "intake", title: "Search is slow on big workspaces", ref: "docs/roadmap/intake/2026-10-15-slow-search.md", age: 1 * D, who: "kat", scores: { clear: 7.2 } },
       { id: "i9", stage: "intake", title: "Billing page 500s on Firefox",   ref: "docs/roadmap/intake/2026-10-15-billing-500.md", age: 1 * D + 4 * H, who: "mo", scores: { clear: 8.8 } },
       { id: "i5", stage: "intake", title: "Customer wants SSO",             ref: "docs/roadmap/intake/2026-10-14-sso.md", age: 2 * D, who: "jo", scores: { clear: 4.6 } },
@@ -199,21 +218,29 @@ const FABS = [
       { id: "r2", stage: "roadmap", title: "Team billing",            ref: "docs/specs/team-billing.md", age: 5 * D, who: "seb" },
       { id: "r3", stage: "roadmap", title: "Faster search",           ref: "docs/specs/faster-search.md", age: 1 * D, who: "seb",
         trail: [
-          { stage: "intake", title: "Search is slow on big workspaces (2)", ref: "docs/roadmap/intake/2026-10-09-search.md", job: "file-work", who: "kat", hz: "claude-code", ago: 8 * D, via: "run", scores: { clear: 7.0 } },
-          { stage: "roadmap", job: "prioritise", who: "seb", hz: "claude-code", ago: 1 * D, via: "run" },
+          { stage: "intake", title: "Search is slow on big workspaces (2)", ref: "docs/roadmap/intake/2026-10-09-search.md", job: "file-work", who: "kat", hz: "claude-code", ago: 8 * D, via: "note", scores: { clear: 7.0 } },
+          { stage: "roadmap", job: "prioritise", who: "seb", hz: "claude-code", ago: 1 * D, via: "note" },
         ] },
 
       /* planning */
       { id: "p1", stage: "planning", title: "Audit log", ref: "docs PR #418 · docs/plans/audit-log.md", age: 1 * D + 6 * H, who: "seb", scores: { edge: 5.2, pdebt: 7.4 },
         trail: [
           { stage: "roadmap", title: "Audit log", ref: "docs/specs/audit-log.md", ago: 6 * D, via: "found" },
-          { stage: "planning", job: "plan-feature", who: "seb", hz: "orca", ago: 1 * D + 6 * H, via: "run", scores: { edge: 5.2, pdebt: 7.4 } },
+          { stage: "planning", job: "plan-feature", who: "seb", hz: "orca", ago: 1 * D + 6 * H, via: "note", scores: { edge: 5.2, pdebt: 7.4 } },
         ] },
 
       /* ready to build */
       { id: "sl1", stage: "ready", title: "export-csv S2",     ref: "docs/plans/export-csv.md § S2", age: 2 * D, who: "seb", scores: { edge: 8.1, pdebt: 8.0 } },
       { id: "sl2", stage: "ready", title: "export-csv S3",     ref: "docs/plans/export-csv.md § S3", age: 2 * D, who: "seb", scores: { edge: 7.6, pdebt: 8.0 } },
-      { id: "sl3", stage: "ready", title: "context-packs S4",  ref: "docs/plans/context-packs.md § S4", age: 8 * D, who: "seb", scores: { edge: 8.4, pdebt: 6.2 } },
+      /* abandoned: its PR was closed without a merge, so it is back here */
+      { id: "sl3", stage: "ready", title: "context-packs S4",  ref: "docs/plans/context-packs.md § S4", age: 3 * D, who: "seb", scores: { edge: 8.4, pdebt: 6.2 },
+        trail: [
+          { stage: "roadmap", title: "Context packs for agents", ref: "docs/specs/context-packs.md", ago: 10 * D, via: "found" },
+          { stage: "planning", title: "Context packs for agents", ref: "docs PR #405 · docs/plans/context-packs.md", job: "plan-feature", who: "seb", hz: "orca", ago: 9 * D, via: "note", scores: { edge: 6.0, pdebt: 8.2 } },
+          { stage: "ready", ref: "docs/plans/context-packs.md § S4", job: "review-plan", who: "seb", hz: "codex", ago: 8 * D, via: "note", scores: { edge: 8.4, pdebt: 6.2 } },
+          { stage: "building", ref: "feat/context-packs-s4 · draft #403", job: "pull-work", who: "mo", hz: "claude-code", ago: 6 * D, via: "note", abandoned: true, note: "Closed without a merge 3 days ago." },
+          { stage: "ready", ref: "docs/plans/context-packs.md § S4", ago: 3 * D, via: "back", note: "Its only PR was closed, so nothing later hides it. It shows in Ready to build again." },
+        ] },
       { id: "sl4", stage: "ready", title: "context-packs S5",  ref: "docs/plans/context-packs.md § S5", age: 8 * D, who: "seb", scores: { edge: 6.9, pdebt: 5.8 } },
 
       /* building */
@@ -224,25 +251,51 @@ const FABS = [
       /* review: this is where it piles up */
       { id: "v1", stage: "review", title: "context-packs S2", ref: "feat/context-packs-s2 · #412", age: 1 * D + 2 * H, who: "seb", scores: { tdebt: 7.1, tests: 8.3 },
         trail: [
-          { stage: "intake", title: "Agents forget context between sessions", ref: "docs/roadmap/intake/2026-10-04-agent-context.md", job: "file-work", who: "kat", hz: "claude-code", ago: 12 * D, via: "run", scores: { clear: 8.0 } },
-          { stage: "roadmap", title: "Context packs for agents", ref: "docs/specs/context-packs.md", job: "prioritise", who: "seb", hz: "claude-code", ago: 10 * D, via: "run" },
-          { stage: "planning", title: "Context packs for agents", ref: "docs PR #405 · docs/plans/context-packs.md", job: "plan-feature", who: "seb", hz: "orca", ago: 9 * D, via: "run", scores: { edge: 6.0, pdebt: 8.2 } },
-          { stage: "ready", title: "context-packs S2", ref: "docs/plans/context-packs.md § S2", job: "review-plan", who: "seb", hz: "codex", ago: 8 * D, via: "run", scores: { edge: 8.4, pdebt: 8.2 }, note: "Approved by Jo (tech lead) after two edge cases were added" },
-          { stage: "building", ref: "feat/context-packs-s2 · draft #412", job: "pull-work", who: "seb", hz: "claude-code", ago: 2 * D, via: "branch" },
-          { stage: "review", ref: "feat/context-packs-s2 · #412", job: "build-slice", who: "seb", hz: "claude-code", ago: 1 * D + 2 * H, via: "run", scores: { tdebt: 7.1, tests: 8.3 } },
+          { stage: "intake", title: "Agents forget context between sessions", ref: "docs/roadmap/intake/2026-10-04-agent-context.md", job: "file-work", who: "kat", hz: "claude-code", ago: 12 * D, via: "note", scores: { clear: 8.0 } },
+          { stage: "roadmap", title: "Context packs for agents", ref: "docs/specs/context-packs.md", job: "prioritise", who: "seb", hz: "claude-code", ago: 10 * D, via: "note" },
+          { stage: "planning", title: "Context packs for agents", ref: "docs PR #405 · docs/plans/context-packs.md", job: "plan-feature", who: "seb", hz: "orca", ago: 9 * D, via: "note", scores: { edge: 6.0, pdebt: 8.2 },
+            alsoMade: ["m1", "b1", "sl3", "sl4"] },
+          { stage: "ready", title: "context-packs S2", ref: "docs/plans/context-packs.md § S2", job: "review-plan", who: "seb", hz: "codex", ago: 8 * D, via: "note", scores: { edge: 8.4, pdebt: 8.2 }, note: "Approved by Jo (tech lead) after two edge cases were added" },
+          { stage: "building", ref: "feat/context-packs-s2 · draft #412", job: "pull-work", who: "seb", hz: "claude-code", ago: 2 * D, via: "note" },
+          { stage: "review", ref: "feat/context-packs-s2 · #412", job: "build-slice", who: "seb", hz: "claude-code", ago: 1 * D + 2 * H, via: "same", scores: { tdebt: 7.1, tests: 8.3 } },
         ] },
-      { id: "v2", stage: "review", title: "onboarding-copy S1", ref: "feat/onboarding-copy-s1 · #414", age: 1 * D + 9 * H, who: "kat", scores: { tdebt: 9.0, tests: 6.2 } },
+      /* cold start: made before the fab, linked only by the work key */
+      { id: "v2", stage: "review", title: "onboarding-copy S1", ref: "feat/onboarding-copy-s1 · #414", age: 1 * D + 9 * H, who: "kat", scores: { tdebt: 9.0, tests: 6.2 },
+        trail: [
+          { stage: "ready", ref: "docs/plans/onboarding-copy.md § S1", ago: 4 * D, via: "found" },
+          { stage: "review", ref: "feat/onboarding-copy-s1 · #414", who: "kat", ago: 1 * D + 9 * H, via: "key", how: "The branch name matches the plan's name and slice", scores: { tdebt: 9.0, tests: 6.2 } },
+        ] },
+      /* built by hand; the PR names the intake note it fixes */
       { id: "v3", stage: "review", title: "billing-fix S1",     ref: "fix/billing-500 · #415",          age: 2 * D, who: "mo", scores: { tdebt: 4.4, tests: 3.8 },
         trail: [
-          { stage: "intake", title: "Billing page 500s on Firefox (first report)", ref: "Linear DF-212", ago: 3 * D, via: "found" },
-          { stage: "review", ref: "fix/billing-500 · #415", ago: 2 * D, via: "found", note: "Built by hand, outside fab. Found by the Needs review filter." },
+          { stage: "intake", title: "Billing page 500s on Firefox (first report)", ref: "docs/roadmap/intake/2026-10-14-billing-500.md", ago: 3 * D, via: "found" },
+          { stage: "review", ref: "fix/billing-500 · #415", who: "mo", ago: 2 * D, via: "link", how: "The PR body names the intake note", note: "Built by hand, outside fab.", scores: { tdebt: 4.4, tests: 3.8 } },
         ] },
-      { id: "v4", stage: "review", title: "search-ui S1",        ref: "feat/search-ui-s1 · #416", age: 3 * D, who: "kat", scores: { tdebt: 6.6, tests: 7.0 } },
-      { id: "v5", stage: "review", title: "export-csv S0",       ref: "feat/export-csv-s0 · #417", age: 3 * D + 5 * H, who: "seb", scores: { tdebt: 8.2, tests: 8.8 } },
+      /* fan-in: one PR builds slices of two plans, so both are hidden */
+      { id: "v4", stage: "review", title: "search-ui S1",        ref: "feat/search-ui-s1 · #416", age: 3 * D, who: "kat", scores: { tdebt: 6.6, tests: 7.0 },
+        trail: [
+          { stage: "ready", title: "search-ui S1", ref: "docs/plans/search-ui.md § S1", ago: 6 * D, via: "found", scores: { edge: 7.2, pdebt: 6.8 } },
+          { stage: "review", ref: "feat/search-ui-s1 · #416", who: "kat", ago: 3 * D, via: "link", how: "The PR body names both slices",
+            also: [{ stage: "ready", title: "search-index S2", ref: "docs/plans/search-index.md § S2", via: "link", scores: { edge: 4.6, pdebt: 7.9 } }],
+            scores: { tdebt: 6.6, tests: 7.0 } },
+        ] },
+      /* the PR edits the plan to set the slice to building */
+      { id: "v5", stage: "review", title: "export-csv S0",       ref: "feat/export-csv-s0 · #417", age: 3 * D + 5 * H, who: "seb", scores: { tdebt: 8.2, tests: 8.8 },
+        trail: [
+          { stage: "ready", ref: "docs/plans/export-csv.md § S0", ago: 5 * D, via: "found", scores: { edge: 7.9, pdebt: 8.3 } },
+          { stage: "review", ref: "feat/export-csv-s0 · #417", who: "seb", ago: 3 * D + 5 * H, via: "diff", how: "The PR sets § S0 to status: building in docs/plans/export-csv.md", scores: { tdebt: 8.2, tests: 8.8 } },
+        ] },
       { id: "v6", stage: "review", title: "audit-log spike",     ref: "spike/audit-log · #411", age: 5 * D, who: "jo" },
 
       /* ready to merge */
-      { id: "m1", stage: "merge", title: "context-packs S1", ref: "feat/context-packs-s1 · #409", age: 2 * H, who: "seb", scores: { tdebt: 8.0, tests: 9.1 } },
+      /* a person added the Fab-From trailer by hand */
+      { id: "m1", stage: "merge", title: "context-packs S1", ref: "feat/context-packs-s1 · #409", age: 2 * H, who: "seb", scores: { tdebt: 8.0, tests: 9.1 },
+        trail: [
+          { stage: "ready", ref: "docs/plans/context-packs.md § S1", ago: 8 * D, via: "found", scores: { edge: 7.7, pdebt: 8.2 } },
+          { stage: "building", ref: "feat/context-packs-s1 · draft #409", who: "seb", ago: 7 * D, via: "trailer", how: "Fab-From: docs/plans/context-packs.md § S1, in the first commit" },
+          { stage: "review", ref: "feat/context-packs-s1 · #409", job: "build-slice", who: "seb", hz: "claude-code", ago: 4 * D, via: "same", scores: { tdebt: 6.9, tests: 8.4 } },
+          { stage: "merge", ref: "feat/context-packs-s1 · #409", job: "review-slice", who: "kat", hz: "codex", ago: 2 * H, via: "note", scores: { tdebt: 8.0, tests: 9.1 } },
+        ] },
 
       /* shipped */
       { id: "x1", stage: "shipped", title: "plan template v2",   ref: "#401 merged", age: 6 * D, who: "seb" },
@@ -260,7 +313,7 @@ const FABS = [
     check: { ok: false, problem: "AGENTS.md fab block is out of date with .fab/. Run fab install." },
     stages: [
       { id: "intake",  title: "Intake",         kind: "issue", find: "linear team:INV", where: "state: triage", next: "prioritise", slow: 3 * D, scoredBy: ["clear"] },
-      { id: "roadmap", title: "Approved specs", kind: "spec",  find: "files docs/specs/*.md", where: "status: approved, no plan links it", next: "plan-feature", slow: 7 * D },
+      { id: "roadmap", title: "Approved specs", kind: "spec",  find: "files docs/specs/*.md", where: "status: approved", next: "plan-feature", slow: 7 * D },
       { id: "ready",   title: "Ready to build", kind: "slice", find: "slices in docs/plans/*.md", where: "status: ready", next: "build-slice", slow: 5 * D },
       { id: "review",  title: "Needs review",   kind: "pr",    find: "prs", where: "open, not approved", waitsFor: "code owner", slow: 1 * D, scoredBy: ["tdebt"] },
       { id: "shipped", title: "Shipped",        kind: "pr",    find: "prs", where: "merged in the last 7 days", done: true },

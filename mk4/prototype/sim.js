@@ -54,7 +54,12 @@ function advance(fab, a, j, s) {
   }
   const sc = scoreFor(fab, to);
   a.scores = { ...(a.scores || {}), ...sc };
-  a.trail.push({ stage: to.id, ref: a.ref, job: j.name, who: s.who, hz: s.harness, at: now(), via: s.run ? "run" : "branch",
+  /* a fab run writes a git note; a session started by hand is linked by name.
+     The earlier artifact stays in the trail, so history now hides it from
+     its old stage (see hiddenIn in core.js). A draft PR made ready is the
+     same PR. */
+  const via = s.run ? "note" : from.kind === "pr" && to.kind === "pr" ? "same" : "key";
+  a.trail.push({ stage: to.id, ref: a.ref, job: j.name, who: s.who, hz: s.harness, at: now(), via,
     scores: Object.keys(sc).length ? sc : undefined });
 }
 
@@ -65,7 +70,7 @@ function makeArt(fab, j, s) {
     ref: to.kind === "issue" ? `INV-20${42 + fab.artifacts.length}` : `docs/roadmap/intake/2026-10-17-${slug(s.label)}.md`,
   };
   a.scores = scoreFor(fab, to);
-  a.trail = [{ stage: to.id, ref: a.ref, job: j.name, who: s.who, hz: s.harness, at: now(), via: "run", scores: a.scores }];
+  a.trail = [{ stage: to.id, ref: a.ref, job: j.name, who: s.who, hz: s.harness, at: now(), via: "note", scores: a.scores }];
   fab.artifacts.push(a);
   return a;
 }

@@ -92,6 +92,7 @@ const state = {
   picker: false,
   sheet: null,             // { kind: "start" | "job" | "art" | "session" | "settings", ... }
   expanded: new Set(["dragonfly:review"]), // "fabId:stage" rows opened to list their artifacts
+  hidOpen: new Set(),      // "fabId:stage" rows whose hidden (moved on) artifacts are listed
   flash: null,             // session id to flash once
   bump: null,              // artifact id to bump once
   settings: { harness: "claude-code", terminal: "Ghostty", notify: true, login: true, theme: "system", team: true },
@@ -115,6 +116,34 @@ const RANK = { waits: 0, starting: 1, working: 2, idle: 3, unknown: 4 };
 const byRank = (a, b) => (a.who === ME ? 0 : 1) - (b.who === ME ? 0 : 1) || RANK[a.state] - RANK[b.state] || b.startedAt - a.startedAt;
 
 const artsIn = (fab, st) => fab.artifacts.filter((a) => a.stage === st).sort((a, b) => a.since - b.since);
+
+/* What a stage's filter also finds, but history hides: earlier artifacts of
+   work that has moved on. Only sources where an old artifact keeps matching
+   need it (an open note, an approved spec, a ready slice on main). A PR that
+   moves from draft to ready no longer matches its old stage by itself.
+   Done work still hides (a shipped PR's plan does not come back); an
+   abandoned PR hides nothing, so its slice shows again. Each entry lists
+   every later artifact that hides it: fan-out and fan-in. */
+const HIDES = new Set(["note", "line", "spec", "slice", "issue"]);
+function hiddenIn(fab, stId) {
+  if (!HIDES.has(stageOf(fab, stId).kind)) return [];
+  const out = new Map();
+  for (const a of fab.artifacts) {
+    const steps = (a.trail || []).flatMap((t) => [t, ...(t.also || [])]);
+    for (const t of steps) {
+      if (t.stage !== stId || t.abandoned || !t.ref || t.ref === a.ref) continue;
+      const h = out.get(t.ref) || { ref: t.ref, title: t.title || refTitle(t.ref) || a.title, by: [] };
+      if (!h.by.includes(a)) h.by.push(a);
+      out.set(t.ref, h);
+    }
+  }
+  return [...out.values()];
+}
+/* "docs/plans/export-csv.md § S0" → "export-csv S0" */
+function refTitle(ref) {
+  const m = ref.match(/([\w-]+)\.md(?: § (\S+))?$/);
+  return m ? `${m[1]}${m[2] ? " " + m[2] : ""}` : null;
+}
 const agentsOn = (fab, a) => live(fab.id).filter((s) => s.art === a.id).sort(byRank);
 const makingIn = (fab, st) => live(fab.id).filter((s) => s.makes === st && !s.art);
 const looseIn = (fab) => live(fab.id).filter((s) => !s.art && !s.makes);

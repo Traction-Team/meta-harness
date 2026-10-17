@@ -61,7 +61,7 @@ So Mark IV puts its effort into four things that the Dragonfly factory showed ar
 
 - **It does not run the work.** There is no dispatch, no queue, and no automatic start of the next job. An agent that finishes a job says what comes next. A person or the agent starts it.
 - **It does not host agents.** Sessions run in the harness you already use. The monitor starts them there and reads their state there.
-- **It does not own the work's state.** A stage reads where work is from the files, branches, PRs and tickets. Metafab never writes "this is in review". If the PR is ready and not approved, it is in review.
+- **It does not own the work's state.** A stage reads where work is from the files, branches, PRs and tickets. Metafab never writes "this is in review". If the PR is ready and not approved, it is in review. The git notes that fab writes say which run made which artifact. They link history. They never say where work is.
 - **It does not type the flow strictly.** Inputs are questions for people and for the monitor's forms. They are not types that Metafab enforces.
 - **It does not rewind.** History is linked where it can be (see [History](#history)). Git is the record.
 - **It does not share across machines.** The monitor shows this machine's agents. Teammates' agents, and shared scores, need a sync that Mark IV does not have.
@@ -100,7 +100,7 @@ stages:
     title: Approved specs
     kind: spec
     find: files docs/specs/*.md
-    where: "status: approved, no plan links it"
+    where: "status: approved"
     next: plan-feature
     slow-after: 7d
   - id: ready
@@ -134,6 +134,7 @@ stages:
 - **`slow-after`** is how long an artifact may wait before the monitor marks the stage as slow. It is how bottlenecks show.
 - **`scored-by`** lists the scorers that run on artifacts when they enter the stage.
 - **`done: true`** marks an end stage. The monitor shows it dimmed, and limits it to a time window in `where`.
+- **No exclusion clauses.** A stage says what it holds. It does not say "and no later artifact exists". History hides an artifact that has moved on (see [History](#history)).
 
 `fab check` warns when two stages can match the same artifact. Usually that is a mistake (a PR is a draft or it is ready). See the open questions.
 
@@ -211,16 +212,63 @@ Score 0–10. Give one line for the score and one line for the biggest gap.
 
 ### History
 
-Because stages are filters, an artifact does not need an ID from fab. History is linked after the fact, from what fab can see:
+One piece of work is many artifacts. A plan is a file in `docs/plans/`. Then a branch is opened for it. Then a PR is opened for the branch. Then the PR is merged into main. Each is a different thing, found by a different stage's filter. An artifact's **history** links them into one journey.
 
-| Link | How |
-| --- | --- |
-| **Run record** | The run that moved the artifact names what it worked `on` and what it wrote. That joins the two |
-| **Branch name** | A draft PR and the ready PR on the same branch are the same work |
-| **A link in the file** | A plan that names its spec, or a slice heading in a plan |
-| **Found** | The stage filter found it, and nothing links it further back. It was made outside fab |
+History has two uses:
 
-The monitor's artifact sheet shows this trail, newest first, with the job, harness, person and scores at each step. It reads like a run trace in LangSmith, but for the work, not for one agent. A trail can stop early. That is expected for work that started before the fab.
+1. **See the whole journey.** Open a merged PR and see the branch, the plan and the spec it came from, with the job, person and scores at each step.
+2. **Show each piece of work once.** A plan that has an open PR is not waiting in *Ready to build*. It moved on. The stage must not show it.
+
+#### Each piece of work shows once
+
+**An artifact is hidden from its stage when it has a later artifact in its history.** The work shows only at its newest artifact. The Pipeline tab draws one cube for it, in the furthest stage it has reached.
+
+This rule replaces exclusion clauses in `where`. A stage does not say "no plan links it". It says what it holds, and history removes what moved on.
+
+- **Fan-out.** One plan can make three slices, and each slice a PR. The plan is hidden as soon as one child is in a later stage. Each child then moves on its own. The plan's history shows all of its children.
+- **Fan-in.** One PR can build two plans, or a plan can merge two intake notes. Every parent is hidden. History is a graph, not a line, and the artifact sheet draws it that way.
+- **Abandoned work comes back.** A later artifact counts unless its source says it was abandoned: a PR closed without a merge, a branch deleted without a merge, a file deleted. If the only PR for a plan is closed, the plan shows again in its own stage.
+- **Done work stays done.** A merged PR leaves the *Shipped* stage after its time window. It still counts as a later artifact, so its plan does not come back.
+
+#### How artifacts are linked
+
+Because stages are filters, an artifact does not need an ID from fab. fab links artifacts from what it can see in the repository. There is no database in the repository, and no person approves links. fab does its best, and shows how it made each link.
+
+| Link | How | Who writes it |
+| --- | --- | --- |
+| **Git note** | A note in `refs/notes/fab` on the commit a job made. It names the job, the run, the artifact the job was `on`, and the artifact it wrote | `fab` at the end of every job run |
+| **Commit trailer** | `Fab-From: docs/plans/context-packs.md` in a commit message | Jobs, by their template. People can add it too |
+| **A link in the artifact** | A PR body that names its plan, a plan that names its spec in frontmatter, a slice heading in a plan, a PR that closes an issue | Templates, and people out of habit |
+| **The PR changes it** | The PR's diff edits the plan file, for example to set `status: building` | Jobs that move a plan forward on its branch |
+| **Work key** | Names that match: `docs/plans/context-packs.md` → `feat/context-packs-s2` → the PR from that branch → its merge | Naming rules, and `worktree: new` |
+| **Found** | The stage filter found it, and nothing links it further back. It was made outside fab | Nobody |
+
+Rules:
+
+- **Links point back.** The newer artifact names the older one. The older one is often done, merged or owned by someone else. The newer one is being made now, by a job fab installed.
+- **Stronger links win.** If an artifact has a git note or a trailer, fab uses that and does not guess from names for that artifact. The work key is for work that fab did not make.
+- **The work key** is the file name of a plan or spec, without its folder and extension. fab takes a branch's key by removing its prefix (`feat/`, `fix/`) and a slice suffix (`-s2` goes to `§ S2` of the plan). `fab.yaml` can change these rules under `history:`.
+- **A wrong link is fixed, not approved.** `fab link <newer> <older>` adds a link and `fab link --remove` takes one away. Each writes a git note, so the fix is shared. Nobody has to confirm the links fab finds.
+
+#### Cold start, then git notes
+
+On the first `fab install` in a repository with history, fab has no notes. It links what it can from trailers, links in artifacts, PR diffs and the work key. In most repositories that is enough, because people already name branches after the plan and say in the PR what it builds. What does not link is **Found**, and shows in its own stage. Its history stops there. That is expected for work that started before the fab.
+
+From then on, every job run writes a git note. The note is metadata about the repository, kept in Git, but outside every branch:
+
+- It is not a file, so it adds nothing to the tree, to diffs or to PRs.
+- `fab install` sets the remote's fetch and push refspecs for `refs/notes/fab`, so notes go to every teammate on push and pull. It also sets `notes.rewriteRef`, so a rebase or an amend keeps them.
+- A note names artifacts by their reference (a path, a branch, `#412`), not only by commit. A squash merge drops the branch's commits from main, but the note still says what the run was on and what it made.
+
+So the history gets better as a team uses fab, with no extra step for anyone, and the cold start still works for a repository that never had it.
+
+#### Scores in history
+
+Scores belong to one artifact in one stage. A plan has its *edge cases* score in *WIP plans*. The PR that comes from it has its own *tech debt* and *tests* scores in *Needs review*. fab does not add them up across a history.
+
+The artifact sheet shows each step's scores in the history. So, for a PR that had many problems, you can look back and see what its plan scored. Over time, this shows which early scores predict later problems, and so which scorer or job to fix.
+
+The monitor's artifact sheet shows the history newest first, with the job, harness, person, scores and kind of link at each step. It reads like a run trace in LangSmith, but for the work, not for one agent.
 
 ### Decisions
 
@@ -264,6 +312,8 @@ Jobs never name a harness. They say "open a worktree session for this slice". Th
   scripts/                 optional project scripts that jobs call, such as next.mjs
 ```
 
+One more thing is in the repository but not in the folder: the git notes in `refs/notes/fab` that link history (see [History](#history)). They are not files and are not in any branch.
+
 A fab is a normal folder in the repository. It is reviewed in PRs, it has a Git history, and a change to the fab is a commit. **To share a factory, share this folder.** A template is a `.fab/` folder without the project's own skills and rules. `fab init --template` copies it in. The stage filters then find whatever the new repository already has. The person who installs it can change any part of it from then on.
 
 ## Install
@@ -276,6 +326,7 @@ A fab is a normal folder in the repository. It is reviewed in PRs, it has a Git 
 | `.fab/AGENTS.md`, plus a jobs table, the stages, the decisions, and a short map | Root `AGENTS.md`, between `<!-- fab:start -->` and `<!-- fab:end -->` markers. Text outside the markers stays the team's own | Yes |
 | Nothing | Root `CLAUDE.md` with `@AGENTS.md`, if it does not exist | Yes |
 | `.fab/runtimes/<harness>.md` | `.claude/rules/fab-runtime.md` for Claude Code, and `AGENTS.override.md` for Codex | No, these are local to each worktree |
+| Nothing | Git config: fetch and push refspecs for `refs/notes/fab`, and `notes.rewriteRef` | No, this is local Git config |
 
 By default the install is committed, because the point is that the whole team has the same factory. `fab install --local` makes every link local and git-excluded, so one person can try a fab without changing the repository for anyone else. The Dragonfly factory used only the local mode. See [`research/dragonfly-factory.md`](research/dragonfly-factory.md) for why the default changed.
 
@@ -287,7 +338,7 @@ The `fab` CLI is for people and for agents. Every command has `--json`, and ever
 
 - **Define:** `fab init`, `fab create stage|job|scorer|skill|rule|decision`, `fab list`, `fab show`, `fab map`.
 - **Install:** `fab install`, `fab check`, `fab doctor`.
-- **Work:** `fab work` runs the stage filters and lists what each stage holds. `fab history <ref>` prints an artifact's trail.
+- **Work:** `fab work` runs the stage filters, hides what has moved on, and lists what each stage holds. `fab history <ref>` prints an artifact's history. `fab link` fixes a wrong link.
 - **Run:** `fab run <job> [--on <ref>]` asks the job's inputs and starts a session in the chosen harness. `fab score <scorer> --on <ref>` scores one artifact.
 - **Watch:** `fab status` lists the sessions that run in this fab on this machine, the job each one runs, and the artifact it is on.
 
@@ -318,7 +369,9 @@ The parts of Mark IV are the parts a runner needs first: a fab in Git, stages th
 - **Are stages always separate?** *Building* and *Needs review* both filter PRs, and only draft or ready splits them. Some fabs will want one artifact in two stages. `fab check` warns for now.
 - **"Being worked" is not a stage.** While a job runs on an artifact, the artifact stays in its `from` stage until the job's output lands. The cube turns green. Is that clear enough?
 - **Score a run, or an artifact?** Scores belong to an artifact in a stage. A job could also be scored as a run (how well did *Plan feature* do, over its last 20 runs?). That is the number that says which job to fix.
-- **How far back can history go?** Run records, branch names and links in plans cover most of it. Work that changes shape (a spec that becomes three slices) needs the plan to name its spec.
+- **How good is the cold start?** Before there are git notes, history depends on trailers, links in artifacts, PR diffs and the work key. Test it on real repositories (Dragonfly first) and count how much is left as *Found*. A wrong link can hide work that has not moved on. `fab link --remove` fixes it, but only if someone sees it.
+- **Notes on hosts.** GitHub does not show git notes, and some CI clones do not fetch them. fab works without them, with weaker links. Confirm that pushing `refs/notes/fab` works with branch protection on the hosts teams use.
+- **Do scores predict?** History keeps each stage's scores, but fab does not compare them. A later view could show, for each scorer on an early stage, how its scores relate to the scores and problems of the work it led to.
 - **Filter cost.** `prs` and `linear` sources call an API. `fab work` caches them, and the monitor refreshes them less often than files.
 - **Team view.** Seeing teammates' agents and scores needs a sync between fab clients. The prototype previews it. Its design (a shared service, or records in Git) is open.
 - **A plain CLI needs a terminal window.** Orca and nodeterm host their own terminals. For plain Claude Code or Codex, the monitor opens a window in the person's terminal app. Cursor runs in its own window.
@@ -338,6 +391,6 @@ The parts of Mark IV are the parts a runner needs first: a fab in Git, stages th
 | Items exist only once Metafab makes them | Stages are filters. Work made before or outside fab shows in its stage |
 | Gates hold items until a person or agent decides | Decisions are written down, drawn on the stages, and followed by the jobs' text |
 | Scorers mark every output, and can gate | Scorers mark artifacts as they enter a stage. They inform. They do not gate |
-| Items move as balls with a full history and can rewind | History is linked from run records, branches and links in files. No rewind |
+| Items move as balls with a full history and can rewind | History links the different artifacts of one piece of work, from git notes, trailers, links in files and names. Each piece of work shows once, at its newest artifact. No rewind |
 | A large canvas app is the main view | A small monitor shows where the work is and starts jobs. The repo is the main view |
 | The value comes after the team moves its work into Metafab | The value comes on the first `fab install`, in the tools the team already uses |

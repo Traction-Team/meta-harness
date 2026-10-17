@@ -4,7 +4,7 @@ The CLI does all of the work in Mark IV. The monitor is a view over it. Agents u
 
 ## Principles
 
-- **Files are the truth.** The CLI reads and writes `.fab/` and the installed files. It keeps no hidden state in the repository. Where work is comes from the stage sources (files, Git, GitHub, Linear), never from a status fab writes. Machine state (run records, score records, the list of fabs) is in `~/.fab/`.
+- **Files are the truth.** The CLI reads and writes `.fab/` and the installed files. Where work is comes from the stage sources (files, Git, GitHub, Linear), never from a status fab writes. Machine state (run records, score records, the list of fabs) is in `~/.fab/`. The one thing fab adds to the repository outside `.fab/` is git notes in `refs/notes/fab`. They link history: which run made which artifact from which. They never hold where work is.
 - **Agents are first-class users.** Every command has `--json`. When stdin is not a terminal, no command waits for input. It fails with a JSON list of what is missing instead.
 - **Create, then edit.** `fab create` writes a correct scaffold and prints its path. The agent or person then edits the file directly. The CLI does not try to be an editor for job text.
 - **Exact problems.** `fab check` prints each problem with `file:line` and the fix, so an agent can correct it without a second guess.
@@ -43,8 +43,9 @@ The CLI does all of the work in Mark IV. The monitor is a view over it. Agents u
 
 | Command | Does |
 | --- | --- |
-| `fab work [<stage>] [--all] [--watch]` | Runs the stage filters. Lists each stage with its artifacts: title, reference, time in the stage, the agents on it, and its scores. `--watch --json` prints one JSON line for each change. The monitor reads this |
-| `fab history <ref>` | Prints an artifact's trail, newest first: each stage, the job and run that moved it, the scores it got, and how each step was linked |
+| `fab work [<stage>] [--all] [--watch] [--hidden]` | Runs the stage filters, then hides each artifact that has a later artifact in its history. Lists each stage with its artifacts: title, reference, time in the stage, the agents on it, and its scores. `--hidden` also lists the hidden ones, with the later artifact that hides each. `--watch --json` prints one JSON line for each change. The monitor reads this |
+| `fab history <ref>` | Prints an artifact's history, newest first: each artifact and its stage, the job and run that made it, the scores it got there, and the kind of link (note, trailer, link in artifact, PR diff, work key, found). Fan-out and fan-in print as a tree |
+| `fab link <newer> <older> [--remove]` | Adds a link that fab did not find, or removes a wrong one. Writes a git note, so the fix goes to the team on the next push |
 | `fab score <scorer> --on <ref> [--harness <h>] [--model <m>]` | Runs one scorer on one artifact and writes a score record. Jobs end with this for each scorer on their `to` stage |
 | `fab scores [<stage>] [--since 30d]` | Score records. With a stage, the average of each scorer there over time |
 
@@ -79,6 +80,26 @@ fab score tests --on "#412"
 ```
 
 The `fab-run:` line is how the monitor finds a session in a transcript when the harness gives no session ID at launch. The `On:` line is how history links the run to its artifact.
+
+Jobs whose output is a commit add a `Fab-From: <ref>` trailer to it, by their template. When the CLI sees the job's output land in the `to` stage, it writes a git note (see below).
+
+## History notes
+
+A history note is a git note in `refs/notes/fab`, on the commit that a job's output made. For output with no commit of its own (a PR opened on an existing branch, a Linear issue), the note goes on the head commit of the branch the session ran in.
+
+```
+fab-run: r_20261017_02d7e4
+job: build-slice
+on: docs/plans/context-packs.md § S2
+made: feat/context-packs-s2 · #412
+fab-commit: 4e1d9a2
+```
+
+- `on` and `made` name artifacts by reference, so the link still reads after a squash merge removes the branch's commits from main.
+- A note made by `fab link` has `link:` or `unlink:` lines in place of `fab-run` and `job`, and the name of the person.
+- More than one note on a commit is joined, one block after another.
+- `fab install` adds `+refs/notes/fab:refs/notes/fab` to the remote's fetch and push refspecs, and sets `notes.rewriteRef = refs/notes/fab`, so notes travel with push and pull and survive a rebase or an amend.
+- fab reads every note once and keeps an index in `~/.fab/`. Notes are small, so this is fast.
 
 ### Watch
 
@@ -118,7 +139,7 @@ A run record is written before the session starts, so a session is never started
 
 - `fabCommit` is the commit of `.fab/` when the run started. It shows which version of the job the session followed.
 - `on` is the artifact the job works on. A job that starts new work has none.
-- `output` is filled in when the CLI sees the job's result land in the `to` stage: the new reference, and the score record IDs. `on` and `output` together are one step of history.
+- `output` is filled in when the CLI sees the job's result land in the `to` stage: the new reference, and the score record IDs. `on` and `output` together are one step of history. At the same time the CLI writes the history note, so the step is shared with the team and not only kept on this machine.
 - `session.match` is `exact` when the harness gave the session ID at launch, `transcript` when the monitor found the `fab-run:` line, and `pending` until one of those happens.
 - If a launch fails after the record is written, the record says `state: failed` with the reason. It is never deleted.
 
@@ -140,6 +161,7 @@ A run record is written before the session starts, so a session is never started
 ```
 
 - `run` is the job run whose output was scored, so a low score points back to the job and the version of it that made the work.
+- A score belongs to one artifact in one stage. fab does not add scores up across a history. `fab history` shows each step's scores, so a PR's problems can be read next to its plan's scores.
 - A newer record for the same scorer, artifact and stage replaces the older one in `fab work`. `fab scores` keeps them all.
 
 ## The `fab` skill

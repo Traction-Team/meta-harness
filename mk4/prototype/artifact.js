@@ -1,11 +1,20 @@
 /* artifact.js: the artifact sheet (who is on it, how it scores, where it came
    from), the session sheet and settings. */
 
+/* How a step links to the step before it, strongest first. See the History
+   section of overview.md. A link by name only is a guess, and says so. */
 const VIA = {
-  run:    "linked by its run record",
-  branch: "linked by branch name",
-  link:   "linked: the plan names it",
+  note:    "Git note, from its fab run",
+  trailer: "Commit trailer",
+  link:    "Link in the artifact",
+  diff:    "The PR changes the earlier artifact",
+  key:     "Name match only, a guess",
+  same:    "The same pull request, made ready",
+  back:    "Back, because its later artifact was abandoned",
 };
+
+const scoresHtml = (fab, scores) => scores ? Object.entries(scores).map(([k, v]) =>
+  `<span class="sca" title="${esc(fab.scorers[k]?.ask)}">${scoreRing([v], { size: 12, sw: 2.2 })}${esc(fab.scorers[k]?.title || k)} <b class="sca-v">${v.toFixed(1)}</b></span>`).join("") : "";
 
 function trailHtml(fab, a) {
   const steps = [...(a.trail || [{ stage: a.stage, at: a.since, via: "found" }])].reverse();
@@ -13,18 +22,33 @@ function trailHtml(fab, a) {
     const st = stageOf(fab, t.stage);
     const j = t.job && jobOf(fab, t.job);
     const ref = t.ref || (i === 0 ? a.ref : "");
-    const sc = t.scores ? Object.entries(t.scores).map(([k, v]) => `<span class="sca" title="${esc(fab.scorers[k]?.ask)}">${scoreRing([v], { size: 12, sw: 2.2 })}${esc(fab.scorers[k]?.title || k)} <b class="sca-v">${v.toFixed(1)}</b></span>`).join("") : "";
-    return `<div class="tr-s ${i === 0 ? "cur" : ""} ${t.via}">
+    const sc = scoresHtml(fab, t.scores);
+    const run = j ? `<div class="tr-run">${hzIcon(t.hz)}<span class="lnk" data-act="job" data-fab="${fab.id}" data-j="${j.name}">${esc(j.title)}</span><span class="dim">by ${esc(whoName(t.who))}</span></div>`
+      : t.via === "found" ? `<div class="tr-run dim">Found by the stage filter. No fab run.</div>`
+      : t.who ? `<div class="tr-run dim">By ${esc(whoName(t.who))}, outside fab. No fab run.</div>` : "";
+    /* fan-in: the other parents of this step, each with its own scores */
+    const also = (t.also || []).map((p) => `<div class="tr-also">
+        <div class="tr-h"><span class="tr-fan">also from</span><b>${esc(p.title || refTitle(p.ref))}</b><span class="tr-at">${esc(stageOf(fab, p.stage)?.title || p.stage)}</span></div>
+        <div class="tr-ref mono">${esc(p.ref)}</div>
+        ${p.scores ? `<div class="tr-sc">${scoresHtml(fab, p.scores)}</div>` : ""}
+      </div>`).join("");
+    /* fan-out: what else the same step made, where each is now */
+    const kids = (t.alsoMade || []).map((id) => artOf(fab, id)).filter(Boolean);
+    const made = kids.length ? `<div class="tr-kids"><span class="tr-fan">also made</span>${kids.map((k) =>
+        `<span class="tr-kid lnk" data-act="art" data-fab="${fab.id}" data-a="${k.id}" title="${esc(k.ref)}">${esc(k.title)} <span class="dim">· ${esc(stageOf(fab, k.stage).title)}</span></span>`).join("")}</div>` : "";
+    const via = VIA[t.via] ? `<b>${VIA[t.via]}</b>${t.how ? ` · ${esc(t.how)}` : ""}` : "";
+    return `<div class="tr-s ${i === 0 ? "cur" : ""} v-${t.via} ${t.abandoned ? "gone" : ""}">
       <span class="tr-dot"></span>
       <div class="tr-m">
-        <div class="tr-h"><b>${esc(st?.title || t.stage)}</b><span class="tr-at">${ago(t.at)} ago</span></div>
+        <div class="tr-h"><b>${esc(st?.title || t.stage)}</b>${t.abandoned ? `<span class="tr-tag">abandoned</span>` : ""}<span class="tr-at">${ago(t.at)} ago</span></div>
         ${t.title && t.title !== a.title ? `<div class="tr-t">${esc(t.title)}</div>` : ""}
         ${ref ? `<div class="tr-ref mono">${esc(ref)}</div>` : ""}
-        ${j ? `<div class="tr-run">${hzIcon(t.hz)}<span class="lnk" data-act="job" data-fab="${fab.id}" data-j="${j.name}">${esc(j.title)}</span><span class="dim">by ${esc(whoName(t.who))}</span></div>`
-          : t.via === "found" ? `<div class="tr-run dim">Found by the stage filter. No fab run.</div>` : ""}
+        ${run}
         ${sc ? `<div class="tr-sc">${sc}</div>` : ""}
         ${t.note ? `<div class="tr-note">${esc(t.note)}</div>` : ""}
-        ${VIA[t.via] ? `<div class="tr-via">${VIA[t.via]}</div>` : ""}
+        ${made}
+        ${also}
+        ${via ? `<div class="tr-via">${via}</div>` : ""}
       </div>
     </div>`;
   }).join("")}</div>`;
@@ -72,7 +96,7 @@ function artSheet(sh) {
     ${agentsH}
     <div class="lbl">Scores</div>
     ${scoresH}
-    <div class="lbl">History <span class="lbl-s">newest first</span></div>
+    <div class="lbl">History <span class="lbl-s">newest first · each step keeps its own scores</span></div>
     ${trailHtml(fab, a)}`;
   const foot = `<button class="btn ghost" data-act="openref" data-fab="${fab.id}" data-a="${a.id}">Open</button><span class="sp"></span>
     ${nx ? `<button class="btn pri" data-act="start" data-fab="${fab.id}" data-j="${nx.name}" data-e="" data-a="${a.id}">${ICONS.play}${esc(nx.title)}</button>` : ""}`;
