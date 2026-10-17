@@ -25,6 +25,7 @@ function refFor(fab, to, a) {
   const branch = /^(feat|fix|spike)\//.test(a.ref) ? a.ref.split(" · ")[0] : `feat/${sl}`;
   switch (to.kind) {
     case "line":  return `docs/roadmap/roadmap.md:${artsIn(fab, to.id).length + 1}`;
+    case "spec":  return `docs/specs/${sl}.md`;
     case "plan":  return `docs PR #${nextPr++} · docs/plans/${sl}.md`;
     case "slice": return `docs/plans/${sl}.md § S1`;
     case "pr":

@@ -8,7 +8,7 @@ Mark III ([`../mk3/`](../mk3/)) is the full runner. Mark IV keeps its main idea,
 | --- | --- |
 | [`overview.md`](overview.md) | What Mark IV is, the parts of a fab (stages, jobs, scorers, history), the `.fab/` folder, install, and what changed from Mark III |
 | [`cli.md`](cli.md) | The `fab` commands, for people and agents, run and score records, and the `fab` skill |
-| [`monitor.md`](monitor.md) | The fab monitor: the Work and Jobs tabs, the sheets, how it reads the CLI, and the build order |
+| [`monitor.md`](monitor.md) | The fab monitor: the Pipeline and Jobs tabs, the sheets, the cubes and score rings, how it reads the CLI, and the build order |
 | [`prototype/`](prototype/) | A click-through of the monitor over fixtures: stage bars, artifacts with scores and history, starting jobs, a team preview |
 | [`research/agent-sessions.md`](research/agent-sessions.md) | How to find, read and start sessions in Claude Code, Codex, opencode, Orca and nodeterm |
 | [`research/dragonfly-factory.md`](research/dragonfly-factory.md) | What worked and what was hard in the Dragonfly `.factory/`, and how it converts to `.fab/` |
@@ -21,4 +21,4 @@ Mark III ([`../mk3/`](../mk3/)) is the full runner. Mark IV keeps its main idea,
 4. `fab status --json` with the Claude Code and Orca adapters.
 5. `fab score` and score records, with one scorer (*edge cases* on plans).
 6. A SwiftBar plugin over `fab work` and `fab status`, to test the view.
-7. The SwiftUI monitor: Work and Jobs.
+7. The SwiftUI monitor: Pipeline and Jobs.

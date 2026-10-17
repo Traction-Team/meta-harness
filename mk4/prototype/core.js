@@ -94,7 +94,6 @@ const state = {
   expanded: new Set(["dragonfly:review"]), // "fabId:stage" rows opened to list their artifacts
   flash: null,             // session id to flash once
   bump: null,              // artifact id to bump once
-  look: localStorage.getItem("mk4.look") || "cubes", // how an artifact is drawn: see LOOKS
   settings: { harness: "claude-code", terminal: "Ghostty", notify: true, login: true, theme: "system", team: true },
 };
 
@@ -175,52 +174,17 @@ function stageScores(fab, a) {
   return { vals: ks.map((k) => a.scores[k]), title: ks.map((k) => `${fab.scorers[k].title} ${a.scores[k].toFixed(1)}`).join(" · ") };
 }
 
-/* the isometric cube used for an artifact */
+/* the isometric cube drawn for each artifact */
 const CUBE_SVG = `<svg class="cu" viewBox="0 0 14 16"><path class="cu-t" d="M7 1.2 12.8 4.5 7 7.8 1.2 4.5z"/><path class="cu-l" d="M1.2 4.5 7 7.8v6.9l-5.8-3.3z"/><path class="cu-r" d="M12.8 4.5 7 7.8v6.9l5.8-3.3z"/></svg>`;
 
-/* LOOKS: the ways an artifact can be drawn in a stage bar, to compare */
-const LOOKS = [
-  { id: "squares", label: "Squares" },
-  { id: "cubes", label: "Cubes" },
-  { id: "cubes-agents", label: "Cubes + agents" },
-  { id: "rings", label: "Rings" },
-  { id: "rings-agents", label: "Rings + agents" },
-];
-
-/* the agent that best speaks for an artifact: one that waits, then one working */
-const leadAgent = (ags) =>
-  ags.find((s) => s.state === "waits") || ags.find((s) => s.state === "working" || s.state === "starting") || ags[0];
-
-/* one artifact glyph, in the current look. `small` is the expanded-list size. */
-function artGlyph(fab, a, small) {
-  const look = state.look;
-  const st = cubeState(fab, a);
+/* one artifact, as a cube. Its colour is the state of the agents on it;
+   a red mark under it is a low score. */
+function artGlyph(fab, a) {
   const w = worst(fab, a);
-  const lo = w != null && w < 5 ? "lo" : "";
-  const ags = agentsOn(fab, a);
-  if (look === "squares") return `<i class="cb ${st} ${lo}"></i>`;
-  if (look === "cubes" || look === "cubes-agents") {
-    if (look === "cubes-agents" && ags.length) return `<span class="ga-ag">${hzIcon(leadAgent(ags).harness, leadAgent(ags))}${ags.length > 1 ? `<b class="ga-n">${ags.length}</b>` : ""}</span>`;
-    return `<i class="ga-cube ${st} ${lo}">${CUBE_SVG}</i>`;
-  }
-  const sc = stageScores(fab, a);
-  const size = small ? 16 : 17;
-  if (look === "rings-agents" && ags.length) {
-    const s = leadAgent(ags);
-    return scoreRing(sc.vals, { size: small ? 18 : 20, sw: 2.2, cls: `ga-ring has-ag`, title: sc.title || "Not scored", inner: hzIcon(s.harness, s) });
-  }
-  return scoreRing(sc.vals, { size, cls: `ga-ring ${st ? "s-" + st : ""}`, title: sc.title || "Not scored", inner: `<i class="ga-dot"></i>` });
+  return `<i class="ga-cube ${cubeState(fab, a)} ${w != null && w < 5 ? "lo" : ""}">${CUBE_SVG}</i>`;
 }
-/* an artifact still being made, in the current look */
-function makingGlyph(s, small) {
-  const look = state.look;
-  const wt = s.state === "waits" ? "wait" : "";
-  if (look === "squares") return `<i class="cb make ${wt}"></i>`;
-  if (look === "cubes") return `<i class="ga-cube make ${wt}">${CUBE_SVG}</i>`;
-  if (look === "cubes-agents") return `<span class="ga-ag making">${hzIcon(s.harness, s)}</span>`;
-  if (look === "rings-agents") return scoreRing([], { size: small ? 18 : 20, sw: 2.2, cls: "ga-ring make has-ag", title: `Being made: ${s.label}`, inner: hzIcon(s.harness, s) });
-  return scoreRing([], { size: small ? 16 : 17, cls: `ga-ring make ${wt}`, title: `Being made: ${s.label}` });
-}
+/* an artifact still being made: a dashed wireframe cube */
+const makingGlyph = (s) => `<i class="ga-cube make ${s.state === "waits" ? "wait" : ""}">${CUBE_SVG}</i>`;
 
 /* a cube's state is the state of the agents on its artifact */
 function cubeState(fab, a) {

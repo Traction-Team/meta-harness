@@ -1,4 +1,4 @@
-/* work.css: iteration 2. The Pipeline tab (stages as bars of cubes), the Jobs
+/* work.css: the Pipeline tab (stages as bars of cubes), the Jobs
    tab additions, scores, the artifact history, and teammate badges. */
 
 /* ── harness tiles: Cursor, and a teammate's initial ── */
@@ -41,20 +41,8 @@
 .st-n { width: 18px; flex: none; text-align: right; margin-right: 5px; font-size: 12px; font-weight: 600; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .st.slow .st-n { color: var(--amber); }
 
-/* the cube: one artifact. Colour is the state of the agents on it. */
-.cb { position: relative; width: 11px; height: 14px; border-radius: 3px; flex: none; display: inline-block;
-  background: var(--fill-3); box-shadow: inset 0 0 0 .5px var(--line); transition: transform .12s; }
-.st-bar .cb:hover { transform: scale(1.25); z-index: 1; }
-.cb.run  { background: var(--green); box-shadow: inset 0 .5px 0 rgba(255,255,255,.3); }
-.cb.idle { background: color-mix(in srgb, var(--green) 35%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--green) 70%, transparent); }
-.cb.wait { background: var(--amber); box-shadow: inset 0 .5px 0 rgba(255,255,255,.3); }
-.cb.make { background: transparent; box-shadow: none; outline: 1.2px dashed var(--text-3); outline-offset: -1.2px; animation: breathe 1.6s ease-in-out infinite; }
-.cb.make.wait { outline-color: var(--amber); }
-.cb.lo::after { content: ""; position: absolute; left: 2px; right: 2px; bottom: -4px; height: 2px; border-radius: 1px; background: var(--red); }
-.cb.bump { animation: cubein .7s cubic-bezier(.32,.72,0,1); }
 @keyframes cubein { 0% { transform: translateY(-8px) scale(.4); opacity: 0; } 60% { transform: scale(1.35); } }
-.cb-more { font-size: 10.5px; color: var(--text-3); margin-left: 2px; font-variant-numeric: tabular-nums; }
-.st.done .cb { opacity: .55; }
+.gl-more { font-size: 10.5px; color: var(--text-3); margin-left: 2px; font-variant-numeric: tabular-nums; }
 
 .st-go { width: 22px; height: 22px; border-radius: 50%; flex: none; display: grid; place-items: center; color: var(--text-2);
   background: var(--control); box-shadow: var(--control-shadow); }
@@ -88,20 +76,12 @@
 .it:hover { background: var(--hover); }
 .it.flash { animation: flash 1.6s ease; }
 .it.bump { animation: flash 1.6s ease; }
-.it .cb { width: 8px; height: 11px; border-radius: 2px; }
-.it .cb.lo::after { bottom: -3px; height: 1.5px; }
 .it-t { flex: 1; min-width: 0; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .it.making .it-t { color: var(--text-2); font-style: italic; }
 .it .ags { gap: 3px; }
 .it .ags .hzi { width: 16px; height: 16px; border-radius: 4px; }
 .it-age { flex: none; width: 30px; text-align: right; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .it.making .it-age { width: auto; }
-
-/* the key, quiet, at the end */
-.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 14px 8px 4px; font-size: 10.5px; color: var(--text-3); }
-.legend span { display: inline-flex; align-items: center; gap: 5px; }
-.legend .cb { width: 8px; height: 10px; border-radius: 2px; }
-.legend .cb.lo::after { bottom: -3px; height: 1.5px; }
 
 /* ── scores ── */
 .sc { display: inline-block; min-width: 26px; padding: 0 4px; border-radius: 4px; text-align: center; flex: none;
@@ -169,7 +149,7 @@
 /* footer */
 .pn-foot .pv { font-size: 10px; padding: 0 4px; border-radius: 3px; background: var(--fill-2); color: var(--text-3); }
 
-/* ══ iteration 3: artifact looks and the score ring ══════════════════ */
+/* ══ iteration 3: cubes and the score ring ══════════════════════════ */
 
 /* ── the score ring: a round bar chart. Track, then the stacked fill ── */
 .sr { position: relative; width: var(--sz); height: var(--sz); flex: none; display: inline-grid; place-items: center; }
@@ -191,8 +171,7 @@
 /* a glyph slot in the bar: hover lifts it */
 .gl { position: relative; flex: none; display: inline-grid; place-items: center; transition: transform .12s; }
 .st-bar .gl:hover { transform: translateY(-1px) scale(1.18); z-index: 1; }
-.st-bar:has(.ga-cube) { gap: 2px; }
-.st-bar:has(.ga-ring) { gap: 4px; }
+.st-bar { gap: 2px; }
 .gl.bump { animation: cubein .7s cubic-bezier(.32,.72,0,1); }
 .st.done .gl { opacity: .5; filter: grayscale(.6); }
 
@@ -214,36 +193,3 @@
 .ga-cube.lo::after { content: ""; position: absolute; left: 3px; right: 3px; bottom: -4px; height: 2px; border-radius: 1px; background: var(--red); }
 .it .ga-cube { width: 11px; height: 13px; }
 .it .ga-cube.lo::after { bottom: -3px; height: 1.5px; }
-
-/* ── cubes + agents: an artifact with an agent on it is drawn as the agent ── */
-.ga-ag { position: relative; display: inline-grid; }
-.ga-ag .hzi { width: 15px; height: 15px; border-radius: 4px; }
-.ga-ag.making .hzi { opacity: .55; outline: 1.2px dashed var(--text-3); outline-offset: 1px; animation: breathe 1.6s ease-in-out infinite; }
-.ga-n { position: absolute; left: -3px; top: -4px; min-width: 9px; height: 9px; padding: 0 1.5px; border-radius: 5px;
-  font: 700 6.5px/9px -apple-system, system-ui, sans-serif; color: var(--text); text-align: center;
-  background: var(--menu); box-shadow: 0 0 0 .5px var(--line); }
-.it .ga-ag .hzi { width: 13px; height: 13px; }
-
-/* ── rings: the artifact IS its score ring; the dot inside is the agent state ── */
-.ga-ring .ga-dot { width: 5px; height: 5px; border-radius: 50%; background: transparent; }
-.ga-ring.s-run  .ga-dot { background: var(--green); animation: breathe 1.4s ease-in-out infinite; }
-.ga-ring.s-idle .ga-dot { background: color-mix(in srgb, var(--green) 45%, transparent); }
-.ga-ring.s-wait .ga-dot { background: var(--amber); width: 6px; height: 6px; }
-.ga-ring.make .sr-t { stroke: var(--text-3); stroke-dasharray: 2 1.6; animation: spin 6s linear infinite; transform-origin: center; }
-.ga-ring.make.wait .sr-t { stroke: var(--amber); }
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* rings + agents: the agent tile sits inside the ring */
-.ga-ring.has-ag .hzi { width: 12px; height: 12px; border-radius: 3.5px; position: relative; }
-.ga-ring.has-ag .hzi .who { width: 9px; height: 9px; font-size: 6px; line-height: 9px; right: -5px; bottom: -5px; }
-.ga-ring.has-ag .hzi.st-waits::after { width: 5px; height: 5px; right: -3px; top: -3px; }
-.ga-ring.make.has-ag .hzi { opacity: .6; }
-
-/* ── the look switcher (scenery, not product) ── */
-.look-sw { position: absolute; z-index: 70; left: 14px; bottom: 14px; display: flex; align-items: center; gap: 2px; padding: 4px;
-  border-radius: 10px; background: var(--menu); box-shadow: 0 6px 24px rgba(0,0,0,.18), 0 0 0 .5px var(--line); font-size: 11.5px; }
-.look-k { padding: 0 8px 0 6px; color: var(--text-3); }
-.look-k kbd { font: 600 10px ui-monospace, monospace; padding: 0 4px; border-radius: 3px; background: var(--fill-2); }
-.look-sw button { padding: 4px 9px; border-radius: 7px; color: var(--text-2); }
-.look-sw button:hover { background: var(--hover); }
-.look-sw button.on { color: var(--text); background: var(--control-on); font-weight: 600; }

@@ -10,8 +10,8 @@ Mark IV is not a runner. Your agents already run the work, in the harness you al
 
 1. **Describes the factory.** The `.fab/` folder in the repository says how work moves in this project: the **stages** work passes through, the **jobs** that move it from one stage to the next, the **scorers** that judge it, and where people decide.
 2. **Installs it into every agent.** The `fab` CLI turns `.fab/` into the files that agents read: skills, `AGENTS.md`, `CLAUDE.md`, and the runtime notes for each harness. Every person on the team, and every agent, works from the same factory.
-3. **Shows where the work is.** The **fab monitor** is a small floating window or menu bar app. Its **Work** tab shows each stage as a bar, with one cube for each piece of work in it, so a pile-up is seen at once. Each piece of work shows the agents on it, its scores, and where it came from.
-4. **Starts jobs.** The monitor's **Jobs** tab, and the ▶ on each stage, start a job in the person's own harness. A person who does not write code presses a button and answers a question. The job runs with the team's instructions, not a one-off prompt.
+3. **Shows where the work is.** The **fab monitor** is a small floating window or menu bar app. Its **Pipeline** tab shows each stage as a bar, with one cube for each piece of work in it, so a pile-up is seen at once. Each piece of work shows the agents on it, its scores, and where it came from.
+4. **Starts jobs.** The monitor's **Jobs** tab, and the next job at the foot of each opened stage, start a job in the person's own harness. A person who does not write code presses a button and answers a question. The job runs with the team's instructions, not a one-off prompt.
 
 The evidence for this change is the factory in the Dragonfly repository (see [`research/dragonfly-factory.md`](research/dragonfly-factory.md)). It has no runner. It is steps written as skills, a table of them in `AGENTS.md`, and a few scripts. That was enough for agents to move work forward on their own, because each step was well defined. Two things were missing: you could not see the factory, and you had to know what to ask for.
 
@@ -22,7 +22,7 @@ Every team that builds with agents already has a factory. Usually it is in peopl
 Two cases show the gap:
 
 - **A small business, one builder.** A designer who can code a little builds the company's software in Cursor. He chats with the agent, one shot after another, and runs out of credits. He has no structure for planning, building and reviewing, so the results are uneven. With Metafab, he installs a fab that someone else wrote and shared. He then presses buttons: *Log bug*, *Plan feature*, *Build slice*, *Review slice*. Each one starts a well-defined job in Cursor. He gets the structure without having to design it, and he can change it later.
-- **A company with many developers.** Each developer uses agents in their own way. Nobody can say where the work is: all in planning, all waiting for review, all waiting to deploy. With one shared fab, every developer's work is in the same stages. The Work view shows where work piles up, and over time, where the factory is slow. The scores show whether the work is good. (Seeing other people's agents needs a sync between fab clients. That is out of scope for Mark IV. The prototype shows a preview.)
+- **A company with many developers.** Each developer uses agents in their own way. Nobody can say where the work is: all in planning, all waiting for review, all waiting to deploy. With one shared fab, every developer's work is in the same stages. The Pipeline tab shows where work piles up, and over time, where the factory is slow. The scores show whether the work is good. (Seeing other people's agents needs a sync between fab clients. That is out of scope for Mark IV. The prototype shows a preview.)
 
 Metafab makes the factory a file in the repository. Then:
 
@@ -36,10 +36,10 @@ The target experience:
 1. In a repository, run `fab init`, or `fab init --template <shared fab>`, or ask your agent to "set up a fab for this repo". The agent asks how the team works and writes the stages, jobs and scorers with `fab create` and normal file edits.
 2. Run `fab install`. The jobs become skills in every harness, and `AGENTS.md` gets a table of the jobs and a short map of the flow.
 3. Commit. Each teammate pulls and runs `fab install`, or a Git hook runs it.
-4. Open the monitor. The Work tab already shows the work the repository has: the open intake notes, the roadmap lines, the plans, the draft PRs, the PRs that wait for review. None of it had to be made by fab, because each stage is a filter.
-5. Press ▶ on *Needs review*. A review job starts in Claude Code (or Codex, Cursor, or an Orca worktree) on the oldest PR that nobody's agent is on.
+4. Open the monitor. The Pipeline tab already shows the work the repository has: the open intake notes, the approved specs, the plans, the draft PRs, the PRs that wait for review. None of it had to be made by fab, because each stage is a filter.
+5. Open *Needs review* and press ▶ *Review slice* at the foot of it. A review job starts in Claude Code (or Codex, Cursor, or an Orca worktree) on the oldest PR that nobody's agent is on.
 6. Developers keep working in their agents as before. They say "pull the next chunk" or "here is a bug Kat hit", and the jobs table in `AGENTS.md` sends the agent to the correct job.
-7. When a job ends, its output lands in the next stage, and that stage's scorers run. A low score shows as a red mark on the cube. Edit the job, not only the output. Run `fab install`, commit, and every agent has the fix.
+7. When a job ends, its output lands in the next stage, and that stage's scorers run. A low score shows as a red mark under the cube, and as a red score ring on the artifact. Edit the job, not only the output. Run `fab install`, commit, and every agent has the fix.
 
 ## The bet
 
@@ -71,7 +71,7 @@ So Mark IV puts its effort into four things that the Dragonfly factory showed ar
 | Part | What it is | Where it lives |
 | --- | --- | --- |
 | **Stage** | A place work waits, as a filter over things that already exist: files, lines in a file, slices in plans, branches, PRs, tickets. Names the job that moves work on | `fab.yaml`, `stages:` |
-| **Artifact** | One thing a stage's filter finds: an intake note, a roadmap line, a plan PR, a slice, a feature PR. Not declared. Found | Wherever it already is |
+| **Artifact** | One thing a stage's filter finds: an intake note, an approved spec, a plan PR, a slice, a feature PR. Not declared. Found | Wherever it already is |
 | **Job** | Work an agent can do. Moves work from one stage to the next, or starts new work. Instructions an agent follows. Installed as a skill. Mark III called these programs | `.fab/jobs/<name>/SKILL.md` |
 | **Scorer** | One question about the artifacts in a stage, answered 0–10 by an agent. Higher is always better | `.fab/scorers/<name>/SKILL.md` |
 | **Decision** | A point where a person decides: what is next, approve the plan, merge. Mark III called these gates | `fab.yaml`, `decisions:` |
@@ -96,6 +96,13 @@ stages:
     next: prioritise
     slow-after: 7d
     scored-by: [clear]
+  - id: specs
+    title: Approved specs
+    kind: spec
+    find: files docs/specs/*.md
+    where: "status: approved, no plan links it"
+    next: plan-feature
+    slow-after: 7d
   - id: ready
     title: Ready to build
     kind: slice
@@ -121,8 +128,8 @@ stages:
 ```
 
 - **Sources.** `find` names a source and a pattern. The first sources: `files <glob>` (frontmatter in `where`), `lines in <file>`, `slices in <glob>` (headings in plans), `branches <pattern>`, `prs <query>` (GitHub, through `gh`), and `linear <query>`. A source is a small adapter in the CLI, like a harness adapter.
-- **Order.** Stages are listed in flow order. That order is the Work view, top to bottom.
-- **`next`** names the job that moves work out of the stage. It is the ▶ on the stage in the monitor.
+- **Order.** Stages are listed in flow order. That order is the Pipeline tab, top to bottom.
+- **`next`** names the job that moves work out of the stage. In the monitor it is the ▶ row at the foot of the opened stage.
 - **`waits-for`** names who must act before work can leave the stage. It is drawn on the stage, and the job's text says to stop for them.
 - **`slow-after`** is how long an artifact may wait before the monitor marks the stage as slow. It is how bottlenecks show.
 - **`scored-by`** lists the scorers that run on artifacts when they enter the stage.
@@ -197,8 +204,8 @@ Score 0–10. Give one line for the score and one line for the biggest gap.
 ```
 
 - A scorer runs when an artifact enters a stage that lists it in `scored-by`. The job's run ends with `fab score <scorer> --on <ref>`, or the monitor runs it after it sees the job end. It is a short agent run, in the same harness or a cheaper model.
-- Scores are kept per artifact and per stage. A plan has an *edge cases* score in *Plan in review*. The slice that comes from it gets its own score in *Ready to build*. The history keeps both.
-- The monitor shows the worst score on each artifact, the average on each stage, and a red mark on any cube under 5.
+- Scores are kept per artifact and per stage. A plan has an *edge cases* score in *WIP plans*. The slice that comes from it gets its own score in *Ready to build*. The history keeps both.
+- The monitor draws scores as a **score ring**, a round bar chart. Each of the stage's scorers owns an equal share of the circle and fills it by its score. The fills are laid end to end, so the arc is the total. The ring is green at 7 or more, amber at 5 or more, and red under 5. A cube whose worst score is under 5 gets a red mark under it.
 - A scorer does not stop work. It is information for people and for the next job. A team that wants a gate makes a decision, and the job's text says to stop when a score is low.
 - Score records live on the machine that ran the scorer, in `~/.fab/scores/`. Sharing them needs the sync that Mark IV does not have.
 
@@ -210,7 +217,7 @@ Because stages are filters, an artifact does not need an ID from fab. History is
 | --- | --- |
 | **Run record** | The run that moved the artifact names what it worked `on` and what it wrote. That joins the two |
 | **Branch name** | A draft PR and the ready PR on the same branch are the same work |
-| **A link in the file** | A plan that names its roadmap line, or a slice heading in a plan |
+| **A link in the file** | A plan that names its spec, or a slice heading in a plan |
 | **Found** | The stage filter found it, and nothing links it further back. It was made outside fab |
 
 The monitor's artifact sheet shows this trail, newest first, with the job, harness, person and scores at each step. It reads like a run trace in LangSmith, but for the work, not for one agent. A trail can stop early. That is expected for work that started before the fab.
@@ -290,15 +297,15 @@ The `fab` CLI is for people and for agents. Every command has `--json`, and ever
 
 The fab monitor is a menu bar app with a panel that can float on top of other windows. It is a view over the CLI. It has no logic of its own. See [`monitor.md`](monitor.md).
 
-- **Work.** One row per stage, in flow order. Each row is a bar of cubes, one per artifact, coloured by the agents on it. Open a stage to see its artifacts, scores and filter. Open an artifact to see who has agents on it, its scores, and its history. ▶ on a stage runs its next job.
-- **Jobs.** Everything the fab can have an agent do. *Start something* (jobs with no `from`) and *Move work along* (each job as `from → to`, with how many artifacts wait for it).
+- **Pipeline.** One row per stage, in flow order. Each row is a bar of isometric cubes, one per artifact, coloured by the agents on it. Open a stage to see its filter, its artifacts with their agents and score rings, and, under a line, its next job as a ▶ row. Open an artifact to see who has agents on it, its scores, and its history.
+- **Jobs.** Everything the fab can have an agent do. *Start something* (jobs with no `from`) starts a job at once. *Move work along* lists each job as `from → to`, with how many artifacts wait for it. Click one to open its sheet and start it from there.
 
 ### How the monitor knows what runs where
 
 It reads what each harness already writes to disk. See [`research/agent-sessions.md`](research/agent-sessions.md).
 
 - **Sessions that the monitor or `fab run` started** are exact. `fab run` writes a run record before it starts the session: the fab, the job, the artifact it is on, the inputs, the harness and the session ID. It also puts the run ID in the session's name, its branch, and the first line of its prompt.
-- **Sessions a person started by hand** are a best guess. The folder gives the fab. The branch can give the artifact, because the stage filters know which branch a PR is on. The first prompt can name a job. A session with no match shows under "Not on any work". The monitor does not guess past what it can see.
+- **Sessions a person started by hand** are a best guess. The folder gives the fab. The branch can give the artifact, because the stage filters know which branch a PR is on. The first prompt can name a job. A session with no match is not shown on the Pipeline tab. The monitor does not guess past what it can see.
 
 ## Toward Mark III
 
@@ -311,7 +318,7 @@ The parts of Mark IV are the parts a runner needs first: a fab in Git, stages th
 - **Are stages always separate?** *Building* and *Needs review* both filter PRs, and only draft or ready splits them. Some fabs will want one artifact in two stages. `fab check` warns for now.
 - **"Being worked" is not a stage.** While a job runs on an artifact, the artifact stays in its `from` stage until the job's output lands. The cube turns green. Is that clear enough?
 - **Score a run, or an artifact?** Scores belong to an artifact in a stage. A job could also be scored as a run (how well did *Plan feature* do, over its last 20 runs?). That is the number that says which job to fix.
-- **How far back can history go?** Run records, branch names and links in plans cover most of it. Work that changes shape (a roadmap line that becomes three slices) needs the plan to name its line.
+- **How far back can history go?** Run records, branch names and links in plans cover most of it. Work that changes shape (a spec that becomes three slices) needs the plan to name its spec.
 - **Filter cost.** `prs` and `linear` sources call an API. `fab work` caches them, and the monitor refreshes them less often than files.
 - **Team view.** Seeing teammates' agents and scores needs a sync between fab clients. The prototype previews it. Its design (a shared service, or records in Git) is open.
 - **A plain CLI needs a terminal window.** Orca and nodeterm host their own terminals. For plain Claude Code or Codex, the monitor opens a window in the person's terminal app. Cursor runs in its own window.

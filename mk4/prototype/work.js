@@ -46,9 +46,9 @@ function stageHtml(fab, st) {
   const making = makingIn(fab, st.id);
   const open = state.expanded.has(`${fab.id}:${st.id}`);
   const slow = st.slow ? arts.filter((a) => now() - a.since > st.slow * 60000) : [];
-  const cap = { squares: 16, cubes: 14, "cubes-agents": 13, rings: 10, "rings-agents": 9 }[state.look] || 12;
+  const cap = 14;
   const cubes = [...making.map(pendingCube), ...arts.map((a) => cube(fab, a))];
-  const bar = cubes.slice(0, cap).join("") + (cubes.length > cap ? `<span class="cb-more">+${cubes.length - cap}</span>` : "");
+  const bar = cubes.slice(0, cap).join("") + (cubes.length > cap ? `<span class="gl-more">+${cubes.length - cap}</span>` : "");
   const sub = st.done ? "last 7 days"
     : slow.length ? `${slow.length} over ${dur(st.slow)}`
     : arts.length ? `oldest ${ago(arts[0].since)}` : making.length ? "being made" : "empty";
@@ -75,28 +75,20 @@ function stageDetail(fab, st, arts, making) {
   </div>`;
 }
 
-/* in the opened list the agents have their own column, so the glyph leaves them out */
-function listGlyph(fab, a) {
-  if (state.look === "cubes-agents") return `<i class="ga-cube ${(worst(fab, a) ?? 10) < 5 ? "lo" : ""}">${CUBE_SVG}</i>`;
-  if (state.look === "rings-agents") { const sc = stageScores(fab, a); return scoreRing(sc.vals, { size: 16, cls: "ga-ring", title: sc.title || "Not scored" }); }
-  return artGlyph(fab, a, true);
-}
-
 function itemHtml(fab, a) {
   const ags = agentsOn(fab, a);
   const sc = stageScores(fab, a);
-  const ringLook = state.look.startsWith("rings");
   return `<div class="it" data-act="art" data-fab="${fab.id}" data-a="${a.id}" title="${esc(a.ref)}">
-    <span class="gl">${listGlyph(fab, a)}</span>
+    <span class="gl">${artGlyph(fab, a)}</span>
     <span class="it-t">${esc(a.title)}</span>
     ${ags.length ? agentStack(ags, 4) : ""}
-    ${sc.vals.length && !ringLook ? scoreRing(sc.vals, { size: 16, sw: 2.4, title: sc.title }) : ""}
+    ${sc.vals.length ? scoreRing(sc.vals, { size: 16, sw: 2.4, title: sc.title }) : ""}
     <span class="it-age" data-since="${a.since}">${ago(a.since)}</span>
   </div>`;
 }
 
 const makingItem = (s) => `<div class="it making" data-act="session" data-sid="${s.id}">
-    <span class="gl">${makingGlyph(s, true)}</span>
+    <span class="gl">${makingGlyph(s)}</span>
     <span class="it-t">${esc(s.label)}</span>
     ${agentStack([s])}
     <span class="it-age">being made</span>
@@ -121,9 +113,6 @@ function workHtml() {
   const team = onWork.filter((s) => s.who !== ME).length;
   let h = `<div class="wk-sum"><span><b>${inFlight}</b> in flight</span><span><b>${onWork.length}</b> agents on it${team ? ` · ${team} teammates'` : ""}</span></div>`;
   h += `<div class="stages">${fab.stages.map((st) => stageHtml(fab, st)).join("")}</div>`;
-  if (state.look === "squares") h += `<div class="legend">
-    <span><i class="cb"></i>waiting</span><span><i class="cb run"></i>agent on it</span>
-    <span><i class="cb wait"></i>needs a person</span><span><i class="cb lo"></i>low score</span><span><i class="cb make"></i>being made</span></div>`;
   return h;
 }
 

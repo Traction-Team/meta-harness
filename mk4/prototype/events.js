@@ -66,7 +66,6 @@ document.addEventListener("click", (ev) => {
   const onIcon = ev.target.closest("#fabIcon");
 
   if (onIcon) { state.open = !state.open; state.picker = false; render(); return; }
-  if (ev.target.closest(".look-sw")) { if (t?.dataset.act === "look") setLook(t.dataset.id); return; }
   if (!inPanel && !ev.target.closest(".note, .toast, .focusfx")) {
     if (state.open && !state.pinned) { state.open = false; state.picker = false; render(); }
     return;
@@ -77,7 +76,6 @@ document.addEventListener("click", (ev) => {
   const d = t.dataset;
 
   switch (d.act) {
-    case "look": setLook(d.id); break;
     case "picker": state.picker = !state.picker; renderHead(); break;
     case "fab":
       state.fab = d.id; state.picker = false;
@@ -158,7 +156,6 @@ document.addEventListener("keydown", (ev) => {
     return;
   }
   if (typing || ev.metaKey || ev.ctrlKey || ev.altKey) return;
-  if (ev.key === "v" || ev.key === "V") { const i = LOOKS.findIndex((l) => l.id === state.look); setLook(LOOKS[(i + (ev.key === "V" ? LOOKS.length - 1 : 1)) % LOOKS.length].id); return; }
   const tabs = { 1: "work", 2: "jobs" };
   if (tabs[ev.key] && state.open) { state.tab = tabs[ev.key]; closeSheet(); renderTabs(); renderBody(); }
 });
@@ -219,20 +216,3 @@ function toast(html, ms = 2600) {
   setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 320); }, ms);
 }
 
-/* ══════════════════════════════════════════════ the look switcher ══
-   Not part of the product: a chip on the desk to compare artifact looks.
-   `v` cycles forward, shift-V back. */
-function setLook(id) {
-  state.look = id;
-  localStorage.setItem("mk4.look", id);
-  renderLook();
-  renderBody();
-  if (state.sheet) renderSheet();
-}
-function renderLook() {
-  let el = document.getElementById("lookSw");
-  if (!el) { el = document.createElement("div"); el.id = "lookSw"; el.className = "look-sw"; document.getElementById("desk").appendChild(el); }
-  el.innerHTML = `<span class="look-k">Artifact look <kbd>v</kbd></span>${LOOKS.map((l) =>
-    `<button data-act="look" data-id="${l.id}" class="${l.id === state.look ? "on" : ""}">${l.label}</button>`).join("")}`;
-}
-renderLook();

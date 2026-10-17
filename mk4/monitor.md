@@ -5,7 +5,7 @@ The monitor is a small macOS app: an icon in the menu bar, and a panel that can 
 ## Who it is for
 
 - **A person who does not write code.** They open the monitor, click **Log bug** or **Plan feature**, answer a question, and a job starts correctly in their harness. They do not need to know job names or what to type to an agent.
-- **A builder working alone.** They see what is in each stage and press ▶ to move the next piece of work on. The fab gives them a process they did not have to design.
+- **A builder working alone.** They see what is in each stage, open it, and press ▶ on its next job to move the next piece of work on. The fab gives them a process they did not have to design.
 - **A developer with many sessions.** They see which agents run, which job each one follows, what artifact it is on, and which ones wait. One click takes them to the session.
 - **A lead.** They see where work piles up (everything waiting for review, nothing being planned) and which stages score low.
 - **A new team member.** The stages show how work moves in this project, and where it is now, before they read any file.
@@ -19,47 +19,49 @@ The monitor is a small macOS app: an icon in the menu bar, and a panel that can 
 
 The panel has two tabs.
 
-### Work
+### Pipeline
 
 One row per stage, in flow order, from `fab work --json`:
 
 ```
  26 in flight                         10 agents on it · 4 teammates'
 
- › Intake          8  ▢▢▢▢▢▢▢▢          ▶
-   oldest 6d
- › On the roadmap  3  ┆▢▢▢               ▶
- › Plan in review  1  ■                  ▶     (amber: waits for the tech lead)
- › Ready to build  4  ▢▢▢▢               ▶
+ › Intake            8  ⬚⬡⬡⬡⬡⬡⬡⬡⬡
+   oldest 6d             ‾   ‾                    (red marks: low scores)
+ › Approved specs    3  ⬚⬡⬡⬡
+ › WIP plans         1  ⬢                         (amber: waits for the tech lead)
+ › Ready to build    4  ⬡⬡⬡⬡
    2 over 5d
- › Building        3  ■■■                ▶
- › Needs review    6  ▢▢▢■▢■             ▶     ← the pile-up
+ › Building          3  ⬢⬢⬢
+ ⌄ Needs review      6  ⬡⬡⬡⬢⬡⬢                    ← the pile-up
    6 over 1d
- › Ready to merge  1  ▢                  ▶
- › Shipped         4  ▢▢▢▢                     (last 7 days, dimmed)
-
-   Not on any work                  1
-   ▣ "can you look at the flaky e2e…"   opencode   40m
+     ▽ prs head:feat/*  where  ready for review, not approved
+     ⬡ export-csv S0                         ◔  3d
+     ⬢ billing-fix S1                  ▣M    ◔  2d
+     ⬢ context-packs S2           ▣ ▣ ▣K     ◕  1d
+     ────────────────────────────────────────────
+     ▶ Review slice          then the code owner approves
+ › Ready to merge    1  ⬡
+ › Shipped           4  ⬡⬡⬡⬡                      (last 7 days, dimmed)
 ```
 
-- **A cube is one artifact.** Its colour is the state of the agents on it: grey, none; green, an agent works on it; pale green, its agents are idle; amber, an agent or the stage waits for a person. A dashed cube is being made by a job that has not finished. A red mark under a cube means a score under 5.
-- **The bar is the chart.** As cubes stack up, the rows read as a horizontal bar chart. You see where the work is before you read a word.
+- **A cube is one artifact.** Each one is drawn as a small isometric cube with three shaded faces. Its colour is the state of the agents on it: grey, none; green, an agent works on it; pale green, its agents are idle; amber, an agent or the stage waits for a person. A dashed wireframe cube is being made by a job that has not finished. A red mark under a cube means a score under 5. There is no key. Hover a cube to see its title, its time in the stage, its agents and its worst score.
+- **The bar is the chart.** As cubes stack up, the rows read as a horizontal bar chart. You see where the work is before you read a word. After 14 cubes the row shows "+N".
 - **The line under the title** says how long the oldest artifact has waited, or, in amber, how many are over the stage's `slow-after`.
-- **▶** runs the stage's `next` job. A job that takes one artifact opens the start sheet with the oldest unclaimed artifact selected. A job that reads the whole stage starts at once.
-- **Click a row** to open the stage:
-  - its filter (`prs head:feat/*` where `ready for review, not approved`), so it is clear the stage is a query, not a status;
-  - the average of each scorer;
-  - the next job, and who the stage waits for;
-  - each artifact: its cube, its title, its agents as harness icons, its worst score, and how long it has waited.
+- **Click a row** to open the stage. Opening a row does not move the rows around it.
+  - Its filter (`prs head:feat/*` where `ready for review, not approved`), so it is clear the stage is a query, not a status.
+  - Each artifact: its cube, its title, its agents as harness icons (with a teammate's initial on theirs), its score ring (below), and how long it has waited.
+  - Under a line, the stage's **next job** as a row: ▶ and the job's name (*Review slice*), and who must approve after it. Click it to run the job. A job that takes one artifact opens the start sheet with the oldest unclaimed artifact selected. A job that reads the whole stage starts at once. ⌥-click chooses the harness. A stage with no `next` job (*Shipped*) has no row.
 - **Click a cube or an artifact** to open the artifact sheet (below).
-- **Not on any work** lists this machine's sessions in the fab that fab cannot tie to an artifact or a job.
+
+**The score ring.** Scores show as a round bar chart, not as numbers in chips. Each of the stage's scorers owns an equal share of the circle and fills its share by its score (0–10). The fills are laid end to end with a small gap between them, so the length of the arc is the total. With one scorer, the ring is that score as a fraction of the circle. The ring has one colour, from the total: green at 7 or more, amber at 5 or more, red under 5. Hover it for each scorer's name and score.
 
 ### Jobs
 
 Everything the fab can have an agent do.
 
 - **Start something:** a button for each job with no `from`, one per entry (*Log bug*, *Log idea*, *Log feedback*). Click, answer, and it starts.
-- **Move work along:** each other job in stage order, as `from → to` (*Review slice: Needs review → Ready to merge*). Each shows how many artifacts wait in its `from` stage and the agents that run it now. ⓘ opens the job sheet.
+- **Move work along:** each other job in stage order, as `from → to` (*Review slice: Needs review → Ready to merge*). Each shows how many artifacts wait in its `from` stage and the agents that run it now. Click the row to open the job sheet; start the job from there.
 
 ## Sheets
 
@@ -78,7 +80,7 @@ A sheet slides over the panel. Back, or Esc, returns.
 
 - Its title, stage, time in the stage, and its reference (path, PR, branch or ticket). **Open** opens it.
 - **On it now:** the agents on it, grouped by person, each with the job it runs and its harness. Teammates' agents are marked as synced.
-- **Scores:** one bar per score. The current stage's scorers first; scores from earlier stages are dimmed.
+- **Scores:** a large score ring with the total in its centre, for the current stage's scorers. Under it, one row per scorer with a small ring and the number. The current stage's scorers first; scores from earlier stages are dimmed.
 - **History,** newest first: each stage it passed through, the job, harness and person that moved it, the scores it got there, and how the step was linked (run record, branch name, or found by the filter).
 - The footer button runs the stage's next job on this artifact.
 
