@@ -37,7 +37,7 @@ The target experience:
 2. Run `fab install`. The jobs become skills in every harness, and `AGENTS.md` gets a table of the jobs and a short map of the flow.
 3. Commit. Each teammate pulls and runs `fab install`, or a Git hook runs it.
 4. Open the monitor. The Pipeline tab already shows the work the repository has: the open intake notes, the approved specs, the plans, the draft PRs, the PRs that wait for review. None of it had to be made by fab, because each stage is a filter.
-5. Open *Needs review* and press ▶ *Review slice* at the foot of it. A review job starts in Claude Code (or Codex, Cursor, or an Orca worktree) on the oldest PR that nobody's agent is on.
+5. Open *Built branches* and press ▶ *Review slice* at the foot of it. A review job starts in Claude Code (or Codex, Cursor, or an Orca worktree) on the oldest PR that nobody's agent is on.
 6. Developers keep working in their agents as before. They say "pull the next chunk" or "here is a bug Kat hit", and the jobs table in `AGENTS.md` sends the agent to the correct job.
 7. When a job ends, its output lands in the next stage, and that stage's scorers run. A low score shows as a red mark under the cube, and as a red score ring on the artifact. Edit the job, not only the output. Run `fab install`, commit, and every agent has the fix.
 
@@ -89,7 +89,7 @@ A stage is a filter. It says where to look (`find`) and what must be true (`wher
 ```yaml
 stages:
   - id: intake
-    title: Intake
+    title: Open notes
     kind: note
     find: files docs/roadmap/intake/*.md
     where: "status: open"
@@ -104,26 +104,26 @@ stages:
     next: plan-feature
     slow-after: 7d
   - id: ready
-    title: Ready to build
+    title: Approved plans
     kind: slice
     find: slices in docs/plans/*.md
     where: "status: ready"
     next: pull-work
     scored-by: [edge-cases, product-debt]
   - id: review
-    title: Needs review
+    title: Built branches
     kind: pr
     find: prs head:feat/*
-    where: ready for review, not approved
+    where: ready for review, not merged
     next: review-slice
     waits-for: code owner
     slow-after: 1d
     scored-by: [tech-debt, tests]
   - id: shipped
-    title: Shipped
+    title: Landed branches
     kind: pr
     find: prs head:feat/*
-    where: merged in the last 7 days
+    where: landed in the last 7 days
     done: true
 ```
 
@@ -205,7 +205,7 @@ Score 0–10. Give one line for the score and one line for the biggest gap.
 ```
 
 - A scorer runs when an artifact enters a stage that lists it in `scored-by`. The job's run ends with `fab score <scorer> --on <ref>`, or the monitor runs it after it sees the job end. It is a short agent run, in the same harness or a cheaper model.
-- Scores are kept per artifact and per stage. A plan has an *edge cases* score in *WIP plans*. The slice that comes from it gets its own score in *Ready to build*. The history keeps both.
+- Scores are kept per artifact and per stage. A plan has an *edge cases* score in *WIP plans*. The slice that comes from it gets its own score in *Approved plans*. The history keeps both.
 - The monitor draws scores as a **score ring**, a round bar chart. Each of the stage's scorers owns an equal share of the circle and fills it by its score. The fills are laid end to end, so the arc is the total. The ring is green at 7 or more, amber at 5 or more, and red under 5. A cube whose worst score is under 5 gets a red mark under it.
 - A scorer does not stop work. It is information for people and for the next job. A team that wants a gate makes a decision, and the job's text says to stop when a score is low.
 - Score records live on the machine that ran the scorer, in `~/.fab/scores/`. Sharing them needs the sync that Mark IV does not have.
@@ -217,7 +217,7 @@ One piece of work is many artifacts. A plan is a file in `docs/plans/`. Then a b
 History has two uses:
 
 1. **See the whole journey.** Open a merged PR and see the branch, the plan and the spec it came from, with the job, person and scores at each step.
-2. **Show each piece of work once.** A plan that has an open PR is not waiting in *Ready to build*. It moved on. The stage must not show it.
+2. **Show each piece of work once.** A plan that has an open PR is not waiting in *Approved plans*. It moved on. The stage must not show it.
 
 #### Each piece of work shows once
 
@@ -228,7 +228,7 @@ This rule replaces exclusion clauses in `where`. A stage does not say "no plan l
 - **Fan-out.** One plan can make three slices, and each slice a PR. The plan is hidden as soon as one child is in a later stage. Each child then moves on its own. The plan's history shows all of its children.
 - **Fan-in.** One PR can build two plans, or a plan can merge two intake notes. Every parent is hidden. History is a graph, not a line, and the artifact sheet draws it that way.
 - **Abandoned work comes back.** A later artifact counts unless its source says it was abandoned: a PR closed without a merge, a branch deleted without a merge, a file deleted. If the only PR for a plan is closed, the plan shows again in its own stage.
-- **Done work stays done.** A merged PR leaves the *Shipped* stage after its time window. It still counts as a later artifact, so its plan does not come back.
+- **Done work stays done.** A landed PR leaves the *Landed branches* stage after its time window. It still counts as a later artifact, so its plan does not come back.
 
 #### How artifacts are linked
 
@@ -264,7 +264,7 @@ So the history gets better as a team uses fab, with no extra step for anyone, an
 
 #### Scores in history
 
-Scores belong to one artifact in one stage. A plan has its *edge cases* score in *WIP plans*. The PR that comes from it has its own *tech debt* and *tests* scores in *Needs review*. fab does not add them up across a history.
+Scores belong to one artifact in one stage. A plan has its *edge cases* score in *WIP plans*. The PR that comes from it has its own *tech debt* and *tests* scores in *Built branches*. fab does not add them up across a history.
 
 The artifact sheet shows each step's scores in the history. So, for a PR that had many problems, you can look back and see what its plan scored. Over time, this shows which early scores predict later problems, and so which scorer or job to fix.
 
@@ -360,13 +360,13 @@ It reads what each harness already writes to disk. See [`research/agent-sessions
 
 ## Toward Mark III
 
-The parts of Mark IV are the parts a runner needs first: a fab in Git, stages that find the work, scorers that judge it, run records, and an adapter for each harness that can start a session and read its state. If a team later wants Metafab to start the next job on its own (for example, run *Review slice* on every PR that enters *Needs review*), the runner sits on top of these. Dispatch, the autonomy dial and rewind stay in [`../mk3/overview.md`](../mk3/overview.md) for that time.
+The parts of Mark IV are the parts a runner needs first: a fab in Git, stages that find the work, scorers that judge it, run records, and an adapter for each harness that can start a session and read its state. If a team later wants Metafab to start the next job on its own (for example, run *Review slice* on every PR that enters *Built branches*), the runner sits on top of these. Dispatch, the autonomy dial and rewind stay in [`../mk3/overview.md`](../mk3/overview.md) for that time.
 
 ## Limits and open questions
 
 - **Harness files are internal.** The session files of Claude Code, Codex, Cursor and opencode are not documented APIs. Any update can change them. Keep one small adapter for each harness, and expect to fix it.
 - **"Waits for you" is not reliable without hooks.** Claude Code writes a session status to disk. The others do not, so the monitor cannot always see that an agent waits for an answer.
-- **Are stages always separate?** *Building* and *Needs review* both filter PRs, and only draft or ready splits them. Some fabs will want one artifact in two stages. `fab check` warns for now.
+- **Are stages always separate?** *Building* and *Built branches* both filter PRs, and only draft or ready splits them. Some fabs will want one artifact in two stages. `fab check` warns for now.
 - **"Being worked" is not a stage.** While a job runs on an artifact, the artifact stays in its `from` stage until the job's output lands. The cube turns green. Is that clear enough?
 - **Score a run, or an artifact?** Scores belong to an artifact in a stage. A job could also be scored as a run (how well did *Plan feature* do, over its last 20 runs?). That is the number that says which job to fix.
 - **How good is the cold start?** Before there are git notes, history depends on trailers, links in artifacts, PR diffs and the work key. Test it on real repositories (Dragonfly first) and count how much is left as *Found*. A wrong link can hide work that has not moved on. `fab link --remove` fixes it, but only if someone sees it.

@@ -31,7 +31,7 @@
 .st-h { display: flex; align-items: center; gap: 6px; min-height: 38px; padding: 0 6px 0 2px; }
 .st-chev { width: 12px; flex: none; color: var(--text-3); opacity: .7; transition: transform .15s; }
 .st.open .st-chev { transform: rotate(90deg); }
-.st-m { width: 104px; flex: none; display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
+.st-m { width: 116px; flex: none; display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
 .st-t { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .st-s { font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
 .st.slow .st-s { color: var(--amber); font-weight: 500; }
@@ -111,6 +111,21 @@
 .sec + .starts { padding-top: 0; }
 
 /* ── sheets: the artifact ── */
+/* header: its cube, title, stage line and reference, average score on the right */
+.art-hero { align-items: center; }
+.art-tile { width: 40px; height: 40px; border-radius: 9px; flex: none; display: grid; place-items: center;
+  background: var(--fill-2); box-shadow: inset 0 0 0 .5px var(--line-soft); }
+.art-tile .ga-cube { width: 20px; height: 23px; }
+.art-hd { flex: 1; min-width: 0; }
+.art-hero > .sr { flex: none; }
+.art-ref { display: inline-flex; align-items: flex-start; gap: 5px; max-width: 100%; margin: 2px 0 0 -5px; padding: 2px 5px; border: 0; border-radius: 5px;
+  background: none; color: var(--text-2); font-size: 11px; cursor: pointer; text-align: left; }
+.art-ref .mono { min-width: 0; font-size: 10.5px; overflow-wrap: anywhere; }
+.art-ext { display: inline-block; margin-left: 5px; vertical-align: -1.5px; }
+.art-ext svg { margin-top: 0; }
+.art-ref svg { flex: none; margin-top: 1.5px; color: var(--text-3); }
+.art-ref:hover { background: var(--hover); color: var(--accent); }
+.art-ref:hover svg { color: var(--accent); }
 .refbox { padding: 6px 9px; border-radius: 6px; background: var(--fill); box-shadow: inset 0 0 0 .5px var(--line-soft);
   color: var(--text-2); font-size: 11px; overflow-wrap: anywhere; margin: -6px 0 4px; }
 .refbox:hover { box-shadow: inset 0 0 0 .5px var(--text-3); }
@@ -124,40 +139,41 @@
 .inote svg { color: var(--text-3); }
 .btn.pri svg { margin-right: -1px; }
 
-/* the history: a vertical trail, newest at the top */
-.tr { position: relative; padding-left: 4px; }
-.tr-s { position: relative; display: flex; gap: 11px; padding-bottom: 12px; }
-.tr-s::before { content: ""; position: absolute; left: 4px; top: 12px; bottom: -2px; width: 1px; background: var(--wire); }
-.tr-s:last-child::before { display: none; }
-.tr-s.v-found::before, .tr-s + .tr-s.v-found::before { background: none; border-left: 1px dashed var(--wire); }
-.tr-dot { width: 9px; height: 9px; margin-top: 3px; border-radius: 50%; flex: none; background: var(--text-3); box-shadow: 0 0 0 2.5px var(--ring); position: relative; z-index: 1; }
-.tr-s.cur .tr-dot { background: var(--accent); }
-.tr-s.v-found .tr-dot { background: transparent; box-shadow: inset 0 0 0 1.2px var(--text-3); }
+/* the history, newest at the top, on one wire: a cube per artifact state,
+   and between two cubes the agent tile of the run that made the upper one */
+.tr { display: flex; flex-direction: column; }
+.tr-a, .tr-run { position: relative; }
+.tr-a::before, .tr-run::before { content: ""; position: absolute; left: 9px; top: 0; bottom: 0; border-left: 1px solid var(--wire); }
+.tr-a:first-child::before { top: 10px; }
+.tr-a:last-child::before { bottom: auto; height: 10px; }
+.tr-node { position: relative; z-index: 1; width: 18px; display: flex; justify-content: center; flex: none; }
+.tr-a { display: flex; gap: 10px; padding: 3px 0; }
+.tr-a .tr-node { padding-top: 1px; }
+.tr-a .ga-cube { width: 14px; height: 16px; filter: drop-shadow(0 0 0 var(--ring)) drop-shadow(0 0 1.5px var(--ring)); }
+.tr-a.gone .ga-cube { opacity: .4; }
+.tr-a.gone .tr-ref { text-decoration: line-through; }
 .tr-m { flex: 1; min-width: 0; }
 .tr-h { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; }
 .tr-h b { font-weight: 600; }
 .tr-at { margin-left: auto; font-size: 11px; color: var(--text-3); white-space: nowrap; }
 .tr-t { font-size: 12px; color: var(--text-2); }
 .tr-ref { font-size: 10.5px; color: var(--text-3); overflow-wrap: anywhere; }
-.tr-run { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 12px; }
-.tr-run .hzi { width: 15px; height: 15px; }
 .tr-sc { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 5px; }
 .tr-note { margin-top: 4px; font-size: 11.5px; color: var(--text-2); }
-.tr-via { margin-top: 3px; font-size: 10.5px; color: var(--text-3); }
-/* a link by name only is a guess: dashed, like found */
-.tr-s.v-key::before { background: none; border-left: 1px dashed var(--wire); }
-.tr-s.v-key .tr-via { font-style: italic; }
-/* an abandoned artifact: it hides nothing */
-.tr-s.gone .tr-dot { background: transparent; box-shadow: inset 0 0 0 1.2px var(--red); }
-.tr-s.gone .tr-ref { text-decoration: line-through; }
-.tr-s.v-back .tr-dot { background: var(--amber); }
+.tr-run { display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; font-size: 12px; }
+.tr-run .hzi { width: 18px; height: 18px; border-radius: 5px; box-shadow: 0 0 0 3px var(--ring); }
+.tr-run .pdot { width: 18px; height: 18px; box-shadow: 0 0 0 3px var(--ring); }
+.tr-run-m { min-width: 0; padding-top: 1px; }
+.tr-run-t { display: flex; align-items: center; gap: 6px; }
+.tr-cost { margin-top: 2px; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.tr-run.bare { padding: 5px 0; }
 .tr-tag { font-size: 10px; padding: 0 5px; border-radius: 3px; color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
 .tr-fan { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); flex: none; }
 /* fan-in: another parent of the same step */
 .tr-also { margin-top: 6px; padding: 5px 8px; border-radius: 6px; background: var(--fill); box-shadow: inset 0 0 0 .5px var(--line-soft); }
 .tr-also .tr-h { font-size: 12px; }
-/* fan-out: the other artifacts the same step made */
-.tr-kids { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; margin-top: 5px; font-size: 11.5px; }
+/* fan-out: the other artifacts the same run made */
+.tr-kids { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; margin-top: 4px; font-size: 11.5px; }
 .tr-kid { white-space: nowrap; }
 
 /* ── a stage, opened: what history hid because it moved on ── */
@@ -211,7 +227,6 @@
 .ga-cube path { stroke: color-mix(in srgb, var(--c), #000 28%); stroke-width: .35; stroke-linejoin: round; }
 .ga-cube.run  { --c: var(--green); }
 .it .ga-cube { width: 11px; height: 13px; }
-.tr-via b { font-weight: 500; color: var(--text-2); }
 
 /* ══ iteration 4: work in progress is not a stage ═══════════════════ */
 

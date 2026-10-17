@@ -1,21 +1,29 @@
 /* artifact.js: the artifact sheet (who is on it, how it scores, where it came
    from), the session sheet and settings. */
 
-/* How a step links to the step before it, strongest first. See the History
-   section of overview.md. A link by name only is a guess, and says so. */
-const VIA = {
-  note:    "Git note, from its fab run",
-  trailer: "Commit trailer",
-  link:    "Link in the artifact",
-  diff:    "The PR changes the earlier artifact",
-  key:     "Name match only, a guess",
-  same:    "The same pull request, made ready",
-  back:    "Back, because its later artifact was abandoned",
-};
-
 const scoresHtml = (fab, scores) => scores ? Object.entries(scores).map(([k, v]) =>
   `<span class="sca" title="${esc(fab.scorers[k]?.ask)}">${scoreRing([v], { size: 12, sw: 2.2 })}${esc(fab.scorers[k]?.title || k)} <b class="sca-v">${v.toFixed(1)}</b></span>`).join("") : "";
 
+/* What a run cost: tokens, an estimated price and how long it ran. A step can
+   carry its own `tokens` and `min`; otherwise they are made up from the job
+   and the step, so the same step always shows the same numbers. Price is a
+   blended rate per million tokens, by harness. */
+const RATE = { "claude-code": 6, codex: 4, orca: 5, cursor: 5 };
+function runStats(t) {
+  let h = 2166136261;
+  for (const c of `${t.job}|${t.stage}|${t.ref}|${t.ago ?? t.at}`) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0;
+  const r = (h % 1000) / 1000;
+  const min = t.min ?? Math.round(6 + r * 48);
+  const tokens = t.tokens ?? Math.round(min * (14 + r * 10)) * 1000;
+  const cost = (tokens / 1e6) * (RATE[t.hz] ?? 5);
+  const tk = tokens >= 1e6 ? `${(tokens / 1e6).toFixed(1)}M` : `${Math.round(tokens / 1000)}k`;
+  const dur = min >= 60 ? `${Math.floor(min / 60)}h ${min % 60}m` : `${min}m`;
+  return `<div class="tr-cost">${tk} tokens · ~$${cost.toFixed(2)} · ${dur}</div>`;
+}
+
+/* History, newest at the top, on one wire: each artifact state is a cube, and
+   between two cubes sits the agent (or person) that turned the lower one into
+   the upper. */
 function trailHtml(fab, a) {
   const steps = [...(a.trail || [{ stage: a.stage, at: a.since, via: "found" }])].reverse();
   return `<div class="tr">${steps.map((t, i) => {
@@ -23,34 +31,32 @@ function trailHtml(fab, a) {
     const j = t.job && jobOf(fab, t.job);
     const ref = t.ref || (i === 0 ? a.ref : "");
     const sc = scoresHtml(fab, t.scores);
-    const run = j ? `<div class="tr-run">${hzIcon(t.hz)}<span class="lnk" data-act="job" data-fab="${fab.id}" data-j="${j.name}">${esc(j.title)}</span><span class="dim">by ${esc(whoName(t.who))}</span></div>`
-      : t.via === "found" ? `<div class="tr-run dim">Found by the stage filter. No fab run.</div>`
-      : t.who ? `<div class="tr-run dim">By ${esc(whoName(t.who))}, outside fab. No fab run.</div>` : "";
+    const last = i === steps.length - 1;
+    /* fan-out: what else the same run made, where each is now */
+    const kids = (t.alsoMade || []).map((id) => artOf(fab, id)).filter(Boolean);
+    const made = kids.length ? `<div class="tr-kids"><span class="tr-fan">also made</span>${kids.map((k) =>
+        `<span class="tr-kid lnk" data-act="art" data-fab="${fab.id}" data-a="${k.id}" title="${esc(k.ref)}">${esc(k.title)} <span class="dim">· ${esc(stageOf(fab, k.stage).title)}</span></span>`).join("")}</div>` : "";
+    const runIc = j ? hzIcon(t.hz) : t.who && t.via !== "found" ? personDot(t.who) : "";
+    const runTx = j ? `<span class="lnk" data-act="job" data-fab="${fab.id}" data-j="${j.name}">${esc(j.title)}</span><span class="dim">by ${esc(whoName(t.who))}</span>`
+      : runIc ? `<span class="dim">By ${esc(whoName(t.who))}</span>` : "";
+    const run = last ? "" : `<div class="tr-run ${runIc ? "" : "bare"}">
+        <span class="tr-node">${runIc}</span><div class="tr-run-m">${runTx ? `<div class="tr-run-t">${runTx}</div>` : ""}${j ? runStats(t) : ""}${made}</div></div>`;
     /* fan-in: the other parents of this step, each with its own scores */
     const also = (t.also || []).map((p) => `<div class="tr-also">
         <div class="tr-h"><span class="tr-fan">also from</span><b>${esc(p.title || refTitle(p.ref))}</b><span class="tr-at">${esc(stageOf(fab, p.stage)?.title || p.stage)}</span></div>
         <div class="tr-ref mono">${esc(p.ref)}</div>
         ${p.scores ? `<div class="tr-sc">${scoresHtml(fab, p.scores)}</div>` : ""}
       </div>`).join("");
-    /* fan-out: what else the same step made, where each is now */
-    const kids = (t.alsoMade || []).map((id) => artOf(fab, id)).filter(Boolean);
-    const made = kids.length ? `<div class="tr-kids"><span class="tr-fan">also made</span>${kids.map((k) =>
-        `<span class="tr-kid lnk" data-act="art" data-fab="${fab.id}" data-a="${k.id}" title="${esc(k.ref)}">${esc(k.title)} <span class="dim">· ${esc(stageOf(fab, k.stage).title)}</span></span>`).join("")}</div>` : "";
-    const via = VIA[t.via] ? `<b>${VIA[t.via]}</b>${t.how ? ` · ${esc(t.how)}` : ""}` : "";
-    return `<div class="tr-s ${i === 0 ? "cur" : ""} v-${t.via} ${t.abandoned ? "gone" : ""}">
-      <span class="tr-dot"></span>
-      <div class="tr-m">
+    const cube = i === 0 ? artGlyph(fab, a) : `<i class="ga-cube">${CUBE_SVG}</i>`;
+    return `<div class="tr-a ${i === 0 ? "cur" : ""} v-${t.via} ${t.abandoned ? "gone" : ""}">
+      <span class="tr-node">${cube}</span><div class="tr-m">
         <div class="tr-h"><b>${esc(st?.title || t.stage)}</b>${t.abandoned ? `<span class="tr-tag">abandoned</span>` : ""}<span class="tr-at">${ago(t.at)} ago</span></div>
         ${t.title && t.title !== a.title ? `<div class="tr-t">${esc(t.title)}</div>` : ""}
         ${ref ? `<div class="tr-ref mono">${esc(ref)}</div>` : ""}
-        ${run}
         ${sc ? `<div class="tr-sc">${sc}</div>` : ""}
         ${t.note ? `<div class="tr-note">${esc(t.note)}</div>` : ""}
-        ${made}
         ${also}
-        ${via ? `<div class="tr-via">${via}</div>` : ""}
-      </div>
-    </div>`;
+      </div></div>${run}`;
   }).join("")}</div>`;
 }
 
@@ -61,26 +67,18 @@ function artSheet(sh) {
   const kind = KINDS[st.kind];
   const ags = agentsOn(fab, a);
 
-  /* agents, by whose machine they run on */
-  const groups = {};
-  ags.forEach((s) => (groups[s.who] ||= []).push(s));
-  const agentsH = ags.length
-    ? Object.entries(groups).map(([w, ss]) => `
-        <div class="who-h">${personDot(w)}<b>${w === ME ? "You" : esc(PEOPLE[w].name)}</b>
-          <span class="dim">${ss.length} agent${ss.length > 1 ? "s" : ""}${w !== ME ? " · synced" : ""}</span></div>
-        <div class="mini">${ss.map((s) => agentHtml(s, "job")).join("")}</div>`).join("")
-    : `<div class="none">No agents on it.</div>`;
+  /* agents: one flat list; a teammate's name rides on the agent's own line */
   const w = workOn(fab, a);
-  const claimH = !a.claim ? ""
-    : w === "stalled" ? `<div class="claim stall">${ICONS.warn}<span><b>Stalled.</b> ${esc(whoName(a.claim.who) === "you" ? "You" : whoName(a.claim.who))} claimed it ${ago(a.claim.at)} ago with <span class="mono">${esc(a.claim.ref)}</span>, and no agent is on it now. Resume the build on that branch, or release the claim so someone else can take it.</span></div>`
-    : `<div class="claim">${ICONS.hand}<span>Claimed by <span class="mono">${esc(a.claim.ref)}</span> · ${esc(whoName(a.claim.who))} · ${ago(a.claim.at)} ago. It stays in ${esc(st.title)} until the PR is ready.</span></div>`;
+  const agentsH = ags.length
+    ? `<div class="mini">${ags.map((s) => agentHtml(s, "job")).join("")}</div>`
+    : w === "stalled"
+      ? `<div class="claim stall">${ICONS.warn}<span><b>Stalled</b> · <span class="mono">${esc(a.claim.ref)}</span></span></div>`
+      : `<div class="none">No agents.</div>`;
 
   /* scores: this stage's scorers first, then older ones, dimmed */
   const keys = [...new Set([...(st.scoredBy || []).filter((k) => a.scores?.[k] != null), ...Object.keys(a.scores || {})])];
   const hereVals = (st.scoredBy || []).map((k) => a.scores?.[k]).filter((v) => v != null);
-  const scoresH = keys.length ? `<div class="sc-sum">${scoreRing(hereVals, { size: 44, sw: 4.5, label: true, title: "Total for this stage" })}
-    <span class="sc-sum-t">${hereVals.length ? `${hereVals.length > 1 ? `${hereVals.length} scorers, added up` : "One scorer"}` : "No score for this stage yet"}</span></div>
-    <div class="kv">${keys.map((k) => {
+  const scoresH = keys.length ? `<div class="kv">${keys.map((k) => {
     const v = a.scores[k];
     const here = (st.scoredBy || []).includes(k);
     return `<div class="sc-r ${here ? "" : "old"}" title="${esc(fab.scorers[k].ask)}">
@@ -90,21 +88,23 @@ function artSheet(sh) {
 
   const nx = st.next && jobOf(fab, st.next);
   const body = `
-    <div class="hero">
-      <span class="go-ic art">${ICONS[kind.icon]}</span>
-      <div style="min-width:0"><div class="hero-t">${esc(a.title)}</div>
-        <div class="hero-s">${esc(st.title)} · ${ago(a.since)} here${a.who ? ` · from ${esc(whoName(a.who))}` : ""}</div></div>
+    <div class="hero art-hero">
+      <span class="art-tile">${artGlyph(fab, a)}</span>
+      <div class="art-hd">
+        <div class="hero-t">${esc(a.title)}</div>
+        <button class="art-ref" data-act="openref" data-fab="${fab.id}" data-a="${a.id}" title="Open ${esc(kind.one)}">
+          ${ICONS[kind.icon]}<span class="mono">${esc(a.ref)}<span class="art-ext">${ICONS.ext}</span></span></button>
+      </div>
+      ${hereVals.length ? scoreRing(hereVals, { size: 44, sw: 4.5, label: true, title: "Average for this stage" }) : ""}
     </div>
-    <div class="refbox mono" data-act="openref" data-fab="${fab.id}" data-a="${a.id}">${esc(a.ref)}</div>
-    <div class="lbl">On it now</div>
-    ${w === "stalled" ? "" : agentsH}
-    ${claimH}
+    <div class="lbl">Agents</div>
+    ${agentsH}
     <div class="lbl">Scores</div>
     ${scoresH}
-    <div class="lbl">History <span class="lbl-s">newest first · each step keeps its own scores</span></div>
+    <div class="lbl">History</div>
     ${trailHtml(fab, a)}`;
   const stalled = w === "stalled";
-  const foot = `<button class="btn ghost" data-act="openref" data-fab="${fab.id}" data-a="${a.id}">Open</button><span class="sp"></span>
+  const foot = `<span class="sp"></span>
     ${stalled ? `<button class="btn ghost" data-act="release" data-fab="${fab.id}" data-a="${a.id}">Release</button>` : ""}
     ${nx ? `<button class="btn pri" data-act="start" data-fab="${fab.id}" data-j="${nx.name}" data-e="" data-a="${a.id}">${ICONS.play}${stalled ? "Resume" : esc(nx.title)}</button>` : ""}`;
   return { body, foot };

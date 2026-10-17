@@ -43,6 +43,7 @@ const ICONS = {
   hand:    I(`<path d="M5.4 8.4V3.8a1 1 0 0 1 2 0v3.6V2.8a1 1 0 0 1 2 0v4.6V3.6a1 1 0 0 1 2 0v5.6c0 2.6-1.6 4.6-4.2 4.6-1.6 0-2.6-.8-3.4-2L2.6 9.2a1 1 0 0 1 1.6-1.2z"/>`, 13),
   wifi:    I(`<path d="M1.8 6.2a9 9 0 0 1 12.4 0M4 8.6a5.8 5.8 0 0 1 8 0M6.2 11a2.6 2.6 0 0 1 3.6 0"/><circle cx="8" cy="13" r=".4" fill="currentColor"/>`, 15),
   batt:    `<svg width="24" height="12" viewBox="0 0 24 12" fill="none" stroke="currentColor"><rect x=".7" y=".7" width="20" height="10.6" rx="3" opacity=".5"/><rect x="2.4" y="2.4" width="13" height="7.2" rx="1.6" fill="currentColor" stroke="none"/><path d="M22.6 4.4v3.2" opacity=".5" stroke-width="1.4" stroke-linecap="round"/></svg>`,
+  ext:     I(`<path d="M6.6 3.4H3.8a.9.9 0 0 0-.9.9v7.9c0 .5.4.9.9.9h7.9c.5 0 .9-.4.9-.9V9.4"/><path d="M9.4 2.9h3.7v3.7M13.1 2.9 7.6 8.4"/>`, 11),
   search:  I(`<circle cx="7" cy="7" r="4.3"/><path d="m10.2 10.2 3.4 3.4"/>`, 14),
 };
 

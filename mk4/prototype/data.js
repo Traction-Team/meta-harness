@@ -75,7 +75,7 @@ const FABS = [
     /* In flow order. `find` + `where` is the filter. `slow` is how long an
        artifact may sit before the stage counts as slow. */
     stages: [
-      { id: "intake",   title: "Intake",         kind: "note",
+      { id: "intake",   title: "Open notes",      kind: "note",
         find: "files docs/roadmap/intake/*.md", where: "status: open",
         next: "prioritise", slow: 7 * D, scoredBy: ["clear"] },
       { id: "roadmap",  title: "Approved specs", kind: "spec",
@@ -88,18 +88,20 @@ const FABS = [
          it, until its PR is ready for review. `claim` is how fab sees that
          someone has it: a draft PR that names the slice. A claim with no
          agent on it is stalled. */
-      { id: "ready",    title: "Ready to build", kind: "slice",
+      { id: "ready",    title: "Approved plans",  kind: "slice",
         find: "slices in docs/plans/*.md", where: "status: ready",
         claim: "a draft PR that names the slice",
         next: "build-slice", slow: 5 * D, scoredBy: ["edge", "pdebt"] },
-      { id: "review",   title: "Needs review",   kind: "pr",
-        find: "prs head:feat/*", where: "ready for review, not approved",
+      { id: "review",   title: "Built branches",  kind: "pr",
+        find: "prs head:feat/*", where: "ready for review, not merged",
         next: "review-slice", waitsFor: "code owner", slow: 1 * D, scoredBy: ["tdebt", "tests"] },
-      { id: "merge",    title: "Ready to merge", kind: "pr",
-        find: "prs head:feat/*", where: "approved",
+      /* Merged is not the end: the landing job still has to update the rest
+         of the system. A landed PR has a fab note saying so. */
+      { id: "merge",    title: "Merged branches", kind: "pr",
+        find: "prs head:feat/*", where: "merged, not landed",
         next: "finish-slice", slow: 1 * D, scoredBy: ["tdebt", "tests"] },
-      { id: "shipped",  title: "Shipped",        kind: "pr",
-        find: "prs head:feat/*", where: "merged in the last 7 days", done: true },
+      { id: "shipped",  title: "Landed branches", kind: "pr",
+        find: "prs head:feat/*", where: "landed in the last 7 days", done: true },
     ],
 
     jobs: [
@@ -149,14 +151,14 @@ const FABS = [
       {
         name: "review-slice", title: "Review slice", from: "review", to: "merge", takes: true,
         icon: "eye", blurb: "A second agent reviews the PR against its plan",
-        description: "A second agent reviews the slice's PR against its plan and the rules, then hands it to the code owner.",
-        inputs: [], decides: "done", worktree: "current",
+        description: "A second agent reviews the slice's PR against its plan and the rules, then hands it to the code owner to approve and merge.",
+        inputs: [], decides: "merge", worktree: "current",
       },
       {
-        name: "finish-slice", title: "Finish slice", from: "merge", to: "shipped", takes: true,
-        icon: "flag", blurb: "Changelog entry, mark the slice done, merge",
-        description: "Writes the changelog entry, marks the slice done in its plan, and merges the PR.",
-        inputs: [], decides: "merge", worktree: "current",
+        name: "finish-slice", title: "Land branch", from: "merge", to: "shipped", takes: true,
+        icon: "flag", blurb: "Bring a merged branch's changes back into the rest of the system",
+        description: "Runs after the merge. Writes the changelog entry, marks the slice done in its plan, and updates the specs, roadmap and docs that the change touched. Then marks the PR landed.",
+        inputs: [], worktree: "current",
       },
     ],
 
@@ -174,7 +176,7 @@ const FABS = [
       "plan":       { who: "tech lead",    says: "Approve the plan, as a docs PR" },
       "pick":       { who: "developer",    says: "Pick the slice to build" },
       "done":       { who: "code owner",   says: "Approve the PR" },
-      "merge":      { who: "code owner",   says: "Merge the PR" },
+      "merge":      { who: "code owner",   says: "Approve and merge the PR" },
     },
 
     /* What the stage filters find right now, after history has hidden what
@@ -200,7 +202,7 @@ const FABS = [
        open intake note, an approved spec, a ready slice on main) are what
        history hides. See hiddenIn() in core.js. */
     artifacts: [
-      /* intake */
+      /* open notes */
       { id: "i2", stage: "intake", title: "Export button greyed out",       ref: "docs/roadmap/intake/2026-10-16-export-greyed.md", age: 48 * M, who: "seb", scores: { clear: 8.4 },
         trail: [{ stage: "intake", job: "file-work", who: "seb", hz: "claude-code", ago: 48, via: "note", scores: { clear: 8.4 } }] },
       { id: "i3", stage: "intake", title: "Idea: dark mode for docs",       ref: "docs/roadmap/intake/2026-10-16-dark-docs.md", age: 3 * H, who: "seb", scores: { clear: 6.1 },
@@ -228,7 +230,7 @@ const FABS = [
           { stage: "planning", job: "plan-feature", who: "seb", hz: "orca", ago: 1 * D + 6 * H, via: "note", scores: { edge: 5.2, pdebt: 7.4 } },
         ] },
 
-      /* ready to build */
+      /* approved plans */
       /* `claim` is the draft PR that claims the slice. `ago` is when it was
          opened. A slice with a claim and an agent on it is being built. */
       { id: "b1", stage: "ready", title: "context-packs S3", ref: "docs/plans/context-packs.md § S3", age: 8 * D, who: "seb", scores: { edge: 8.0, pdebt: 7.7 },
@@ -248,12 +250,12 @@ const FABS = [
           { stage: "roadmap", title: "Context packs for agents", ref: "docs/specs/context-packs.md", ago: 10 * D, via: "found" },
           { stage: "planning", title: "Context packs for agents", ref: "docs PR #405 · docs/plans/context-packs.md", job: "plan-feature", who: "seb", hz: "orca", ago: 9 * D, via: "note", scores: { edge: 6.0, pdebt: 8.2 } },
           { stage: "ready", ref: "docs/plans/context-packs.md § S4", job: "review-plan", who: "seb", hz: "codex", ago: 8 * D, via: "note", scores: { edge: 8.4, pdebt: 6.2 } },
-          { stage: "ready", title: "Claimed by Mo", ref: "feat/context-packs-s4 · draft #403", job: "build-slice", who: "mo", hz: "claude-code", ago: 6 * D, via: "note", abandoned: true, note: "Build slice claimed it with a draft PR. The PR was closed without a merge 3 days ago." },
-          { stage: "ready", ref: "docs/plans/context-packs.md § S4", ago: 3 * D, via: "back", note: "Its only PR was closed, so nothing later hides it. It shows in Ready to build again." },
+          { stage: "ready", title: "Claimed by Mo", ref: "feat/context-packs-s4 · draft #403", job: "build-slice", who: "mo", hz: "claude-code", ago: 6 * D, via: "note", abandoned: true },
+          { stage: "ready", ref: "docs/plans/context-packs.md § S4", ago: 3 * D, via: "back" },
         ] },
       { id: "sl4", stage: "ready", title: "context-packs S5",  ref: "docs/plans/context-packs.md § S5", age: 8 * D, who: "seb", scores: { edge: 6.9, pdebt: 5.8 } },
 
-      /* review: this is where it piles up */
+      /* built branches: this is where it piles up */
       { id: "v1", stage: "review", title: "context-packs S2", ref: "feat/context-packs-s2 · #412", age: 1 * D + 2 * H, who: "seb", scores: { tdebt: 7.1, tests: 8.3 },
         trail: [
           { stage: "intake", title: "Agents forget context between sessions", ref: "docs/roadmap/intake/2026-10-04-agent-context.md", job: "file-work", who: "kat", hz: "claude-code", ago: 12 * D, via: "note", scores: { clear: 8.0 } },
@@ -261,8 +263,7 @@ const FABS = [
           { stage: "planning", title: "Context packs for agents", ref: "docs PR #405 · docs/plans/context-packs.md", job: "plan-feature", who: "seb", hz: "orca", ago: 9 * D, via: "note", scores: { edge: 6.0, pdebt: 8.2 },
             alsoMade: ["m1", "b1", "sl3", "sl4"] },
           { stage: "ready", title: "context-packs S2", ref: "docs/plans/context-packs.md § S2", job: "review-plan", who: "seb", hz: "codex", ago: 8 * D, via: "note", scores: { edge: 8.4, pdebt: 8.2 }, note: "Approved by Jo (tech lead) after two edge cases were added" },
-          { stage: "review", ref: "feat/context-packs-s2 · #412", job: "build-slice", who: "seb", hz: "claude-code", ago: 1 * D + 2 * H, via: "note", scores: { tdebt: 7.1, tests: 8.3 },
-            note: "Claimed with draft #412 2 days ago. Ready for review when the build ended." },
+          { stage: "review", ref: "feat/context-packs-s2 · #412", job: "build-slice", who: "seb", hz: "claude-code", ago: 1 * D + 2 * H, via: "note", scores: { tdebt: 7.1, tests: 8.3 } },
         ] },
       /* cold start: made before the fab, linked only by the work key */
       { id: "v2", stage: "review", title: "onboarding-copy S1", ref: "feat/onboarding-copy-s1 · #414", age: 1 * D + 9 * H, who: "kat", scores: { tdebt: 9.0, tests: 6.2 },
@@ -274,7 +275,7 @@ const FABS = [
       { id: "v3", stage: "review", title: "billing-fix S1",     ref: "fix/billing-500 · #415",          age: 2 * D, who: "mo", scores: { tdebt: 4.4, tests: 3.8 },
         trail: [
           { stage: "intake", title: "Billing page 500s on Firefox (first report)", ref: "docs/roadmap/intake/2026-10-14-billing-500.md", ago: 3 * D, via: "found" },
-          { stage: "review", ref: "fix/billing-500 · #415", who: "mo", ago: 2 * D, via: "link", how: "The PR body names the intake note", note: "Built by hand, outside fab.", scores: { tdebt: 4.4, tests: 3.8 } },
+          { stage: "review", ref: "fix/billing-500 · #415", who: "mo", ago: 2 * D, via: "link", how: "The PR body names the intake note", scores: { tdebt: 4.4, tests: 3.8 } },
         ] },
       /* fan-in: one PR builds slices of two plans, so both are hidden */
       { id: "v4", stage: "review", title: "search-ui S1",        ref: "feat/search-ui-s1 · #416", age: 3 * D, who: "kat", scores: { tdebt: 6.6, tests: 7.0 },
@@ -292,20 +293,20 @@ const FABS = [
         ] },
       { id: "v6", stage: "review", title: "audit-log spike",     ref: "spike/audit-log · #411", age: 5 * D, who: "jo" },
 
-      /* ready to merge */
+      /* merged branches, waiting to land */
       /* a person added the Fab-From trailer by hand */
-      { id: "m1", stage: "merge", title: "context-packs S1", ref: "feat/context-packs-s1 · #409", age: 2 * H, who: "seb", scores: { tdebt: 8.0, tests: 9.1 },
+      { id: "m1", stage: "merge", title: "context-packs S1", ref: "feat/context-packs-s1 · #409 merged", age: 2 * H, who: "seb", scores: { tdebt: 8.0, tests: 9.1 },
         trail: [
           { stage: "ready", ref: "docs/plans/context-packs.md § S1", ago: 8 * D, via: "found", scores: { edge: 7.7, pdebt: 8.2 } },
           { stage: "review", ref: "feat/context-packs-s1 · #409", job: "build-slice", who: "seb", hz: "claude-code", ago: 4 * D, via: "trailer", how: "Fab-From: docs/plans/context-packs.md § S1, in the first commit", scores: { tdebt: 6.9, tests: 8.4 } },
           { stage: "merge", ref: "feat/context-packs-s1 · #409", job: "review-slice", who: "kat", hz: "codex", ago: 2 * H, via: "note", scores: { tdebt: 8.0, tests: 9.1 } },
         ] },
 
-      /* shipped */
-      { id: "x1", stage: "shipped", title: "plan template v2",   ref: "#401 merged", age: 6 * D, who: "seb" },
-      { id: "x2", stage: "shipped", title: "fix: login redirect", ref: "#404 merged", age: 4 * D, who: "mo" },
-      { id: "x3", stage: "shipped", title: "intake form copy",   ref: "#406 merged", age: 3 * D, who: "kat" },
-      { id: "x4", stage: "shipped", title: "export-csv spike",   ref: "#408 merged", age: 1 * D, who: "seb" },
+      /* landed branches */
+      { id: "x1", stage: "shipped", title: "plan template v2",   ref: "#401 landed", age: 6 * D, who: "seb" },
+      { id: "x2", stage: "shipped", title: "fix: login redirect", ref: "#404 landed", age: 4 * D, who: "mo" },
+      { id: "x3", stage: "shipped", title: "intake form copy",   ref: "#406 landed", age: 3 * D, who: "kat" },
+      { id: "x4", stage: "shipped", title: "export-csv spike",   ref: "#408 landed", age: 1 * D, who: "seb" },
     ],
   },
 
@@ -316,11 +317,11 @@ const FABS = [
     commit: "a1b2c3d",
     check: { ok: false, problem: "AGENTS.md fab block is out of date with .fab/. Run fab install." },
     stages: [
-      { id: "intake",  title: "Intake",         kind: "issue", find: "linear team:INV", where: "state: triage", next: "prioritise", slow: 3 * D, scoredBy: ["clear"] },
+      { id: "intake",  title: "Untriaged issues", kind: "issue", find: "linear team:INV", where: "state: triage", next: "prioritise", slow: 3 * D, scoredBy: ["clear"] },
       { id: "roadmap", title: "Approved specs", kind: "spec",  find: "files docs/specs/*.md", where: "status: approved", next: "plan-feature", slow: 7 * D },
-      { id: "ready",   title: "Ready to build", kind: "slice", find: "slices in docs/plans/*.md", where: "status: ready", next: "build-slice", slow: 5 * D },
-      { id: "review",  title: "Needs review",   kind: "pr",    find: "prs", where: "open, not approved", waitsFor: "code owner", slow: 1 * D, scoredBy: ["tdebt"] },
-      { id: "shipped", title: "Shipped",        kind: "pr",    find: "prs", where: "merged in the last 7 days", done: true },
+      { id: "ready",   title: "Approved plans",  kind: "slice", find: "slices in docs/plans/*.md", where: "status: ready", next: "build-slice", slow: 5 * D },
+      { id: "review",  title: "Built branches",  kind: "pr",    find: "prs", where: "open", waitsFor: "code owner", slow: 1 * D, scoredBy: ["tdebt"] },
+      { id: "shipped", title: "Merged branches", kind: "pr",    find: "prs", where: "merged in the last 7 days", done: true },
     ],
     jobs: [
       { name: "log-bug", title: "Log bug", from: null, to: "intake", icon: "bug", blurb: "Something is broken",

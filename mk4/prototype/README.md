@@ -34,7 +34,7 @@ Iteration 1 showed programs and the agents that ran them. Iteration 2 shows the 
 ## Iteration 4: work in progress is not a stage
 
 - **No *Building* stage.** A stage is a place where work waits for a job or a person. *Building* only held work that a running job was already moving out. It is gone.
-- **One job, not two.** *Start next plan* and *Build slice* are now one job, *Build slice*, from *Ready to build* to *Needs review*. Its first step claims the slice with a draft PR.
+- **One job, not two.** *Start next plan* and *Build slice* are now one job, *Build slice*, from *Approved plans* to *Built branches*. Its first step claims the slice with a draft PR.
 - **The artifact stays where it came from** until the job's output lands in the next stage. This is true in every stage.
 - **Two cube colours, no marks.** Grey waits for a job. Green has an agent on it. Agent states and scores show only in an opened stage.
 - **Waiting first, in progress last.** In the bar, the grey cubes come first, then a thin line, then the green ones. An opened stage lists them in the same order.
@@ -43,20 +43,20 @@ Iteration 1 showed programs and the agents that ran them. Iteration 2 shows the 
 
 ## What to try
 
-1. **Pipeline.** There is one row per stage, in flow order. Each cube is one artifact that the stage's filter finds, so a pile-up shows before you read anything. Here, *Needs review* is the bottleneck. Grey cubes wait for a job. Green cubes have an agent on them, and come last, after a thin line. Hover a cube for its title, age and agents. A stage label turns amber when artifacts sit there longer than its `slow-after` limit.
-2. **Open a stage** (click its row). It shows the stage's filter, then each artifact with its agents, its score ring and its age. Under them, a folded row says how many artifacts the filter also matched but **history hid, because the work moved on**. Open it in *Ready to build*: six slices are hidden, each with the stage its newer artifact is in. Click one to open that newer artifact. Under a line, the last row is the stage's next job.
+1. **Pipeline.** There is one row per stage, in flow order. Each cube is one artifact that the stage's filter finds, so a pile-up shows before you read anything. Here, *Built branches* is the bottleneck. Grey cubes wait for a job. Green cubes have an agent on them, and come last, after a thin line. Hover a cube for its title, age and agents. A stage label turns amber when artifacts sit there longer than its `slow-after` limit.
+2. **Open a stage** (click its row). It shows the stage's filter, then each artifact with its agents, its score ring and its age. Under them, a folded row says how many artifacts the filter also matched but **history hid, because the work moved on**. Open it in *Approved plans*: six slices are hidden, each with the stage its newer artifact is in. Click one to open that newer artifact. Under a line, the last row is the stage's next job.
 3. **Open an artifact** (click a cube or a row). It shows the agents on it, grouped by person, with the job each one runs. It shows the stage's total as a large score ring, one ring per scorer, and the **history**: the earlier artifacts of the same work, newest first, with the job, harness, person and scores at each step, and the kind of link (git note, commit trailer, link in the artifact, PR diff, name match, or found). Try these:
-   - *context-packs S2* (Needs review): a full history made by fab runs. The plan step lists the other slices it made (fan-out).
-   - *search-ui S1* (Needs review): one PR builds slices of two plans (fan-in). Both slices are hidden from Ready to build.
-   - *context-packs S4* (Ready to build): its PR was closed without a merge, so it is back.
-   - *export-csv S3* (Ready to build): stalled. Its draft PR claims it, but no agent is on it. Resume or Release it.
-   - *onboarding-copy S1* (Needs review): made before the fab, linked only by its branch name. The link is marked as a guess.
-   - *export-csv S0* and *billing-fix S1* (Needs review), *context-packs S1* (Ready to merge): built by hand, linked by the PR's diff, a link in the PR body, and a commit trailer.
-4. **▶ at the foot of an opened stage** runs the job that moves work out of it. A job that takes one artifact opens a sheet with the oldest unclaimed artifact already selected. *What's next?* reads the whole Intake, so it starts at once. About 15 seconds after a job starts, its artifact moves to the next stage, the stage's scorers add scores, and a step is added to its history. If the old artifact still matches its filter (a spec, a slice, an intake note), it moves into its stage's hidden row.
+   - *context-packs S2* (Built branches): a full history made by fab runs. The plan step lists the other slices it made (fan-out).
+   - *search-ui S1* (Built branches): one PR builds slices of two plans (fan-in). Both slices are hidden from Approved plans.
+   - *context-packs S4* (Approved plans): its PR was closed without a merge, so it is back.
+   - *export-csv S3* (Approved plans): stalled. Its draft PR claims it, but no agent is on it. Resume or Release it.
+   - *onboarding-copy S1* (Built branches): made before the fab, linked only by its branch name. The link is marked as a guess.
+   - *export-csv S0* and *billing-fix S1* (Built branches), *context-packs S1* (Merged branches): built by hand, linked by the PR's diff, a link in the PR body, and a commit trailer.
+4. **▶ at the foot of an opened stage** runs the job that moves work out of it. A job that takes one artifact opens a sheet with the oldest unclaimed artifact already selected. *What's next?* reads every open note, so it starts at once. About 15 seconds after a job starts, its artifact moves to the next stage, the stage's scorers add scores, and a step is added to its history. If the old artifact still matches its filter (a spec, a slice, an intake note), it moves into its stage's hidden row.
 5. **Jobs.** *Start something* lists the jobs that make new work; click one to start it. *Move work along* lists each job as `from → to`, with how many artifacts wait for it. Click one to open it: what it takes, what decides, and the scores it gets on average. Start it from there.
 6. Keys: `1` Pipeline, `2` Jobs. Esc closes the sheet, and then the panel. ⌥-click a ▶ to choose the harness.
 
-The prototype plays changes on a timer. At about 7 s an agent waits for you. At about 19 s a bug note lands in Intake. At about 30 s Kat's build moves into Needs review. At about 40 s Mo's review moves billing-fix to Ready to merge.
+The prototype plays changes on a timer. At about 7 s an agent waits for you. At about 19 s a bug note lands in Open notes. At about 30 s Kat's build moves into Built branches. At about 40 s Mo's review moves billing-fix to Merged branches.
 
 ## Open questions this iteration raises
 
