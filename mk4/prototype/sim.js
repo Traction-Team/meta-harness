@@ -23,6 +23,8 @@ function refFor(fab, to, a) {
   const sl = slug(a.title);
   const num = (a.ref.match(/#(\d+)/) || [])[1];
   const branch = /^(feat|fix|spike)\//.test(a.ref) ? a.ref.split(" · ")[0] : `feat/${sl}`;
+  /* a claimed slice becomes its draft PR, now ready */
+  if (to.kind === "pr" && !to.done && a.claim) return a.claim.ref.replace(" · draft ", " · ");
   switch (to.kind) {
     case "line":  return `docs/roadmap/roadmap.md:${artsIn(fab, to.id).length + 1}`;
     case "spec":  return `docs/specs/${sl}.md`;
@@ -30,7 +32,6 @@ function refFor(fab, to, a) {
     case "slice": return `docs/plans/${sl}.md § S1`;
     case "pr":
       if (to.done) return `#${num || nextPr++} merged`;
-      if (to.id === "building") return `${branch} · draft #${num || nextPr++}`;
       return `${branch} · #${num || nextPr++}`;
     default: return a.ref;
   }
@@ -46,11 +47,13 @@ function advance(fab, a, j, s) {
   const to = stageOf(fab, j.to);
   const from = stageOf(fab, a.stage);
   if (!a.trail) a.trail = [{ stage: a.stage, ref: a.ref, at: a.since, via: "found" }];
+  const claimed = a.stage !== to.id ? a.claim : null;
   if (a.stage !== to.id) {
     if (to.kind !== from.kind) a.ref = refFor(fab, to, a);
     else if (to.id !== from.id && to.kind === "pr") a.ref = refFor(fab, to, a);
     a.stage = to.id;
     a.since = now();
+    delete a.claim;
   }
   const sc = scoreFor(fab, to);
   a.scores = { ...(a.scores || {}), ...sc };
@@ -60,7 +63,15 @@ function advance(fab, a, j, s) {
      same PR. */
   const via = s.run ? "note" : from.kind === "pr" && to.kind === "pr" ? "same" : "key";
   a.trail.push({ stage: to.id, ref: a.ref, job: j.name, who: s.who, hz: s.harness, at: now(), via,
-    scores: Object.keys(sc).length ? sc : undefined });
+    scores: Object.keys(sc).length ? sc : undefined,
+    note: claimed ? `Claimed with draft ${prNum(claimed.ref)} ${ago(claimed.at)} ago. Ready for review when the build ended.` : undefined });
+}
+
+/* A job that `claims` marks its artifact as taken when it starts: a draft PR
+   that names it. The artifact does not move. */
+function claimFor(fab, j, a, s) {
+  if (!j.claims || !a || a.claim) return;
+  a.claim = { ref: `${s.branch} · draft #${nextPr++}`, who: s.who, at: now() };
 }
 
 function makeArt(fab, j, s) {
@@ -141,6 +152,12 @@ function renderScenery() {
     `    ${k("next")}: prioritise`,
     `    ${k("scored-by")}: [clear]`,
     `  ${c("…")}`,
+    `  - ${k("id")}: ready`,
+    `    ${k("title")}: ${s("Ready to build")}`,
+    `    ${k("find")}: ${s("slices in docs/plans/*.md")}`,
+    `    ${k("where")}: ${s("status: ready")}`,
+    `    ${k("claimed-by")}: ${s("prs draft, naming the slice")}  ${c("# not a stage")}`,
+    `    ${k("next")}: build-slice`,
     `  - ${k("id")}: review`,
     `    ${k("title")}: ${s("Needs review")}`,
     `    ${k("find")}: ${s("prs head:feat/*")}`,

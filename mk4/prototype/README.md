@@ -31,14 +31,25 @@ Iteration 1 showed programs and the agents that ran them. Iteration 2 shows the 
 - **Stages renamed.** *On the roadmap* is now *Approved specs* (`files docs/specs/*.md` where `status: approved`; a spec with a plan is hidden by history). *Plan in review* is now *WIP plans*. The job *Pull next work* is now *Start next plan*.
 - **Less on screen.** An opened stage no longer shows score averages, a "Next:" line or "Not on any work". Opening a stage no longer moves the rows around it.
 
+## Iteration 4: work in progress is not a stage
+
+- **No *Building* stage.** A stage is a place where work waits for a job or a person. *Building* only held work that a running job was already moving out. It is gone.
+- **One job, not two.** *Start next plan* and *Build slice* are now one job, *Build slice*, from *Ready to build* to *Needs review*. Its first step claims the slice with a draft PR.
+- **The artifact stays where it came from** until the job's output lands in the next stage. This is true in every stage.
+- **Two cube colours, no marks.** Grey waits for a job. Green has an agent on it. Agent states and scores show only in an opened stage.
+- **Waiting first, in progress last.** In the bar, the grey cubes come first, then a thin line, then the green ones. An opened stage lists them in the same order.
+- **Slow counts only waiting work.**
+- **A stalled claim** (a draft PR with no agent on it) is grey, because it waits for someone again. Its sheet says so, with **Resume** and **Release**.
+
 ## What to try
 
-1. **Pipeline.** There is one row per stage, in flow order. Each cube is one artifact that the stage's filter finds, so a pile-up shows before you read anything. Here, *Needs review* is the bottleneck. Cube colours: grey waits, green has an agent on it, pale green has idle agents, amber needs a person, and a dashed wireframe is being made. A red mark under a cube means a low score. Hover a cube for its title, age, agents and worst score. A stage label turns amber when artifacts sit there longer than its `slow-after` limit.
+1. **Pipeline.** There is one row per stage, in flow order. Each cube is one artifact that the stage's filter finds, so a pile-up shows before you read anything. Here, *Needs review* is the bottleneck. Grey cubes wait for a job. Green cubes have an agent on them, and come last, after a thin line. Hover a cube for its title, age and agents. A stage label turns amber when artifacts sit there longer than its `slow-after` limit.
 2. **Open a stage** (click its row). It shows the stage's filter, then each artifact with its agents, its score ring and its age. Under them, a folded row says how many artifacts the filter also matched but **history hid, because the work moved on**. Open it in *Ready to build*: six slices are hidden, each with the stage its newer artifact is in. Click one to open that newer artifact. Under a line, the last row is the stage's next job.
 3. **Open an artifact** (click a cube or a row). It shows the agents on it, grouped by person, with the job each one runs. It shows the stage's total as a large score ring, one ring per scorer, and the **history**: the earlier artifacts of the same work, newest first, with the job, harness, person and scores at each step, and the kind of link (git note, commit trailer, link in the artifact, PR diff, name match, or found). Try these:
    - *context-packs S2* (Needs review): a full history made by fab runs. The plan step lists the other slices it made (fan-out).
    - *search-ui S1* (Needs review): one PR builds slices of two plans (fan-in). Both slices are hidden from Ready to build.
    - *context-packs S4* (Ready to build): its PR was closed without a merge, so it is back.
+   - *export-csv S3* (Ready to build): stalled. Its draft PR claims it, but no agent is on it. Resume or Release it.
    - *onboarding-copy S1* (Needs review): made before the fab, linked only by its branch name. The link is marked as a guess.
    - *export-csv S0* and *billing-fix S1* (Needs review), *context-packs S1* (Ready to merge): built by hand, linked by the PR's diff, a link in the PR body, and a commit trailer.
 4. **▶ at the foot of an opened stage** runs the job that moves work out of it. A job that takes one artifact opens a sheet with the oldest unclaimed artifact already selected. *What's next?* reads the whole Intake, so it starts at once. About 15 seconds after a job starts, its artifact moves to the next stage, the stage's scorers add scores, and a step is added to its history. If the old artifact still matches its filter (a spec, a slice, an intake note), it moves into its stage's hidden row.
@@ -49,8 +60,9 @@ The prototype plays changes on a timer. At about 7 s an agent waits for you. At 
 
 ## Open questions this iteration raises
 
-- Are stages always disjoint? *Building* and *Needs review* both filter PRs. Here they split on draft or ready. Some fabs will want an artifact in two stages at once.
-- When a job runs on an artifact, the artifact stays in its `from` stage until the job's output lands. Is that clear enough, or should "being worked" be a state of its own?
+- Are stages always disjoint? Some fabs will want an artifact in two stages at once.
+- ~~When a job runs on an artifact, should "being worked" be a state of its own?~~ Iteration 4 says no: it is the agent on the cube, and the claim. Open: when a job's output lands in the next stage before the job ends (the PR is marked ready, the agent still writes the changelog), the artifact moves and the agent moves with it. Is that right?
+- Should a stalled claim time out on its own, or always wait for a person to resume or release it?
 - Scores belong to a stage, and each history step keeps the scores it had at that point. Should a job also be scored as a run, separate from the artifact it made?
 - How far back can history be linked before there are git notes? See the cold start in [`../overview.md`](../overview.md#history).
 

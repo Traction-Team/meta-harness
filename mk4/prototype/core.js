@@ -80,6 +80,7 @@ const FINISHED = [];
 /* artifacts and their trails get timestamps from their ages */
 FABS.forEach((f) => f.artifacts.forEach((a) => {
   a.since = now() - a.age * 60000;
+  if (a.claim) a.claim.at = now() - a.claim.ago * 60000;
   (a.trail || []).forEach((t) => { t.at = now() - (t.ago ?? a.age) * 60000; });
 }));
 
@@ -91,7 +92,7 @@ const state = {
   fab: "dragonfly",        // a fab id, or "all"
   picker: false,
   sheet: null,             // { kind: "start" | "job" | "art" | "session" | "settings", ... }
-  expanded: new Set(["dragonfly:review"]), // "fabId:stage" rows opened to list their artifacts
+  expanded: new Set(["dragonfly:ready"]), // "fabId:stage" rows opened to list their artifacts
   hidOpen: new Set(),      // "fabId:stage" rows whose hidden (moved on) artifacts are listed
   flash: null,             // session id to flash once
   bump: null,              // artifact id to bump once
@@ -145,6 +146,20 @@ function refTitle(ref) {
   return m ? `${m[1]}${m[2] ? " " + m[2] : ""}` : null;
 }
 const agentsOn = (fab, a) => live(fab.id).filter((s) => s.art === a.id).sort(byRank);
+
+/* Is someone on this artifact? There is no "in progress" stage: the artifact
+   stays in its stage, and this says what is happening to it.
+     active   an agent is on it
+     stalled  a claim (a draft PR) and no agent. Someone has to resume or release it
+     held     a teammate's claim, and their agents are not shown (sync off)
+     null     it waits for a job */
+function workOn(fab, a) {
+  if (agentsOn(fab, a).length) return "active";
+  if (!a.claim) return null;
+  return a.claim.who === ME || state.settings.team ? "stalled" : "held";
+}
+/* "#419" from "feat/x · draft #419" */
+const prNum = (ref) => (ref.match(/#\d+/) || [""])[0];
 const makingIn = (fab, st) => live(fab.id).filter((s) => s.makes === st && !s.art);
 const looseIn = (fab) => live(fab.id).filter((s) => !s.art && !s.makes);
 
@@ -206,23 +221,18 @@ function stageScores(fab, a) {
 /* the isometric cube drawn for each artifact */
 const CUBE_SVG = `<svg class="cu" viewBox="0 0 14 16"><path class="cu-t" d="M7 1.2 12.8 4.5 7 7.8 1.2 4.5z"/><path class="cu-l" d="M1.2 4.5 7 7.8v6.9l-5.8-3.3z"/><path class="cu-r" d="M12.8 4.5 7 7.8v6.9l5.8-3.3z"/></svg>`;
 
-/* one artifact, as a cube. Its colour is the state of the agents on it;
-   a red mark under it is a low score. */
+/* One artifact, as a cube. It has two looks and no more: grey waits for a
+   job, green has an agent on it. Scores and agent states live in the
+   opened stage, not on the cube. */
 function artGlyph(fab, a) {
-  const w = worst(fab, a);
-  return `<i class="ga-cube ${cubeState(fab, a)} ${w != null && w < 5 ? "lo" : ""}">${CUBE_SVG}</i>`;
+  return `<i class="ga-cube ${cubeState(fab, a)}">${CUBE_SVG}</i>`;
 }
-/* an artifact still being made: a dashed wireframe cube */
-const makingGlyph = (s) => `<i class="ga-cube make ${s.state === "waits" ? "wait" : ""}">${CUBE_SVG}</i>`;
+/* an artifact an agent is still making: green, like any work in progress */
+const makingGlyph = () => `<i class="ga-cube run">${CUBE_SVG}</i>`;
 
-/* a cube's state is the state of the agents on its artifact */
-function cubeState(fab, a) {
-  const ags = agentsOn(fab, a);
-  if (ags.some((s) => s.state === "waits")) return "wait";
-  if (ags.some((s) => s.state === "working" || s.state === "starting")) return "run";
-  if (ags.length) return "idle";
-  return "";
-}
+/* a stalled claim has no agent, so it is grey: it waits for someone again */
+const cubeState = (fab, a) => (inProgress(fab, a) ? "run" : "");
+const inProgress = (fab, a) => { const w = workOn(fab, a); return w === "active" || w === "held"; };
 
 /* the start buttons: one per entry, or one per job that starts new work */
 function startsOf(fab) {

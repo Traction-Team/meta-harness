@@ -84,12 +84,14 @@ const FABS = [
       { id: "planning", title: "WIP plans", kind: "plan",
         find: "prs label:plan", where: "open",
         next: "review-plan", waitsFor: "tech lead", slow: 2 * D, scoredBy: ["edge", "pdebt"] },
+      /* No Building stage. A slice being built stays here, with its agent on
+         it, until its PR is ready for review. `claim` is how fab sees that
+         someone has it: a draft PR that names the slice. A claim with no
+         agent on it is stalled. */
       { id: "ready",    title: "Ready to build", kind: "slice",
         find: "slices in docs/plans/*.md", where: "status: ready",
-        next: "pull-work", slow: 5 * D, scoredBy: ["edge", "pdebt"] },
-      { id: "building", title: "Building",       kind: "pr",
-        find: "prs head:feat/*", where: "draft",
-        next: "build-slice", slow: 2 * D },
+        claim: "a draft PR that names the slice",
+        next: "build-slice", slow: 5 * D, scoredBy: ["edge", "pdebt"] },
       { id: "review",   title: "Needs review",   kind: "pr",
         find: "prs head:feat/*", where: "ready for review, not approved",
         next: "review-slice", waitsFor: "code owner", slow: 1 * D, scoredBy: ["tdebt", "tests"] },
@@ -136,16 +138,13 @@ const FABS = [
         inputs: [], decides: "plan", worktree: "current",
       },
       {
-        name: "pull-work", title: "Start next plan", from: "ready", to: "building", takes: true,
-        icon: "download", blurb: "Claim a ready slice and start building it",
-        description: "Claims one ready slice with a draft PR and opens a worktree session to build it.",
+        /* was two jobs: pull-work (claim it) and build-slice (build it). The
+           claim is now the first step of the build, not a stage. */
+        name: "build-slice", title: "Build slice", from: "ready", to: "review", takes: true,
+        icon: "hammer", blurb: "Claim a slice, build it tests first, mark the PR ready",
+        description: "Claims one ready slice with a draft PR, then builds it in its own worktree: tests first, then the code. Marks the PR ready for review when it is done.",
+        claims: "Opens a draft PR that names the slice",
         inputs: [], decides: "pick", worktree: "new",
-      },
-      {
-        name: "build-slice", title: "Build slice", from: "building", to: "review", takes: true,
-        icon: "hammer", blurb: "Tests first, then the code, then mark the PR ready",
-        description: "Builds one slice in its own worktree: tests first, then the code, then a PR that is ready for review.",
-        inputs: [], worktree: "current",
       },
       {
         name: "review-slice", title: "Review slice", from: "review", to: "merge", takes: true,
@@ -173,7 +172,7 @@ const FABS = [
     decisions: {
       "whats-next": { who: "product lead", says: "Pick what is next, in the prioritise conversation" },
       "plan":       { who: "tech lead",    says: "Approve the plan, as a docs PR" },
-      "pick":       { who: "developer",    says: "Pick the slice to pull" },
+      "pick":       { who: "developer",    says: "Pick the slice to build" },
       "done":       { who: "code owner",   says: "Approve the PR" },
       "merge":      { who: "code owner",   says: "Merge the PR" },
     },
@@ -230,23 +229,29 @@ const FABS = [
         ] },
 
       /* ready to build */
+      /* `claim` is the draft PR that claims the slice. `ago` is when it was
+         opened. A slice with a claim and an agent on it is being built. */
+      { id: "b1", stage: "ready", title: "context-packs S3", ref: "docs/plans/context-packs.md § S3", age: 8 * D, who: "seb", scores: { edge: 8.0, pdebt: 7.7 },
+        claim: { ref: "feat/context-packs-s3 · draft #419", who: "seb", ago: 14 * M } },
+      { id: "b2", stage: "ready", title: "export-csv S1",    ref: "docs/plans/export-csv.md § S1", age: 2 * D, who: "seb", scores: { edge: 7.4, pdebt: 8.3 },
+        claim: { ref: "feat/export-csv-s1 · draft #420", who: "seb", ago: 3 * H } },
+      { id: "b3", stage: "ready", title: "search-index S1",  ref: "docs/plans/search-index.md § S1", age: 4 * D, who: "kat", scores: { edge: 6.8, pdebt: 7.1 },
+        claim: { ref: "feat/search-index-s1 · draft #421", who: "kat", ago: 5 * H } },
       { id: "sl1", stage: "ready", title: "export-csv S2",     ref: "docs/plans/export-csv.md § S2", age: 2 * D, who: "seb", scores: { edge: 8.1, pdebt: 8.0 } },
-      { id: "sl2", stage: "ready", title: "export-csv S3",     ref: "docs/plans/export-csv.md § S3", age: 2 * D, who: "seb", scores: { edge: 7.6, pdebt: 8.0 } },
+      /* stalled: claimed by a draft PR, but no agent is on it. The session
+         that opened it ended (a closed laptop, a crash) before the PR was ready */
+      { id: "sl2", stage: "ready", title: "export-csv S3",     ref: "docs/plans/export-csv.md § S3", age: 2 * D, who: "seb", scores: { edge: 7.6, pdebt: 8.0 },
+        claim: { ref: "feat/export-csv-s3 · draft #422", who: "seb", ago: 1 * D + 4 * H } },
       /* abandoned: its PR was closed without a merge, so it is back here */
       { id: "sl3", stage: "ready", title: "context-packs S4",  ref: "docs/plans/context-packs.md § S4", age: 3 * D, who: "seb", scores: { edge: 8.4, pdebt: 6.2 },
         trail: [
           { stage: "roadmap", title: "Context packs for agents", ref: "docs/specs/context-packs.md", ago: 10 * D, via: "found" },
           { stage: "planning", title: "Context packs for agents", ref: "docs PR #405 · docs/plans/context-packs.md", job: "plan-feature", who: "seb", hz: "orca", ago: 9 * D, via: "note", scores: { edge: 6.0, pdebt: 8.2 } },
           { stage: "ready", ref: "docs/plans/context-packs.md § S4", job: "review-plan", who: "seb", hz: "codex", ago: 8 * D, via: "note", scores: { edge: 8.4, pdebt: 6.2 } },
-          { stage: "building", ref: "feat/context-packs-s4 · draft #403", job: "pull-work", who: "mo", hz: "claude-code", ago: 6 * D, via: "note", abandoned: true, note: "Closed without a merge 3 days ago." },
+          { stage: "ready", title: "Claimed by Mo", ref: "feat/context-packs-s4 · draft #403", job: "build-slice", who: "mo", hz: "claude-code", ago: 6 * D, via: "note", abandoned: true, note: "Build slice claimed it with a draft PR. The PR was closed without a merge 3 days ago." },
           { stage: "ready", ref: "docs/plans/context-packs.md § S4", ago: 3 * D, via: "back", note: "Its only PR was closed, so nothing later hides it. It shows in Ready to build again." },
         ] },
       { id: "sl4", stage: "ready", title: "context-packs S5",  ref: "docs/plans/context-packs.md § S5", age: 8 * D, who: "seb", scores: { edge: 6.9, pdebt: 5.8 } },
-
-      /* building */
-      { id: "b1", stage: "building", title: "context-packs S3", ref: "feat/context-packs-s3 · draft #419", age: 14 * M, who: "seb" },
-      { id: "b2", stage: "building", title: "export-csv S1",    ref: "feat/export-csv-s1 · draft #420",   age: 3 * H, who: "seb" },
-      { id: "b3", stage: "building", title: "search-index S1",  ref: "feat/search-index-s1 · draft #421", age: 5 * H, who: "kat" },
 
       /* review: this is where it piles up */
       { id: "v1", stage: "review", title: "context-packs S2", ref: "feat/context-packs-s2 · #412", age: 1 * D + 2 * H, who: "seb", scores: { tdebt: 7.1, tests: 8.3 },
@@ -256,8 +261,8 @@ const FABS = [
           { stage: "planning", title: "Context packs for agents", ref: "docs PR #405 · docs/plans/context-packs.md", job: "plan-feature", who: "seb", hz: "orca", ago: 9 * D, via: "note", scores: { edge: 6.0, pdebt: 8.2 },
             alsoMade: ["m1", "b1", "sl3", "sl4"] },
           { stage: "ready", title: "context-packs S2", ref: "docs/plans/context-packs.md § S2", job: "review-plan", who: "seb", hz: "codex", ago: 8 * D, via: "note", scores: { edge: 8.4, pdebt: 8.2 }, note: "Approved by Jo (tech lead) after two edge cases were added" },
-          { stage: "building", ref: "feat/context-packs-s2 · draft #412", job: "pull-work", who: "seb", hz: "claude-code", ago: 2 * D, via: "note" },
-          { stage: "review", ref: "feat/context-packs-s2 · #412", job: "build-slice", who: "seb", hz: "claude-code", ago: 1 * D + 2 * H, via: "same", scores: { tdebt: 7.1, tests: 8.3 } },
+          { stage: "review", ref: "feat/context-packs-s2 · #412", job: "build-slice", who: "seb", hz: "claude-code", ago: 1 * D + 2 * H, via: "note", scores: { tdebt: 7.1, tests: 8.3 },
+            note: "Claimed with draft #412 2 days ago. Ready for review when the build ended." },
         ] },
       /* cold start: made before the fab, linked only by the work key */
       { id: "v2", stage: "review", title: "onboarding-copy S1", ref: "feat/onboarding-copy-s1 · #414", age: 1 * D + 9 * H, who: "kat", scores: { tdebt: 9.0, tests: 6.2 },
@@ -292,8 +297,7 @@ const FABS = [
       { id: "m1", stage: "merge", title: "context-packs S1", ref: "feat/context-packs-s1 · #409", age: 2 * H, who: "seb", scores: { tdebt: 8.0, tests: 9.1 },
         trail: [
           { stage: "ready", ref: "docs/plans/context-packs.md § S1", ago: 8 * D, via: "found", scores: { edge: 7.7, pdebt: 8.2 } },
-          { stage: "building", ref: "feat/context-packs-s1 · draft #409", who: "seb", ago: 7 * D, via: "trailer", how: "Fab-From: docs/plans/context-packs.md § S1, in the first commit" },
-          { stage: "review", ref: "feat/context-packs-s1 · #409", job: "build-slice", who: "seb", hz: "claude-code", ago: 4 * D, via: "same", scores: { tdebt: 6.9, tests: 8.4 } },
+          { stage: "review", ref: "feat/context-packs-s1 · #409", job: "build-slice", who: "seb", hz: "claude-code", ago: 4 * D, via: "trailer", how: "Fab-From: docs/plans/context-packs.md § S1, in the first commit", scores: { tdebt: 6.9, tests: 8.4 } },
           { stage: "merge", ref: "feat/context-packs-s1 · #409", job: "review-slice", who: "kat", hz: "codex", ago: 2 * H, via: "note", scores: { tdebt: 8.0, tests: 9.1 } },
         ] },
 

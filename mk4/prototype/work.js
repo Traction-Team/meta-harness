@@ -33,30 +33,40 @@ function agentStack(ss, max = 5) {
 
 function cube(fab, a) {
   const st = cubeState(fab, a);
-  const w = worst(fab, a);
   const ags = agentsOn(fab, a);
-  const t = `${a.title} · ${ago(a.since)} here${ags.length ? ` · ${ags.length} agent${ags.length > 1 ? "s" : ""}` : ""}${w != null ? ` · worst score ${w.toFixed(1)}` : ""}`;
+  const t = `${a.title} · ${ago(a.since)} here${ags.length ? ` · ${ags.length} agent${ags.length > 1 ? "s" : ""} on it` : ""}`;
   return `<span class="gl ${st}" data-act="art" data-fab="${fab.id}" data-a="${a.id}" title="${esc(t)}">${artGlyph(fab, a)}</span>`;
 }
 const pendingCube = (s) =>
   `<span class="gl" data-act="session" data-sid="${s.id}" title="${esc(`Being made: ${s.label}`)}">${makingGlyph(s)}</span>`;
 
+/* A stage's artifacts: the ones that wait for a job, then the ones an agent
+   is on. Work in progress stays in the stage it came from; it is not a stage. */
+function splitArts(fab, arts) {
+  return { waiting: arts.filter((a) => !inProgress(fab, a)), on: arts.filter((a) => inProgress(fab, a)) };
+}
+
 function stageHtml(fab, st) {
   const arts = artsIn(fab, st.id);
+  const { waiting, on } = splitArts(fab, arts);
   const making = makingIn(fab, st.id);
   const open = state.expanded.has(`${fab.id}:${st.id}`);
-  const slow = st.slow ? arts.filter((a) => now() - a.since > st.slow * 60000) : [];
+  /* only waiting counts as slow: time with an agent on it is not time lost */
+  const slow = st.slow ? waiting.filter((a) => now() - a.since > st.slow * 60000) : [];
   const cap = 14;
-  const cubes = [...making.map(pendingCube), ...arts.map((a) => cube(fab, a))];
-  const bar = cubes.slice(0, cap).join("") + (cubes.length > cap ? `<span class="gl-more">+${cubes.length - cap}</span>` : "");
+  /* waiting on the left, in progress on the right, a thin line between */
+  const left = waiting.map((a) => cube(fab, a));
+  const right = [...on.map((a) => cube(fab, a)), ...making.map(pendingCube)];
+  const cubes = [...left, ...(left.length && right.length ? [`<span class="gl-gap"></span>`] : []), ...right];
+  const bar = cubes.slice(0, cap + 1).join("") + (cubes.length > cap + 1 ? `<span class="gl-more">+${cubes.length - cap - 1}</span>` : "");
   const sub = st.done ? "last 7 days"
     : slow.length ? `${slow.length} over ${dur(st.slow)}`
-    : arts.length ? `oldest ${ago(arts[0].since)}` : making.length ? "being made" : "empty";
+    : waiting.length ? `oldest ${ago(waiting[0].since)}` : right.length ? "all in progress" : "empty";
   return `<div class="st ${open ? "open" : ""} ${slow.length ? "slow" : ""} ${st.done ? "done" : ""}" data-act="sttoggle" data-fab="${fab.id}" data-s="${st.id}">
     <div class="st-h">
       <span class="st-chev">${ICONS.chevR}</span>
       <div class="st-m"><span class="st-t">${esc(st.title)}</span><span class="st-s">${sub}</span></div>
-      <div class="st-bar"><span class="st-n">${arts.length}</span>${bar}</div>
+      <div class="st-bar"><span class="st-n">${arts.length + making.length}</span>${bar}</div>
     </div>
     ${open ? stageDetail(fab, st, arts, making) : ""}
   </div>`;
@@ -64,16 +74,24 @@ function stageHtml(fab, st) {
 
 function stageDetail(fab, st, arts, making) {
   const nx = st.next && jobOf(fab, st.next);
+  const { waiting, on } = splitArts(fab, arts);
   return `<div class="st-d">
     <div class="st-src" title="A stage is a filter. Anything it matches shows here, made by fab or not.">
       ${ICONS.filter}<span class="mono">${esc(st.find)}</span><span class="dim">where</span><span class="mono">${esc(st.where)}</span></div>
-    <div class="its">${making.map(makingItem).join("")}${arts.map((a) => itemHtml(fab, a)).join("")}</div>
+    <div class="its">${[...waiting, ...on].map((a) => itemHtml(fab, a)).join("")}${making.map(makingItem).join("")}</div>
     ${!arts.length && !making.length ? `<div class="st-empty">Nothing matches</div>` : ""}
     ${hiddenHtml(fab, st)}
     ${nx ? `<button class="st-next" data-act="stgo" data-fab="${fab.id}" data-s="${st.id}" title="Run ${esc(nx.title)} (⌥-click to choose the harness)">
-      <span class="st-go">${ICONS.play}</span><span class="st-next-t">${esc(nx.title)}</span>
-      ${st.waitsFor ? `<span class="st-next-w">then the ${esc(st.waitsFor)} approves</span>` : ""}</button>` : ""}
+      <span class="st-go">${ICONS.play}</span><span class="st-next-t">${esc(nx.title)}</span></button>` : ""}
   </div>`;
+}
+
+/* on hover, a row with no agent offers its stage's next job, on this artifact */
+function runBtn(fab, a) {
+  const st = stageOf(fab, a.stage);
+  const nx = st.next && jobOf(fab, st.next);
+  if (!nx) return "";
+  return `<button class="it-run" data-act="start" data-fab="${fab.id}" data-j="${nx.name}" data-e="" data-a="${a.id}" title="Run ${esc(nx.title)} on ${esc(a.title)} (⌥-click to choose the harness)">${ICONS.play}</button>`;
 }
 
 function itemHtml(fab, a) {
@@ -82,7 +100,7 @@ function itemHtml(fab, a) {
   return `<div class="it" data-act="art" data-fab="${fab.id}" data-a="${a.id}" title="${esc(a.ref)}">
     <span class="gl">${artGlyph(fab, a)}</span>
     <span class="it-t">${esc(a.title)}</span>
-    ${ags.length ? agentStack(ags, 4) : ""}
+    ${ags.length ? agentStack(ags, 4) : workOn(fab, a) === "held" ? personDot(a.claim.who) : runBtn(fab, a)}
     ${sc.vals.length ? scoreRing(sc.vals, { size: 16, sw: 2.4, title: sc.title }) : ""}
     <span class="it-age" data-since="${a.since}">${ago(a.since)}</span>
   </div>`;
@@ -108,7 +126,7 @@ function hiddenHtml(fab, st) {
   }).join("")}</div>` : "";
   return `<button class="st-hid ${open ? "open" : ""}" data-act="hidtoggle" data-fab="${fab.id}" data-s="${st.id}"
       title="The filter also matches these. Each has a later artifact in its history, so it shows there instead.">
-      <span class="st-chev">${ICONS.chevR}</span>${hid.length} moved on, hidden by history</button>${rows}`;
+      <span class="st-chev">${ICONS.chevR}</span>${hid.length} hidden (linked history)</button>${rows}`;
 }
 
 const makingItem = (s) => `<div class="it making" data-act="session" data-sid="${s.id}">
@@ -155,14 +173,14 @@ function goHtml(st) {
 function moveHtml(fab, j) {
   const from = stageOf(fab, j.from);
   const to = stageOf(fab, j.to);
-  const n = artsIn(fab, j.from).length;
+  const n = artsIn(fab, j.from).filter((a) => !workOn(fab, a)).length;
   const ss = live(fab.id).filter((s) => s.job === j.name).sort(byRank);
   return `<button class="go" data-act="job" data-fab="${fab.id}" data-j="${j.name}" title="About ${esc(j.title)}">
     <span class="go-ic ${j.icon}">${ICONS[j.icon] || ICONS.start}</span>
     <span class="go-m"><span class="go-t">${esc(j.title)}</span>
       <span class="go-d">${esc(from.title)} <span class="arr">→</span> ${esc(to.title)}</span></span>
     ${ss.length ? agentStack(ss, 3) : ""}
-    <span class="go-n" title="${n} in ${esc(from.title)}">${n}</span>
+    <span class="go-n" title="${n} waiting in ${esc(from.title)}, with nobody on them">${n}</span>
     <span class="go-run">${ICONS.chevR}</span>
   </button>`;
 }

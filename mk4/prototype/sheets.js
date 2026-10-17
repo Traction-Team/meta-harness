@@ -36,10 +36,10 @@ function refreshSheet() { if (state.sheet && state.sheet.kind !== "start") rende
 
 const newRunId = () => "r_20261017_" + Math.random().toString(16).slice(2, 8);
 
-/* the default artifact: the oldest one nobody's agent is on */
+/* the default artifact: the oldest one nobody has, by agent or by claim */
 function pickDefault(fab, j) {
   const arts = artsIn(fab, j.from);
-  return (arts.find((a) => !agentsOn(fab, a).length) || arts[0])?.id || null;
+  return (arts.find((a) => !workOn(fab, a)) || arts.find((a) => !agentsOn(fab, a).length) || arts[0])?.id || null;
 }
 
 function startSheet(sh) {
@@ -63,7 +63,9 @@ function startSheet(sh) {
     pick = `<div class="fld"><label class="fld-l">Which ${esc(KINDS[from.kind].one)}?<span class="opt">${arts.length} in ${esc(from.title)}</span></label>
       <select class="inp" data-artsel>${arts.map((a) => {
         const n = agentsOn(fab, a).length;
-        return `<option value="${a.id}" ${sh.art === a.id ? "selected" : ""}>${esc(a.title)} · ${ago(a.since)}${n ? ` · ${n} agent${n > 1 ? "s" : ""} on it` : ""}</option>`;
+        const w = workOn(fab, a);
+        const tag = n ? ` · ${n} agent${n > 1 ? "s" : ""} on it` : w === "stalled" ? ` · stalled ${prNum(a.claim.ref)}, resume it` : w === "held" ? ` · ${whoName(a.claim.who)} has it` : "";
+        return `<option value="${a.id}" ${sh.art === a.id ? "selected" : ""}>${esc(a.title)} · ${ago(a.since)}${tag}</option>`;
       }).join("")}</select></div>`;
   } else if (from) {
     pick = `<div class="inote">${ICONS.info}<span>Reads all ${artsIn(fab, j.from).length} in ${esc(from.title)}</span></div>`;
@@ -97,7 +99,7 @@ function startSheet(sh) {
         <div class="hero-s">${from ? `${esc(from.title)} → ${esc(to.title)}` : `Adds to ${esc(to.title)}`}</div>
       </div>
     </div>
-    ${pick}${fields}
+    ${pick}${j.claims ? `<div class="inote">${ICONS.hand}<span>${esc(j.claims)}. It stays in ${esc(from.title)} with your agent on it until the PR is ready.</span></div>` : ""}${fields}
     <div class="lbl">Start in</div>
     <div class="hzs">${hzs}</div>
     ${wt}
@@ -123,6 +125,8 @@ function startInputs(sh) {
 function branchFor(sh) {
   const { fab, j, art, inputs } = startInputs(sh);
   if (sh.branch) return sh.branch;
+  /* resuming a claim: its draft PR's branch */
+  if (art?.claim) return art.claim.ref.split(" · ")[0];
   const s = slug(art?.title || inputs.what || sh.run.slice(-6));
   /* work that becomes a PR gets the branch the stage filters look for */
   return stageOf(fab, j.to).kind === "pr" ? `feat/${s}` : `fab/${j.name}/${s}`;
@@ -161,6 +165,7 @@ function doStart(sh) {
     match: "pending", run: sh.run, startedBy: "monitor", inputs, autoFinish: true,
   };
   SESSIONS.unshift(s);
+  claimFor(fab, j, art, s);
   closeSheet();
   state.tab = "work";
   state.fab = fab.id;
@@ -191,6 +196,7 @@ function jobSheet(sh) {
     ["From", from ? stLink(from) : `<span class="dim">Nothing. Starts new work</span>`],
     ["To", stLink(to)],
     ["Takes", j.takes ? `One ${esc(KINDS[from.kind].one)}` : from ? `All of ${esc(from.title)}` : `<span class="dim">Your answers</span>`],
+    ...(j.claims ? [["Claims", esc(j.claims)]] : []),
     ["Decides", j.decides ? esc(fab.decisions[j.decides].who) : `<span class="dim">—</span>`],
     ["Worktree", j.worktree === "new" ? "New" : "Current"],
   ].map(([k, v]) => `<div class="kv-r"><span class="kv-k">${k}</span><span class="kv-v">${v}</span></div>`).join("");

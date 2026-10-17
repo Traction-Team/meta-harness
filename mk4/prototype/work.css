@@ -57,7 +57,6 @@
 .st-next::before { content: ""; position: absolute; left: 4px; right: 4px; top: -4px; height: .5px; background: var(--line); }
 .st-next .st-go { width: 20px; height: 20px; }
 .st-next-t { font-size: 12.5px; font-weight: 600; }
-.st-next-w { flex: 1; min-width: 0; text-align: right; font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .st-next:hover { background: var(--hover); }
 .st-next:hover .st-go { color: #fff; background: var(--accent); box-shadow: none; }
 
@@ -211,13 +210,25 @@
 .ga-cube .cu-r { fill: color-mix(in srgb, var(--c), #000 20%); }
 .ga-cube path { stroke: color-mix(in srgb, var(--c), #000 28%); stroke-width: .35; stroke-linejoin: round; }
 .ga-cube.run  { --c: var(--green); }
-.ga-cube.idle { --c: color-mix(in srgb, var(--green) 45%, #c6c3d0); }
-.ga-cube.wait { --c: var(--amber); }
-.ga-cube.make path { fill: none; stroke: var(--text-3); stroke-width: .9; stroke-dasharray: 1.6 1.2; }
-.ga-cube.make.wait path { stroke: var(--amber); }
-.ga-cube.make { animation: breathe 1.6s ease-in-out infinite; }
-/* a low score: a red mark on the cube's shadow */
-.ga-cube.lo::after { content: ""; position: absolute; left: 3px; right: 3px; bottom: -4px; height: 2px; border-radius: 1px; background: var(--red); }
 .it .ga-cube { width: 11px; height: 13px; }
-.it .ga-cube.lo::after { bottom: -3px; height: 1.5px; }
 .tr-via b { font-weight: 500; color: var(--text-2); }
+
+/* ══ iteration 4: work in progress is not a stage ═══════════════════ */
+
+/* in the bar: what waits, a thin line, then what an agent is on */
+.gl-gap { flex: none; width: 1px; height: 12px; margin: 0 4px; background: var(--line); border-radius: 1px; }
+
+/* a row's ▶: shown on hover, only on rows with no agent */
+.it-run { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; padding: 0; border: 0;
+  color: var(--text-2); background: var(--control); box-shadow: var(--control-shadow); opacity: 0; transition: opacity .12s; cursor: pointer; }
+.it-run svg { width: 7px; height: 7px; margin-left: 1.5px; }
+.it:hover .it-run, .it-run:focus-visible { opacity: 1; }
+.it-run:hover { color: #fff; background: var(--accent); box-shadow: none; }
+
+/* the artifact sheet: its claim */
+.claim { display: flex; align-items: flex-start; gap: 8px; margin: 6px 0 2px; padding: 7px 9px; border-radius: 7px; font-size: 12px;
+  background: var(--fill); box-shadow: inset 0 0 0 .5px var(--line-soft); color: var(--text-2); }
+.claim svg { flex: none; margin-top: 1px; color: var(--text-3); }
+.claim.stall { background: color-mix(in srgb, var(--red) 8%, transparent); box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--red) 35%, transparent); }
+.claim.stall svg { color: var(--red); }
+.claim b { font-weight: 600; color: var(--text); }

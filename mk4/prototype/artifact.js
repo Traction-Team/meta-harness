@@ -70,6 +70,10 @@ function artSheet(sh) {
           <span class="dim">${ss.length} agent${ss.length > 1 ? "s" : ""}${w !== ME ? " · synced" : ""}</span></div>
         <div class="mini">${ss.map((s) => agentHtml(s, "job")).join("")}</div>`).join("")
     : `<div class="none">No agents on it.</div>`;
+  const w = workOn(fab, a);
+  const claimH = !a.claim ? ""
+    : w === "stalled" ? `<div class="claim stall">${ICONS.warn}<span><b>Stalled.</b> ${esc(whoName(a.claim.who) === "you" ? "You" : whoName(a.claim.who))} claimed it ${ago(a.claim.at)} ago with <span class="mono">${esc(a.claim.ref)}</span>, and no agent is on it now. Resume the build on that branch, or release the claim so someone else can take it.</span></div>`
+    : `<div class="claim">${ICONS.hand}<span>Claimed by <span class="mono">${esc(a.claim.ref)}</span> · ${esc(whoName(a.claim.who))} · ${ago(a.claim.at)} ago. It stays in ${esc(st.title)} until the PR is ready.</span></div>`;
 
   /* scores: this stage's scorers first, then older ones, dimmed */
   const keys = [...new Set([...(st.scoredBy || []).filter((k) => a.scores?.[k] != null), ...Object.keys(a.scores || {})])];
@@ -93,13 +97,16 @@ function artSheet(sh) {
     </div>
     <div class="refbox mono" data-act="openref" data-fab="${fab.id}" data-a="${a.id}">${esc(a.ref)}</div>
     <div class="lbl">On it now</div>
-    ${agentsH}
+    ${w === "stalled" ? "" : agentsH}
+    ${claimH}
     <div class="lbl">Scores</div>
     ${scoresH}
     <div class="lbl">History <span class="lbl-s">newest first · each step keeps its own scores</span></div>
     ${trailHtml(fab, a)}`;
+  const stalled = w === "stalled";
   const foot = `<button class="btn ghost" data-act="openref" data-fab="${fab.id}" data-a="${a.id}">Open</button><span class="sp"></span>
-    ${nx ? `<button class="btn pri" data-act="start" data-fab="${fab.id}" data-j="${nx.name}" data-e="" data-a="${a.id}">${ICONS.play}${esc(nx.title)}</button>` : ""}`;
+    ${stalled ? `<button class="btn ghost" data-act="release" data-fab="${fab.id}" data-a="${a.id}">Release</button>` : ""}
+    ${nx ? `<button class="btn pri" data-act="start" data-fab="${fab.id}" data-j="${nx.name}" data-e="" data-a="${a.id}">${ICONS.play}${stalled ? "Resume" : esc(nx.title)}</button>` : ""}`;
   return { body, foot };
 }
 

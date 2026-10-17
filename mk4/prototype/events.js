@@ -122,6 +122,16 @@ document.addEventListener("click", (ev) => {
       const a = artOf(fabById(d.fab), d.a);
       toast(`Opened <span class="mono">${esc(a.ref)}</span>`); break;
     }
+    case "release": {
+      /* closes the draft PR; the slice waits in its stage again */
+      const a = artOf(fabById(d.fab), d.a);
+      if (!a?.claim) break;
+      const pr = prNum(a.claim.ref);
+      delete a.claim;
+      closeSheet(); render();
+      toast(`Closed draft ${esc(pr)} · ${esc(a.title)} waits in ${esc(stageOf(fabById(d.fab), a.stage).title)}`);
+      break;
+    }
     case "openfile": toast(`Opened <span class="mono">${esc(d.path)}</span> in your editor`); break;
     case "check": {
       const bad = visibleFabs().filter((f) => !f.check.ok);
