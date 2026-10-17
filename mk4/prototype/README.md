@@ -52,16 +52,16 @@ Iteration 1 showed programs and the agents that ran them. Iteration 2 shows the 
    - *export-csv S3* (Approved plans): stalled. Its draft PR claims it, but no agent is on it. Resume or Release it.
    - *onboarding-copy S1* (Built branches): made before the fab, linked only by its branch name. The link is marked as a guess.
    - *export-csv S0* and *billing-fix S1* (Built branches), *context-packs S1* (Merged branches): built by hand, linked by the PR's diff, a link in the PR body, and a commit trailer.
-4. **▶ at the foot of an opened stage** runs the job that moves work out of it. A job that takes one artifact opens a sheet with the oldest unclaimed artifact already selected. *What's next?* reads every open note, so it starts at once. About 15 seconds after a job starts, its artifact moves to the next stage, the stage's scorers add scores, and a step is added to its history. If the old artifact still matches its filter (a spec, a slice, an intake note), it moves into its stage's hidden row.
+4. **▶ at the foot of an opened stage** runs the job that moves work out of it. A job that takes one artifact opens a sheet with the oldest unclaimed artifact already selected. *What's next?* reads every logged idea, so it starts at once. About 15 seconds after a job starts, its artifact moves to the next stage, the stage's scorers add scores, and a step is added to its history. If the old artifact still matches its filter (a spec, a slice, an intake note), it moves into its stage's hidden row.
 5. **Jobs.** *Start something* lists the jobs that make new work; click one to start it. *Move work along* lists each job as `from → to`, with how many artifacts wait for it. Click one to open it: what it takes, what decides, and the scores it gets on average. Start it from there.
 6. Keys: `1` Pipeline, `2` Jobs. Esc closes the sheet, and then the panel. ⌥-click a ▶ to choose the harness.
 
-The prototype plays changes on a timer. At about 7 s an agent waits for you. At about 19 s a bug note lands in Open notes. At about 30 s Kat's build moves into Built branches. At about 40 s Mo's review moves billing-fix to Merged branches.
+The prototype plays changes on a timer. At about 7 s an agent waits for you. At about 19 s a bug note lands in Logged ideas. At about 30 s Kat's build moves into Built branches. At about 40 s Mo's review moves billing-fix to Merged branches.
 
 ## Open questions this iteration raises
 
 - Are stages always disjoint? Some fabs will want an artifact in two stages at once.
-- ~~When a job runs on an artifact, should "being worked" be a state of its own?~~ Iteration 4 says no: it is the agent on the cube, and the claim. Open: when a job's output lands in the next stage before the job ends (the PR is marked ready, the agent still writes the changelog), the artifact moves and the agent moves with it. Is that right?
+- ~~When a job runs on an artifact, should "being worked" be a state of its own?~~ Iteration 4 says no: it is the agent on the cube, and the claim. Open: when a job's output lands in the next stage before the job ends (the PR is marked ready, the agent still writes the release note), the artifact moves and the agent moves with it. Is that right?
 - Should a stalled claim time out on its own, or always wait for a person to resume or release it?
 - Scores belong to a stage, and each history step keeps the scores it had at that point. Should a job also be scored as a run, separate from the artifact it made?
 - How far back can history be linked before there are git notes? See the cold start in [`../overview.md`](../overview.md#history).

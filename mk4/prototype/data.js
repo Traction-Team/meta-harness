@@ -60,6 +60,7 @@ const KINDS = {
   slice: { one: "slice",        icon: "layers" },
   pr:    { one: "pull request", icon: "pr" },
   issue: { one: "issue",        icon: "dot" },
+  release: { one: "release note", icon: "doc" },
 };
 
 /* ──────────────────────────────────────────────────────────── the fabs ── */
@@ -75,7 +76,7 @@ const FABS = [
     /* In flow order. `find` + `where` is the filter. `slow` is how long an
        artifact may sit before the stage counts as slow. */
     stages: [
-      { id: "intake",   title: "Open notes",      kind: "note",
+      { id: "intake",   title: "Logged ideas",    kind: "note",
         find: "files docs/roadmap/intake/*.md", where: "status: open",
         next: "prioritise", slow: 7 * D, scoredBy: ["clear"] },
       { id: "roadmap",  title: "Approved specs", kind: "spec",
@@ -96,12 +97,13 @@ const FABS = [
         find: "prs head:feat/*", where: "ready for review, not merged",
         next: "review-slice", waitsFor: "code owner", slow: 1 * D, scoredBy: ["tdebt", "tests"] },
       /* Merged is not the end: the landing job still has to update the rest
-         of the system. A landed PR has a fab note saying so. */
+         of the system. Its release note is the later
+         artifact, so the PR leaves here once the note exists. */
       { id: "merge",    title: "Merged branches", kind: "pr",
-        find: "prs head:feat/*", where: "merged, not landed",
+        find: "prs head:feat/*", where: "merged, no release note yet",
         next: "finish-slice", slow: 1 * D, scoredBy: ["tdebt", "tests"] },
-      { id: "shipped",  title: "Landed branches", kind: "pr",
-        find: "prs head:feat/*", where: "landed in the last 7 days", done: true },
+      { id: "shipped",  title: "Release notes",   kind: "release",
+        find: "files docs/changelog/*.md", where: "added in the last 7 days", done: true },
     ],
 
     jobs: [
@@ -157,7 +159,7 @@ const FABS = [
       {
         name: "finish-slice", title: "Land branch", from: "merge", to: "shipped", takes: true,
         icon: "flag", blurb: "Bring a merged branch's changes back into the rest of the system",
-        description: "Runs after the merge. Writes the changelog entry, marks the slice done in its plan, and updates the specs, roadmap and docs that the change touched. Then marks the PR landed.",
+        description: "Runs after the merge. Writes a release note in docs/changelog/, marks the slice done in its plan, and updates the specs, roadmap and docs that the change touched.",
         inputs: [], worktree: "current",
       },
     ],
@@ -202,7 +204,7 @@ const FABS = [
        open intake note, an approved spec, a ready slice on main) are what
        history hides. See hiddenIn() in core.js. */
     artifacts: [
-      /* open notes */
+      /* logged ideas */
       { id: "i2", stage: "intake", title: "Export button greyed out",       ref: "docs/roadmap/intake/2026-10-16-export-greyed.md", age: 48 * M, who: "seb", scores: { clear: 8.4 },
         trail: [{ stage: "intake", job: "file-work", who: "seb", hz: "claude-code", ago: 48, via: "note", scores: { clear: 8.4 } }] },
       { id: "i3", stage: "intake", title: "Idea: dark mode for docs",       ref: "docs/roadmap/intake/2026-10-16-dark-docs.md", age: 3 * H, who: "seb", scores: { clear: 6.1 },
@@ -302,11 +304,41 @@ const FABS = [
           { stage: "merge", ref: "feat/context-packs-s1 · #409", job: "review-slice", who: "kat", hz: "codex", ago: 2 * H, via: "note", scores: { tdebt: 8.0, tests: 9.1 } },
         ] },
 
-      /* landed branches */
-      { id: "x1", stage: "shipped", title: "plan template v2",   ref: "#401 landed", age: 6 * D, who: "seb" },
-      { id: "x2", stage: "shipped", title: "fix: login redirect", ref: "#404 landed", age: 4 * D, who: "mo" },
-      { id: "x3", stage: "shipped", title: "intake form copy",   ref: "#406 landed", age: 3 * D, who: "kat" },
-      { id: "x4", stage: "shipped", title: "export-csv spike",   ref: "#408 landed", age: 1 * D, who: "seb" },
+      /* release notes */
+      /* each has the full history of its work. Land branch marked the slice
+         done and closed the note, so these earlier steps no longer match
+         their filters and hide nothing. */
+      { id: "x1", stage: "shipped", title: "plan template v2", ref: "docs/changelog/2026-10-11-plan-template-v2.md", age: 6 * D, who: "seb",
+        trail: [
+          { stage: "roadmap", ref: "docs/specs/plan-template-v2.md", ago: 16 * D, via: "found" },
+          { stage: "planning", ref: "docs PR #392 · docs/plans/plan-template-v2.md", job: "plan-feature", who: "seb", hz: "claude-code", ago: 14 * D, via: "note", scores: { edge: 7.4, pdebt: 8.0 } },
+          { stage: "ready", ref: "docs/plans/plan-template-v2.md § S1", job: "review-plan", who: "jo", hz: "codex", ago: 12 * D, via: "note", scores: { edge: 8.6, pdebt: 8.3 }, note: "Approved by Jo (tech lead)" },
+          { stage: "review", ref: "feat/plan-template-v2-s1 · #401", job: "build-slice", who: "seb", hz: "claude-code", ago: 9 * D, via: "note", scores: { tdebt: 7.8, tests: 8.1 } },
+          { stage: "merge", ref: "feat/plan-template-v2-s1 · #401 merged", job: "review-slice", who: "kat", hz: "codex", ago: 7 * D, via: "note", scores: { tdebt: 8.4, tests: 8.7 } },
+          { stage: "shipped", job: "finish-slice", who: "seb", hz: "claude-code", ago: 6 * D, via: "note" },
+        ] },
+      /* a bug fixed by hand: the PR names the note, the release note names the PR */
+      { id: "x2", stage: "shipped", title: "fix: login redirect", ref: "docs/changelog/2026-10-13-fix-login-redirect.md", age: 4 * D, who: "mo",
+        trail: [
+          { stage: "intake", title: "Login redirects to a blank page", ref: "docs/roadmap/intake/2026-10-09-login-redirect.md", job: "file-work", who: "kat", hz: "claude-code", ago: 8 * D, via: "note", scores: { clear: 8.9 } },
+          { stage: "review", ref: "fix/login-redirect · #404", who: "mo", ago: 6 * D, via: "link", how: "The PR body names the intake note", scores: { tdebt: 8.8, tests: 7.6 } },
+          { stage: "merge", ref: "fix/login-redirect · #404 merged", who: "kat", ago: 5 * D, via: "same", scores: { tdebt: 8.8, tests: 7.6 } },
+          { stage: "shipped", job: "finish-slice", who: "mo", hz: "claude-code", ago: 4 * D, via: "link", how: "The release note names #404" },
+        ] },
+      { id: "x3", stage: "shipped", title: "intake form copy", ref: "docs/changelog/2026-10-14-intake-form-copy.md", age: 3 * D, who: "kat",
+        trail: [
+          { stage: "ready", ref: "docs/plans/onboarding-copy.md § S0", ago: 9 * D, via: "found", scores: { edge: 7.0, pdebt: 9.1 } },
+          { stage: "review", ref: "feat/onboarding-copy-s0 · #406", job: "build-slice", who: "kat", hz: "codex", ago: 6 * D, via: "note", scores: { tdebt: 9.2, tests: 6.8 } },
+          { stage: "merge", ref: "feat/onboarding-copy-s0 · #406 merged", job: "review-slice", who: "seb", hz: "claude-code", ago: 4 * D, via: "note", scores: { tdebt: 9.2, tests: 7.4 } },
+          { stage: "shipped", job: "finish-slice", who: "kat", hz: "codex", ago: 3 * D, via: "note" },
+        ] },
+      /* a spike: no plan, so its history starts at the PR */
+      { id: "x4", stage: "shipped", title: "export-csv spike", ref: "docs/changelog/2026-10-16-export-csv-spike.md", age: 1 * D, who: "seb",
+        trail: [
+          { stage: "review", ref: "spike/export-csv · #408", who: "seb", ago: 4 * D, via: "found", scores: { tdebt: 5.9, tests: 6.4 } },
+          { stage: "merge", ref: "spike/export-csv · #408 merged", job: "review-slice", who: "mo", hz: "claude-code", ago: 2 * D, via: "note", scores: { tdebt: 6.8, tests: 7.0 } },
+          { stage: "shipped", job: "finish-slice", who: "seb", hz: "claude-code", ago: 1 * D, via: "note" },
+        ] },
     ],
   },
 
@@ -415,3 +447,350 @@ const SEED_SESSIONS = [
     state: "working", min: 5, branch: "fab/plan-feature/partial-refunds", worktree: "~/orca/workspaces/invoice-service/partial-refunds",
     match: "exact", run: "r_20261017_aa83f1", startedBy: "monitor" },
 ];
+
+/* The text of some markdown artifacts, by reference, for the preview on the
+   artifact sheet. A slice's reference names its section. Others get a short
+   stand-in made from the artifact (see mdText in artifact.js). */
+const DOCS = {
+  "docs/roadmap/intake/2026-10-10-digest.md": `---
+status: open
+from: jo
+---
+# Idea: weekly digest email
+
+Customers ask for a summary of what changed in their workspace each week. Today they have to open the app to see it.
+
+## What they want
+- One email on Monday morning, per workspace
+- New docs, edited docs and new members
+- A link to each change
+- A way to turn it off per person
+
+## Open questions
+- Should admins get a different digest?
+- Do we send it when nothing changed?`,
+  "docs/roadmap/intake/2026-10-15-billing-500.md": `---
+status: open
+from: mo
+---
+# Billing page 500s on Firefox
+
+The billing page returns a 500 on Firefox 131. Chrome and Safari are fine.
+
+## Steps
+1. Sign in as a workspace admin
+2. Open Settings → Billing in Firefox
+3. The page shows "Something went wrong"
+
+The server log shows \`TypeError: cannot read 'currency' of undefined\` in \`invoiceSummary\`.`,
+  "docs/plans/context-packs.md § S3": `## S3: Load packs at session start
+status: ready
+
+When a session starts, the harness loads the context packs the job names, before the first prompt.
+
+- Read \`packs:\` from the job's SKILL.md front matter
+- Resolve each pack to its files in \`.fab/packs/\`
+- Put them in the opening prompt, largest last
+- Log the pack names and their size in the run record
+
+## Edge cases
+- A pack that is missing: start anyway and say so in the run record
+- Packs over the token budget: drop the largest first`,
+  "docs/specs/context-packs.md": `---
+status: approved
+---
+# Context packs for agents
+
+Agents forget what they learnt between sessions. A context pack is a small set of files that a job loads at the start of every session, so that each run starts from the same base.
+
+## Goals
+- A job names its packs, and every harness loads them
+- Packs live in the repository and are reviewed like code
+- A run records which packs it loaded`,
+};
+
+Object.assign(DOCS, {
+  /* ── dragonfly: intake notes ── */
+  "docs/roadmap/intake/2026-10-16-export-greyed.md": `---
+status: open
+from: seb
+---
+# Export button greyed out
+
+On a workspace with more than 500 docs, the Export button in the toolbar stays greyed out. There is no tooltip and no error.
+
+## Steps
+1. Open a workspace with 500+ docs
+2. Select all docs in the list
+3. The Export button does not turn on
+
+Smaller workspaces export fine. It looks like the 500-row page limit in \`useSelection\` also caps what Export can see.`,
+  "docs/roadmap/intake/2026-10-16-dark-docs.md": `---
+status: open
+from: seb
+---
+# Idea: dark mode for docs
+
+The app has a dark theme, but the docs reader is always white. At night it is the brightest thing on the screen.
+
+## What it would take
+- Follow the app theme in the docs reader
+- Code blocks and tables need dark colours too
+- Images with white backgrounds stay as they are
+
+Three customers asked for this in the last month.`,
+  "docs/roadmap/intake/2026-10-15-slow-search.md": `---
+status: open
+from: kat
+---
+# Search is slow on big workspaces
+
+Search takes 4 to 6 seconds on workspaces with more than 20,000 docs. Small workspaces answer in under 300 ms.
+
+## What we know
+- The slow part is the ranking query, not the index lookup
+- It got worse after the October tags change
+- Typing fast queues several searches, and the last one wins
+
+Acme and Northwind both raised it in support this week.`,
+  "docs/roadmap/intake/2026-10-14-sso.md": `---
+status: open
+from: jo
+---
+# Customer wants SSO
+
+Northwind will not renew without single sign-on. They use Okta.
+
+They asked for SAML. It is not clear if OIDC would do, or if they need SCIM to add and remove users too.`,
+  "docs/roadmap/intake/2026-10-13-typo.md": `---
+status: open
+from: kat
+---
+# Typo in onboarding email
+
+The second onboarding email says "your workpsace is ready". It is in \`emails/onboarding/day-2.mjml\`, in the heading and in the plain-text part.`,
+  "docs/roadmap/intake/2026-10-12-flaky-checkout.md": `---
+status: open
+from: seb
+---
+# Flaky e2e on checkout
+
+\`checkout.spec.ts\` fails about one run in eight on CI. It passes on every retry.
+
+## Seen so far
+- It fails at "pays with saved card"
+- The Stripe test iframe is sometimes not loaded when the test clicks Pay
+- Only on CI, never locally
+
+The test waits a fixed 2 s. It should wait for the iframe to be ready.`,
+
+  /* ── dragonfly: specs ── */
+  "docs/specs/safari-sessions.md": `---
+status: approved
+---
+# Safari session handling
+
+Safari blocks the third-party cookie that keeps a session alive in the embedded editor. Users on Safari are signed out every few minutes, and the login page loops.
+
+## Goals
+- A session lasts as long on Safari as on Chrome
+- The embedded editor works without third-party cookies
+- No login loop: a failed refresh shows one clear sign-in prompt
+
+## Out of scope
+- Private browsing mode
+- Safari versions older than 16`,
+  "docs/specs/team-billing.md": `---
+status: approved
+---
+# Team billing
+
+Today each member pays on their own card. Teams want one invoice for the whole workspace.
+
+## Goals
+- One owner pays for the workspace, per seat
+- Seats are added and removed as members join and leave, prorated
+- Admins see the invoices in Settings → Billing
+
+## Out of scope
+- Paying by invoice or bank transfer
+- More than one billing owner per workspace`,
+  "docs/specs/faster-search.md": `---
+status: approved
+---
+# Faster search
+
+Search must answer in under 500 ms at the 95th percentile, on workspaces up to 100,000 docs.
+
+## Goals
+- Move ranking into the search index, out of the database query
+- Cancel a search when the user types again
+- Show the first results while the rest load
+
+## Measure
+- p95 search time per workspace size, before and after
+- Searches that time out`,
+
+  /* ── dragonfly: plans ── */
+  "docs/plans/audit-log.md": `---
+status: draft
+spec: docs/specs/audit-log.md
+---
+# Audit log
+
+Admins can see who did what in their workspace, and export it.
+
+## Slices
+- **S1** Record events: sign-ins, permission changes, deletes
+- **S2** The audit log page in Settings, with filters
+- **S3** Export as CSV
+- **S4** Keep 90 days, then delete
+
+## Open questions
+- Do reads count as events? Jo asked in review.
+- Where do we store events: the main database or a separate table?`,
+  "docs/plans/export-csv.md § S1": `## S1: Export the selected docs
+status: ready
+
+The Export button writes the selected docs to one CSV file: title, author, tags, created and updated dates.
+
+- Add \`exportDocs(ids)\` to the docs service
+- Stream the rows, so a large export does not hold all of them in memory
+- The button shows progress for more than 1,000 docs
+
+## Edge cases
+- Commas, quotes and new lines in titles
+- A doc deleted while the export runs: skip it`,
+  "docs/plans/export-csv.md § S2": `## S2: Choose the columns
+status: ready
+
+Before the export, a small sheet lets the user pick which columns to include. The choice is kept for next time.
+
+- A list of columns with checkboxes, in the order they will appear
+- Custom fields of the workspace show as extra columns
+- Remember the choice per user, per workspace
+
+## Edge cases
+- A custom field that was deleted since the last export`,
+  "docs/plans/export-csv.md § S3": `## S3: Export in the background
+status: ready
+
+Exports of more than 10,000 docs run as a job. The user gets an email with a link when the file is ready.
+
+- Queue the export in the jobs worker
+- Store the file for 7 days, then delete it
+- Show running exports in Settings → Exports
+
+## Edge cases
+- The user leaves the workspace before the export ends
+- Two large exports at the same time from one user`,
+  "docs/plans/search-index.md § S1": `## S1: Rank in the index
+status: ready
+
+Move ranking from the SQL query into the search index, so that one call returns ranked results.
+
+- Add title, tags and updated date as ranked fields
+- Build the index for one workspace behind a flag
+- Compare results with the old query on 200 saved searches
+
+## Edge cases
+- Docs that are edited while the index builds
+- Workspaces with no tags at all`,
+  "docs/plans/search-index.md § S2": `## S2: Keep the index up to date
+status: ready
+
+Docs that change are re-indexed within 5 seconds.
+
+- Send doc changes to the index from the write path
+- Re-index a whole workspace from an admin command
+- Alert when the index lags more than one minute`,
+  "docs/plans/context-packs.md § S4": `## S4: Packs in the run record
+status: ready
+
+A run records which packs it loaded, their version and their size, so that a low score can be traced to a pack.
+
+- Add \`packs\` to the run record: name, git sha, tokens
+- Show the packs on the run's sheet in the monitor
+- \`fab runs --pack <name>\` lists the runs that used a pack
+
+## Edge cases
+- A pack edited during a run: record the version it loaded`,
+  "docs/plans/context-packs.md § S5": `## S5: Packs per harness
+status: ready
+
+Some harnesses take files, some only take text. Each harness adapter decides how to load a pack.
+
+- Claude Code and Codex: add the files to the session
+- Cursor: write the pack into the rules file for the run
+- Orca: copy the pack into the worktree
+
+## Edge cases
+- A harness that cannot load packs: warn at \`fab install\`, not at run time`,
+
+  /* ── dragonfly: release notes ── */
+  "docs/changelog/2026-10-11-plan-template-v2.md": `# Plan template v2
+
+Plans now start from a new template. Each slice has a status line, its edge cases and the files it will touch. \`plan-feature\` uses it from today. Old plans still work.`,
+  "docs/changelog/2026-10-13-fix-login-redirect.md": `# Fix: login redirect
+
+After signing in, you now go back to the page you were on, not to the dashboard. This also fixes the loop some Safari users saw when their session ended.`,
+  "docs/changelog/2026-10-14-intake-form-copy.md": `# Intake form copy
+
+The "Report a problem" form now asks what you did, what you expected and what happened, in three short fields. Reports are easier to act on.`,
+  "docs/changelog/2026-10-16-export-csv-spike.md": `# Export CSV spike
+
+A first, hidden version of CSV export is in the app behind the \`export-csv\` flag. It exports up to 500 docs. It is for testing only.`,
+
+  /* ── invoice ── */
+  "docs/specs/partial-refunds.md": `---
+status: approved
+---
+# Partial refunds
+
+Support can refund part of an invoice: one line, or an amount. Today only a full refund is possible.
+
+## Goals
+- Refund one or more lines, or a set amount
+- The invoice shows what was refunded and what is still paid
+- The credit note lists only the refunded part
+
+## Out of scope
+- Refunds to a different payment method`,
+  "docs/specs/dunning-emails.md": `---
+status: approved
+---
+# Dunning emails
+
+When a payment fails, customers get a series of reminder emails before the account is paused.
+
+## Goals
+- Emails on day 1, 4 and 10 after a failed payment
+- Each email has a link to update the card
+- Pause the account on day 14, and say so in the last email
+- Stop the series as soon as a payment succeeds`,
+  "docs/specs/tax-by-region.md": `---
+status: approved
+---
+# Tax by region
+
+Invoices must show the correct tax for the customer's country and, in the US, the state.
+
+## Goals
+- Pick the tax rate from the billing address
+- Show the rate and the tax amount on each invoice line
+- EU businesses with a VAT number pay no VAT (reverse charge)
+
+## Out of scope
+- Tax for countries outside the EU, UK, US and Australia`,
+  "docs/plans/refund-total.md § S1": `## S1: Correct the total after a refund
+status: ready
+
+After a refund, the invoice total shows 0. It must show the original total, the refunded amount and the amount paid.
+
+- Compute the paid amount from payments minus refunds
+- Show the three amounts on the invoice page and in the PDF
+- Add tests for a full, a partial and two partial refunds
+
+## Edge cases
+- A refund in a different currency from the invoice`,
+});

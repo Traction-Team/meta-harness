@@ -26,14 +26,14 @@ One row per stage, in flow order, from `fab work --json`:
 ```
  26 in flight                         10 agents on it · 4 teammates'
 
- › Open notes        8  ⬚⬡⬡⬡⬡⬡⬡⬡⬡
-   oldest 6d             ‾   ‾                    (red marks: low scores)
+ › Logged ideas      8  ⬚⬡⬡⬡⬡⬡⬡⬡⬡
+   Ready for What's next?                        (red marks under cubes: low scores)
  › Approved specs    3  ⬚⬡⬡⬡
  › WIP plans         1  ⬢                         (amber: waits for the tech lead)
  › Approved plans    4  ⬡⬡⬡⬡
-   2 over 5d
+   Ready for Build slice
  ⌄ Built branches    6  ⬡⬡⬡⬢⬡⬢                    ← the pile-up
-   6 over 1d
+   Ready for Review slice
      ▽ prs head:feat/*  where  ready for review, not merged
      ⬡ export-csv S0                         ◔  3d
      ⬢ billing-fix S1                  ▣M    ◔  2d
@@ -41,16 +41,16 @@ One row per stage, in flow order, from `fab work --json`:
      ────────────────────────────────────────────
      ▶ Review slice          then the code owner approves
  › Merged branches   1  ⬡
- › Landed branches   4  ⬡⬡⬡⬡                      (last 7 days, dimmed)
+ › Release notes     4  ⬡⬡⬡⬡                      (last 7 days)
 ```
 
 - **A cube is one artifact.** Each one is drawn as a small isometric cube with three shaded faces. Its colour is the state of the agents on it: grey, none; green, an agent works on it; pale green, its agents are idle; amber, an agent or the stage waits for a person. A dashed wireframe cube is being made by a job that has not finished. A red mark under a cube means a score under 5. There is no key. Hover a cube to see its title, its time in the stage, its agents and its worst score.
 - **The bar is the chart.** As cubes stack up, the rows read as a horizontal bar chart. You see where the work is before you read a word. After 14 cubes the row shows "+N".
-- **The line under the title** says how long the oldest artifact has waited, or, in amber, how many are over the stage's `slow-after`.
+- **The line under the title** names the stage's next job: "Ready for Plan feature". A done stage says its time window. A slow stage shows its count in amber.
 - **Click a row** to open the stage. Opening a row does not move the rows around it.
   - Its filter (`prs head:feat/*` where `ready for review, not merged`), so it is clear the stage is a query, not a status.
   - Each artifact: its cube, its title, its agents as harness icons (with a teammate's initial on theirs), its score ring (below), and how long it has waited.
-  - Under a line, the stage's **next job** as a row: ▶ and the job's name (*Review slice*), and who must approve after it. Click it to run the job. A job that takes one artifact opens the start sheet with the oldest unclaimed artifact selected. A job that reads the whole stage starts at once. ⌥-click chooses the harness. A stage with no `next` job (*Landed branches*) has no row.
+  - Under a line, the stage's **next job** as a row: ▶ and the job's name (*Review slice*), and who must approve after it. Click it to run the job. A job that takes one artifact opens the start sheet with the oldest unclaimed artifact selected. A job that reads the whole stage starts at once. ⌥-click chooses the harness. A stage with no `next` job (*Release notes*) has no row.
 - **Click a cube or an artifact** to open the artifact sheet (below).
 
 **The score ring.** Scores show as a round bar chart, not as numbers in chips. Each of the stage's scorers owns an equal share of the circle and fills its share by its score (0–10). The fills are laid end to end with a small gap between them, so the length of the arc is the total. With one scorer, the ring is that score as a fraction of the circle. The ring has one colour, from the total: green at 7 or more, amber at 5 or more, red under 5. Hover it for each scorer's name and score.
@@ -78,6 +78,7 @@ A sheet slides over the panel. Back, or Esc, returns.
 **An artifact.**
 
 - The header: its cube, its title, and its reference (path, PR, branch or ticket) with an open icon. Click the reference to open it. The stage's average score sits on the right.
+- For a markdown artifact (a note, spec, plan or slice): a preview of its first lines, with **Show more** to read the rest. Front matter is left out, except the status line.
 - **Agents:** one flat list of the agents on it, each with the job it runs and its harness. A teammate's agent shows their name on its own line. A stalled claim shows as one line with its branch. The sheet carries no explanatory text.
 - **Scores:** one row per scorer with a small ring and the number. The current stage's scorers first; scores from earlier stages are dimmed.
 - **History,** newest first, on one wire: each artifact state is a cube (the same cube as on the Pipeline page), and between two cubes sits the agent tile (or the person, for work done outside fab) that turned the lower one into the upper one. Scores sit with the artifact state they were given to. Under each fab run: its tokens, estimated cost and run time, from its run record. In order: each earlier artifact of the same work (the branch, the plan, the spec) and the stage it was in, the job, harness and person that made the next one, and the scores it got there. Fan-out and fan-in show as branches. Earlier scores are shown at their own step, not added up.

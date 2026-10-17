@@ -117,6 +117,7 @@ document.addEventListener("click", (ev) => {
     case "harness": state.sheet.harness = d.id; renderSheet(); break;
     case "showcmd": state.sheet.showCmd = !state.sheet.showCmd; t.closest(".disc").classList.toggle("open"); break;
     case "go": if (!t.disabled) doStart(state.sheet); break;
+    case "mdmore": state.sheet.mdOpen = !state.sheet.mdOpen; renderSheet(); break;
     case "back": closeSheet(); renderBody(); break;
     case "openref": {
       const a = artOf(fabById(d.fab), d.a);

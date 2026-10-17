@@ -93,7 +93,7 @@ const state = {
   fab: "dragonfly",        // a fab id, or "all"
   picker: false,
   sheet: null,             // { kind: "start" | "job" | "art" | "session" | "settings", ... }
-  expanded: new Set(["dragonfly:ready"]), // "fabId:stage" rows opened to list their artifacts
+  expanded: new Set(), // "fabId:stage" rows opened to list their artifacts
   hidOpen: new Set(),      // "fabId:stage" rows whose hidden (moved on) artifacts are listed
   flash: null,             // session id to flash once
   bump: null,              // artifact id to bump once
@@ -123,7 +123,8 @@ const artsIn = (fab, st) => fab.artifacts.filter((a) => a.stage === st).sort((a,
    work that has moved on. Only sources where an old artifact keeps matching
    need it (an open note, an approved spec, a ready slice on main). A PR that
    moves from draft to ready no longer matches its old stage by itself.
-   Done work still hides (a shipped PR's plan does not come back); an
+   Done work hides nothing: landing marks the slice done and closes the
+   note, so they no longer match their filters at all. An
    abandoned PR hides nothing, so its slice shows again. Each entry lists
    every later artifact that hides it: fan-out and fan-in. */
 const HIDES = new Set(["note", "line", "spec", "slice", "issue"]);
@@ -131,6 +132,7 @@ function hiddenIn(fab, stId) {
   if (!HIDES.has(stageOf(fab, stId).kind)) return [];
   const out = new Map();
   for (const a of fab.artifacts) {
+    if (stageOf(fab, a.stage).done) continue;
     const steps = (a.trail || []).flatMap((t) => [t, ...(t.also || [])]);
     for (const t of steps) {
       if (t.stage !== stId || t.abandoned || !t.ref || t.ref === a.ref) continue;

@@ -89,7 +89,7 @@ A stage is a filter. It says where to look (`find`) and what must be true (`wher
 ```yaml
 stages:
   - id: intake
-    title: Open notes
+    title: Logged ideas
     kind: note
     find: files docs/roadmap/intake/*.md
     where: "status: open"
@@ -120,10 +120,10 @@ stages:
     slow-after: 1d
     scored-by: [tech-debt, tests]
   - id: shipped
-    title: Landed branches
-    kind: pr
-    find: prs head:feat/*
-    where: landed in the last 7 days
+    title: Release notes
+    kind: release
+    find: files docs/changelog/*.md
+    where: added in the last 7 days
     done: true
 ```
 
@@ -133,7 +133,7 @@ stages:
 - **`waits-for`** names who must act before work can leave the stage. It is drawn on the stage, and the job's text says to stop for them.
 - **`slow-after`** is how long an artifact may wait before the monitor marks the stage as slow. It is how bottlenecks show.
 - **`scored-by`** lists the scorers that run on artifacts when they enter the stage.
-- **`done: true`** marks an end stage. The monitor shows it dimmed, and limits it to a time window in `where`.
+- **`done: true`** marks an end stage. The monitor leaves it out of the in-flight count. Limit it to a time window in `where`.
 - **No exclusion clauses.** A stage says what it holds. It does not say "and no later artifact exists". History hides an artifact that has moved on (see [History](#history)).
 
 `fab check` warns when two stages can match the same artifact. Usually that is a mistake (a PR is a draft or it is ready). See the open questions.
@@ -228,7 +228,7 @@ This rule replaces exclusion clauses in `where`. A stage does not say "no plan l
 - **Fan-out.** One plan can make three slices, and each slice a PR. The plan is hidden as soon as one child is in a later stage. Each child then moves on its own. The plan's history shows all of its children.
 - **Fan-in.** One PR can build two plans, or a plan can merge two intake notes. Every parent is hidden. History is a graph, not a line, and the artifact sheet draws it that way.
 - **Abandoned work comes back.** A later artifact counts unless its source says it was abandoned: a PR closed without a merge, a branch deleted without a merge, a file deleted. If the only PR for a plan is closed, the plan shows again in its own stage.
-- **Done work stays done.** A landed PR leaves the *Landed branches* stage after its time window. It still counts as a later artifact, so its plan does not come back.
+- **Done work stays done.** A release note leaves the *Release notes* stage after its time window. It still counts as a later artifact, so its PR and plan do not come back.
 
 #### How artifacts are linked
 

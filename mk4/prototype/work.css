@@ -34,8 +34,6 @@
 .st-m { width: 116px; flex: none; display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
 .st-t { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .st-s { font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
-.st.slow .st-s { color: var(--amber); font-weight: 500; }
-.st.done .st-t { color: var(--text-2); font-weight: 500; }
 
 .st-bar { flex: 1; min-width: 0; display: flex; align-items: center; gap: 3px; height: 22px; }
 .st-n { width: 18px; flex: none; text-align: right; margin-right: 5px; font-size: 12px; font-weight: 600; color: var(--text-2); font-variant-numeric: tabular-nums; }
@@ -111,6 +109,18 @@
 .sec + .starts { padding-top: 0; }
 
 /* ── sheets: the artifact ── */
+/* a markdown artifact's preview: clipped to its first lines until Show more */
+.doc { margin: -2px 0 0; border-radius: 8px; background: var(--control); box-shadow: var(--control-shadow); overflow: hidden; }
+.md { padding: 10px 12px 4px; font-size: 12px; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
+.md > :first-child { margin-top: 0; }
+.md h1, .md h2, .md h3 { margin: 10px 0 2px; font-size: 12.5px; font-weight: 600; }
+.md p { margin: 0 0 6px; }
+.md ul, .md ol { margin: 0 0 6px; padding-left: 18px; }
+.md code { font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 0 3px; border-radius: 3px; background: var(--fill-2); }
+.md .md-meta { font-size: 10.5px; color: var(--text-3); }
+.doc.clip .md { max-height: 10em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 55%, transparent); mask-image: linear-gradient(#000 55%, transparent); }
+.md-more { display: block; width: 100%; padding: 5px 12px 7px; border: 0; background: none; text-align: left; font-size: 11.5px; color: var(--accent); cursor: pointer; }
+.md-more:hover { background: var(--hover); }
 /* header: its cube, title, stage line and reference, average score on the right */
 .art-hero { align-items: center; }
 .art-tile { width: 40px; height: 40px; border-radius: 9px; flex: none; display: grid; place-items: center;
@@ -215,7 +225,6 @@
 .st-bar .gl:hover { transform: translateY(-1px) scale(1.18); z-index: 1; }
 .st-bar { gap: 2px; }
 .gl.bump { animation: cubein .7s cubic-bezier(.32,.72,0,1); }
-.st.done .gl { opacity: .5; filter: grayscale(.6); }
 
 /* ── the cube: an isometric box, three shaded faces ── */
 .ga-cube { --c: #c6c3d0; position: relative; width: 13px; height: 15px; flex: none; display: inline-block; }

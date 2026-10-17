@@ -60,6 +60,49 @@ function trailHtml(fab, a) {
   }).join("")}</div>`;
 }
 
+/* ── a markdown artifact's preview: its first lines, then Show more. Only
+   artifacts whose text is in DOCS (data.js) have one. ── */
+
+const MD_PATH = /[\w./-]+\.md(?: § [\w-]+)?/;
+function mdText(a) {
+  const m = a.ref.match(MD_PATH);
+  if (!m) return null;
+  const path = m[0];
+  const src = DOCS[path];
+  if (!src) return null;
+  /* the header already shows the title: drop a first heading that repeats it */
+  const body = src.replace(/^---\n[\s\S]*?\n---\n/, "");
+  const h = body.match(/^#{1,3} (.*)\n/);
+  return h && h[1].toLowerCase() === a.title.toLowerCase() ? body.slice(h[0].length) : body;
+}
+function mdHtml(src) {
+  const inl = (s) => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+  const lines = src.split("\n");
+  let out = "", list = null;
+  const close = () => { if (list) { out += `</${list}>`; list = null; } };
+  for (const l of lines) {
+    let m;
+    if ((m = l.match(/^(#{1,3}) (.*)/))) { close(); out += `<h${m[1].length}>${inl(m[2])}</h${m[1].length}>`; }
+    else if ((m = l.match(/^(?:- |\d+\. )(.*)/))) {
+      const t = /^\d/.test(l) ? "ol" : "ul";
+      if (list !== t) { close(); out += `<${t}>`; list = t; }
+      out += `<li>${inl(m[1])}</li>`;
+    }
+    else if (/^status: /.test(l)) { close(); out += `<p class="md-meta mono">${esc(l)}</p>`; }
+    else if (l.trim()) { close(); out += `<p>${inl(l)}</p>`; }
+    else close();
+  }
+  close();
+  return out;
+}
+function mdPreview(fab, a, open) {
+  const src = mdText(a);
+  if (!src) return "";
+  const long = src.split("\n").filter((l) => l.trim()).length > 5;
+  return `<div class="doc ${long && !open ? "clip" : ""}"><div class="md">${mdHtml(src)}</div>
+    ${long ? `<button class="md-more" data-act="mdmore">${open ? "Show less" : "Show more"}</button>` : ""}</div>`;
+}
+
 function artSheet(sh) {
   const fab = fabById(sh.fab);
   const a = artOf(fab, sh.a);
@@ -97,6 +140,7 @@ function artSheet(sh) {
       </div>
       ${hereVals.length ? scoreRing(hereVals, { size: 44, sw: 4.5, label: true, title: "Average for this stage" }) : ""}
     </div>
+    ${mdPreview(fab, a, sh.mdOpen)}
     <div class="lbl">Agents</div>
     ${agentsH}
     <div class="lbl">Scores</div>

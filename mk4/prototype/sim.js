@@ -31,8 +31,9 @@ function refFor(fab, to, a) {
     case "plan":  return `docs PR #${nextPr++} · docs/plans/${sl}.md`;
     case "slice": return `docs/plans/${sl}.md § S1`;
     case "pr":
-      if (to.done) return `#${num || nextPr++} ${to.where.startsWith("landed") ? "landed" : "merged"}`;
+      if (to.done) return `#${num || nextPr++} merged`;
       return `${branch} · #${num || nextPr++}${to.where.startsWith("merged") ? " merged" : ""}`;
+    case "release": return `docs/changelog/2026-10-17-${sl}.md`;
     default: return a.ref;
   }
 }

@@ -59,9 +59,8 @@ function stageHtml(fab, st) {
   const right = [...on.map((a) => cube(fab, a)), ...making.map(pendingCube)];
   const cubes = [...left, ...(left.length && right.length ? [`<span class="gl-gap"></span>`] : []), ...right];
   const bar = cubes.slice(0, cap + 1).join("") + (cubes.length > cap + 1 ? `<span class="gl-more">+${cubes.length - cap - 1}</span>` : "");
-  const sub = st.done ? "last 7 days"
-    : slow.length ? `${slow.length} over ${dur(st.slow)}`
-    : waiting.length ? `oldest ${ago(waiting[0].since)}` : right.length ? "all in progress" : "empty";
+  const nx = st.next && jobOf(fab, st.next);
+  const sub = nx ? `Ready for ${esc(nx.title)}` : st.done ? "last 7 days" : "";
   return `<div class="st ${open ? "open" : ""} ${slow.length ? "slow" : ""} ${st.done ? "done" : ""}" data-act="sttoggle" data-fab="${fab.id}" data-s="${st.id}">
     <div class="st-h">
       <span class="st-chev">${ICONS.chevR}</span>
