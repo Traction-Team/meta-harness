@@ -265,11 +265,24 @@ function renderMenubar() {
   icon.classList.toggle("on", state.open);
 }
 
+/* A fab's logo: its GitHub owner's avatar (an org logo, or the identicon
+   GitHub makes when none is set). No GitHub remote, or the image fails to
+   load, and it falls back to a folder glyph. `all` gets the fab mark. */
+function fabLogo(fab, size = 18) {
+  if (!fab) return `<span class="fab-logo glyph" style="--s:${size}px">${ICONS.fab(size - 4)}</span>`;
+  const owner = fab.repo ? fab.repo.split("/")[0] : null;
+  if (!owner) return `<span class="fab-logo glyph" style="--s:${size}px">${ICONS.folder}</span>`;
+  return `<span class="fab-logo" style="--s:${size}px">
+    <img alt="" draggable="false" src="https://github.com/${encodeURIComponent(owner)}.png?size=${size * 3}"
+      onerror="this.parentNode.classList.add('glyph')">${ICONS.folder}</span>`;
+}
+
 function renderHead() {
   const all = state.fab === "all";
   const fab = all ? null : fabById(state.fab);
   $("#pnHead").innerHTML = `
     <button class="fab-pick ${state.picker ? "open" : ""}" data-act="picker" title="${all ? "" : esc(fab.path)}">
+      ${fabLogo(fab, 18)}
       <span class="fab-nm">${all ? "All fabs" : esc(fab.name)}</span>
       <span class="fab-chev">${ICONS.chevD}</span>
     </button>
@@ -280,14 +293,15 @@ function renderHead() {
 }
 
 function pickerHtml() {
-  const opt = (id, name, cnt) => `
+  const opt = (id, name, cnt, fab) => `
     <button class="pop-o" data-act="fab" data-id="${id}">
       <span class="tick">${state.fab === id ? ICONS.tick : ""}</span>
+      ${fabLogo(fab, 16)}
       <span>${esc(name)}</span><span class="cnt">${cnt}</span></button>`;
   return `<div class="pop">
-    ${opt("all", "All Fabs", running(mine()).length || "")}
+    ${opt("all", "All Fabs", running(mine()).length || "", null)}
     <div class="pop-sep"></div>
-    ${FABS.map((f) => opt(f.id, f.name, running(mine(live(f.id))).length || "")).join("")}
+    ${FABS.map((f) => opt(f.id, f.name, running(mine(live(f.id))).length || "", f)).join("")}
     <div class="pop-sep"></div>
     <button class="pop-new" data-act="addfab"><span>Add Folder…</span></button>
   </div>`;

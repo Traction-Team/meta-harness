@@ -22,7 +22,7 @@ Every team that builds with agents already has a factory. Usually it is in peopl
 Two cases show the gap:
 
 - **A small business, one builder.** A designer who can code a little builds the company's software in Cursor. He chats with the agent, one shot after another, and runs out of credits. He has no structure for planning, building and reviewing, so the results are uneven. With Metafab, he installs a fab that someone else wrote and shared. He then presses buttons: *Log bug*, *Plan feature*, *Build slice*, *Review slice*. Each one starts a well-defined job in Cursor. He gets the structure without having to design it, and he can change it later.
-- **A company with many developers.** Each developer uses agents in their own way. Nobody can say where the work is: all in planning, all waiting for review, all waiting to deploy. With one shared fab, every developer's work is in the same stages. The Pipeline tab shows where work piles up, and over time, where the factory is slow. The scores show whether the work is good. (Seeing other people's agents needs a sync between fab clients. That is out of scope for Mark IV. The prototype shows a preview.)
+- **A company with many developers.** Each developer uses agents in their own way. Nobody can say where the work is: all in planning, all waiting for review, all waiting to deploy. With one shared fab, every developer's work is in the same stages. The Pipeline tab shows where work piles up, and over time, where the factory is slow. The scores show whether the work is good, and every developer sees every teammate's scores, through the git ledger. With Fab Cloud, they also see each other's agents as they run (see [Storage](#storage)).
 
 Metafab makes the factory a file in the repository. Then:
 
@@ -61,10 +61,10 @@ So Mark IV puts its effort into four things that the Dragonfly factory showed ar
 
 - **It does not run the work.** There is no dispatch, no queue, and no automatic start of the next job. An agent that finishes a job says what comes next. A person or the agent starts it.
 - **It does not host agents.** Sessions run in the harness you already use. The monitor starts them there and reads their state there.
-- **It does not own the work's state.** A stage reads where work is from the files, branches, PRs and tickets. Metafab never writes "this is in review". If the PR is ready and not approved, it is in review. The git notes that fab writes say which run made which artifact. They link history. They never say where work is.
+- **It does not own the work's state.** A stage reads where work is from the files, branches, PRs and tickets. Metafab never writes "this is in review". If the PR is ready and not approved, it is in review. The records that fab writes say which run made which artifact, and what it scored. They link history. They never say where work is.
 - **It does not type the flow strictly.** Inputs are questions for people and for the monitor's forms. They are not types that Metafab enforces.
 - **It does not rewind.** History is linked where it can be (see [History](#history)). Git is the record.
-- **It does not share across machines.** The monitor shows this machine's agents. Teammates' agents, and shared scores, need a sync that Mark IV does not have.
+- **It does not show live state without Fab Cloud.** Scores, links and finished runs go to every teammate through the git ledger, about a minute late. Teammates' agents as they run, and claims on work, need Fab Cloud (see [Storage](#storage)).
 
 ## The parts of a fab
 
@@ -93,11 +93,11 @@ stages:
     kind: note
     find: files docs/roadmap/intake/*.md
     where: "status: open"
-    next: prioritise
+    next: triage-ideas
     slow-after: 7d
     scored-by: [clear]
   - id: specs
-    title: Approved specs
+    title: Build specs
     kind: spec
     find: files docs/specs/*.md
     where: "status: approved"
@@ -150,7 +150,7 @@ description: A second agent reviews the slice's PR against its plan and the rule
 when: A slice PR is ready for review.
 from: review              # the stage it takes work from; empty for a job that starts new work
 to: merge                 # the stage its output lands in
-takes: one                # one: works on one artifact | all: reads the whole stage (prioritise)
+takes: one                # one: works on one artifact | all: reads the whole stage (triage-ideas)
 decides: done             # or the name of a decision in fab.yaml
 worktree: current         # current | new
 ---
@@ -208,7 +208,7 @@ Score 0–10. Give one line for the score and one line for the biggest gap.
 - Scores are kept per artifact and per stage. A plan has an *edge cases* score in *WIP plans*. The slice that comes from it gets its own score in *Approved plans*. The history keeps both.
 - The monitor draws scores as a **score ring**, a round bar chart. Each of the stage's scorers owns an equal share of the circle and fills it by its score. The fills are laid end to end, so the arc is the total. The ring is green at 7 or more, amber at 5 or more, and red under 5. A cube whose worst score is under 5 gets a red mark under it.
 - A scorer does not stop work. It is information for people and for the next job. A team that wants a gate makes a decision, and the job's text says to stop when a score is low.
-- Score records live on the machine that ran the scorer, in `~/.fab/scores/`. Sharing them needs the sync that Mark IV does not have.
+- `fab score` writes a score record on the machine and returns at once. `fab sync` sends it to the team, through the git ledger or Fab Cloud. Each record has an anchor, the version of the artifact it scored, so a score on a plan that changed since shows as out of date. See [Storage](#storage).
 
 ### History
 
@@ -236,7 +236,7 @@ Because stages are filters, an artifact does not need an ID from fab. fab links 
 
 | Link | How | Who writes it |
 | --- | --- | --- |
-| **Git note** | A note in `refs/notes/fab` on the commit a job made. It names the job, the run, the artifact the job was `on`, and the artifact it wrote | `fab` at the end of every job run |
+| **Agent link** | A `fab link` call an agent made as it worked: the artifacts its session worked from and made. fab adds the session, branch and run | Agents, because the fab block in `AGENTS.md` tells them to |
 | **Commit trailer** | `Fab-From: docs/plans/context-packs.md` in a commit message | Jobs, by their template. People can add it too |
 | **A link in the artifact** | A PR body that names its plan, a plan that names its spec in frontmatter, a slice heading in a plan, a PR that closes an issue | Templates, and people out of habit |
 | **The PR changes it** | The PR's diff edits the plan file, for example to set `status: building` | Jobs that move a plan forward on its branch |
@@ -246,19 +246,31 @@ Because stages are filters, an artifact does not need an ID from fab. fab links 
 Rules:
 
 - **Links point back.** The newer artifact names the older one. The older one is often done, merged or owned by someone else. The newer one is being made now, by a job fab installed.
-- **Stronger links win.** If an artifact has a git note or a trailer, fab uses that and does not guess from names for that artifact. The work key is for work that fab did not make.
+- **Stronger links win.** If an artifact has an agent link or a trailer, fab uses that and does not guess from names for that artifact. The work key is for work that fab did not make.
 - **The work key** is the file name of a plan or spec, without its folder and extension. fab takes a branch's key by removing its prefix (`feat/`, `fix/`) and a slice suffix (`-s2` goes to `§ S2` of the plan). `fab.yaml` can change these rules under `history:`.
-- **A wrong link is fixed, not approved.** `fab link <newer> <older>` adds a link and `fab link --remove` takes one away. Each writes a git note, so the fix is shared. Nobody has to confirm the links fab finds.
+- **Nobody links by hand.** People do not add, approve or fix links. If a person had to link history, they would not use fab. Agents link as they work, and fab finds the rest.
 
-#### Cold start, then git notes
+#### Agent links
 
-On the first `fab install` in a repository with history, fab has no notes. It links what it can from trailers, links in artifacts, PR diffs and the work key. In most repositories that is enough, because people already name branches after the plan and say in the PR what it builds. What does not link is **Found**, and shows in its own stage. Its history stops there. That is expected for work that started before the fab.
+The fab block in `AGENTS.md` tells every agent to run `fab link <ref>` for each file, plan, branch, PR or ticket it works from or makes, as it goes. There is no start and no end, because in a chat session "done" is seldom clear. An agent calls it often, and a link made again adds nothing. See [`cli.md`](cli.md#links).
 
-From then on, every job run writes a git note. The note is metadata about the repository, kept in Git, but outside every branch:
+fab turns these breadcrumbs into history when it reads them:
 
-- It is not a file, so it adds nothing to the tree, to diffs or to PRs.
-- `fab install` sets the remote's fetch and push refspecs for `refs/notes/fab`, so notes go to every teammate on push and pull. It also sets `notes.rewriteRef`, so a rebase or an amend keeps them.
-- A note names artifacts by their reference (a path, a branch, `#412`), not only by commit. A squash merge drops the branch's commits from main, but the note still says what the run was on and what it made.
+1. **A session is one thread.** The artifacts that one session linked belong to the same piece of work. fab finds the session itself, from its process tree, so the agent never passes a session ID.
+2. **Stage order gives the direction.** Stages are listed in flow order. If a session linked a plan slice (in *Approved plans*) and a PR (in *Built branches*), the PR was made from the slice. The agent does not need to say which came first. `--from` is needed only when the stages cannot say, for example for two artifacts in the same stage.
+3. **Only what a stage finds is a step.** A reference that a stage's filter finds becomes a step in the history. Anything else the agent linked (a doc it read, a script it ran) is kept as context on the run, and stays out of the history. So an agent that links too much does no harm.
+
+The same links also give usage. fab reads the session's transcript later and splits its tokens and cost between the artifacts it linked, by the time between links. So an artifact shows what it cost across every session that worked on it.
+
+#### Cold start, then agent links
+
+On the first `fab install` in a repository with history, fab has no agent links. It links what it can from trailers, links in artifacts, PR diffs and the work key. In most repositories that is enough, because people already name branches after the plan and say in the PR what it builds. What does not link is **Found**, and shows in its own stage. Its history stops there. That is expected for work that started before the fab.
+
+From then on, agents link as they work. Each link is a record. In Git mode it is kept in the ledger, in Git refs outside every branch (see [Storage](#storage)):
+
+- It is not in any branch, so it adds nothing to the tree, to diffs or to PRs.
+- fab syncs the ledger itself. It changes no Git config, and `git pull` and `git push` work as before.
+- A link names artifacts by their reference (a path, a branch, `#412`), not by commit. A squash merge drops the branch's commits from main, but the link still says what the session worked from and made.
 
 So the history gets better as a team uses fab, with no extra step for anyone, and the cold start still works for a repository that never had it.
 
@@ -276,7 +288,7 @@ Decisions are the places where a person keeps control. They are text in `fab.yam
 
 ```yaml
 decisions:
-  whats-next:   { who: product lead, says: Pick what is next, in the prioritise conversation }
+  triage:       { who: product lead, says: Pick what is next, in the triage-ideas conversation }
   plan:         { who: tech lead,    says: Approve the plan, as a docs PR }
   done:         { who: code owner,   says: Approve the PR }
   merge:        { who: code owner,   says: Merge the PR }
@@ -312,7 +324,7 @@ Jobs never name a harness. They say "open a worktree session for this slice". Th
   scripts/                 optional project scripts that jobs call, such as next.mjs
 ```
 
-One more thing is in the repository but not in the folder: the git notes in `refs/notes/fab` that link history (see [History](#history)). They are not files and are not in any branch.
+One more thing can be in the repository but not in the folder: the git ledger, in `refs/fab/ledger/*`, that holds scores, links and finished runs (see [Storage](#storage)). It is not files in any branch. A team on Fab Cloud has no ledger unless it turns on the mirror.
 
 A fab is a normal folder in the repository. It is reviewed in PRs, it has a Git history, and a change to the fab is a commit. **To share a factory, share this folder.** A template is a `.fab/` folder without the project's own skills and rules. `fab init --template` copies it in. The stage filters then find whatever the new repository already has. The person who installs it can change any part of it from then on.
 
@@ -323,14 +335,36 @@ A fab is a normal folder in the repository. It is reviewed in PRs, it has a Git 
 | From | To | Committed? |
 | --- | --- | --- |
 | `.fab/jobs/*`, `.fab/scorers/*`, `.fab/skills/*` | Symlinks in `.claude/skills/<name>` and `.agents/skills/<name>` (Claude Code, Codex, and harnesses that read the same folders), and `.cursor/rules/` for Cursor | Yes |
-| `.fab/AGENTS.md`, plus a jobs table, the stages, the decisions, and a short map | Root `AGENTS.md`, between `<!-- fab:start -->` and `<!-- fab:end -->` markers. Text outside the markers stays the team's own | Yes |
+| `.fab/AGENTS.md`, plus a jobs table, the stages, the decisions, a short map, and what every agent does in a fab (below) | Root `AGENTS.md`, between `<!-- fab:start -->` and `<!-- fab:end -->` markers. Text outside the markers stays the team's own | Yes |
 | Nothing | Root `CLAUDE.md` with `@AGENTS.md`, if it does not exist | Yes |
 | `.fab/runtimes/<harness>.md` | `.claude/rules/fab-runtime.md` for Claude Code, and `AGENTS.override.md` for Codex | No, these are local to each worktree |
-| Nothing | Git config: fetch and push refspecs for `refs/notes/fab`, and `notes.rewriteRef` | No, this is local Git config |
+
+`fab install` changes no Git config. The ledger is fetched and pushed by `fab sync`, not by `git pull` and `git push`.
+
+The fab block in `AGENTS.md` ends with what every agent does in a fab, whatever job it runs, or if it runs none:
+
+```
+As you work, run `fab link <ref>` for each file, plan, branch, PR or ticket
+you work from or make. Do it as you go, as often as you like. Do not wait
+until the work is done. Add --from <ref> when you make something from
+something else. It only writes on this machine.
+```
 
 By default the install is committed, because the point is that the whole team has the same factory. `fab install --local` makes every link local and git-excluded, so one person can try a fab without changing the repository for anyone else. The Dragonfly factory used only the local mode. See [`research/dragonfly-factory.md`](research/dragonfly-factory.md) for why the default changed.
 
 `fab check` fails when an installed file is out of date with `.fab/`. Run it in the pre-commit hook and in CI.
+
+## Storage
+
+fab keeps two kinds of things for a team. See [`storage.md`](storage.md) for the full design.
+
+- **Records** are scores, history links and finished runs. They never change, and each has an ID that is unique without coordination, so copies from many machines merge with no conflict.
+- **Live state** is whose agents run where now, and who has claimed which artifact. It is useless when it is late, so only Fab Cloud has it.
+
+Every fab client writes new records to a spool on the machine and returns at once, so an agent with no network can still score. Every view reads one local index of the records it knows, its own and its teammates'. A **backend** moves records between machines. The team chooses it with `store:` in `fab.yaml`:
+
+- **The git ledger** is free and the default. Each person's clone pushes its records to its own ref, `refs/fab/ledger/<person>/<clone>`, on the team's own remote. A ref has one writer, so a push never conflicts. `fab sync` pushes and fetches the ledger about once a minute. `git pull` and `git push` do not change, and no branch or PR gets fab files.
+- **Fab Cloud** is the paid service. It has the same records and commands. It adds sync in seconds, presence (teammates' agents as they run) and claims (who has an artifact for which job). It can also mirror the records into the git ledger, so the team's data stays in its repository.
 
 ## The CLI
 
@@ -338,9 +372,10 @@ The `fab` CLI is for people and for agents. Every command has `--json`, and ever
 
 - **Define:** `fab init`, `fab create stage|job|scorer|skill|rule|decision`, `fab list`, `fab show`, `fab map`.
 - **Install:** `fab install`, `fab check`, `fab doctor`.
-- **Work:** `fab work` runs the stage filters, hides what has moved on, and lists what each stage holds. `fab history <ref>` prints an artifact's history. `fab link` fixes a wrong link.
+- **Work:** `fab work` runs the stage filters, hides what has moved on, and lists what each stage holds. `fab history <ref>` prints an artifact's history. `fab link` is how agents leave breadcrumbs as they work.
 - **Run:** `fab run <job> [--on <ref>]` asks the job's inputs and starts a session in the chosen harness. `fab score <scorer> --on <ref>` scores one artifact.
-- **Watch:** `fab status` lists the sessions that run in this fab on this machine, the job each one runs, and the artifact it is on.
+- **Watch:** `fab status` lists the sessions that run in this fab on this machine, the job each one runs, and the artifact it is on. With Fab Cloud, `--team` adds teammates' sessions.
+- **Store:** `fab sync` sends and gets records. `fab store` shows the backend and what waits to be sent. `fab login` signs in to Fab Cloud.
 
 `fab install` also installs a `fab` skill. It tells an agent how to use the CLI, and how to design a fab with a team: ask where work already lives, what stages it passes through, which jobs move it, where people decide, and what goes wrong today.
 
@@ -356,7 +391,8 @@ The fab monitor is a menu bar app with a panel that can float on top of other wi
 It reads what each harness already writes to disk. See [`research/agent-sessions.md`](research/agent-sessions.md).
 
 - **Sessions that the monitor or `fab run` started** are exact. `fab run` writes a run record before it starts the session: the fab, the job, the artifact it is on, the inputs, the harness and the session ID. It also puts the run ID in the session's name, its branch, and the first line of its prompt.
-- **Sessions a person started by hand** are a best guess. The folder gives the fab. The branch can give the artifact, because the stage filters know which branch a PR is on. The first prompt can name a job. A session with no match is not shown on the Pipeline tab. The monitor does not guess past what it can see.
+- **Sessions that call `fab link`** are exact from the first call. fab finds the session from its process tree and makes a run record for it. Since every agent is told to link as it works, most sessions started by hand get here.
+- **Sessions a person started by hand that never link** are a best guess. The folder gives the fab. The branch can give the artifact, because the stage filters know which branch a PR is on. The first prompt can name a job. A session with no match is not shown on the Pipeline tab. The monitor does not guess past what it can see.
 
 ## Toward Mark III
 
@@ -369,11 +405,11 @@ The parts of Mark IV are the parts a runner needs first: a fab in Git, stages th
 - **Are stages always separate?** *Building* and *Built branches* both filter PRs, and only draft or ready splits them. Some fabs will want one artifact in two stages. `fab check` warns for now.
 - **"Being worked" is not a stage.** While a job runs on an artifact, the artifact stays in its `from` stage until the job's output lands. The cube turns green. Is that clear enough?
 - **Score a run, or an artifact?** Scores belong to an artifact in a stage. A job could also be scored as a run (how well did *Plan feature* do, over its last 20 runs?). That is the number that says which job to fix.
-- **How good is the cold start?** Before there are git notes, history depends on trailers, links in artifacts, PR diffs and the work key. Test it on real repositories (Dragonfly first) and count how much is left as *Found*. A wrong link can hide work that has not moved on. `fab link --remove` fixes it, but only if someone sees it.
-- **Notes on hosts.** GitHub does not show git notes, and some CI clones do not fetch them. fab works without them, with weaker links. Confirm that pushing `refs/notes/fab` works with branch protection on the hosts teams use.
+- **How good is the cold start?** Before there are agent links, history depends on trailers, links in artifacts, PR diffs and the work key. Test it on real repositories (Dragonfly first) and count how much is left as *Found*. A wrong link can hide work that has not moved on.
+- **The ledger on hosts.** Some servers refuse a push to an unknown ref, and CI clones do not fetch the ledger. fab still works without it, as on one machine. Test a push to `refs/fab/ledger/*` on GitHub (with rulesets on), GitLab, Bitbucket and a self-hosted server before building on it. See [`storage.md`](storage.md#open-questions) for this and the other storage questions: clean-up, index size, out-of-date scores and signing.
 - **Do scores predict?** History keeps each stage's scores, but fab does not compare them. A later view could show, for each scorer on an early stage, how its scores relate to the scores and problems of the work it led to.
 - **Filter cost.** `prs` and `linear` sources call an API. `fab work` caches them, and the monitor refreshes them less often than files.
-- **Team view.** Seeing teammates' agents and scores needs a sync between fab clients. The prototype previews it. Its design (a shared service, or records in Git) is open.
+- **Team view.** Teammates' scores and history come through the git ledger. Teammates' agents as they run, and claims, come from Fab Cloud. The prototype previews the Fab Cloud view. Should Git mode show teammates' recent links ("Kat's session linked `#412` 3 minutes ago"), even though it cannot say the session still runs?
 - **A plain CLI needs a terminal window.** Orca and nodeterm host their own terminals. For plain Claude Code or Codex, the monitor opens a window in the person's terminal app. Cursor runs in its own window.
 - **nodeterm cannot be started from outside.** The monitor can see nodeterm's agents, but it cannot start one there yet.
 - **Non-technical people still need a harness**, installed and signed in. A cloud runner could remove this later.
@@ -391,6 +427,6 @@ The parts of Mark IV are the parts a runner needs first: a fab in Git, stages th
 | Items exist only once Metafab makes them | Stages are filters. Work made before or outside fab shows in its stage |
 | Gates hold items until a person or agent decides | Decisions are written down, drawn on the stages, and followed by the jobs' text |
 | Scorers mark every output, and can gate | Scorers mark artifacts as they enter a stage. They inform. They do not gate |
-| Items move as balls with a full history and can rewind | History links the different artifacts of one piece of work, from git notes, trailers, links in files and names. Each piece of work shows once, at its newest artifact. No rewind |
+| Items move as balls with a full history and can rewind | History links the different artifacts of one piece of work, from agent links, trailers, links in files and names. Each piece of work shows once, at its newest artifact. No rewind |
 | A large canvas app is the main view | A small monitor shows where the work is and starts jobs. The repo is the main view |
 | The value comes after the team moves its work into Metafab | The value comes on the first `fab install`, in the tools the team already uses |

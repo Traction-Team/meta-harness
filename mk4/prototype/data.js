@@ -70,6 +70,9 @@ const FABS = [
     id: "dragonfly",
     name: "dragonfly",
     path: "~/dev/dragonfly",
+    /* From `git remote get-url origin`. The logo is the GitHub owner's
+       avatar; a fab with no GitHub remote gets a folder glyph. */
+    repo: "dragonfly-au/dragonfly",
     commit: "4e1d9a2",
     check: { ok: true },
 
@@ -78,8 +81,8 @@ const FABS = [
     stages: [
       { id: "intake",   title: "Logged ideas",    kind: "note",
         find: "files docs/roadmap/intake/*.md", where: "status: open",
-        next: "prioritise", slow: 7 * D, scoredBy: ["clear"] },
-      { id: "roadmap",  title: "Approved specs", kind: "spec",
+        next: "triage-ideas", slow: 7 * D, scoredBy: ["clear"] },
+      { id: "roadmap",  title: "Build specs", kind: "spec",
         find: "files docs/specs/*.md", where: "status: approved",
         next: "plan-feature", slow: 7 * D },
       { id: "planning", title: "WIP plans", kind: "plan",
@@ -124,15 +127,15 @@ const FABS = [
         worktree: "current",
       },
       {
-        name: "prioritise", title: "What's next?", from: "intake", to: "roadmap", takes: false,
+        name: "triage-ideas", title: "Triage ideas", from: "intake", to: "roadmap", takes: false,
         icon: "compass", blurb: "Read the intake and pick what the team builds next",
         description: "A conversation with the product lead. Reads every open intake note and writes a spec in docs/specs/ for each one picked, at most six.",
-        inputs: [], decides: "whats-next", worktree: "current",
+        inputs: [], decides: "triage", worktree: "current",
       },
       {
         name: "plan-feature", title: "Plan feature", from: "roadmap", to: "planning", takes: true,
-        icon: "map", blurb: "Turn an approved spec into a plan with slices",
-        description: "Writes a plan for one approved spec, ending in its slices. Opens the plan as a docs PR for the tech lead.",
+        icon: "map", blurb: "Turn a build spec into a plan with slices",
+        description: "Writes a plan for one build spec, ending in its slices. Opens the plan as a docs PR for the tech lead.",
         inputs: [], worktree: "new",
       },
       {
@@ -174,7 +177,7 @@ const FABS = [
     },
 
     decisions: {
-      "whats-next": { who: "product lead", says: "Pick what is next, in the prioritise conversation" },
+      "triage": { who: "product lead", says: "Pick what is next, in the triage-ideas conversation" },
       "plan":       { who: "tech lead",    says: "Approve the plan, as a docs PR" },
       "pick":       { who: "developer",    says: "Pick the slice to build" },
       "done":       { who: "code owner",   says: "Approve the PR" },
@@ -188,7 +191,7 @@ const FABS = [
        links it further back.
 
        `via` is how a step links to the step before it:
-         note     a git note in refs/notes/fab, written by a fab run
+         note     a link record in the ledger, written by a fab run
          trailer  a Fab-From: trailer in a commit
          link     the artifact names the earlier one (PR body, frontmatter)
          diff     the PR's diff edits the earlier artifact
@@ -216,13 +219,13 @@ const FABS = [
       { id: "i7", stage: "intake", title: "Flaky e2e on checkout",          ref: "docs/roadmap/intake/2026-10-12-flaky-checkout.md", age: 4 * D, who: "seb", scores: { clear: 3.9 } },
       { id: "i8", stage: "intake", title: "Idea: weekly digest email",      ref: "docs/roadmap/intake/2026-10-10-digest.md", age: 6 * D, who: "jo" },
 
-      /* approved specs */
+      /* build specs */
       { id: "r1", stage: "roadmap", title: "Safari session handling", ref: "docs/specs/safari-sessions.md", age: 2 * D, who: "seb" },
       { id: "r2", stage: "roadmap", title: "Team billing",            ref: "docs/specs/team-billing.md", age: 5 * D, who: "seb" },
       { id: "r3", stage: "roadmap", title: "Faster search",           ref: "docs/specs/faster-search.md", age: 1 * D, who: "seb",
         trail: [
           { stage: "intake", title: "Search is slow on big workspaces (2)", ref: "docs/roadmap/intake/2026-10-09-search.md", job: "file-work", who: "kat", hz: "claude-code", ago: 8 * D, via: "note", scores: { clear: 7.0 } },
-          { stage: "roadmap", job: "prioritise", who: "seb", hz: "claude-code", ago: 1 * D, via: "note" },
+          { stage: "roadmap", job: "triage-ideas", who: "seb", hz: "claude-code", ago: 1 * D, via: "note" },
         ] },
 
       /* planning */
@@ -261,7 +264,7 @@ const FABS = [
       { id: "v1", stage: "review", title: "context-packs S2", ref: "feat/context-packs-s2 · #412", age: 1 * D + 2 * H, who: "seb", scores: { tdebt: 7.1, tests: 8.3 },
         trail: [
           { stage: "intake", title: "Agents forget context between sessions", ref: "docs/roadmap/intake/2026-10-04-agent-context.md", job: "file-work", who: "kat", hz: "claude-code", ago: 12 * D, via: "note", scores: { clear: 8.0 } },
-          { stage: "roadmap", title: "Context packs for agents", ref: "docs/specs/context-packs.md", job: "prioritise", who: "seb", hz: "claude-code", ago: 10 * D, via: "note" },
+          { stage: "roadmap", title: "Context packs for agents", ref: "docs/specs/context-packs.md", job: "triage-ideas", who: "seb", hz: "claude-code", ago: 10 * D, via: "note" },
           { stage: "planning", title: "Context packs for agents", ref: "docs PR #405 · docs/plans/context-packs.md", job: "plan-feature", who: "seb", hz: "orca", ago: 9 * D, via: "note", scores: { edge: 6.0, pdebt: 8.2 },
             alsoMade: ["m1", "b1", "sl3", "sl4"] },
           { stage: "ready", title: "context-packs S2", ref: "docs/plans/context-packs.md § S2", job: "review-plan", who: "seb", hz: "codex", ago: 8 * D, via: "note", scores: { edge: 8.4, pdebt: 8.2 }, note: "Approved by Jo (tech lead) after two edge cases were added" },
@@ -346,11 +349,12 @@ const FABS = [
     id: "invoice",
     name: "invoice-service",
     path: "~/dev/invoice-service",
+    repo: null, /* no GitHub remote: shows the folder fallback */
     commit: "a1b2c3d",
     check: { ok: false, problem: "AGENTS.md fab block is out of date with .fab/. Run fab install." },
     stages: [
-      { id: "intake",  title: "Untriaged issues", kind: "issue", find: "linear team:INV", where: "state: triage", next: "prioritise", slow: 3 * D, scoredBy: ["clear"] },
-      { id: "roadmap", title: "Approved specs", kind: "spec",  find: "files docs/specs/*.md", where: "status: approved", next: "plan-feature", slow: 7 * D },
+      { id: "intake",  title: "Untriaged issues", kind: "issue", find: "linear team:INV", where: "state: triage", next: "triage-ideas", slow: 3 * D, scoredBy: ["clear"] },
+      { id: "roadmap", title: "Build specs", kind: "spec",  find: "files docs/specs/*.md", where: "status: approved", next: "plan-feature", slow: 7 * D },
       { id: "ready",   title: "Approved plans",  kind: "slice", find: "slices in docs/plans/*.md", where: "status: ready", next: "build-slice", slow: 5 * D },
       { id: "review",  title: "Built branches",  kind: "pr",    find: "prs", where: "open", waitsFor: "code owner", slow: 1 * D, scoredBy: ["tdebt"] },
       { id: "shipped", title: "Merged branches", kind: "pr",    find: "prs", where: "merged in the last 7 days", done: true },
@@ -366,10 +370,10 @@ const FABS = [
       { name: "log-idea", title: "Log idea", from: null, to: "intake", icon: "bulb", blurb: "Something we could build",
         description: "Records an idea as a Linear issue with the problem it solves.",
         inputs: [{ name: "what", ask: "What's the idea?", long: true }, { name: "why", ask: "What problem does it solve?", optional: true }], worktree: "current" },
-      { name: "prioritise", title: "What's next?", from: "intake", to: "roadmap", takes: false, icon: "compass", blurb: "Pick what the team builds next",
-        description: "Talks the triage queue through with the product lead and writes a spec for each one picked.", inputs: [], decides: "whats-next", worktree: "current" },
-      { name: "plan-feature", title: "Plan feature", from: "roadmap", to: "ready", takes: true, icon: "map", blurb: "Turn an approved spec into slices",
-        description: "Writes a plan for one approved spec, ending in its slices.", inputs: [], decides: "plan", worktree: "new" },
+      { name: "triage-ideas", title: "Triage ideas", from: "intake", to: "roadmap", takes: false, icon: "compass", blurb: "Pick what the team builds next",
+        description: "Talks the triage queue through with the product lead and writes a spec for each one picked.", inputs: [], decides: "triage", worktree: "current" },
+      { name: "plan-feature", title: "Plan feature", from: "roadmap", to: "ready", takes: true, icon: "map", blurb: "Turn a build spec into slices",
+        description: "Writes a plan for one build spec, ending in its slices.", inputs: [], decides: "plan", worktree: "new" },
       { name: "build-slice", title: "Build slice", from: "ready", to: "review", takes: true, icon: "hammer", blurb: "Build one slice and open its PR",
         description: "Builds one slice in a new worktree and opens its PR.", inputs: [], worktree: "new" },
     ],
@@ -378,7 +382,7 @@ const FABS = [
       tdebt: { title: "Tech debt",       ask: "Does it add little tech debt?" },
     },
     decisions: {
-      "whats-next": { who: "product lead", says: "Pick what is next" },
+      "triage": { who: "product lead", says: "Pick what is next" },
       "plan":       { who: "tech lead",    says: "Approve the plan" },
     },
     artifacts: [
@@ -397,7 +401,7 @@ const FABS = [
 
 /* ──────────────────────────────────────────── sessions ──
    `art` is the artifact the session works on. `makes` is the stage a session
-   writes a NEW artifact into (file-work, prioritise). `who` is whose machine
+   writes a NEW artifact into (file-work, triage-ideas). `who` is whose machine
    it runs on: anyone but ME is a preview of team sync. */
 
 const SEED_SESSIONS = [
@@ -417,9 +421,9 @@ const SEED_SESSIONS = [
   { id: "s12", fab: "dragonfly", who: "seb", job: "build-slice", art: "v1", label: "Fix review notes on #412", harness: "claude-code",
     state: "working", min: 6, branch: "feat/context-packs-s2", worktree: "~/orca/workspaces/dragonfly/context-packs-s2",
     match: "inferred", startedBy: "by hand", first: "address the review comments on #412" },
-  { id: "s5", fab: "dragonfly", who: "seb", job: "prioritise", makes: "roadmap", label: "What's next?", harness: "claude-code",
+  { id: "s5", fab: "dragonfly", who: "seb", job: "triage-ideas", makes: "roadmap", label: "Triage ideas", harness: "claude-code",
     state: "waits", min: 9, branch: "main", worktree: "~/dev/dragonfly",
-    match: "inferred", startedBy: "by hand", first: "what should we pick up next? use the prioritise job",
+    match: "inferred", startedBy: "by hand", first: "what should we pick up next? use the triage-ideas job",
     asks: "Which of these three goes first?" },
   { id: "s6", fab: "dragonfly", who: "seb", job: null, label: "can you look at the flaky e2e on…", harness: "opencode",
     state: "unknown", min: 40, branch: "main", worktree: "~/dev/dragonfly",

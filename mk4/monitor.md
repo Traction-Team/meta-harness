@@ -27,8 +27,8 @@ One row per stage, in flow order, from `fab work --json`:
  26 in flight                         10 agents on it · 4 teammates'
 
  › Logged ideas      8  ⬚⬡⬡⬡⬡⬡⬡⬡⬡
-   Ready for What's next?                        (red marks under cubes: low scores)
- › Approved specs    3  ⬚⬡⬡⬡
+   Ready for Triage ideas                        (red marks under cubes: low scores)
+ › Build specs       3  ⬚⬡⬡⬡
  › WIP plans         1  ⬢                         (amber: waits for the tech lead)
  › Approved plans    4  ⬡⬡⬡⬡
    Ready for Build slice
@@ -94,12 +94,15 @@ A sheet slides over the panel. Back, or Esc, returns.
 Monitor (SwiftUI)  ── reads ──►  fab status --all --watch --json   (one JSON line per change)
                    ── reads ──►  fab work --all --watch --json     (stage contents and scores)
                    ── calls ──►  fab run / fab focus / fab history --json / fab list --json
-fab CLI            ── reads ──►  harness files, Orca CLI, run records, score records, .fab/
+                   ── runs  ──►  fab sync, about once a minute
+fab CLI            ── reads ──►  harness files, Orca CLI, run records, the record index, .fab/
                    ── reads ──►  stage sources: files, git, gh, Linear
+                   ── syncs ──►  the store: git ledger, or Fab Cloud
 ```
 
 - The monitor starts one `fab status --watch` and one `fab work --watch` process and redraws when a line arrives. File sources use file events. `prs` and `linear` sources are polled, about once a minute, and when a job ends.
 - When a job ends, the CLI sees the output land in the `to` stage, runs that stage's scorers, and writes a score record. The cube moves and its scores update.
+- When `fab sync` brings in teammates' records, `fab work --watch` prints the changes, and their scores and history show. With Fab Cloud, records and presence come in as a stream, so there is no wait for the next sync.
 - The monitor keeps no state of its own except its window position and settings.
 - Any other front end can do the same. A Raycast extension, a TUI, or a SwiftBar plugin needs only the same commands.
 
@@ -111,13 +114,13 @@ fab CLI            ── reads ──►  harness files, Orca CLI, run records,
 - Terminal app for plain CLIs: Terminal, iTerm2, Ghostty, Warp.
 - Appearance: auto, light, dark.
 - Notifications: when an agent waits for you. Launch at login.
-- Team (preview): show teammates' agents.
+- Team: show teammates' agents (Fab Cloud).
 - Fabs: add or remove a folder (the same as `fab fabs add`).
 
 ## Limits
 
 - **macOS only** at first. The CLI works on any system. Only the app is macOS.
-- **This machine only.** Agents and scores come from this machine. The stage contents are shared, because they come from the repository, GitHub and Linear. Teammates' agents need a sync between fab clients, which Mark IV does not have. The prototype shows what it would add.
+- **Teammates' agents need Fab Cloud.** The stage contents are shared, because they come from the repository, GitHub and Linear. Teammates' scores and history come through the git ledger, about a minute late. Teammates' agents as they run, and their claims, need Fab Cloud's presence. Without it the monitor shows this machine's agents only. The prototype shows the Fab Cloud view. See [`storage.md`](storage.md).
 - **"Waits for you" depends on the harness.** Claude Code and Orca report it. For the others the monitor shows working or idle from file activity, until hooks are added. See [`research/agent-sessions.md`](research/agent-sessions.md).
 - **Going to a session depends on the harness.** Orca can focus a terminal. A plain CLI in a Terminal window can be brought forward if the monitor opened it. A session someone started in a tab of their own may not be reachable.
 - **nodeterm.** The monitor shows nodeterm's agents, but it cannot start a session in nodeterm yet.
@@ -126,5 +129,5 @@ fab CLI            ── reads ──►  harness files, Orca CLI, run records,
 
 - Editing the fab in the monitor.
 - Answering an agent's question from the monitor. nodeterm shows this is possible for Claude Code through hooks.
-- Sessions and scores from other machines (the team view).
+- Teammates' sessions as they run (the team view). It comes with Fab Cloud. Teammates' scores and history come through the git ledger from the first version.
 - Charts over time: how long work waits in each stage this month, and how scores trend. The stage bars are a snapshot. A bottleneck shows best as a trend.

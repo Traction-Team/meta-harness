@@ -57,7 +57,7 @@ function advance(fab, a, j, s) {
   }
   const sc = scoreFor(fab, to);
   a.scores = { ...(a.scores || {}), ...sc };
-  /* a fab run writes a git note; a session started by hand is linked by name.
+  /* a fab run writes a link record; a session started by hand is linked by name.
      The earlier artifact stays in the trail, so history now hides it from
      its old stage (see hiddenIn in core.js). A draft PR made ready is the
      same PR. */
@@ -95,7 +95,7 @@ function finish(s) {
   let a = null;
   if (j && s.art) { a = artOf(fab, s.art); if (a) advance(fab, a, j, s); }
   else if (j && j.from) {
-    /* a job that reads a whole stage (prioritise) moves its oldest artifact on */
+    /* a job that reads a whole stage (triage-ideas) moves its oldest artifact on */
     a = artsIn(fab, j.from)[0];
     if (a) advance(fab, a, j, s);
   } else if (j) a = makeArt(fab, j, s);
@@ -148,7 +148,7 @@ function renderScenery() {
     `  - ${k("id")}: intake`,
     `    ${k("find")}: ${s("files docs/roadmap/intake/*.md")}`,
     `    ${k("where")}: ${s("status: open")}`,
-    `    ${k("next")}: prioritise`,
+    `    ${k("next")}: triage-ideas`,
     `    ${k("scored-by")}: [clear]`,
     `  ${c("…")}`,
     `  - ${k("id")}: ready`,
@@ -174,7 +174,7 @@ function renderScenery() {
     `    ${k("ask")}: ${s("Does it add little tech debt?")}`,
   ];
   const tree = [
-    ["folder", ".fab", 0], ["folder", "jobs", 1], ["folder", "file-work", 2], ["folder", "prioritise", 2], ["folder", "plan-feature", 2],
+    ["folder", ".fab", 0], ["folder", "jobs", 1], ["folder", "file-work", 2], ["folder", "triage-ideas", 2], ["folder", "plan-feature", 2],
     ["folder", "build-slice", 2], ["folder", "review-slice", 2], ["folder", "scorers", 1], ["folder", "edge-cases", 2], ["folder", "tech-debt", 2],
     ["folder", "rules", 1], ["doc", "fab.yaml", 1, true], ["doc", "AGENTS.md", 1],
     ["folder", "docs", 0], ["folder", "src", 0], ["doc", "AGENTS.md", 0],
