@@ -1,8 +1,8 @@
 # Sharing a factory
 
-A **fab** is a factory packaged for reuse. Version 1 publishes fabs to npm, to a Git fab repository, or to both. `add` also accepts HTTPS tarballs and local paths.
+A **fab** is a factory packaged for reuse. Version 1 publishes fabs to npm, to a Git fab repository, or to both. `import` also accepts HTTPS tarballs and local paths.
 
-`metafab add` copies a fab into a repository. The receiving team owns that copy and can edit any file.
+`metafab import` copies a fab into a repository. The receiving team owns that copy and can edit any file.
 
 `metafab update` merges a newer upstream version with those local edits. A person reviews and commits the result.
 
@@ -12,7 +12,7 @@ Sharing follows these rules:
 
 1. `.factory/` in the repository is the active factory.
 2. A fab is copied into `.factory/`. It is not loaded from `node_modules` at runtime.
-3. `add` and `update` change only the working tree. They never stage, commit, or push.
+3. `import` and `update` change only the working tree. They never stage, commit, or push.
 4. `publish` never changes the project repository. A Git publish commits and pushes only to the configured fab repository.
 5. `update` uses a three-way merge to preserve local edits.
 6. npm and Git act only as transport.
@@ -171,7 +171,7 @@ A published version cannot be changed:
 
 ## Supported sources
 
-`metafab add` accepts these source forms:
+`metafab import` accepts these source forms:
 
 | Source | Example | Retrieval method |
 | --- | --- | --- |
@@ -191,7 +191,7 @@ Metafab fetches Git sources with Git and the user's Git credentials. It does not
 
 The part after `#` selects a Git version. Version tags are `v<version>` or `<version>`, such as `v1.2.0`.
 
-| Ref | Example | `add` selects | `update` selects |
+| Ref | Example | `import` selects | `update` selects |
 | --- | --- | --- | --- |
 | None | `github:seasb/fab-mark4` | The newest version tag, recorded as the range `^<version>`. Without version tags, the default branch head | The newest tag in that range, or the new branch head |
 | Range | `#semver:^1.2.0` | The newest tag in the range | The newest tag in the range |
@@ -201,10 +201,10 @@ The part after `#` selects a Git version. Version tags are `v<version>` or `<ver
 
 `update --to` accepts a version, a range, or any Git ref for a Git source.
 
-## Adding a fab
+## Importing a fab
 
 ```sh
-metafab add <source> [--force]
+metafab import <source> [--agents <list>] [--force]
 ```
 
 The command performs these steps:
@@ -212,10 +212,13 @@ The command performs these steps:
 1. Resolve the source to an exact version or revision.
 2. Download the source and verify its integrity when the source provides a hash.
 3. Validate the fab and its factory.
-4. Copy the factory into `.factory/`, except `metafab.yaml` and `metafab.lock`.
-5. Write the source, version, resolved revision, integrity, and file hashes to `metafab.lock`.
-6. Run `metafab link`.
-7. Print a review summary.
+4. Run `metafab init` when the repository has no `.factory/`. `--agents` passes to `init`.
+5. Copy the factory into `.factory/`, except `metafab.yaml` and `metafab.lock`.
+6. Write the source, version, resolved revision, integrity, and file hashes to `metafab.lock`.
+7. Run `metafab build`.
+8. Print a review summary.
+
+A failure in steps 1 to 3 leaves the repository unchanged.
 
 Metafab never copies `metafab.yaml` or `metafab.lock` from a source. A Git source that is a project repository contains both, and they belong to that project.
 
@@ -228,14 +231,12 @@ Fab validation rejects:
 
 A factory can have only one upstream fab. If `metafab.lock` already contains an upstream, use `update` or `detach`.
 
-If the incoming fab would replace a different local file, `add` stops and lists all conflicts. `--force` permits those replacements.
-
-`metafab init --from <source>` runs `init` and then `add <source>`.
+If the incoming fab would replace a different local file, `import` stops and lists all conflicts. `--force` permits those replacements.
 
 ## Updating a fab
 
 ```sh
-metafab update [--to <version|range|ref>] [--dry-run] [--no-link]
+metafab update [--to <version|range|ref>] [--dry-run] [--no-build]
 ```
 
 The update uses three versions of each file:
@@ -251,14 +252,14 @@ The command performs these steps:
 3. Download and verify the base and new upstream versions.
 4. Merge each path into `.factory/`, except `metafab.yaml` and `metafab.lock`.
 5. Update the upstream version and file hashes in `metafab.lock`.
-6. Run `metafab link` unless `--no-link` is present.
+6. Run `metafab build` unless `--no-build` is present.
 7. Print a review summary.
 
 Downloads use `~/.metafab/cache/`.
 
 `--dry-run` reports planned changes and conflicts without writing files.
 
-An update never creates a commit. Because `update` runs `link`, the installed skills in the working tree change immediately. Review the update before starting agent work in that working tree, or update on a separate branch.
+An update never creates a commit. Because `update` runs `build`, the installed skills in the working tree change immediately. Review the update before starting agent work in that working tree, or update on a separate branch.
 
 ### Merge rules
 
@@ -290,7 +291,7 @@ After a conflicted update, `metafab check` fails while either condition remains:
 
 ### Review summary
 
-`add` and `update` group changes by risk instead of printing one long file list.
+`import` and `update` group changes by risk instead of printing one long file list.
 
 Example:
 
@@ -366,7 +367,7 @@ After detachment, the factory has no upstream and `metafab update` has nothing t
 
 `.factory/metafab.lock` records upstream and installed output state. Commit this file and do not edit it manually.
 
-`add`, `update`, and `link` write it. `detach` removes its upstream entry.
+`import`, `update`, and `build` write it. `detach` removes its upstream entry.
 
 Example with an npm upstream:
 
@@ -385,7 +386,7 @@ Example with an npm upstream:
       "scripts/next.mjs": "sha256-c0de11a..."
     }
   },
-  "linked": {
+  "output": {
     ".claude/skills/review-slice": {
       "from": ".factory/workflows/review-slice",
       "hash": "sha256-5d2a9e0..."
@@ -430,8 +431,8 @@ Lock file rules:
 - `upstream.files` records the upstream hash for each copied file.
 - These hashes define the base for `update`, `diff`, and local edit detection.
 - `update` fetches the base from `resolved`.
-- `linked` records every path created by `link`, with the hash of its compiled contents.
-- Metafab changes or removes only paths recorded in `linked`.
+- `output` records every path created by `build`, with the hash of its compiled contents.
+- Metafab changes or removes only paths recorded in `output`.
 - Upstream file paths are relative to `.factory/`.
 - Linked paths are relative to the repository root.
 

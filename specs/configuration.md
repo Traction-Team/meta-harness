@@ -32,8 +32,8 @@ Every key is optional. A missing file is the same as an empty file.
 
 | Key             | Type                      | Default                                                   | Meaning                                                                                                 |
 | --------------- | ------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `agents`        | List of targets, or `all` | Selected on the first `link`, or `all` without a terminal | Agent tools that `link` installs for. See [Target selection](linking.md#target-selection)               |
-| `metafab-skill` | Boolean                   | `true`                                                    | Install the built-in `metafab` skill. See [Built-in `metafab` skill](linking.md#built-in-metafab-skill) |
+| `agents`        | List of targets, or `all` | Written by `init`. `all` when absent                      | Agent tools that `build` installs for. See [Target selection](building.md#target-selection)               |
+| `metafab-skill` | Boolean                   | `true`                                                    | Install the built-in `metafab` skill. See [Built-in `metafab` skill](building.md#built-in-metafab-skill) |
 | `publish`       | Map                       | None                                                      | Fab settings for `metafab publish`. Required only to publish                                            |
 
 
@@ -60,18 +60,13 @@ For the npm target, `publish` writes `package.json` from these keys. It also set
 
 For the Git target, `publish` writes no `package.json`. The fab repository tags each release `v<version>`. See [Git target](sharing.md#git-target).
 
-## Command-line overrides
+## Editing the file
 
-A command-line flag overrides the file for one command:
+Edit `metafab.yaml` directly, then run `metafab build`. No command overrides it.
 
+Only `init` writes `metafab.yaml`, and only when the file does not exist. `init --agents` and `import --agents` set the initial `agents` value.
 
-| Flag                   | Overrides                                |
-| ---------------------- | ---------------------------------------- |
-| `link --agents <list>` | `agents`                                 |
-| `publish --tag <tag>`  | The npm dist-tag. It has no file setting |
-
-
-`link --save` writes the `--agents` selection to `agents`. No other command writes `metafab.yaml`.
+`publish --tag` sets the npm dist-tag. It has no file setting.
 
 ## Validation
 

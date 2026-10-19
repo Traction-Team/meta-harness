@@ -16,8 +16,8 @@ The design comes from [Mark IV](../mk4/), but v1 excludes its monitoring and run
 | File | Scope |
 | --- | --- |
 | [Factory format](factory-format.md) | The contents and validation rules of `.factory/` |
-| [Linking](linking.md) | How `metafab link` installs a factory for agent tools |
-| [Sharing](sharing.md) | How teams publish, add, update, and detach fabs |
+| [Building](building.md) | How `metafab build` installs a factory for agent tools |
+| [Sharing](sharing.md) | How teams publish, import, update, and detach fabs |
 | [CLI](cli.md) | Commands, JSON output, and exit codes |
 | [Configuration](configuration.md) | Every key in `.factory/metafab.yaml` |
 
@@ -45,7 +45,7 @@ Metafab installs factory parts as follows:
 | Template | Not installed. Workflows use its repository path |
 | Script | Not installed. Workflows use its repository path |
 
-`metafab link` compiles `.factory/` like source code. The installed skills are build output: plain Agent Skills with dependencies resolved and factory-only fields removed. A team can therefore use a factory as a skill bundler, even if it never publishes a fab.
+`metafab build` compiles `.factory/` like source code. The installed skills are build output: plain Agent Skills with dependencies resolved and factory-only fields removed. A team can therefore use a factory as a skill bundler, even if it never publishes a fab.
 
 ## Terminology
 
@@ -61,10 +61,10 @@ Version 1 supports this workflow:
 
 1. `metafab init` or `metafab create` creates factory files.
 2. A person or agent edits those files.
-3. `metafab link` installs the factory for the selected agent tools.
+3. `metafab build` installs the factory for the selected agent tools.
 4. `metafab check` validates the source files and installed output.
 5. `metafab publish` publishes a factory as a fab.
-6. `metafab add` copies a fab into another repository.
+6. `metafab import` copies a fab into another repository.
 7. `metafab update` merges a newer fab version into that copy.
 
 Metafab does not stage, commit, or push changes in the project repository. A person reviews and commits every factory change. Only `publish` pushes, and only to a configured fab repository.
@@ -94,7 +94,7 @@ Create a factory from a published fab:
 
 ```sh
 cd my-repo
-npx @seasb/metafab init --from @seasb/fab-mark4 --agents claude,codex
+npx @seasb/metafab import @seasb/fab-mark4 --agents claude,codex
 git add .factory AGENTS.md CLAUDE.md .claude .agents
 git commit -m "Add the mark4 factory"
 ```

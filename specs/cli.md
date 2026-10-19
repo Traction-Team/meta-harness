@@ -5,7 +5,7 @@ The `metafab` CLI creates, validates, installs, and shares factories.
 Related specifications:
 
 - [Factory format](factory-format.md)
-- [Linking](linking.md)
+- [Building](building.md)
 - [Sharing](sharing.md)
 - [Configuration](configuration.md)
 
@@ -35,8 +35,8 @@ All commands follow these rules:
 4. Every command supports `--json`.
 5. A command never prompts when standard input is not a terminal.
 6. Missing non-interactive input produces exit code 2 and a machine-readable list of required values.
-7. `add` and `update` never run package scripts.
-8. Repeated `init`, `link`, and `check` commands are safe.
+7. `import` and `update` never run package scripts.
+8. Repeated `init`, `build`, `map`, and `check` commands are safe.
 
 The CLI creates files but does not provide an interactive editor. A person or agent edits the generated files directly.
 
@@ -46,45 +46,48 @@ The CLI creates files but does not provide an interactive editor. A person or ag
 
 | Command | Behaviour |
 | --- | --- |
-| `metafab init [--from <source>] [--agents <list>]` | Creates missing factory files, then runs `link`. With `--from`, it also adds the specified fab |
-| `metafab link [--agents <list>] [--save]` | Compiles the factory for the selected agent tools and removes obsolete output owned by Metafab |
-| `metafab unlink` | Removes all output owned by `link`. It does not change `.factory/` |
+| `metafab init [--agents <list>]` | Creates missing factory files, then runs `build` |
+| `metafab build` | Compiles the factory for the agent tools in `metafab.yaml` and removes obsolete output owned by Metafab |
+
+`build` takes no options. Edit [`metafab.yaml`](configuration.md) to change what it writes. To remove all output, set `agents: []` and run `build`.
 
 `init` creates these entries when they are missing:
 
 - `.factory/factory.yaml`
 - `.factory/AGENTS.md`
-- Standard factory directories
 - `.factory/metafab.yaml`
+
+`init` writes `agents` to a new `metafab.yaml`. It uses `--agents` when present. Otherwise it asks in a terminal, or selects `all` without one.
+
+`init` does not create part directories. All directories are optional, and Git does not track empty directories.
 
 An existing factory remains intact. `init` adds only missing entries.
 
-### Create factory parts
+### Edit a factory
 
 | Command | Behaviour |
 | --- | --- |
-| `metafab create workflow <name> [--description D] [--uses <list>] [--pipeline] [--after <workflow>] [--stop S]` | Creates `.factory/workflows/<name>/SKILL.md`. `--pipeline` also adds it to the pipeline, at the end or after `--after` |
-| `metafab create skill <name> [--description D] [--uses <list>] [--in <folder>] [--bundle inline]` | Creates a skill in `.factory/skills/` or the specified group directory |
-| `metafab create template <name>` | Creates `.factory/templates/<name>.md` |
-| `metafab create script <name>` | Creates an executable `.factory/scripts/<name>` |
-| `metafab pipeline add <workflow> [--after <workflow>] [--stop S]` | Adds an existing workflow to the pipeline |
+| `metafab create <path> [--description D] [--uses <list>]` | Creates `.factory/<path>/SKILL.md` with valid frontmatter. The last path segment is the skill name |
+| `metafab rename <old> <new>` | Renames a skill. It moves the directory and updates `name`, every `uses` list, and the pipeline |
+| `metafab pipeline add <workflow> [--after <workflow>] [--stop S]` | Adds an existing workflow to the pipeline, at the end or after `--after` |
 | `metafab pipeline remove <workflow>` | Removes a workflow from the pipeline. The workflow file does not change |
 
-Create commands write a valid scaffold and print its path. They do not run `link`.
+The path places the skill. For example, `metafab create workflows/review-slice` creates a workflow, and `metafab create review/security` creates a skill in the `review` group.
 
-`metafab rename <old> <new>` renames a skill or workflow. It moves the directory and updates `name`, every `uses` list, and the pipeline.
+`create` stops when the name is not unique in the factory. It prints the new path and does not run `build`.
+
+Metafab does not create templates, scripts, or other files. Create them directly. Edit frontmatter such as `bundle` directly.
 
 ### Inspect a factory
 
-| Command | Behaviour |
-| --- | --- |
-| `metafab list [workflows\|skills\|templates\|scripts]` | Lists all parts, or only the selected type |
-| `metafab map` | Prints the pipeline with its stops, the standalone workflows, and the `uses` tree of each workflow |
-| `metafab status [--offline]` | Reports upstream state, local edits, conflicts, target agents, and link state |
+`metafab map` prints:
 
-With `--json`, `list` includes each part's path and frontmatter.
+- The pipeline with its stops
+- The standalone workflows
+- Every skill, grouped by directory
+- The `uses` tree of each workflow
 
-`status` checks the registry for a newer upstream version. `--offline` skips that check.
+With `--json`, `map` also includes each skill's path and frontmatter.
 
 ### Validate a factory
 
@@ -104,9 +107,9 @@ Each problem includes a path, line number, and suggested fix. Errors return exit
 
 | Command | Behaviour |
 | --- | --- |
-| `metafab add <source> [--force]` | Copies a fab into `.factory/`, records its source, links it, and prints a review summary |
-| `metafab update [--to <version\|range\|ref>] [--dry-run] [--no-link]` | Merges a newer upstream version into `.factory/` |
-| `metafab diff [<path>]` | Shows local changes from the recorded upstream version |
+| `metafab import <source> [--agents <list>] [--force]` | Copies a fab into `.factory/`, records it as the upstream, builds it, and prints a review summary. Runs `init` first when the repository has no factory |
+| `metafab update [--to <version\|range\|ref>] [--dry-run] [--no-build]` | Merges a newer upstream version into `.factory/`. The source comes from `metafab.lock` |
+| `metafab diff [<path>]` | Shows local edits since the recorded upstream version |
 | `metafab detach` | Removes upstream metadata without changing factory files |
 | `metafab publish [--dry-run] [--tag <tag>]` | Packages `.factory/` as a fab and publishes it to npm, a Git fab repository, or both |
 
@@ -116,7 +119,7 @@ See [Sharing a factory](sharing.md) for source handling, merge rules, and public
 
 Metafab reads repository settings from `.factory/metafab.yaml`. [Configuration](configuration.md) defines every key.
 
-Upstream state belongs in `.factory/metafab.lock`, not `metafab.yaml`. Only `add`, `update`, and `detach` change the upstream entry.
+Upstream state belongs in `.factory/metafab.lock`, not `metafab.yaml`. Only `import`, `update`, and `detach` change the upstream entry.
 
 ## JSON output
 
@@ -134,7 +137,7 @@ Example failed check:
       "file": ".factory/workflows/review-slice/SKILL.md",
       "line": 4,
       "message": "uses names skill 'git-convention', which does not exist",
-      "fix": "Did you mean git-conventions? You can also create it with metafab create skill git-convention."
+      "fix": "Did you mean git-conventions? You can also create it with metafab create skills/git-convention."
     }
   ]
 }

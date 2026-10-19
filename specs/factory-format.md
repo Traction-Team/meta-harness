@@ -127,7 +127,7 @@ Dependency rules:
 5. A skill cannot use itself, directly or through other skills.
 6. An included skill is still installed as its own skill.
 
-[Linking](linking.md#compiled-skills) defines the exact installed output.
+[Building](building.md#compiled-skills) defines the exact installed output.
 
 ### Factory frontmatter fields
 
