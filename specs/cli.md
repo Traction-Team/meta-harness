@@ -31,7 +31,7 @@ All commands follow these rules:
 
 1. Repository files contain all persistent project state.
 2. The download cache is the only state outside the repository. It lives at `~/.metafab/cache/`.
-3. A command never stages, commits, or pushes changes.
+3. A command never stages, commits, or pushes changes in the project repository. `publish` with a Git target commits and pushes only to the configured fab repository.
 4. Every command supports `--json`.
 5. A command never prompts when standard input is not a terminal.
 6. Missing non-interactive input produces exit code 2 and a machine-readable list of required values.
@@ -105,10 +105,10 @@ Each problem includes a path, line number, and suggested fix. Errors return exit
 | Command | Behaviour |
 | --- | --- |
 | `metafab add <source> [--force]` | Copies a fab into `.factory/`, records its source, links it, and prints a review summary |
-| `metafab update [--to <version\|range>] [--dry-run] [--no-link]` | Merges a newer upstream version into `.factory/` |
+| `metafab update [--to <version\|range\|ref>] [--dry-run] [--no-link]` | Merges a newer upstream version into `.factory/` |
 | `metafab diff [<path>]` | Shows local changes from the recorded upstream version |
 | `metafab detach` | Removes upstream metadata without changing factory files |
-| `metafab publish [--dry-run] [--tag <tag>]` | Packages and publishes `.factory/` as a fab |
+| `metafab publish [--dry-run] [--tag <tag>]` | Packages `.factory/` as a fab and publishes it to npm, a Git fab repository, or both |
 
 See [Sharing a factory](sharing.md) for source handling, merge rules, and publication behaviour.
 
@@ -149,4 +149,4 @@ Example failed check:
 | `2` | Required input was unavailable in non-interactive mode |
 | `3` | Metafab could not fetch a source |
 | `4` | Metafab rejected a fab because its format, path, or integrity was invalid |
-| `5` | The command would overwrite output that Metafab does not own |
+| `5` | The command would overwrite output that Metafab does not own, including a fab repository edited outside `publish` |

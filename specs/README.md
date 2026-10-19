@@ -7,7 +7,7 @@ Version 1 has four responsibilities:
 1. Store the factory in an open `.factory/` format.
 2. Install the factory into supported agent tools.
 3. Validate the factory and its installed files.
-4. Share the factory as an npm package called a fab.
+4. Share the factory as a fab, published to npm or a Git repository.
 
 The design comes from [Mark IV](../mk4/), but v1 excludes its monitoring and runtime features.
 
@@ -50,7 +50,8 @@ Metafab installs factory parts as follows:
 ## Terminology
 
 - **Factory:** The `.factory/` directory in a repository.
-- **Fab:** A factory published for reuse, usually as an npm package such as `@seasb/fab-mark4`.
+- **Fab:** A factory published for reuse, as an npm package such as `@seasb/fab-mark4` or a Git fab repository such as `github:seasb/fab-mark4`.
+- **Fab repository:** A Git repository that holds only published fab releases. `metafab publish` writes it.
 - **Metafab:** The product and its `metafab` CLI, published as `@seasb/metafab`.
 - **Upstream fab:** The fab from which a factory was copied. A factory has zero or one upstream fab.
 
@@ -66,7 +67,7 @@ Version 1 supports this workflow:
 6. `metafab add` copies a fab into another repository.
 7. `metafab update` merges a newer fab version into that copy.
 
-Metafab does not stage, commit, or push changes. A person reviews and commits every factory change.
+Metafab does not stage, commit, or push changes in the project repository. A person reviews and commits every factory change. Only `publish` pushes, and only to a configured fab repository.
 
 ## Deferred features
 
