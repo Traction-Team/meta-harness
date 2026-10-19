@@ -7,6 +7,7 @@ Related specifications:
 - [Factory format](factory-format.md)
 - [Linking](linking.md)
 - [Sharing](sharing.md)
+- [Configuration](configuration.md)
 
 ## Installation
 
@@ -46,7 +47,7 @@ The CLI creates files but does not provide an interactive editor. A person or ag
 | Command | Behaviour |
 | --- | --- |
 | `metafab init [--from <source>] [--agents <list>]` | Creates missing factory files, then runs `link`. With `--from`, it also adds the specified fab |
-| `metafab link [--agents <list>] [--save]` | Installs the factory for the selected agent tools and removes obsolete output owned by Metafab |
+| `metafab link [--agents <list>] [--save]` | Compiles the factory for the selected agent tools and removes obsolete output owned by Metafab |
 | `metafab unlink` | Removes all output owned by `link`. It does not change `.factory/` |
 
 `init` creates these entries when they are missing:
@@ -62,22 +63,23 @@ An existing factory remains intact. `init` adds only missing entries.
 
 | Command | Behaviour |
 | --- | --- |
-| `metafab create workflow <name> [--title T] [--from <stage>] [--to <stage>] [--description D]` | Creates `.factory/workflows/<name>/SKILL.md` |
-| `metafab create scorer <name> --ask Q [--description D]` | Creates `.factory/scorers/<name>/SKILL.md` |
-| `metafab create skill <name> [--in <folder>]` | Creates a skill in `.factory/skills/` or the specified group directory |
-| `metafab create rule <name>` | Creates `.factory/rules/<name>.md` |
+| `metafab create workflow <name> [--description D] [--uses <list>] [--pipeline] [--after <workflow>] [--stop S]` | Creates `.factory/workflows/<name>/SKILL.md`. `--pipeline` also adds it to the pipeline, at the end or after `--after` |
+| `metafab create skill <name> [--description D] [--uses <list>] [--in <folder>] [--bundle inline]` | Creates a skill in `.factory/skills/` or the specified group directory |
 | `metafab create template <name>` | Creates `.factory/templates/<name>.md` |
-| `metafab create stage <id> [--title T] [--next <workflow>] [--after <stage>]` | Adds a stage to `factory.yaml` after the named stage |
-| `metafab create decision <name> --who W [--says S]` | Adds a decision to `factory.yaml` |
+| `metafab create script <name>` | Creates an executable `.factory/scripts/<name>` |
+| `metafab pipeline add <workflow> [--after <workflow>] [--stop S]` | Adds an existing workflow to the pipeline |
+| `metafab pipeline remove <workflow>` | Removes a workflow from the pipeline. The workflow file does not change |
 
 Create commands write a valid scaffold and print its path. They do not run `link`.
+
+`metafab rename <old> <new>` renames a skill or workflow. It moves the directory and updates `name`, every `uses` list, and the pipeline.
 
 ### Inspect a factory
 
 | Command | Behaviour |
 | --- | --- |
-| `metafab list [workflows\|scorers\|skills\|rules\|stages\|decisions]` | Lists all parts, or only the selected type |
-| `metafab map` | Prints stages in flow order, connecting workflows, and decisions |
+| `metafab list [workflows\|skills\|templates\|scripts]` | Lists all parts, or only the selected type |
+| `metafab map` | Prints the pipeline with its stops, the standalone workflows, and the `uses` tree of each workflow |
 | `metafab status [--offline]` | Reports upstream state, local edits, conflicts, target agents, and link state |
 
 With `--json`, `list` includes each part's path and frontmatter.
@@ -89,9 +91,10 @@ With `--json`, `list` includes each part's path and frontmatter.
 `metafab check` validates:
 
 - The [factory format](factory-format.md#validation)
-- Installed links and copies
+- Installed skill copies
 - The generated `AGENTS.md` block
 - The installed `metafab` skill
+- [`metafab.yaml`](configuration.md#validation)
 - Unresolved Git conflict markers
 - Remaining `.upstream` conflict files
 
@@ -111,31 +114,7 @@ See [Sharing a factory](sharing.md) for source handling, merge rules, and public
 
 ## Configuration
 
-Metafab reads repository settings from `.factory/metafab.yaml`. This file is committed.
-
-```yaml
-agents: [claude, codex]
-
-link:
-  mode: symlink
-  skill: true
-
-publish:
-  name: "@seasb/fab-mark4"
-  version: 1.2.0
-  description: Plan, build, and review work in slices with a person at each decision.
-  exclude:
-    - skills/our-api/**
-```
-
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `agents` | Selected on the first `link`, or `all` without a terminal | Agent targets: `claude`, `codex`, `cursor`, `opencode`, or `all` |
-| `link.mode` | `symlink` | Installation mode: `symlink` or `copy` |
-| `link.skill` | `true` | Install the built-in `metafab` skill |
-| `publish` | None | npm package settings for `metafab publish` |
-
-The open factory format uses `factory.yaml`. Metafab-specific settings use `metafab.yaml`.
+Metafab reads repository settings from `.factory/metafab.yaml`. [Configuration](configuration.md) defines every key.
 
 Upstream state belongs in `.factory/metafab.lock`, not `metafab.yaml`. Only `add`, `update`, and `detach` change the upstream entry.
 
@@ -153,9 +132,9 @@ Example failed check:
     {
       "level": "error",
       "file": ".factory/workflows/review-slice/SKILL.md",
-      "line": 5,
-      "message": "to names stage 'merged', which does not exist",
-      "fix": "Use intake, ready, review, merge, or shipped. You can also create stage merged."
+      "line": 4,
+      "message": "uses names skill 'git-convention', which does not exist",
+      "fix": "Did you mean git-conventions? You can also create it with metafab create skill git-convention."
     }
   ]
 }

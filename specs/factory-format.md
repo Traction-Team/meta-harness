@@ -20,124 +20,134 @@ Each skill must follow the Agent Skills format:
 
 The directory structure classifies skills by purpose. It does not change how agent tools load them.
 
+A factory adds two things to plain Agent Skills:
+
+1. **A pipeline.** `factory.yaml` lists the workflows in the order that work moves through them.
+2. **Skill dependencies.** A skill can name the other skills it `uses`. Metafab includes them when it installs the skill.
+
 ## Directory layout
 
 ```text
 .factory/
-  factory.yaml               factory name, stages, and decisions
+  factory.yaml               factory name and pipeline
   AGENTS.md                  standing project instructions
   workflows/<name>/SKILL.md  steps that move work
-  scorers/<name>/SKILL.md    checks that score work
   skills/<name>/SKILL.md     reusable project knowledge
-  rules/*.md                 rules for every agent session
   templates/*                reusable document templates
   scripts/*                  scripts called by workflows
-  metafab.yaml               Metafab configuration
-  metafab.lock               upstream and link state
+  metafab.yaml               Metafab configuration (see configuration.md)
+  metafab.lock               upstream and installed output state
 ```
 
 All entries are optional. An empty `.factory/` directory is valid.
 
-Teams can add other top-level directories. A skill in `.factory/review/security/` belongs to the `review` group and has the name `security`.
+Teams can add other top-level directories. A skill in `.factory/review/security/` belongs to the `review` group and has the name `security`. It installs and behaves like any other skill.
 
 `metafab.yaml` and `metafab.lock` are tool files. They are not part of the open factory format.
 
 ## Workflows
 
-A workflow is a skill that performs one step in the factory. It can move work between stages or create new work.
+A workflow is a skill that performs one step of the work, such as filing a bug, planning a feature, building a slice, or reviewing a PR. Every skill below `.factory/workflows/` is a workflow.
 
 ```markdown
 ---
 name: review-slice
-description: Review a slice PR against its plan and the project rules. Use when a slice PR is ready for review.
-title: Review slice
-from: review
-to: merge
-decides: done
+description: Review a slice PR against its plan. Use when a slice PR is ready for review.
+uses: [git-conventions, testing]
 ---
 
 # Review slice
 
 1. Read the PR and the matching slice in its plan.
-2. Review the change against the plan and project rules.
+2. Review the change against the plan and `git-conventions`.
 3. Report the findings.
 4. Stop and ask the code owner to approve the PR.
 ```
 
-### Workflow frontmatter
+A workflow is a standard Agent Skill. Its only factory field is the optional `uses` field, which any skill can have (see [Skill dependencies](#skill-dependencies)).
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `name` | Yes | Skill name. It must match the directory name and be unique in the factory |
-| `description` | Yes | What the workflow does and when an agent should use it |
-| `title` | No | Display name. The default is `name` with hyphens replaced by spaces |
-| `from` | No | Stage that contains the input work. Omit it for a workflow that creates new work |
-| `to` | No | Stage that receives the output |
-| `decides` | No | Decision that requires a person to act at the end |
+The order of workflows belongs in the [pipeline](#pipeline), not in workflow files. A workflow file describes one step and does not name the steps before or after it.
 
-Names can contain lowercase ASCII letters, digits, and hyphens.
+Workflows differ from other skills in one way: Metafab lists every workflow in the generated `AGENTS.md` block. Agents can then select a workflow from a plain request, such as "here is a bug Kat hit", without loading every workflow.
 
-### Workflow requirements
+### Workflow guidance
 
-1. The final step must state what happens next.
-2. The final step must state when the agent must stop for a person.
-3. A workflow must describe an operation without naming a specific agent tool.
-4. Agent-specific instructions belong in a separate skill.
-5. A workflow must refer to templates and scripts by repository-relative path.
+1. The `description` must say when to use the workflow. Agents select workflows by description.
+2. The final step should say when the agent must stop for a person.
+3. A workflow should describe an operation without naming a specific agent tool. Put tool-specific instructions in a skill that the workflow `uses`.
+4. A workflow must refer to templates and scripts by repository-relative path, such as `.factory/templates/plan.md`.
 
 For example, write "open a new worktree for this slice" in a workflow. Put the tool-specific command in a harness skill.
 
-## Scorers
-
-A scorer asks one question about one artifact. It returns a score from 0 to 10, where a higher score is always better.
-
-```markdown
----
-name: edge-cases
-description: Score whether a plan covers its edge cases. Use after a plan changes.
-ask: Does the plan identify its edge cases and define the result for each case?
----
-
-# Edge cases
-
-Read the plan and list the inputs and states it affects.
-
-Return a score from 0 to 10. Give one line of evidence and one line for the largest gap.
-```
-
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `name` | Yes | Skill name. The same rules as workflow names apply |
-| `description` | Yes | What the scorer measures and when an agent should use it |
-| `ask` | Yes | One question phrased so a higher score means a better result |
-
-Version 1 stores no score records. A person or workflow invokes a scorer as a normal Agent Skill.
-
 ## Skills
 
-`.factory/skills/` contains reusable project knowledge. Examples include test conventions, API architecture, and worktree setup.
+`.factory/skills/` contains reusable project knowledge. Examples include test conventions, API architecture, Git conventions, and worktree setup in a specific agent tool.
 
-These files use the standard Agent Skills format and add no factory-specific frontmatter.
+Agent tools discover skills by description, as with any Agent Skill. A workflow can also include a skill directly with `uses`.
 
 Separate skills from workflows so that `workflows/` remains a clear description of the process.
 
-## Rules
+## Skill dependencies
 
-Each `.factory/rules/*.md` file contains a rule for every agent session. Examples include branch naming, commit titles, and protected branch requirements.
+A skill can name other skills in the same factory with `uses`:
 
-A rule file is plain Markdown. Its first heading, if present, is its title.
+```yaml
+---
+name: build-slice
+description: Build one slice of an approved plan on its own branch. Use when a person picks a ready slice.
+uses: [git-conventions, our-api, testing]
+---
+```
 
-Metafab includes all rules in `AGENTS.md`. Keep rules short. Put conditional guidance in a skill instead.
+When Metafab installs `build-slice`, it includes `git-conventions`, `our-api`, and `testing`. The agent then has them when it loads `build-slice`, with no reliance on the agent deciding to load them.
+
+The skill that is included chooses how it is included, with `bundle`:
+
+```yaml
+---
+name: git-conventions
+description: Branch names, commit titles, and PR rules for this repository.
+bundle: inline
+---
+```
+
+| `bundle` | Behaviour |
+| --- | --- |
+| `reference` | The default. The installed skill starts with an instruction to read the included skill's file before it starts |
+| `inline` | The included skill's body is copied into the installed skill |
+
+Use `inline` for short skills that every user needs in full. Use `reference` for long skills, so that the agent reads them only when it runs the skill that uses them.
+
+Dependency rules:
+
+1. `uses` names skills by `name`. The skill's directory does not matter.
+2. `uses` can name only skills in the same factory. Version 1 does not support dependencies on other fabs.
+3. Dependencies are transitive. If `build-slice` uses `our-api` and `our-api` uses `http-client`, `build-slice` includes both.
+4. A skill that is reached more than once is included once.
+5. A skill cannot use itself, directly or through other skills.
+6. An included skill is still installed as its own skill.
+
+[Linking](linking.md#compiled-skills) defines the exact installed output.
+
+### Factory frontmatter fields
+
+| Field | Applies to | Required | Meaning |
+| --- | --- | --- | --- |
+| `uses` | Any skill | No | List of skill names to include when this skill is installed |
+| `bundle` | Any skill | No | How this skill is included by others: `reference` (default) or `inline` |
+
+All other frontmatter belongs to the Agent Skills format or to agent tools, and Metafab copies it unchanged. Metafab removes `uses` and `bundle` from installed skills, so installed skills contain only standard frontmatter.
 
 ## Standing instructions
 
-`.factory/AGENTS.md` contains project instructions that apply to every agent session. Typical content includes:
+`.factory/AGENTS.md` contains instructions that apply to every agent session. Typical content includes:
 
 - A short project description
 - Build and test commands
+- Rules that every session must follow, such as branch naming and protected branches
 - Files that an agent should read first
 
-Metafab places this content at the start of the generated factory block in the root `AGENTS.md`.
+Metafab places this content at the start of the generated factory block in the root `AGENTS.md`. Keep it short. Put guidance that applies only to some tasks in a skill.
 
 ## Templates and scripts
 
@@ -151,35 +161,20 @@ Scripts run on a contributor's machine. Review script changes as code. The updat
 
 ## `factory.yaml`
 
-`factory.yaml` names the factory and describes its flow.
+`factory.yaml` names the factory and lists its pipeline.
 
 ```yaml
 format: 1
 name: mark4
 description: Plan, build, and review work in slices with a person at each decision.
 
-stages:
-  - id: intake
-    title: Logged ideas
-    next: triage-ideas
-  - id: ready
-    title: Approved plans
-    next: build-slice
-  - id: review
-    title: Built branches
-    next: review-slice
-    waits-for: code owner
-  - id: merge
-    title: Ready to merge
-    waits-for: code owner
-  - id: shipped
-    title: Shipped
-    done: true
-
-decisions:
-  triage: { who: product lead, says: Pick the next item }
-  plan:   { who: tech lead,    says: Approve the plan as a documentation PR }
-  done:   { who: code owner,   says: Approve the implementation PR }
+pipeline:
+  - file-work
+  - triage-ideas:  { stop: The product lead picks the next item }
+  - plan-feature:  { stop: The tech lead approves the plan as a documentation PR }
+  - build-slice
+  - review-slice:  { stop: The code owner approves the PR }
+  - finish-slice
 ```
 
 ### Top-level fields
@@ -189,34 +184,34 @@ decisions:
 | `format` | Yes | Format version. Version 1 requires the number `1` |
 | `name` | Yes | Factory name. It uses lowercase ASCII letters, digits, and hyphens |
 | `description` | No | One-line description |
-| `stages` | No | Ordered list of stages |
-| `decisions` | No | Named actions that require a person |
+| `pipeline` | No | Ordered list of workflows |
 
 These fields are required only when `factory.yaml` exists.
 
-### Stages
+### Pipeline
 
-A stage is a place where work waits. The order in `stages` is the flow order.
+The pipeline is the order in which work moves through the workflows. When a workflow in the pipeline ends, the agent suggests the next one.
 
-| Field | Meaning |
+Each entry is either:
+
+- A workflow name, such as `- build-slice`
+- A workflow name with options, such as `- review-slice: { stop: The code owner approves the PR }`
+
+| Option | Meaning |
 | --- | --- |
-| `id` | Unique stage name. It follows the same syntax as a workflow name |
-| `title` | Display name |
-| `next` | Workflow that moves work from this stage |
-| `waits-for` | Person or role that must act before work can continue |
-| `done` | `true` when this is an end stage |
+| `stop` | A person must act before the next workflow starts. The text says who acts and what they decide |
+| `stage` | Reserved for a future stage definition |
 | `find` | Reserved for a future stage query |
 | `where` | Reserved for a future stage query condition |
 
-Version 1 uses stages only to describe the flow in `AGENTS.md`. It does not locate or track work.
+Pipeline rules:
 
-### Decisions
+1. Each entry names a workflow in `.factory/workflows/`.
+2. Each workflow appears in the pipeline at most once.
+3. Workflows that are not in the pipeline are standalone. Agents can still use them, and `AGENTS.md` still lists them.
+4. Version 1 pipelines are linear. They have no branches.
 
-A decision identifies an action that remains under human control. Each decision can state who acts and what they decide.
-
-A workflow refers to a decision through `decides`. A stage can also identify a responsible person through `waits-for`.
-
-Metafab documents these controls in `AGENTS.md`. It does not enforce them at runtime.
+Version 1 uses the pipeline only to describe the flow in `AGENTS.md`. It does not locate, track, or start work. Metafab does not enforce `stop`. Agents follow it because `AGENTS.md` and the workflow text tell them to.
 
 ## Validation
 
@@ -225,28 +220,33 @@ A version 1 factory is valid when all the following statements are true:
 1. Every `SKILL.md` contains `name` and `description`.
 2. Each skill name matches its directory name.
 3. Every skill name is unique across the complete factory.
-4. Every scorer contains `ask`.
-5. `factory.yaml`, when present, contains `format` and `name`.
-6. Stage IDs are unique.
-7. Decision names are unique.
-8. Each `from` and `to` value names an existing stage.
-9. Each `next` value names an existing workflow.
-10. Each `decides` value names an existing decision.
+4. Skill names contain only lowercase ASCII letters, digits, and hyphens.
+5. Each `uses` value names an existing skill in the factory.
+6. No skill uses itself, directly or through other skills.
+7. Each `bundle` value is `reference` or `inline`.
+8. `factory.yaml`, when present, contains `format` and `name`.
+9. Each pipeline entry names an existing workflow, and no workflow appears twice.
+10. Pipeline entries use only the `stop` option. Reserved options are errors in version 1.
 
 `metafab check` reports each error with a file path, line number, and suggested fix.
 
 ## Reserved names
 
-The format reserves these names at the top of `.factory/`:
+The format defines these names at the top of `.factory/`:
 
 - `factory.yaml`
 - `AGENTS.md`
 - `workflows/`
-- `scorers/`
 - `skills/`
-- `rules/`
 - `templates/`
 - `scripts/`
-- `runtimes/` for future harness instructions
+
+The format reserves these names for future versions:
+
+- `scorers/` for skills that score work
+- `rules/` for rules that every session follows
+- `runtimes/` for agent-tool instructions
+
+A version 1 factory can use reserved directories. Metafab installs any skills in them as ordinary skills.
 
 Names that start with `metafab` belong to the Metafab tool. Teams can use any other top-level name.
