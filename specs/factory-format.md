@@ -35,15 +35,14 @@ A factory adds two things to plain Agent Skills:
   skills/<name>/SKILL.md     reusable project knowledge
   templates/*                reusable document templates
   scripts/*                  scripts called by workflows
-  metafab.yaml               Metafab configuration (see configuration.md)
-  metafab.lock               upstream and installed output state
+  metafab.yaml               Metafab configuration and upstream (see configuration.md)
 ```
 
 All entries are optional. An empty `.factory/` directory is valid.
 
 Teams can add other top-level directories. A skill in `.factory/review/security/` belongs to the `review` group and has the name `security`. It installs and behaves like any other skill.
 
-`metafab.yaml` and `metafab.lock` are tool files. They are not part of the open factory format.
+`metafab.yaml` is a tool file. It is not part of the open factory format.
 
 ## Workflows
 
@@ -68,11 +67,11 @@ A workflow is a standard Agent Skill. Its only factory field is the optional `us
 
 The order of workflows belongs in the [pipeline](#pipeline), not in workflow files. A workflow file describes one step and does not name the steps before or after it.
 
-Workflows differ from other skills in one way: Metafab lists every workflow in the generated `AGENTS.md` block. Agents can then select a workflow from a plain request, such as "here is a bug Kat hit", without loading every workflow.
+Workflows install exactly like other skills. Agent tools load every skill's `description` up front, so an agent can select a workflow from a plain request, such as "here is a bug Kat hit". A person can also invoke a workflow by name, such as `/file-work`, in tools that support it. Only workflows can appear in the [pipeline](#pipeline).
 
 ### Workflow guidance
 
-1. The `description` must say when to use the workflow. Agents select workflows by description.
+1. The `description` must say when to use the workflow. Agents select workflows by description, and no other file lists them.
 2. The final step should say when the agent must stop for a person.
 3. A workflow should describe an operation without naming a specific agent tool. Put tool-specific instructions in a skill that the workflow `uses`.
 4. A workflow must refer to templates and scripts by repository-relative path, such as `.factory/templates/plan.md`.
@@ -208,7 +207,7 @@ Pipeline rules:
 
 1. Each entry names a workflow in `.factory/workflows/`.
 2. Each workflow appears in the pipeline at most once.
-3. Workflows that are not in the pipeline are standalone. Agents can still use them, and `AGENTS.md` still lists them.
+3. Workflows that are not in the pipeline are standalone. Agents discover and use them like any other skill.
 4. Version 1 pipelines are linear. They have no branches.
 
 Version 1 uses the pipeline only to describe the flow in `AGENTS.md`. It does not locate, track, or start work. Metafab does not enforce `stop`. Agents follow it because `AGENTS.md` and the workflow text tell them to.

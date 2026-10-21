@@ -2,7 +2,9 @@
 
 Metafab reads repository settings from `.factory/metafab.yaml`. This file is committed.
 
-`metafab.yaml` is a tool file. It is not part of the open [factory format](factory-format.md), and `publish` never includes it in a fab. Factory content belongs in `factory.yaml`. Upstream and installed output state belongs in `metafab.lock`.
+`metafab.yaml` is a tool file. It is not part of the open [factory format](factory-format.md), and `publish` never includes it in a fab. Factory content belongs in `factory.yaml`.
+
+`metafab.yaml` is the only Metafab file in the repository. Metafab has no lock file.
 
 ## Example metafab.yaml
 
@@ -23,6 +25,12 @@ publish:
   exclude:
     - skills/our-api/**
     - workflows/deploy-production/**
+
+# Written by metafab import. Do not edit.
+upstream:
+  source: "@seasb/fab-base"
+  requested: ^2.0.0
+  version: 2.1.0
 ```
 
 Every key is optional. A missing file is the same as an empty file.
@@ -35,9 +43,10 @@ Every key is optional. A missing file is the same as an empty file.
 | `agents`        | List of targets, or `all` | Written by `init`. `all` when absent                      | Agent tools that `build` installs for. See [Target selection](building.md#target-selection)               |
 | `metafab-skill` | Boolean                   | `true`                                                    | Install the built-in `metafab` skill. See [Built-in `metafab` skill](building.md#built-in-metafab-skill) |
 | `publish`       | Map                       | None                                                      | Fab settings for `metafab publish`. Required only to publish                                            |
+| `upstream`      | Map                       | None                                                      | The fab this factory was imported from. Written by `import`, `update`, and `detach`. See [Upstream entry](sharing.md#upstream-entry) |
 
 
-Version 1 targets are `claude`, `codex`, `cursor`, and `opencode`.
+Version 1 targets are `claude`, `codex`, `cursor`, `opencode`, and `copilot`. `claude` installs to `.claude/skills/`. The other targets share `.agents/skills/`. See [Installed output](building.md#installed-output).
 
 ## `publish`
 
@@ -51,12 +60,12 @@ Version 1 targets are `claude`, `codex`, `cursor`, and `opencode`.
 | `description` | String                   | No              | npm    | Package description. Defaults to `description` in `factory.yaml`                       |
 | `license`     | SPDX identifier          | No              | npm    | Package license. Omitted when absent                                                   |
 | `access`      | `public` or `restricted` | No              | npm    | npm access. Defaults to `public`, so a scoped fab is public unless restricted          |
-| `readme`      | Repository-relative path | No              | Both   | Fab README. Defaults to `.factory/README.md`, then a generated README                  |
+| `readme`      | Repository-relative path | No              | Both   | Fab README, placed at the fab root. Defaults to `.factory/README.md`, then a generated README. `.factory/README.md` is never copied into the fab's `.factory/` |
 | `keywords`    | List of strings          | No              | npm    | Extra npm keywords. `publish` always adds `metafab`                                    |
 | `exclude`     | List of globs            | No              | Both   | Paths to leave out of the fab, relative to `.factory/`                                 |
 
 
-For the npm target, `publish` writes `package.json` from these keys. It also sets `files` to `[".factory", "README.md", "CHANGELOG.md"]` and `metafab.format` to the factory format version. These two fields cannot be configured.
+For the npm target, `publish` writes `package.json` from these keys. It also sets `files` to `[".factory", "README.md"]` and `metafab.format` to the factory format version. These two fields cannot be configured.
 
 For the Git target, `publish` writes no `package.json`. The fab repository tags each release `v<version>`. See [Git target](sharing.md#git-target).
 
@@ -64,7 +73,7 @@ For the Git target, `publish` writes no `package.json`. The fab repository tags 
 
 Edit `metafab.yaml` directly, then run `metafab build`. No command overrides it.
 
-Only `init` writes `metafab.yaml`, and only when the file does not exist. `init --agents` and `import --agents` set the initial `agents` value.
+`init` creates `metafab.yaml` when the file does not exist. `init --agents` and `import --agents` set the initial `agents` value. After that, commands write only the `upstream` key, and they preserve the rest of the file, including comments. Do not edit `upstream` by hand.
 
 `publish --tag` sets the npm dist-tag. It has no file setting.
 
@@ -82,4 +91,5 @@ Only `init` writes `metafab.yaml`, and only when the file does not exist. `init 
 8. `publish.branch` is present without `publish.git`.
 9. `publish.version` is not a semantic version.
 10. `publish.readme` names a file that does not exist.
+11. `upstream` is present without `source`, an npm upstream has no `version`, or a Git upstream has no `commit`.
 

@@ -37,7 +37,7 @@ Metafab installs factory parts as follows:
 
 | Factory part | Installed form |
 | --- | --- |
-| Workflow | Agent Skill and workflow entry in `AGENTS.md` |
+| Workflow | Agent Skill |
 | Skill | Agent Skill |
 | Skill dependencies (`uses`) | Compiled into each installed skill, as a reference or inline |
 | Standing instructions | Text in the generated factory block in `AGENTS.md` |
@@ -95,7 +95,7 @@ Create a factory from a published fab:
 ```sh
 cd my-repo
 npx @seasb/metafab import @seasb/fab-mark4 --agents claude,codex
-git add .factory AGENTS.md CLAUDE.md .claude .agents
+git add .factory AGENTS.md .claude .agents
 git commit -m "Add the mark4 factory"
 ```
 
@@ -112,7 +112,7 @@ git commit -am "Update the mark4 factory to 1.3.0"
 
 ## Open questions
 
-- Which project directory should the `cursor` target use for skills?
+- How do Cursor and Copilot behave when they find the same skill in `.agents/skills/` and `.claude/skills/`? Their documentation does not say. Test both. See [Duplicate skills](building.md#duplicate-skills).
 - Do agents reliably read the files listed in a `reference` section before they start? Test this in each target. If not, more skills need `inline`.
 - Is `reference` the right default for `bundle`, or do most small skills want `inline`?
 - Do teams need more than one upstream fab, such as a base fab plus a shared skill fab?

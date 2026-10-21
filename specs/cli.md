@@ -38,6 +38,14 @@ All commands follow these rules:
 7. `import` and `update` never run package scripts.
 8. Repeated `init`, `build`, `map`, and `check` commands are safe.
 
+### Finding the factory
+
+Every command except `init` and `import` uses the nearest factory. It looks for `.factory/` in the current directory, then in each parent directory. In a monorepo, the nearest factory wins. When no `.factory/` is found, the command stops and suggests `metafab init`.
+
+`init` and `import` also use the nearest factory when one exists. Otherwise they create `.factory/` at the root of the current Git repository, or in the current directory outside a Git repository.
+
+The repository root for installed output (`AGENTS.md`, `.claude/`, `.agents/`) is the directory that contains `.factory/`.
+
 The CLI creates files but does not provide an interactive editor. A person or agent edits the generated files directly.
 
 ## Commands
@@ -56,6 +64,7 @@ The CLI creates files but does not provide an interactive editor. A person or ag
 - `.factory/factory.yaml`
 - `.factory/AGENTS.md`
 - `.factory/metafab.yaml`
+- The Metafab lines in the root `.gitattributes` (see [Line endings](building.md#line-endings))
 
 `init` writes `agents` to a new `metafab.yaml`. It uses `--agents` when present. Otherwise it asks in a terminal, or selects `all` without one.
 
@@ -108,7 +117,7 @@ Each problem includes a path, line number, and suggested fix. Errors return exit
 | Command | Behaviour |
 | --- | --- |
 | `metafab import <source> [--agents <list>] [--force]` | Copies a fab into `.factory/`, records it as the upstream, builds it, and prints a review summary. Runs `init` first when the repository has no factory |
-| `metafab update [--to <version\|range\|ref>] [--dry-run] [--no-build]` | Merges a newer upstream version into `.factory/`. The source comes from `metafab.lock` |
+| `metafab update [--to <version\|range\|ref>] [--dry-run] [--no-build]` | Merges a newer upstream version into `.factory/`, or overwrites from an unversioned source. The source comes from the `upstream` key in `metafab.yaml` |
 | `metafab diff [<path>]` | Shows local edits since the recorded upstream version |
 | `metafab detach` | Removes upstream metadata without changing factory files |
 | `metafab publish [--dry-run] [--tag <tag>]` | Packages `.factory/` as a fab and publishes it to npm, a Git fab repository, or both |
@@ -119,7 +128,7 @@ See [Sharing a factory](sharing.md) for source handling, merge rules, and public
 
 Metafab reads repository settings from `.factory/metafab.yaml`. [Configuration](configuration.md) defines every key.
 
-Upstream state belongs in `.factory/metafab.lock`, not `metafab.yaml`. Only `import`, `update`, and `detach` change the upstream entry.
+The `upstream` key in `metafab.yaml` records the fab that the factory came from. Only `import`, `update`, and `detach` change it. Metafab has no lock file.
 
 ## JSON output
 

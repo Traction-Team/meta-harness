@@ -14,7 +14,7 @@ Sharing follows these rules:
 2. A fab is copied into `.factory/`. It is not loaded from `node_modules` at runtime.
 3. `import` and `update` change only the working tree. They never stage, commit, or push.
 4. `publish` never changes the project repository. A Git publish commits and pushes only to the configured fab repository.
-5. `update` uses a three-way merge to preserve local edits.
+5. `update` uses a three-way merge to preserve local edits. Git is the review and undo mechanism.
 6. npm and Git act only as transport.
 7. Metafab unpacks packages itself and never runs package scripts.
 
@@ -27,7 +27,6 @@ A fab has this layout, in an npm package and in a fab repository:
 ```text
 package.json         npm only
 README.md
-CHANGELOG.md         optional
 .factory/
   factory.yaml
   AGENTS.md
@@ -47,7 +46,7 @@ Example `package.json`:
   "version": "1.2.0",
   "description": "Plan, build, and review work in slices with a person at each decision.",
   "keywords": ["metafab", "factory"],
-  "files": [".factory", "README.md", "CHANGELOG.md"],
+  "files": [".factory", "README.md"],
   "metafab": { "format": 1 },
   "license": "MIT"
 }
@@ -56,7 +55,7 @@ Example `package.json`:
 Fab requirements:
 
 - The fab must include `.factory/`. npm includes a dot directory when `files` names it.
-- `metafab.yaml` and `metafab.lock` must not appear in a published `.factory/`.
+- `metafab.yaml` and `README.md` must not appear in a published `.factory/`. The fab's README is at the fab root.
 - In an npm package, `metafab.format` identifies the factory format version.
 - In any other source, `format` in `.factory/factory.yaml` identifies it. A factory without `factory.yaml` is format 1.
 - The `metafab` keyword makes an npm fab discoverable with `npm search keywords:metafab`.
@@ -117,8 +116,8 @@ The command performs these steps:
 1. Run `metafab check` and stop if validation fails.
 2. Create a temporary fab directory.
 3. Copy `.factory/` into it.
-4. Exclude `metafab.yaml`, `metafab.lock`, and configured paths.
-5. Add the README and `CHANGELOG.md`.
+4. Exclude `metafab.yaml`, `.factory/README.md`, and configured paths.
+5. Add the README at the fab root, from `publish.readme`. See [Configuration](configuration.md#publish).
 6. For the npm target, build `package.json` from `publish` settings.
 7. Print the fab files, total size, and targets.
 8. Stop without publishing when `--dry-run` is present.
@@ -201,6 +200,12 @@ The part after `#` selects a Git version. Version tags are `v<version>` or `<ver
 
 `update --to` accepts a version, a range, or any Git ref for a Git source.
 
+### Versioned and unversioned sources
+
+npm packages and Git repositories are **versioned** sources. Metafab can download any earlier version again, so `update` can merge.
+
+HTTPS tarballs and local paths are **unversioned** sources. Metafab cannot download the earlier version, so `update` overwrites `.factory/` with the current source files (see [Updating from an unversioned source](#updating-from-an-unversioned-source)).
+
 ## Importing a fab
 
 ```sh
@@ -213,14 +218,14 @@ The command performs these steps:
 2. Download the source and verify its integrity when the source provides a hash.
 3. Validate the fab and its factory.
 4. Run `metafab init` when the repository has no `.factory/`. `--agents` passes to `init`.
-5. Copy the factory into `.factory/`, except `metafab.yaml` and `metafab.lock`.
-6. Write the source, version, resolved revision, integrity, and file hashes to `metafab.lock`.
+5. Copy the factory into `.factory/`, except `metafab.yaml` and `README.md`.
+6. Write the [upstream entry](#upstream-entry) to `metafab.yaml`.
 7. Run `metafab build`.
 8. Print a review summary.
 
 A failure in steps 1 to 3 leaves the repository unchanged.
 
-Metafab never copies `metafab.yaml` or `metafab.lock` from a source. A Git source that is a project repository contains both, and they belong to that project.
+Metafab never copies `metafab.yaml` from a source. A Git source that is a project repository contains one, and it belongs to that project.
 
 Fab validation rejects:
 
@@ -229,7 +234,7 @@ Fab validation rejects:
 - Links that point outside `.factory/`
 - Files larger than 1 MB
 
-A factory can have only one upstream fab. If `metafab.lock` already contains an upstream, use `update` or `detach`.
+A factory can have only one upstream fab. If `metafab.yaml` already contains an upstream entry, use `update` or `detach`.
 
 If the incoming fab would replace a different local file, `import` stops and lists all conflicts. `--force` permits those replacements.
 
@@ -239,9 +244,9 @@ If the incoming fab would replace a different local file, `import` stops and lis
 metafab update [--to <version|range|ref>] [--dry-run] [--no-build]
 ```
 
-The update uses three versions of each file:
+For a versioned source, the update uses three versions of each file:
 
-- **Base:** The upstream version recorded in `metafab.lock`
+- **Base:** The upstream version recorded in the upstream entry, downloaded again
 - **Yours:** The current file in `.factory/`
 - **Theirs:** The selected new upstream version
 
@@ -249,9 +254,9 @@ The command performs these steps:
 
 1. Resolve `--to`, or select a newer version as the requested range or [Git ref](#git-refs) allows.
 2. Stop without changes when no newer version exists.
-3. Download and verify the base and new upstream versions.
-4. Merge each path into `.factory/`, except `metafab.yaml` and `metafab.lock`.
-5. Update the upstream version and file hashes in `metafab.lock`.
+3. Download the base and new upstream versions.
+4. Merge each path into `.factory/`, except `metafab.yaml`.
+5. Update the version in the upstream entry.
 6. Run `metafab build` unless `--no-build` is present.
 7. Print a review summary.
 
@@ -282,12 +287,25 @@ Metafab applies these rules to every path present in base, yours, or theirs:
 
 Metafab does not merge binary files line by line. For a binary conflict, it keeps yours and writes theirs to `<file>.upstream`.
 
+Metafab compares text files with CRLF line endings treated as LF. A change of line endings alone is not a change.
+
 If the base version is unavailable, Metafab treats every difference between yours and theirs as a conflict. For example, a Git base is unavailable when its commit was removed by a force push.
 
 After a conflicted update, `metafab check` fails while either condition remains:
 
 - A file contains conflict markers.
 - A `.upstream` file exists.
+
+### Updating from an unversioned source
+
+For an HTTPS tarball or a local path, `update` does not merge:
+
+1. Download or read the current source.
+2. Copy every source file into `.factory/`, replacing the local file. Files that exist only locally are kept.
+3. Run `metafab build` unless `--no-build` is present.
+4. Print a review summary.
+
+Local edits to replaced files are lost from the working tree. Use `git diff` to review the result, and restore the edits you want to keep from Git. `--to` is not accepted for an unversioned source.
 
 ### Review summary
 
@@ -319,9 +337,6 @@ Local edits preserved
 Conflicts: 1
   C workflows/plan-feature/SKILL.md        Resolve markers, then run metafab check
 
-CHANGELOG.md
-  1.3.0  Adds finish-slice. Review-slice now checks test results.
-
 Nothing was committed. Review the changes with git diff.
 ```
 
@@ -333,7 +348,6 @@ The summary uses this order:
 4. Skills
 5. Preserved local edits
 6. Conflicts
-7. New changelog entries
 
 The summary also calls out:
 
@@ -349,7 +363,7 @@ The summary also calls out:
 metafab diff [<path>]
 ```
 
-This command compares `.factory/` with the base version recorded in `metafab.lock`.
+This command downloads the version recorded in the upstream entry and compares `.factory/` with it. For an unversioned source, it compares with the current source.
 
 Use the optional path to limit the comparison. Teams can use this diff when proposing a local change to the upstream fab.
 
@@ -359,82 +373,50 @@ Use the optional path to limit the comparison. Teams can use this diff when prop
 metafab detach
 ```
 
-This command removes the upstream entry from `metafab.lock`. It does not change factory files.
+This command removes the upstream entry from `metafab.yaml`. It does not change factory files.
 
 After detachment, the factory has no upstream and `metafab update` has nothing to update.
 
-## Lock file
+## Upstream entry
 
-`.factory/metafab.lock` records upstream and installed output state. Commit this file and do not edit it manually.
+`import` records where the factory came from in the `upstream` key of `.factory/metafab.yaml`. Commit it with the factory. Do not edit it manually.
 
-`import`, `update`, and `build` write it. `detach` removes its upstream entry.
+Only `import`, `update`, and `detach` change this key. They preserve the rest of `metafab.yaml`, including comments.
 
-Example with an npm upstream:
+With an npm source:
 
-```json
-{
-  "lockVersion": 1,
-  "upstream": {
-    "source": "@seasb/fab-mark4",
-    "requested": "^1.2.0",
-    "version": "1.2.0",
-    "resolved": "https://registry.npmjs.org/@seasb/fab-mark4/-/fab-mark4-1.2.0.tgz",
-    "integrity": "sha512-YV31L5Ortk8lPC4RrKq7e...",
-    "files": {
-      "factory.yaml": "sha256-9f3c2e1...",
-      "workflows/review-slice/SKILL.md": "sha256-41ab0c7...",
-      "scripts/next.mjs": "sha256-c0de11a..."
-    }
-  },
-  "output": {
-    ".claude/skills/review-slice": {
-      "from": ".factory/workflows/review-slice",
-      "hash": "sha256-5d2a9e0..."
-    },
-    ".agents/skills/review-slice": {
-      "from": ".factory/workflows/review-slice",
-      "hash": "sha256-5d2a9e0..."
-    },
-    ".claude/skills/metafab": {
-      "from": "@seasb/metafab@1.0.0",
-      "hash": "sha256-77e0..."
-    }
-  }
-}
+```yaml
+upstream:
+  source: "@seasb/fab-mark4"
+  requested: ^1.2.0
+  version: 1.2.0
 ```
 
-The same `upstream` entry with a Git source:
+With a Git source:
 
-```json
-{
-  "source": "github:seasb/fab-mark4",
-  "requested": "^1.2.0",
-  "version": "1.2.0",
-  "resolved": "3f9c2e1a7b4d0c8e5f6a2b1c9d8e7f6a5b4c3d2e",
-  "files": { "factory.yaml": "sha256-9f3c2e1..." }
-}
+```yaml
+upstream:
+  source: github:seasb/fab-mark4
+  requested: ^1.2.0
+  version: 1.2.0
+  commit: 3f9c2e1a7b4d0c8e5f6a2b1c9d8e7f6a5b4c3d2e
 ```
 
-Upstream fields:
+With an unversioned source:
 
-| Field | npm source | Git source |
-| --- | --- | --- |
-| `source` | Package name | Source without its ref |
-| `requested` | Requested version or range | Requested range, tag, branch, or commit |
-| `version` | Exact version | Version from the tag, or the commit SHA when no version tag applies |
-| `resolved` | Tarball URL | Full commit SHA |
-| `integrity` | Registry hash | Absent. The commit SHA identifies the content |
+```yaml
+upstream:
+  source: ../platform/.factory
+```
 
-Lock file rules:
+| Field | npm source | Git source | Unversioned source |
+| --- | --- | --- | --- |
+| `source` | Package name | Source without its ref | Path or URL |
+| `requested` | Requested version or range | Requested range, tag, branch, or commit | Absent |
+| `version` | Exact version | Version from the tag. Absent when no version tag applies | Absent |
+| `commit` | Absent | Full commit SHA | Absent |
 
-- `upstream` is absent when the factory has no upstream fab.
-- `upstream.files` records the upstream hash for each copied file.
-- These hashes define the base for `update`, `diff`, and local edit detection.
-- `update` fetches the base from `resolved`.
-- `output` records every path created by `build`, with the hash of its compiled contents.
-- Metafab changes or removes only paths recorded in `output`.
-- Upstream file paths are relative to `.factory/`.
-- Linked paths are relative to the repository root.
+The recorded version is the base for `update` and `diff`. Metafab downloads it again when it needs it, and keeps downloads in `~/.metafab/cache/`. npm versions cannot change, and a Git commit SHA identifies its content, so no file hashes are recorded.
 
 ## Open questions
 
