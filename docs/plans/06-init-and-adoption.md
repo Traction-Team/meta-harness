@@ -1,0 +1,82 @@
+# Plan 06: `metafab init` and existing-skill adoption
+
+Create a factory in a repository, and move skills that already live in `.claude/skills/` or `.agents/skills/` into `.factory/skills/`.
+
+Depends on: [Plan 04](04-build.md).
+
+## Specs
+
+- [CLI: Set up a factory](../specs/cli.md#set-up-a-factory)
+- [CLI: Adopt existing skills](../specs/cli.md#adopt-existing-skills)
+- [Building: Line endings](../specs/building.md#line-endings)
+
+## Design
+
+### `init` sequence
+
+1. Resolve the root with `resolveNewFactoryRoot`.
+2. Select targets: `--agents` (comma list or `all`, validated), else the existing `metafab.yaml`, else a terminal multi-select, else `all` when stdin is not a terminal.
+3. **Preflight adoption** for the selected destinations (below). Collect consent before any write.
+4. Create missing entries: `.factory/factory.yaml` (`format: 1`, derived `name`), empty `.factory/AGENTS.md`, `.factory/metafab.yaml` with `agents`.
+5. Add missing `.gitattributes` lines.
+6. Apply adoption moves.
+7. Run `build` (which writes the `.gitignore` block).
+8. Report created files, moved skills, and build changes.
+
+Re-running `init` on a complete factory changes nothing and reports `Already initialised`.
+
+### Name derivation
+
+```ts
+deriveFactoryName(dirName) =
+  dirName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "factory"
+```
+
+### Adoption module (`core/adopt.ts`)
+
+Shared with `import` ([Plan 09](09-import.md)).
+
+```ts
+planAdoption(root, destinations, factory, incoming?): AdoptionPlan
+interface AdoptionPlan {
+  moves: { name: string; from: string[]; to: string }[];   // from: one or both destinations
+  blockers: Problem[];                                       // rules 2-4
+}
+applyAdoption(plan): Promise<void>
+```
+
+Scan each selected destination for entries that are not owned:
+
+- A valid skill directory (has `SKILL.md` with frontmatter) becomes a move.
+- The same name in both destinations with identical trees becomes one move; the duplicate is deleted.
+- The same name with different content is a blocker.
+- A name that already exists in `.factory/` (or in the incoming fab) is a blocker.
+- A stray file or a directory without `SKILL.md` is a blocker.
+
+Any blocker stops `init` before writing. When there are moves and no blockers:
+
+- Terminal: ask the consent question from the spec. Declining exits 0 with no changes.
+- No terminal: exit 2 with `required: [{ name: "adopt", description: "...", moves: [...] }]`.
+
+## Steps
+
+- [ ] Target selection helper (shared with `import`)
+- [ ] `deriveFactoryName`
+- [ ] `.gitattributes` line adder (exact lines from the spec; idempotent)
+- [ ] `core/adopt.ts` planner and applier
+- [ ] `init` command
+
+## Tests
+
+- `init` in an empty Git repository creates the three files, `.gitattributes` lines, the `.gitignore` block, and installed built-in skills
+- `init` in a subdirectory of a Git repository creates `.factory/` at the repository root
+- `init` twice: the second run changes nothing
+- `My Repo!!` becomes `my-repo`; `!!!` becomes `factory`
+- Non-TTY without `--agents` selects `all`
+- Adoption: identical skill in both destinations moves once; a different one blocks; a stray file blocks; non-TTY with moves exits 2 and changes nothing; declining changes nothing
+- Owned (generated) directories are not adoption candidates
+
+## Open questions
+
+1. There is no flag to accept adoption without a terminal, so an agent or CI job cannot `init` a repository that already has skills. Proposal: add `--adopt` to `init` and `import`, and list it as the `flag` in the exit-2 payload.
+2. Which exit code do adoption blockers use? Proposal: 5, because the blocked entries are unowned output that Metafab would otherwise hide behind the ignore rule.

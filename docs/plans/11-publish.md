@@ -1,0 +1,75 @@
+# Plan 11: `metafab publish`
+
+Package `.factory/` as a fab and publish it to npm, a Git fab repository, or both.
+
+Depends on: [Plan 05](05-check.md), [Plan 08](08-sources.md) (shared Git helpers).
+
+## Specs
+
+- [Sharing: Publishing](../specs/sharing.md#publishing)
+- [Sharing: Fab layout](../specs/sharing.md#fab-layout)
+- [Sharing: Version policy](../specs/sharing.md#version-policy)
+- [Configuration: `publish`](../specs/configuration.md#publish)
+
+## Design
+
+### `publish [--dry-run] [--tag <tag>]`
+
+1. Require a valid `publish` section (exit 1 with the config problems otherwise).
+2. Run `check`. Stop on errors.
+3. Stage the fab in a temporary directory:
+   - Copy `.factory/`, keeping modes.
+   - Exclude `metafab.yaml`, `.factory/README.md`, and every `publish.exclude` glob (`picomatch`, relative to `.factory/`, `dot: true`).
+   - Fail when an excluded workflow is still in the pipeline.
+   - Validate the staged `.factory/` with `loadFactory` (an exclude can break a reference).
+4. README at the fab root: `publish.readme`, else `.factory/README.md`, else generated (factory name, description, pipeline with stops, workflow and skill lists, and the `npx @seasb/metafab import <source>` command).
+5. npm target: write `package.json` with `name`, `version`, `description` (falls back to `factory.yaml`), `keywords` (always includes `metafab`, deduplicated), `files: [".factory", "README.md"]`, `metafab: { format: 1 }`, `license` when set.
+6. Print the file list, total size, and targets.
+7. Stop here with `--dry-run`.
+8. Check the version is new on every target before publishing to any:
+   - npm: `npm view <name>@<version> version --json`; a 404 means new.
+   - Git: `git ls-remote --tags <url> refs/tags/v<version>`.
+9. Publish to each target.
+
+### npm target
+
+`npm publish <stagingDir> --access <access> [--tag <tag>] [--provenance]`. Add `--provenance` when running in GitHub Actions with `ACTIONS_ID_TOKEN_REQUEST_URL` set, or in GitLab CI with `SIGSTORE_ID_TOKEN` set. Stream npm's output to stderr.
+
+### Git target
+
+1. Clone `publish.git` into a temporary directory. Use `publish.branch`, else the remote default branch, else `main` for an empty repository.
+2. Stop when tag `v<version>` exists.
+3. Protection: the branch head must carry an annotated tag created by an earlier `publish`. Tag messages are `metafab publish <version>`, which identifies them. An empty repository passes. Otherwise exit 5.
+4. Remove every tracked file (`git rm -r -q .`), copy the staged fab in, `git add -A`.
+5. Commit `Publish <version>` and create the annotated tag.
+6. `git push --atomic origin <branch> v<version>`.
+
+### Result
+
+JSON: `{ ok, command: "publish", version, files: [...], size, targets: [{ target: "npm" | "git", status: "published" | "skipped" | "failed", detail }] }`.
+
+## Steps
+
+- [ ] Staging with exclusions, the pipeline check, and re-validation
+- [ ] README resolution and the generated README
+- [ ] `package.json` writer
+- [ ] Dry-run report
+- [ ] Version preflight for both targets
+- [ ] npm target, with provenance detection
+- [ ] Git target, with head protection
+- [ ] End-to-end: publish to Verdaccio and a local bare repository, then `import` both and compare
+
+## Tests
+
+- Staged fab never contains `metafab.yaml` or `.factory/README.md`
+- An excluded workflow that is still in the pipeline fails
+- `--dry-run` publishes nothing and touches no target
+- Publishing an existing version fails on either target before anything is published
+- A hand commit on the fab repository branch makes the next publish exit 5
+- The project repository's `git status` is unchanged after publish
+- The published Git fab imports with the expected `version` and `commit`
+
+## Open questions
+
+1. Partial failure: npm succeeds and the Git push fails (or the reverse). A re-run then stops, because the version exists on one target. (Carried from the [spec](../specs/README.md#open-questions).) Proposal: publish Git first (its push is atomic and its preflight is strongest), then npm; on a re-run, skip a target that already has this exact version with identical content and publish the rest.
+2. Should `publish` also accept `--provenance` / `--no-provenance` to override detection?
