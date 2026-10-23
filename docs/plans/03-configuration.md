@@ -1,6 +1,6 @@
 ---
 title: "feat: read, validate and write metafab.yaml"
-status: ready
+status: building
 kind: feature
 pr:
 needs:
@@ -10,6 +10,8 @@ owns:
   - src/core/config/**
   - test/core/config/**
   - test/fixtures/config/**
+  - package.json
+  - package-lock.json
 proves: "npx vitest run test/core/config → the spec example is valid, each invalid fixture fails, and setUpstream/removeUpstream round-trip comments"
 ---
 
