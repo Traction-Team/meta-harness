@@ -1,6 +1,6 @@
 ---
 title: "chore: scaffold the metafab cli package and command runner"
-status: ready
+status: building
 kind: chore
 pr:
 needs: []
