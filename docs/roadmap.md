@@ -25,7 +25,7 @@ A team can create, edit, build, and check a factory in one repository.
 
 - [x] [01 Project foundation](plans/01-foundation.md): package, command runner, JSON output, exit codes, factory discovery
 - [ ] [02 Factory model and validation](plans/02-factory-model.md): load `.factory/`, YAML and frontmatter grammar, validation rules
-- [ ] [03 Configuration](plans/03-configuration.md): `metafab.yaml` loading, validation, comment-preserving writes
+- [x] [03 Configuration](plans/03-configuration.md): `metafab.yaml` loading, validation, comment-preserving writes
 - [ ] [04 Build](plans/04-build.md): compiled skills, ownership, `AGENTS.md` / `CLAUDE.md` / `.gitignore` blocks, built-in skill
 - [ ] [05 Check](plans/05-check.md): source, config, and installed-output validation
 - [ ] [06 Init and adoption](plans/06-init-and-adoption.md): `init`, `.gitattributes`, moving existing skills into `.factory/`
@@ -82,4 +82,4 @@ Record answered questions here with the date and the commit that applied them.
 
 | Date | Decision | Applied in |
 | --- | --- | --- |
-| | | |
+| 2026-10-23 | A duplicate target in `agents` is a warning, not an error | #2 |

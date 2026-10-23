@@ -1,6 +1,6 @@
 ---
 title: "feat: read, validate and write metafab.yaml"
-status: building
+status: merged
 kind: feature
 pr: 2
 needs:
@@ -102,4 +102,4 @@ Writes edit the parsed `YAML.Document` and preserve comments, key order, and the
 
 ## Open questions
 
-1. Should a duplicate target (`agents: [codex, codex]`) be an error or a warning? Proposal: warning.
+None. Duplicate targets (`agents: [codex, codex]`) are a warning, decided 2026-10-23 in #2 and recorded in the roadmap.
