@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -9,7 +10,7 @@ const execFileAsync = promisify(execFile);
 
 const repoRoot = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const cliPath = path.join(repoRoot, "dist", "cli.js");
-const tscPath = path.join(repoRoot, "node_modules", "typescript", "bin", "tsc");
+const npmPath = process.platform === "win32" ? "npm.cmd" : "npm";
 
 const V1_COMMANDS = [
   "init",
@@ -27,9 +28,9 @@ const V1_COMMANDS = [
   "publish",
 ];
 
-async function runCli(...args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
+async function runEntry(entry: string, ...args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
   try {
-    const result = await execFileAsync(process.execPath, [cliPath, ...args], { cwd: repoRoot });
+    const result = await execFileAsync(process.execPath, [entry, ...args], { cwd: repoRoot });
     return { stdout: result.stdout, stderr: result.stderr, code: 0 };
   } catch (error) {
     const failure = error as { stdout?: string; stderr?: string; code?: number };
@@ -41,9 +42,13 @@ async function runCli(...args: string[]): Promise<{ stdout: string; stderr: stri
   }
 }
 
+function runCli(...args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
+  return runEntry(cliPath, ...args);
+}
+
 describe("spawned cli", () => {
   beforeAll(async () => {
-    await execFileAsync(process.execPath, [tscPath], { cwd: repoRoot, timeout: 120_000 });
+    await execFileAsync(npmPath, ["run", "build", "--silent"], { cwd: repoRoot, timeout: 120_000 });
   }, 120_000);
 
   test("package.json bin.metafab points at the built entry", async () => {
@@ -54,6 +59,14 @@ describe("spawned cli", () => {
     expect(typeof bin).toBe("string");
     expect(path.isAbsolute(bin ?? "")).toBe(false);
     expect((await stat(path.join(repoRoot, ...(bin ?? "").split("/")))).isFile()).toBe(true);
+  });
+
+  test("the built entry starts with a node shebang and is executable", async () => {
+    const content = await readFile(cliPath, "utf8");
+    expect(content.startsWith("#!/usr/bin/env node\n")).toBe(true);
+    if (process.platform !== "win32") {
+      expect((await stat(cliPath)).mode & 0o111).not.toBe(0);
+    }
   });
 
   test("--help lists every v1 command", async () => {
@@ -69,5 +82,22 @@ describe("spawned cli", () => {
     const result = await runCli("--version");
     expect(result.code).toBe(0);
     expect(result.stdout.trim()).toBe(pkg.version);
+  });
+
+  test.skipIf(process.platform === "win32")("runs through a symlinked entry", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "metafab-link-"));
+
+    try {
+      const link = path.join(dir, "metafab");
+      await symlink(cliPath, link);
+      const pkg = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8")) as {
+        version: string;
+      };
+      const result = await runEntry(link, "--version");
+      expect(result.code).toBe(0);
+      expect(result.stdout.trim()).toBe(pkg.version);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
