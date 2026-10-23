@@ -1,14 +1,16 @@
 ---
 title: "chore: scaffold the metafab cli package and command runner"
-status: ready
+status: building
 kind: chore
-pr:
+pr: 1
 needs: []
 owns:
   - package.json
   - package-lock.json
   - tsconfig.json
   - vitest.config.ts
+  - .gitignore # widened from the plan: the package needs to ignore dist/ and node_modules/
+  - vercel.json # widened from the plan: the root package.json changes Vercel's project detection; this pins the static, buildless deployment main already had
   - .github/workflows/**
   - src/cli.ts
   - src/output.ts
@@ -127,16 +129,16 @@ A missing factory throws a `MetafabError` with exit 1 and fix `Run metafab init`
 
 ## Steps
 
-- [ ] Create `package.json`, `tsconfig.json`, `vitest.config.ts`, and a `files` list of `dist`, `resources`, `README.md`
-- [ ] Add npm scripts `typecheck`, `test`, `build`, and `verify` (all three in order). The factory workflows run `npm run verify` as the gate for every pull request
-- [ ] Add `src/cli.ts` with `--help`, `--version`, `--json`, and an unknown-command error with a suggestion
-- [ ] Add `errors.ts`, `output.ts`, `input.ts` as designed above
-- [ ] Add `findFactory` and `resolveNewFactoryRoot`
-- [ ] Add the shared utilities
-- [ ] Add stub modules for every v1 command that return "not implemented" (exit 1), so the help text is complete from the start
-- [ ] Add test helpers: `makeRepo(files)` creates a temporary directory (optionally `git init`), and `runCli(argv, { cwd, tty })` runs the CLI in-process and captures stdout, stderr, and the exit code
-- [ ] Add one spawned end-to-end test that runs `dist/cli.js` to cover the `bin` entry
-- [ ] Add CI: Node 20 and 22 on Linux, macOS, and Windows running `npm run verify`, plus `node .factory/scripts/check.mjs` once
+- [x] Create `package.json`, `tsconfig.json`, `vitest.config.ts`, and a `files` list of `dist`, `resources`, `README.md`
+- [x] Add npm scripts `typecheck`, `test`, `build`, and `verify` (all three in order). The factory workflows run `npm run verify` as the gate for every pull request
+- [x] Add `src/cli.ts` with `--help`, `--version`, `--json`, and an unknown-command error with a suggestion
+- [x] Add `errors.ts`, `output.ts`, `input.ts` as designed above
+- [x] Add `findFactory` and `resolveNewFactoryRoot`
+- [x] Add the shared utilities
+- [x] Add stub modules for every v1 command that return "not implemented" (exit 1), so the help text is complete from the start
+- [x] Add test helpers: `makeRepo(files)` creates a temporary directory (optionally `git init`), and `runCli(argv, { cwd, tty })` runs the CLI in-process and captures stdout, stderr, and the exit code
+- [x] Add one spawned end-to-end test that runs `dist/cli.js` to cover the `bin` entry
+- [x] Add CI: Node 20 and 22 on Linux, macOS, and Windows running `npm run verify`, plus `node .factory/scripts/check.mjs` once
 
 ## Tests
 
