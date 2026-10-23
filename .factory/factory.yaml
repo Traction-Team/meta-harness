@@ -6,6 +6,6 @@ pipeline:
   - file-work
   - prioritise-roadmap: { stop: the person running it agrees what is next on docs/roadmap.md }
   - plan-feature: { stop: a person approves the plans }
-  - start-plan: { stop: a person confirms each pick }
+  - start-plan: { stop: a person confirms each wave }
   - build-plan
   - finish-plan: { stop: the developer says done and a person merges the pull request }

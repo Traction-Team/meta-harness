@@ -27,6 +27,7 @@ node .factory/scripts/next.mjs    # plans that can be built next
 - **One plan, one pull request.** Change only the paths in the plan's `owns`; widen `owns` in the plan when you must, and say why.
 - Conventional Commits with no scope: `feat`, `fix`, `refactor`, `docs`, `chore`, `test`, `ci`, `build`. Branches are `<type>/<slug>`.
 - Code reaches `main` only through a pull request. Docs-only changes (`docs/`, and `.factory/` except `.factory/scripts/`) may be committed straight to `main`; see "Publishing docs changes".
+- Sub-agents run as `subagent_type: "agent-coding"`, defined in `opencode.json`, even when the Agent tool does not list it.
 - Run child processes with `execFile` and an argument list, never through a shell.
 - Tests use temporary directories and local fixtures (a local registry, local bare Git repositories). No test reaches the network.
 
@@ -39,8 +40,8 @@ Delivery work runs through these workflows. Each is installed as a skill. When a
 | `file-work` | A bug, idea, follow-up, spec gap or any "we should...". Also every *Found while building* note before its pull request merges |
 | `prioritise-roadmap` | "What's next", re-ordering the roadmap, reviewing intake or open questions |
 | `plan-feature` | "Plan <thing>", a roadmap line with no plan, or a bug too big for a bug plan |
-| `start-plan` | On `main`: "start the next plan", "pull the next chunk", "what's ready" |
-| `build-plan` | On a feature branch: "build docs/plans/<plan>.md". Stops at a draft pull request |
+| `start-plan` | On `main`: "start the next plan", "pull the next chunk", "keep going", "what's ready". The orchestrator: one Orca worktree and OpenCode worker per plan |
+| `build-plan` | On a feature branch, usually as a worker in an Orca worktree: "build docs/plans/<plan>.md". Stops at a draft pull request |
 | `review-branch` | After any implementation, always in a new sub-agent. "Cold review this branch" |
 | `finish-plan` | On a plan's branch: testing feedback, "looks good", review comments, "land it" |
 

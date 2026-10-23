@@ -1,11 +1,15 @@
 ---
 name: build-plan
-description: Builds one plan on the current feature branch. It claims the plan with a draft pull request, or adds it to the branch's open pull request, delegates implementation tasks to sub-agents, runs npm run verify, always runs the review-branch workflow in a fresh sub-agent, triages its findings and sends accepted ones to a fix sub-agent, re-reviews the fix commits, and records proof. It stops with a draft pull request for the developer. On main it does not build; it sends the person to start-plan. Use it for "build docs/plans/<plan>.md". It never marks a pull request ready and never merges.
+description: Builds one plan on the current feature branch, usually as the OpenCode worker start-plan started in an Orca worktree. It renames the Orca branch, claims the plan with a draft pull request, or adds it to the branch's open pull request, delegates implementation tasks to agent-coding sub-agents, runs npm run verify, always runs the review-branch workflow in a fresh sub-agent, triages its findings and sends accepted ones to a fix sub-agent, re-reviews the fix commits, and records proof. It stops with a draft pull request for the developer. On main it does not build; it sends the person to start-plan. Use it for "build docs/plans/<plan>.md". It never marks a pull request ready and never merges.
 ---
 
 # build-plan
 
 Manage one plan. Delegate implementation and review to sub-agents. Pass concise reports between sub-agents, not complete transcripts. You own the task order, checks, and pull request.
+
+You are usually a **worker**: `start-plan` started you in your own Orca worktree with a short brief. Stay thin. Do not read the source, the specs in depth, or the diff in full yourself; the sub-agents hold that context and it ends with them. Read the diff from git only when a later step needs it.
+
+**Sub-agents run as `agent-coding`.** Dispatch every task, fix and review sub-agent with `subagent_type: "agent-coding"`. The repo's `opencode.json` defines it, on a cheaper coding model than yours. It exists even when the Agent tool does not list it: the OpenCode bridge plugin replaces the tool description with Claude Code's fixed list (`general-purpose`, `Explore`, `Plan`...). Pass `agent-coding` anyway. Never fall back to `general-purpose`, which runs on your own model, unless an `agent-coding` call fails; then say so in the final report.
 
 The current feature branch is where the plan is built. A plan usually gets its own pull request, but when the branch already has one, the plan joins it. Never build on `main`.
 
@@ -23,6 +27,15 @@ git branch --show-current && git status --short
 gh pr view --json number,state,body,baseRefName,headRefName   # the pull request for this branch, if any
 node .factory/scripts/next.mjs --json                         # inFlight shows every open pull request that claims a plan
 ```
+
+**The Orca branch.** Orca names a new worktree's branch `<git user>/<flattened name>`, for example `sebastiankade/chore-foundation`. If the branch has that shape, has no commit beyond its base, and has no pull request, rename it now, before the claim, and treat it as case 3:
+
+```bash
+git branch -m <type>/<plan-slug-without-number>   # the type comes from the plan's title
+git branch --show-current                         # must print the new name
+```
+
+**The setup.** `start-plan` created the worktree with `--setup run`. If the first command fails on missing dependencies (`ERR_MODULE_NOT_FOUND`, no `node_modules`), read the repo's hook with `orca repo list --json` (`hookSettings.scripts.setup`) and run it. Run `npm install` by hand only when the hook is empty or failed, and say which in the final report. `start-plan` proved `main` green before it started you, so do not run `npm run verify` as a baseline.
 
 Then take the first case that matches:
 
@@ -66,7 +79,7 @@ Add the task list to the pull request's build log before implementation starts. 
 
 ## 3. Use one sub-agent for each task
 
-Run tasks in order. Give each sub-agent:
+Run tasks in order, one `agent-coding` sub-agent each (`run_in_background: false`). The sub-agent reads the plan sections, specs and source itself, writes the code and tests, and commits. Do not re-read the files it read or restate its work. Give each sub-agent:
 
 - The plan's title, `owns`, and `proves`.
 - The plan's opening paragraph, the plan sections the task touches, and the spec sections they link.
@@ -74,6 +87,7 @@ Run tasks in order. Give each sub-agent:
 - The requirement to change only paths in `owns` and follow `AGENTS.md`.
 - The requirement to run `npm run verify`.
 - The requirement to create a short commit and not push it.
+- That it is already a sub-agent: it does the work itself and dispatches no sub-agent of its own. Its role ends at the commit and the report; it does not push, edit the pull request, or review.
 
 Require a report of fewer than 20 lines: what it built, which files changed, what it could not complete, and any out-of-scope work it found. Add one build-log row per report, and tick the plan's **Steps** checkboxes it completed.
 
@@ -85,7 +99,7 @@ After the final task, run `npm run verify` once. If it fails, give the output to
 
 Start this step as soon as step 4 ends, including when step 4 stopped on a failure.
 
-Start one **new** sub-agent (in Claude Code, the Agent tool with `general-purpose`; elsewhere, the harness's sub-agent). Do not review the branch yourself, and do not reuse a task or fix sub-agent. Give it only this prompt:
+Start one **new** `agent-coding` sub-agent (`subagent_type: "agent-coding"`, `run_in_background: false`). Do not review the branch yourself, and do not reuse a task or fix sub-agent. Give it only this prompt:
 
 ```text
 Load the review-branch workflow and follow it. Return its report as your final message.
@@ -120,4 +134,8 @@ Run the plan's `proves` command yourself. Paste the actual output into the pull 
 
 Check first: if **Review** has no verdict from a `review-branch` sub-agent for this plan, go back to step 5.
 
-Push the branch. Complete the body sections: changes, proof, review, **For the developer**, build log, found while building. In **For the developer**, include uncertainties and a short *try this* list of commands. Leave the pull request as a draft. Report the pull request link, the plans it carries, and the verdict in no more than three lines.
+Push the branch. Complete the body sections: changes, proof, review, **For the developer**, build log, found while building. In **For the developer**, include uncertainties and a short *try this* list of commands. Leave the pull request as a draft.
+
+Leave a worktree the orchestrator can remove after the merge: `git status --porcelain` must print nothing. Ignored files do not block removal, so clean nothing more.
+
+Report in no more than five lines: the pull request link, the plans it carries, the verdict, the worktree path and branch, and anything the setup or sub-agents needed that this workflow did not expect (a hand-run `npm install`, a `general-purpose` fallback). The developer continues with `finish-plan` in this worktree.

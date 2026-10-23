@@ -1,11 +1,13 @@
 ---
 name: finish-plan
-description: Completes the developer-led stages of a plan after build-plan creates a draft pull request. It briefs the developer, applies feedback through sub-agents, runs final checks, and marks the pull request ready when the developer approves it. It also handles review comments and, in the final pre-merge commit, marks the plan merged, ticks its line in docs/roadmap.md, records answered open questions, and writes the changelog entry. Use it for testing feedback, "looks good" or "done", pull request review comments, or "land it".
+description: Completes the developer-led stages of a plan after build-plan creates a draft pull request. It briefs the developer, applies feedback through agent-coding sub-agents in the plan's worktree, runs final checks, and marks the pull request ready when the developer approves it. It also handles review comments and, in the final pre-merge commit, marks the plan merged, ticks its line in docs/roadmap.md, records answered open questions, and writes the changelog entry. Use it for testing feedback, "looks good" or "done", pull request review comments, or "land it".
 ---
 
 # finish-plan
 
 The developer decides when the plan's pull request is complete. Manage the process around that decision. Give each fix to a sub-agent with a precise brief. Do not make fixes directly in this session.
+
+Run in the plan's worktree, where `build-plan` left it. Dispatch every fix and review sub-agent with `subagent_type: "agent-coding"`, as `build-plan` describes: it exists even when the Agent tool does not list it, and `general-purpose` is only the fallback when an `agent-coding` call fails.
 
 **Never** merge the pull request. **Never** resolve a review thread. Mark the pull request ready only after the developer says the work is complete.
 
@@ -53,4 +55,4 @@ Use this section after approval and before merge. Put all bookkeeping in the fin
 - Write one changelog entry for the pull request from `.factory/templates/changelog.md`: `docs/changelog/YYYY-MM-DD-<pr-slug>.md`. Say what a user of `metafab` can do now that they could not before.
 - Use `file-work` to record each *Found while building* note. Include those files in this commit.
 
-Run `node .factory/scripts/check.mjs`. Commit as `docs: land <plan-slug>` and push. Tell the developer the pull request is ready to merge, and name the next ready plan from `node .factory/scripts/next.mjs`.
+Run `node .factory/scripts/check.mjs`. Commit as `docs: land <plan-slug>` and push. Check `git status --porcelain` prints nothing, so the worktree can be removed. Tell the developer the pull request is ready to merge, and name the next ready plan from `node .factory/scripts/next.mjs`. Do not remove the worktree: after the merge, `start-plan` removes it on `main`.
