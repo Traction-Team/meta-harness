@@ -1,0 +1,9 @@
+[
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 1,
+    "message": "factory.yaml is missing \"name\"",
+    "fix": "Add a name field"
+  }
+]

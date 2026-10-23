@@ -1,0 +1,9 @@
+[
+  {
+    "level": "error",
+    "file": ".factory/workflows/build-slice/nested/SKILL.md",
+    "line": 1,
+    "message": "Nested skill directory: \".factory/workflows/build-slice/nested\"",
+    "fix": "Move .factory/workflows/build-slice/nested out of .factory/workflows/build-slice"
+  }
+]

@@ -1,0 +1,9 @@
+[
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 5,
+    "message": "Pipeline option \"stage\" is reserved for a future version",
+    "fix": "Remove the \"stage\" option"
+  }
+]

@@ -1,0 +1,9 @@
+[
+  {
+    "level": "error",
+    "file": ".factory/skills/dup/SKILL.md",
+    "line": 2,
+    "message": "Duplicate skill name \"dup\"",
+    "fix": "Rename one of: .factory/review/dup/SKILL.md, .factory/skills/dup/SKILL.md"
+  }
+]

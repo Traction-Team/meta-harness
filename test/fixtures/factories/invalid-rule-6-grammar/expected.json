@@ -1,0 +1,9 @@
+[
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 3,
+    "message": "Unknown field \"formatt\" in factory.yaml",
+    "fix": "Did you mean \"format\"?"
+  }
+]

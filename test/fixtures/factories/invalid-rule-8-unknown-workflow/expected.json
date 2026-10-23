@@ -1,0 +1,9 @@
+[
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 6,
+    "message": "Pipeline names unknown workflow \"build-slic\"",
+    "fix": "Did you mean \"build-slice\"?"
+  }
+]

@@ -1,0 +1,158 @@
+import { describe, expect, test } from "vitest";
+import { parseFactoryYaml, rule5NameFormat, rule10ReservedPrefix, validateFactory } from "../../../src/core/factory/index.js";
+import type { Factory, Skill } from "../../../src/core/factory/index.js";
+
+const FILE = ".factory/factory.yaml";
+
+function parse(text: string) {
+  return parseFactoryYaml(text, FILE);
+}
+
+function skill(name: string): Skill {
+  return {
+    name,
+    relDir: `skills/${name}`,
+    group: "skills",
+    isWorkflow: false,
+    frontmatter: { name, description: "Demo skill." },
+    frontmatterLines: { start: 1, end: 3 },
+  };
+}
+
+describe("pipeline entries", () => {
+  test("parses a string entry and a mapping entry", () => {
+    const result = parse(
+      "format: 1\nname: mark4\npipeline:\n  - build-slice\n  - review-slice: { stop: The owner approves }\n",
+    );
+
+    expect(result.problems).toEqual([]);
+    expect(result.yaml?.pipeline).toEqual([
+      { workflow: "build-slice", line: 4 },
+      { workflow: "review-slice", stop: "The owner approves", line: 5 },
+    ]);
+  });
+
+  test("accepts an empty option mapping", () => {
+    const result = parse("format: 1\nname: mark4\npipeline:\n  - review-slice: {}\n");
+
+    expect(result.problems).toEqual([]);
+    expect(result.yaml?.pipeline).toEqual([{ workflow: "review-slice", line: 4 }]);
+  });
+
+  test("rejects an empty entry", () => {
+    const result = parse("format: 1\nname: mark4\npipeline:\n  - {}\n");
+
+    expect(result.problems).toEqual([
+      {
+        level: "error",
+        file: FILE,
+        line: 4,
+        message: "Pipeline entry must name a workflow",
+        fix: "Use - <workflow>",
+      },
+    ]);
+    expect(result.yaml?.pipeline).toEqual([]);
+  });
+
+  test("rejects an empty stop text", () => {
+    const result = parse('format: 1\nname: mark4\npipeline:\n  - review-slice: { stop: "" }\n');
+
+    expect(result.problems).toEqual([
+      {
+        level: "error",
+        file: FILE,
+        line: 4,
+        message: 'Pipeline option "stop" must be a non-empty string',
+        fix: "Write a one-line stop instruction",
+      },
+    ]);
+    expect(result.yaml?.pipeline).toEqual([{ workflow: "review-slice", line: 4 }]);
+  });
+
+  test("rejects a multi-line stop text", () => {
+    const result = parse(
+      'format: 1\nname: mark4\npipeline:\n  - review-slice: { stop: "Line one\\nLine two" }\n',
+    );
+
+    expect(result.problems).toEqual([
+      {
+        level: "error",
+        file: FILE,
+        line: 4,
+        message: 'Pipeline option "stop" must be a single line',
+        fix: "Write the stop instruction on one line",
+      },
+    ]);
+  });
+
+  test("rejects two workflow keys in one entry", () => {
+    const result = parse(
+      "format: 1\nname: mark4\npipeline:\n  - review-slice:\n      stop: One\n    build-slice: {}\n",
+    );
+
+    expect(result.problems).toEqual([
+      {
+        level: "error",
+        file: FILE,
+        line: 4,
+        message: "Pipeline entry must contain exactly one workflow",
+        fix: "Use one workflow per entry",
+      },
+    ]);
+  });
+
+  test("keeps valid entries when another entry is invalid", () => {
+    const result = parse("format: 1\nname: mark4\npipeline:\n  - {}\n  - build-slice\n");
+
+    expect(result.yaml?.pipeline).toEqual([{ workflow: "build-slice", line: 5 }]);
+  });
+});
+
+describe("rule 5", () => {
+  test.each(["valid-name", "a", "a1-b2", "a".repeat(64)])("accepts %s", (name) => {
+    expect(rule5NameFormat(skill(name))).toEqual([]);
+  });
+
+  test.each(["-leading", "trailing-", "double--hyphen", "Bad_Name", "a".repeat(65)])(
+    "rejects %s",
+    (name) => {
+      expect(rule5NameFormat(skill(name))).toHaveLength(1);
+    },
+  );
+});
+
+describe("rule 10", () => {
+  test("rejects a name that starts with metafab", () => {
+    expect(rule10ReservedPrefix(skill("metafab-extra"))).toHaveLength(1);
+    expect(rule10ReservedPrefix(skill("metafab"))).toHaveLength(1);
+  });
+
+  test("accepts other names", () => {
+    expect(rule10ReservedPrefix(skill("meta-fab"))).toEqual([]);
+  });
+});
+
+describe("validateFactory", () => {
+  test("a missing name does not cascade into later rules", () => {
+    const factory: Factory = {
+      root: "/tmp/demo",
+      dir: "/tmp/demo/.factory",
+      skills: [
+        {
+          name: "demo",
+          relDir: "skills/demo",
+          group: "skills",
+          isWorkflow: false,
+          frontmatter: { description: "Demo skill." },
+          frontmatterLines: { start: 1, end: 3 },
+        },
+      ],
+      problems: [],
+    };
+
+    const problems = validateFactory(factory);
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]?.message).toBe('SKILL.md is missing a "name" field');
+  });
+});
