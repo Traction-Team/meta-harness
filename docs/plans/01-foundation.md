@@ -10,6 +10,7 @@ owns:
   - tsconfig.json
   - vitest.config.ts
   - .gitignore # widened from the plan: the package needs to ignore dist/ and node_modules/
+  - vercel.json # widened from the plan: the root package.json changes Vercel's project detection; this pins the static, buildless deployment main already had
   - .github/workflows/**
   - src/cli.ts
   - src/output.ts
