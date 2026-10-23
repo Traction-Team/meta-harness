@@ -23,7 +23,7 @@ The [factory](../.factory/README.md) workflows maintain this file:
 
 A team can create, edit, build, and check a factory in one repository.
 
-- [ ] [01 Project foundation](plans/01-foundation.md): package, command runner, JSON output, exit codes, factory discovery
+- [x] [01 Project foundation](plans/01-foundation.md): package, command runner, JSON output, exit codes, factory discovery
 - [ ] [02 Factory model and validation](plans/02-factory-model.md): load `.factory/`, YAML and frontmatter grammar, validation rules
 - [ ] [03 Configuration](plans/03-configuration.md): `metafab.yaml` loading, validation, comment-preserving writes
 - [ ] [04 Build](plans/04-build.md): compiled skills, ownership, `AGENTS.md` / `CLAUDE.md` / `.gitignore` blocks, built-in skill
