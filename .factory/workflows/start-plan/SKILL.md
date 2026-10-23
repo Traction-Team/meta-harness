@@ -1,6 +1,6 @@
 ---
 name: start-plan
-description: The orchestrator. It cuts the ready plans in docs/roadmap.md order into waves whose owns paths do not collide, gets the person's approval, proves main green once, and starts one OpenCode worker per plan in its own Orca worktree, which runs build-plan there. It watches the pull requests, removes the worktree of each merged plan, and goes again. It also answers what is ready, blocked, and in flight. It never builds, marks ready, or merges. Use it on main for "start the next plan", "pull the next chunk", "keep going", "run the queue", "start <plan>", or "what's ready".
+description: The orchestrator. It cuts the ready plans in docs/roadmap.md order into waves whose owns paths do not collide, gets the person's approval, proves main green once, and starts one OpenCode worker per plan in its own Orca worktree, which runs build-plan there. It does not watch the pull requests; on its next run it removes the worktree of each merged plan and cuts the next wave. It also answers what is ready, blocked, and in flight. It never builds, marks ready, or merges. Use it on main for "start the next plan", "pull the next chunk", "keep going", "run the queue", "start <plan>", or "what's ready".
 ---
 
 # start-plan
@@ -37,7 +37,7 @@ node .factory/scripts/next.mjs --ref origin/main --json   # ready, blocked and i
 ## 2. Cut the waves, then propose
 
 1. **Wave A** is the ready plans, in roadmap order, that do not collide: no two share a path in `owns` (treat `a/b/**` as covering `a/b/c.ts`). Take at most four, five at the most. Leave out a ready plan that collides with an earlier one; it goes in the next wave.
-2. **Later waves** come from the blocked list. Name the plans each merge in wave A unblocks, in the order the merges let them run: wave B, then C. Later waves are a forecast; step 6 recuts them from `next.mjs` after each merge.
+2. **Later waves** come from the blocked list. Name the plans each merge in wave A unblocks, in the order the merges let them run: wave B, then C. Later waves are a forecast; step 4 recuts them from `next.mjs` after each merge.
 3. Label each plan with its wave letter and a number: `A1`, `A2`, then `B1`. Use roadmap order. This label is the handle the person uses to approve, move or drop a plan.
 4. For each plan, show its label, title, roadmap line, the branch it is stacked on (if any), and any open question in `docs/roadmap.md` that blocks it.
 5. Name every ready plan you left out, and why.
@@ -84,7 +84,7 @@ tool's list does not show it. The call works.
 
 Name the plan and nothing about how to build it. The worker reads the plan itself.
 
-From the JSON, keep `result.path` and `result.agentTerminalHandle` (an older runtime returns only `result.startupTerminal.handle`). Step 7 reports both.
+From the JSON, keep `result.path` and `result.agentTerminalHandle` (an older runtime returns only `result.startupTerminal.handle`). Step 6 reports both.
 
 **Do not follow a worker.** Do not `cd` into its worktree and do not read its terminal to see how it is going. Its fresh context is the reason it builds the plan well.
 
@@ -98,41 +98,16 @@ git worktree add ../meta-harness-<branch-with-slashes-as-dashes> -b <branch> <ba
 
 Show the person the `cd` and agent commands that start the session, with the brief above. Say in the report that no setup hook ran and that the Orca board cannot see the worktree.
 
-## 4. Watch the pull requests
+When the workers are started, go to step 6 and report. Do not watch the pull requests: the worker opens its draft, the developer runs `finish-plan`, and a person merges. The next run of `start-plan` picks up from origin.
 
-Each worker opens a draft pull request when it claims its plan. Run one monitor for the wave, with the `Monitor` tool and `persistent: true`:
+## 4. Clean up merged plans
 
-```bash
-seen=$(mktemp)
-branches="chore/foundation feat/factory-model"
-while [ -n "$branches" ]; do
-  next=""
-  for b in $branches; do
-    st=$(gh pr list --head "$b" --state all --json number,state,isDraft \
-         --jq '.[0] // empty | "\(.state)\(if .isDraft then " draft" else "" end) #\(.number)"' 2>/dev/null)
-    prev=$(grep "^$b " "$seen" 2>/dev/null | cut -d' ' -f2-)
-    if [ -n "$st" ] && [ "$st" != "$prev" ]; then
-      echo "$b $st"
-      { grep -v "^$b " "$seen" 2>/dev/null; echo "$b $st"; } > "$seen.tmp"; mv "$seen.tmp" "$seen"
-    fi
-    case "$st" in MERGED*|CLOSED*) ;; *) next="$next $b" ;; esac
-  done
-  branches=$(echo $next)
-  [ -n "$branches" ] || break
-  sleep 60
-done
-echo "wave done: every branch has left the open set"
-```
-
-It reports each state change once: a draft that appears, a draft marked ready, a merge, a close. Tell the person about each one. A draft is the worker asking the developer to run `finish-plan`, and a ready pull request is waiting for a person to merge it.
-
-**The monitor is a convenience. Origin is the record.** A monitor dies with the session that started it, without a marker, so silence never proves anything. Read the state from `gh` at the start of every turn that acts on the wave:
+On a later run ("keep going", "start the next plan"), first find the workers from earlier waves whose pull requests have left the open set. Origin is the record:
 
 ```bash
-for b in $branches; do printf '%-36s ' "$b"; gh pr list --head "$b" --state all --json number,state,isDraft --jq '.[0] // empty | "\(.state) draft=\(.isDraft) #\(.number)"'; echo; done
+orca worktree list
+gh pr list --head <branch> --state all --json number,state --jq '.[0] // empty | "\(.state) #\(.number)"'
 ```
-
-## 5. After each merge
 
 `finish-plan` already wrote the landing commit on the branch, so the merge leaves nothing to write on `main`. For each merged pull request:
 
@@ -149,17 +124,18 @@ for b in $branches; do printf '%-36s ' "$b"; gh pr list --head "$b" --state all 
 
 A pull request closed without merging keeps its branch on origin. Report it and stop there. Whether the plan goes back on the queue is the person's call.
 
-## 6. Go again, or stop
+Then cut the next wave from step 1. A merge moves plans out of the blocked list. A new draft can too: `next.mjs` lists a plan whose `needs` is building as ready, stacked on that branch. Plans the person already approved in a forecast wave still need one line of confirmation if the cut changed.
 
-A merge moves plans out of the blocked list. A new draft can too: `next.mjs` lists a plan whose `needs` is building as ready, stacked on that branch. Go back to step 1 and cut the next wave from `next.mjs`. Plans the person already approved in a forecast wave still need one line of confirmation if the cut changed.
+## 5. Stop
 
-Stop when nothing is ready, when every remaining plan is blocked by one in flight, or when the person says so. Say which one stopped you.
+Stop once the wave's workers are started, when nothing is ready, when every remaining plan is blocked by one in flight, or when the person says so. Say which one stopped you.
 
-## 7. Report
+## 6. Report
 
 1. The waves you sent. Per plan: its label, the branch, the title, and the base it branched from.
 2. Each ready plan you left out, and why.
-3. The worktree path and terminal handle of every worker still running.
-4. Each merge: the plan, the pull request, and the worktree you removed.
+3. The worktree path and terminal handle of every worker you started.
+4. Each merge you cleaned up: the plan, the pull request, and the worktree you removed.
 5. Each pull request closed without merging, and the branch it left on origin.
 6. What stopped the run.
+7. What happens next: each worker opens a draft pull request, the developer runs `finish-plan` on it, a person merges, and then `start-plan` runs again.

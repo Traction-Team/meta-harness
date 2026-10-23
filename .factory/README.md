@@ -46,7 +46,7 @@ idea / bug / spec gap / follow-up ──► file-work ──► docs/intake/
 | `file-work` | A bug, idea, spec gap, follow-up | An intake note, or an addition to an unbuilt plan; a bug plan when the fix is clear | Nobody: it only files |
 | `prioritise-roadmap` | "What's next" | Roadmap order, new lines, a decision on each intake note and open question raised | The person running it |
 | `plan-feature` | A roadmap line with no plan | One plan per pull request, linked by `needs`, added to the roadmap | A person approves the plans |
-| `start-plan` | On `main`: "start the next plan", "keep going" | Waves of plans whose `owns` do not collide, one Orca worktree and OpenCode worker per plan running `build-plan`, a pull-request watch, and worktree removal after each merge | A person confirms each wave |
+| `start-plan` | On `main`: "start the next plan", "keep going" | Waves of plans whose `owns` do not collide, one Orca worktree and OpenCode worker per plan running `build-plan`, and worktree removal for merged plans on the next run | A person confirms each wave |
 | `build-plan` | A picked plan, on a feature branch (usually as the worker in its worktree) | Branch rename, claim, tasks by sub-agents, `npm run verify`, a `review-branch` sub-agent and its fixes, proof, a draft PR | Nobody: it stops at draft |
 | `review-branch` | A branch, a base and a goal, in a fresh sub-agent | A graded findings report and a verdict; it never edits | The calling workflow triages each finding |
 | `finish-plan` | The draft PR | Feedback applied, PR ready, review comments answered, a landing commit that marks the plan merged, ticks the roadmap and writes the changelog | **The developer** says done; a person merges |
@@ -84,6 +84,6 @@ A plan is claimed by its draft pull request. The body's first line, `**Plan:** d
 - **Worktree.** `orca worktree create --repo id:<MetaFab repo id> --base-branch origin/main --no-parent --setup run --agent opencode`. Orca names the branch `<git user>/<flattened name>`; the worker renames it to `<type>/<slug>` before the claim. Without Orca, `git worktree add` is the fallback, and the Orca board cannot see that worktree.
 - **Session.** The worker is an OpenCode session that reads a short brief and runs `build-plan`. The orchestrator never follows it: it does not read the worker's terminal or open its worktree.
 - **Sub-agents.** The worker stays thin and dispatches every task, fix and review to the `agent-coding` sub-agent that `opencode.json` defines, on a cheaper coding model. The heavy build context ends with each sub-agent.
-- **Watch and clean up.** The orchestrator watches each branch's pull request with `gh` and reports each state change. After a person merges, it removes the worktree with `orca worktree rm` and cuts the next wave. Origin is the record: a monitor that died says nothing, so it re-reads `gh` before it acts.
+- **Clean up.** The orchestrator does not watch the pull requests. It stops once the workers are started. On its next run it reads origin with `gh`, removes the worktree of each merged plan with `orca worktree rm`, and cuts the next wave.
 
 The landing bookkeeping stays on the branch: `finish-plan` writes it in the last commit before the merge, so the orchestrator writes nothing on `main`.
