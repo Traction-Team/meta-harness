@@ -87,10 +87,10 @@ Writes edit the parsed `YAML.Document` and preserve comments, key order, and the
 
 ## Steps
 
-- [ ] `core/config.ts`: load, defaults, `destinations()`
-- [ ] Validation rules 1 to 11
-- [ ] The three writers, with round-trip tests that preserve comments
-- [ ] Fixtures: the full spec example, plus one invalid file per rule
+- [x] `core/config.ts`: load, defaults, `destinations()`
+- [x] Validation rules 1 to 11
+- [x] The three writers, with round-trip tests that preserve comments
+- [x] Fixtures: the full spec example, plus one invalid file per rule
 
 ## Tests
 
