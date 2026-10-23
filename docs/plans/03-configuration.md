@@ -2,7 +2,7 @@
 title: "feat: read, validate and write metafab.yaml"
 status: building
 kind: feature
-pr:
+pr: 2
 needs:
   - docs/plans/01-foundation.md
 owns:
