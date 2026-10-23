@@ -29,7 +29,8 @@ async function repoWith(files: Record<string, string> = {}): Promise<TempRepo> {
 const fixture = (name: string): URL => new URL(`../../fixtures/config/${name}`, import.meta.url);
 
 async function fixtureText(name: string): Promise<string> {
-  return readFile(fixture(name), "utf8");
+  const text = await readFile(fixture(name), "utf8");
+  return text.replace(/\r\n?/g, "\n");
 }
 
 const npmEntry: UpstreamEntry = {
@@ -242,7 +243,7 @@ describe("file writers", () => {
     expect(await readFile(repo.path(".factory/metafab.yaml"), "utf8")).toBe(original);
   });
 
-  test("setUpstream preserves the file's permissions", async () => {
+  test.skipIf(process.platform === "win32")("setUpstream preserves the file's permissions", async () => {
     const repo = await repoWith({ ".factory/metafab.yaml": "agents: all\n" });
     const file = repo.path(".factory/metafab.yaml");
     await chmod(file, 0o600);
