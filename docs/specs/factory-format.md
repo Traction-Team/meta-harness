@@ -14,7 +14,7 @@ Every directory below `.factory/` that contains `SKILL.md` is an Agent Skill:
 
 Each skill must follow the Agent Skills format:
 
-- The directory name is `<name>`.
+- The directory name is `<name>`. The directory name and the `name` field follow the Agent Skills name rules in [Validation](#validation).
 - `SKILL.md` contains `name` and `description` frontmatter.
 - Supporting files can live beside `SKILL.md`.
 - A skill directory cannot contain another directory with a `SKILL.md`. Skills cannot be nested inside other skills.
@@ -177,7 +177,7 @@ A string pipeline entry is a workflow name. A mapping pipeline entry must contai
 
 Skill frontmatter follows the Agent Skills format and can contain tool-specific fields. Metafab applies these additional type rules:
 
-- `name` and `description` are non-empty strings. `description` is a single-line string.
+- `name` and `description` are non-empty strings. `name` follows the name rules in [Validation](#validation). `description` is a single-line string.
 Unknown skill frontmatter fields are preserved and are not errors.
 
 ## Validation
@@ -188,11 +188,12 @@ A version 1 factory is valid when all the following statements are true:
 2. Each skill name matches its directory name.
 3. No skill directory contains another skill directory.
 4. Every skill name is unique across the complete factory.
-5. Skill names contain only lowercase ASCII letters, digits, and hyphens.
+5. Skill names use only lowercase ASCII letters, digits, and hyphens. A name does not start or end with a hyphen, does not contain two consecutive hyphens, and is at most 64 characters.
 6. YAML, frontmatter, and field values follow the grammar above.
 7. `factory.yaml`, when present, contains `format` and `name`.
 8. Each pipeline entry names an existing workflow, and no workflow appears twice.
 9. Pipeline entries use only the `stop` option. Reserved options are errors in version 1.
+10. No factory skill name starts with `metafab`.
 
 `metafab check` reports each error with a file path, line number, and suggested fix.
 
@@ -215,4 +216,4 @@ The format reserves these names for future versions:
 
 A version 1 factory can use reserved directories. Metafab installs any skills in them as ordinary skills.
 
-Names that start with `metafab` belong to the Metafab tool. Teams can use any other top-level name.
+Names that start with `metafab` belong to the Metafab tool. Version 1 rejects a factory skill whose name starts with `metafab`. Teams can use any other top-level name.
