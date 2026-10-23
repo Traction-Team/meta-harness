@@ -1,4 +1,5 @@
-import { Document, LineCounter, parseDocument } from "yaml";
+import { Document, LineCounter, isAlias, parseDocument, visit } from "yaml";
+import type { Alias } from "yaml";
 import type { Problem } from "../../errors.js";
 import { classifySource } from "./source.js";
 import { validateDocument } from "./validate.js";
@@ -124,6 +125,17 @@ function invalidYaml(doc: Document, file: string): Config {
   ]);
 }
 
+function unresolvedAlias(doc: Document): Alias | undefined {
+  let unresolved: Alias | undefined;
+
+  visit(doc, (_key, node: unknown) => {
+    if (unresolved !== undefined || !isAlias(node)) return;
+    if (node.resolve(doc) === undefined) unresolved = node;
+  });
+
+  return unresolved;
+}
+
 export function parseConfig(text: string, options: ParseConfigOptions = {}): Config {
   const file = options.file ?? CONFIG_FILE;
   if (text.trim() === "") return defaults(new Document(), []);
@@ -132,6 +144,21 @@ export function parseConfig(text: string, options: ParseConfigOptions = {}): Con
   const doc = parseDocument(text, { lineCounter });
 
   if (doc.errors.length > 0) return invalidYaml(doc, file);
+
+  const alias = unresolvedAlias(doc);
+  if (alias !== undefined) {
+    const offset = alias.range?.[0];
+    const line = typeof offset === "number" ? lineCounter.linePos(offset).line : undefined;
+
+    return defaults(doc, [
+      {
+        level: "error",
+        file,
+        ...(line === undefined ? {} : { line }),
+        message: `Invalid YAML: Unresolved alias "${alias.source}".`,
+      },
+    ]);
+  }
 
   const problems = validateDocument(doc, {
     file,
@@ -142,7 +169,24 @@ export function parseConfig(text: string, options: ParseConfigOptions = {}): Con
     },
   });
 
-  const root = asRecord(doc.toJS());
+  let root: Record<string, unknown> | undefined;
+  try {
+    root = asRecord(doc.toJS());
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message.split("\n")[0] ?? error.message
+        : "Invalid YAML.";
+
+    return defaults(doc, [
+      {
+        level: "error",
+        file,
+        message: `Invalid YAML: ${message}`,
+      },
+    ]);
+  }
+
   if (root === undefined) return defaults(doc, problems);
 
   const agentsRaw = parseAgents(root.agents);

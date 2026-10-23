@@ -161,4 +161,15 @@ describe("parseConfig problems", () => {
     expect(config.agents).toEqual(TARGETS);
     expect(config.metafabSkill).toBe(true);
   });
+
+  test("an unresolved alias is invalid YAML, not a thrown error", () => {
+    const config = parseConfig("agents: [*missing]\n");
+
+    expect(config.problems).toHaveLength(1);
+    expect(config.problems[0]?.level).toBe("error");
+    expect(config.problems[0]?.file).toBe(CONFIG_FILE);
+    expect(config.problems[0]?.line).toBe(1);
+    expect(config.problems[0]?.message).toMatch(/^Invalid YAML:/);
+    expect(config.agents).toEqual(TARGETS);
+  });
 });

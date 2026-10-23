@@ -105,6 +105,24 @@ describe("setUpstreamText and removeUpstreamText", () => {
     expect(removeUpstreamText(written)).toBe("agents: all\n\n# mine about upstream\n");
   });
 
+  test("keeps a comment on the existing upstream key line when replacing the value", () => {
+    const original =
+      "agents: all\nupstream: # pinned by hand\n  source: x\n  version: 1.0.0\n";
+
+    const written = setUpstreamText(original, npmEntry);
+    const again = setUpstreamText(written, npmEntry);
+
+    expect(written).toContain("# pinned by hand");
+    expect(again.match(/# pinned by hand/g)).toHaveLength(1);
+    expect(parseConfig(written).upstream).toEqual(npmEntry);
+  });
+
+  test("removing the only key leaves an empty document", () => {
+    const written = setUpstreamText("", npmEntry);
+
+    expect(removeUpstreamText(written)).toBe("");
+  });
+
   test("serializes npm fields only", () => {
     const text = setUpstreamText("", npmEntry);
 

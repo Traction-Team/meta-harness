@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { Document, isMap, isScalar, parseDocument } from "yaml";
+import { Document, isMap, isNode, isScalar, parseDocument } from "yaml";
 import type { Pair } from "yaml";
 import { MetafabError } from "../../errors.js";
 import { CONFIG_FILE, CONFIG_FILENAME } from "./parse.js";
@@ -49,6 +49,16 @@ function documentForWriting(text: string, file = CONFIG_FILE): Document {
 }
 
 function serialize(doc: Document): string {
+  if (doc.contents === null) return "";
+  if (isMap(doc.contents) && doc.contents.items.length === 0) {
+    if (typeof doc.comment !== "string" || doc.comment === "") return "";
+
+    return `${doc.comment
+      .split("\n")
+      .map((line) => `#${line}`)
+      .join("\n")}\n`;
+  }
+
   const text = doc.toString({ flowCollectionPadding: false });
   return text.replace(/\n*$/, "\n");
 }
@@ -90,12 +100,33 @@ export function createConfigText(options: CreateConfigOptions): string {
   return serialize(doc);
 }
 
+function carryComments(from: unknown, to: unknown): void {
+  if (!isNode(from) || !isNode(to)) return;
+
+  const commentBefore = typeof from.commentBefore === "string" ? from.commentBefore : undefined;
+  const trailing = typeof from.comment === "string" ? from.comment : undefined;
+
+  if (commentBefore !== undefined) to.commentBefore = commentBefore;
+
+  if (trailing !== undefined) {
+    if (isScalar(from)) {
+      to.commentBefore =
+        typeof to.commentBefore === "string" && to.commentBefore !== ""
+          ? `${to.commentBefore}\n${trailing}`
+          : trailing;
+    } else {
+      to.comment = trailing;
+    }
+  }
+}
+
 export function setUpstreamText(text: string, entry: UpstreamEntry): string {
   const doc = documentForWriting(text);
   const value = upstreamNode(doc, entry);
   const existing = upstreamPair(doc);
 
   if (existing !== undefined) {
+    carryComments(existing.value, value);
     existing.value = value;
     return serialize(doc);
   }
