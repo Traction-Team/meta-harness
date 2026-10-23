@@ -1,6 +1,7 @@
 import { Document, LineCounter, parseDocument } from "yaml";
 import type { Problem } from "../../errors.js";
 import { classifySource } from "./source.js";
+import { validateDocument } from "./validate.js";
 import { TARGETS } from "./types.js";
 import type { Config, PublishConfig, Target, UpstreamEntry } from "./types.js";
 
@@ -11,6 +12,7 @@ const KNOWN_TARGETS = new Set<string>(TARGETS);
 
 export interface ParseConfigOptions {
   file?: string;
+  repositoryRoot?: string;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -127,12 +129,22 @@ export function parseConfig(text: string, options: ParseConfigOptions = {}): Con
   const file = options.file ?? CONFIG_FILE;
   if (text.trim() === "") return defaults(new Document(), []);
 
-  const doc = parseDocument(text, { lineCounter: new LineCounter() });
+  const lineCounter = new LineCounter();
+  const doc = parseDocument(text, { lineCounter });
 
   if (doc.errors.length > 0) return invalidYaml(doc, file);
 
+  const problems = validateDocument(doc, {
+    file,
+    ...(options.repositoryRoot === undefined ? {} : { repositoryRoot: options.repositoryRoot }),
+    lineOf: (node) => {
+      const offset = node?.range?.[0];
+      return typeof offset === "number" ? lineCounter.linePos(offset).line : undefined;
+    },
+  });
+
   const root = asRecord(doc.toJS());
-  if (root === undefined) return defaults(doc, []);
+  if (root === undefined) return defaults(doc, problems);
 
   const agentsRaw = parseAgents(root.agents);
   const config: Config = {
@@ -140,7 +152,7 @@ export function parseConfig(text: string, options: ParseConfigOptions = {}): Con
     agentsRaw,
     metafabSkill: typeof root["metafab-skill"] === "boolean" ? root["metafab-skill"] : true,
     doc,
-    problems: [],
+    problems,
   };
 
   const publish = parsePublish(root.publish);

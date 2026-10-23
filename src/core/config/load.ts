@@ -12,5 +12,5 @@ export async function loadConfig(factoryDir: string): Promise<Config> {
     throw error;
   }
 
-  return parseConfig(text);
+  return parseConfig(text, { repositoryRoot: path.dirname(path.resolve(factoryDir)) });
 }

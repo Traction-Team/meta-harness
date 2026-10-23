@@ -50,11 +50,12 @@ describe("parseConfig defaults", () => {
     expect(parseConfig("metafab-skill: false\n").metafabSkill).toBe(false);
   });
 
-  test("a non-mapping document is an empty config", () => {
+  test("a non-mapping document is an empty config with a problem", () => {
     const config = parseConfig("just a string\n");
 
     expect(config.agents).toEqual(TARGETS);
-    expect(config.problems).toEqual([]);
+    expect(config.problems).toHaveLength(1);
+    expect(config.problems[0]?.message).toBe("metafab.yaml must be a mapping.");
   });
 });
 
