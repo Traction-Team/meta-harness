@@ -104,6 +104,41 @@ describe("stubs", () => {
   });
 });
 
+describe("command arguments", () => {
+  const capturing: CommandDefinition = {
+    name: "create",
+    description: "Create a skill in the factory",
+    options: {
+      description: { type: "string" },
+      force: { type: "boolean" },
+    },
+    async run(context) {
+      return {
+        ok: true,
+        command: "create",
+        exitCode: ExitCode.Ok,
+        summary: JSON.stringify({ positionals: context.positionals, options: context.options }),
+      };
+    },
+  };
+
+  test("delivers positionals and a string option to the command", async () => {
+    const result = await runCli(["create", "x", "--description", "d"], {
+      cwd: repo.root,
+      tty: false,
+      commands: [capturing],
+    });
+    expect(result.code).toBe(ExitCode.Ok);
+    expect(JSON.parse(result.stdout)).toEqual({ positionals: ["x"], options: { description: "d" } });
+  });
+
+  test("delivers a value-less boolean option to the command", async () => {
+    const result = await runCli(["create", "x", "--force"], { cwd: repo.root, tty: false, commands: [capturing] });
+    expect(result.code).toBe(ExitCode.Ok);
+    expect(JSON.parse(result.stdout)).toEqual({ positionals: ["x"], options: { force: true } });
+  });
+});
+
 describe("NeedsInput", () => {
   const required = [
     { name: "description", flag: "--description", description: "Skill description" },

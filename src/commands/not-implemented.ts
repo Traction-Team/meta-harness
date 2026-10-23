@@ -1,5 +1,6 @@
 import { ExitCode } from "../errors.js";
 import type { CommandResult } from "../output.js";
+import { normalizeProblemPath } from "../util/fs.js";
 
 export function notImplemented(command: string): CommandResult {
   return {
@@ -10,7 +11,7 @@ export function notImplemented(command: string): CommandResult {
     problems: [
       {
         level: "error",
-        file: ".factory",
+        file: normalizeProblemPath(".factory"),
         message: `The ${command} command is not implemented yet.`,
         fix: "This command arrives in a later release.",
       },

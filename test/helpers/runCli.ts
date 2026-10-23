@@ -4,6 +4,7 @@ import type { CommandDefinition } from "../../src/commands/types.js";
 export interface RunCliOptions {
   cwd?: string;
   tty?: boolean;
+  stdin?: NodeJS.ReadableStream;
   commands?: readonly CommandDefinition[];
 }
 
@@ -22,6 +23,7 @@ export async function runCli(argv: readonly string[], options: RunCliOptions = {
     {
       cwd: options.cwd ?? process.cwd(),
       tty: options.tty ?? false,
+      stdin: options.stdin,
       stdout: (text) => {
         stdout += text;
       },

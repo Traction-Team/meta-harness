@@ -1,4 +1,5 @@
 import { createInterface } from "node:readline/promises";
+import { Writable } from "node:stream";
 import { ExitCode, MetafabError } from "./errors.js";
 
 export interface RequiredValue {
@@ -6,6 +7,18 @@ export interface RequiredValue {
   flag?: string;
   description: string;
   choices?: string[];
+}
+
+export interface InputIO {
+  tty?: boolean;
+  stdin?: NodeJS.ReadableStream;
+  stderr?: (text: string) => void;
+}
+
+interface ResolvedInputIO {
+  tty: boolean;
+  stdin: NodeJS.ReadableStream;
+  stderr: (text: string) => void;
 }
 
 export class NeedsInput extends MetafabError {
@@ -23,8 +36,20 @@ export class NeedsInput extends MetafabError {
   }
 }
 
-function assertInteractive(required: RequiredValue): void {
-  if (process.stdin.isTTY !== true) throw new NeedsInput([required]);
+function resolveIO(io: InputIO = {}): ResolvedInputIO {
+  return {
+    tty: io.tty ?? process.stdin.isTTY === true,
+    stdin: io.stdin ?? process.stdin,
+    stderr:
+      io.stderr ??
+      ((text) => {
+        process.stderr.write(text);
+      }),
+  };
+}
+
+function assertInteractive(io: ResolvedInputIO, required: RequiredValue): void {
+  if (!io.tty) throw new NeedsInput([required]);
 }
 
 function promptFor(required: RequiredValue): string {
@@ -32,8 +57,14 @@ function promptFor(required: RequiredValue): string {
   return `${required.description}${choices} `;
 }
 
-async function question(text: string): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stderr });
+async function question(text: string, io: ResolvedInputIO): Promise<string> {
+  const output = new Writable({
+    write(chunk, _encoding, callback) {
+      io.stderr(String(chunk));
+      callback();
+    },
+  });
+  const rl = createInterface({ input: io.stdin, output });
   try {
     return (await rl.question(text)).trim();
   } finally {
@@ -41,16 +72,17 @@ async function question(text: string): Promise<string> {
   }
 }
 
-export async function ask(required: RequiredValue): Promise<string> {
-  assertInteractive(required);
+export async function ask(required: RequiredValue, io?: InputIO): Promise<string> {
+  const resolved = resolveIO(io);
+  assertInteractive(resolved, required);
   const prompt = promptFor(required);
 
   for (;;) {
-    const answer = await question(prompt);
+    const answer = await question(prompt, resolved);
     if (answer === "" || required.choices === undefined || required.choices.includes(answer)) {
       return answer;
     }
-    process.stderr.write(`Choose one of: ${required.choices.join(", ")}\n`);
+    resolved.stderr(`Choose one of: ${required.choices.join(", ")}\n`);
   }
 }
 
@@ -58,16 +90,17 @@ export interface ConfirmOptions {
   default?: boolean;
 }
 
-export async function confirm(required: RequiredValue, options: ConfirmOptions = {}): Promise<boolean> {
-  assertInteractive(required);
+export async function confirm(required: RequiredValue, options: ConfirmOptions = {}, io?: InputIO): Promise<boolean> {
+  const resolved = resolveIO(io);
+  assertInteractive(resolved, required);
   const fallback = options.default ?? false;
   const prompt = `${required.description} ${fallback ? "[Y/n]" : "[y/N]"} `;
 
   for (;;) {
-    const answer = (await question(prompt)).toLowerCase();
+    const answer = (await question(prompt, resolved)).toLowerCase();
     if (answer === "") return fallback;
     if (answer === "y" || answer === "yes") return true;
     if (answer === "n" || answer === "no") return false;
-    process.stderr.write("Answer yes or no.\n");
+    resolved.stderr("Answer yes or no.\n");
   }
 }

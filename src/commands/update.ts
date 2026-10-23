@@ -4,6 +4,11 @@ import type { CommandDefinition } from "./types.js";
 export const updateCommand: CommandDefinition = {
   name: "update",
   description: "Merge or overwrite from the factory upstream",
+  options: {
+    to: { type: "string" },
+    "dry-run": { type: "boolean" },
+    "no-build": { type: "boolean" },
+  },
   async run() {
     return notImplemented("update");
   },
