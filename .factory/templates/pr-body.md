@@ -1,5 +1,9 @@
 **Plan:** docs/plans/<plan>.md[, docs/plans/<plan joined later>.md] · **Stacked on:** none | #<pr> (`<branch>`)
 
+## TL;DR
+
+<!-- build-plan writes this at handoff and finish-plan keeps it current: what the plan was for, what it does now, how it was proved, what needs the developer's eye, and how to try it. Under 20 lines. -->
+
 ## What changes
 
 The plan's opening paragraph, rewritten for a reviewer who has not read the plan: what `metafab` does after this merges that it did not before, and what is left for a later plan. List any spec section this PR changes, and why.
@@ -35,4 +39,4 @@ Verdict: <merge | merge after the blockers | block>
 
 ## Found while building
 
-Out-of-scope problems and follow-ups. `finish-plan` files each one with `file-work` before the PR merges.
+Out-of-scope problems and follow-ups. `build-plan` files each one with `file-work` in the landing commit; `finish-plan` files any added later.

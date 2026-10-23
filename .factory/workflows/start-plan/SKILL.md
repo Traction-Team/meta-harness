@@ -9,7 +9,7 @@ Cut the work and hand it out. Do not build a plan in this session. Every build h
 
 A **wave** is the set of plans that go out in parallel at one time. Every plan in a wave runs beside the others, so no two may name the same path in `owns`. A wave holds four plans, five at the most. The next wave starts when a merge unblocks new plans.
 
-**Never** merge a pull request, mark one ready, or write the landing commit. A person merges. `finish-plan` writes the landing bookkeeping on the plan's own branch.
+**Never** merge a pull request, mark one ready, or write the landing commit. A person merges. `build-plan` writes the landing bookkeeping on the plan's own branch before it hands over, and `finish-plan` keeps it current.
 
 ## 0. Guards
 
@@ -98,7 +98,7 @@ git worktree add ../meta-harness-<branch-with-slashes-as-dashes> -b <branch> <ba
 
 Show the person the `cd` and agent commands that start the session, with the brief above. Say in the report that no setup hook ran and that the Orca board cannot see the worktree.
 
-When the workers are started, go to step 6 and report. Do not watch the pull requests: the worker opens its draft, the developer runs `finish-plan`, and a person merges. The next run of `start-plan` picks up from origin.
+When the workers are started, go to step 6 and report. Do not watch the pull requests: the worker opens a merge-safe draft and hands the developer a TL;DR, the developer reviews it (with `finish-plan` for feedback), and a person merges. The next run of `start-plan` picks up from origin.
 
 ## 4. Clean up merged plans
 
@@ -109,10 +109,10 @@ orca worktree list
 gh pr list --head <branch> --state all --json number,state --jq '.[0] // empty | "\(.state) #\(.number)"'
 ```
 
-`finish-plan` already wrote the landing commit on the branch, so the merge leaves nothing to write on `main`. For each merged pull request:
+`build-plan` already wrote the landing commit on the branch, so the merge leaves nothing to write on `main`. For each merged pull request:
 
 1. `git switch main && git pull --ff-only`.
-2. Check that the plan reads `status: merged` and its roadmap box is ticked on `main`. If either is missing, tell the person; do not fix it here.
+2. Check that the plan reads `status: merged` and its roadmap box is ticked on `main`. If either is missing, tell the person and offer to write the landing as a docs-only commit on `main` (`docs: land <plan-slug>`, as build-plan step 8 describes); write it only when they agree.
 3. Remove the worktree:
 
    ```bash
@@ -138,4 +138,4 @@ Stop once the wave's workers are started, when nothing is ready, when every rema
 4. Each merge you cleaned up: the plan, the pull request, and the worktree you removed.
 5. Each pull request closed without merging, and the branch it left on origin.
 6. What stopped the run.
-7. What happens next: each worker opens a draft pull request, the developer runs `finish-plan` on it, a person merges, and then `start-plan` runs again.
+7. What happens next: each worker opens a merge-safe draft pull request and ends with a TL;DR in its session; the developer reviews it there, gives feedback or says "looks good", a person merges, and then `start-plan` runs again.

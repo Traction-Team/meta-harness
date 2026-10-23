@@ -39,7 +39,7 @@ Run `node .factory/scripts/check.mjs`. Fix each reported problem in the files yo
 
 Commit the files only in these cases:
 
-- `finish-plan` called this workflow. Include the files in that plan's pull request.
+- `build-plan` or `finish-plan` called this workflow. Include the files in that plan's pull request.
 - The person asks you to commit, save or publish them. Follow "Publishing docs changes" in `AGENTS.md`.
 
 Otherwise, leave the files unstaged and say so.

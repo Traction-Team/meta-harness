@@ -1,6 +1,6 @@
 ---
 name: build-plan
-description: Builds one plan on the current feature branch, usually as the OpenCode worker start-plan started in an Orca worktree. It renames the Orca branch, claims the plan with a draft pull request, or adds it to the branch's open pull request, delegates implementation tasks to agent-coding sub-agents, runs npm run verify, always runs the review-branch workflow in a fresh sub-agent, triages its findings and sends accepted ones to a fix sub-agent, re-reviews the fix commits, and records proof. It stops with a draft pull request for the developer. On main it does not build; it sends the person to start-plan. Use it for "build docs/plans/<plan>.md". It never marks a pull request ready and never merges.
+description: Builds one plan on the current feature branch, usually as the OpenCode worker start-plan started in an Orca worktree. It renames the Orca branch, claims the plan with a draft pull request, or adds it to the branch's open pull request, delegates implementation tasks to agent-coding sub-agents, runs npm run verify, always runs the review-branch workflow in a fresh sub-agent, triages its findings and sends accepted ones to a fix sub-agent, re-reviews the fix commits, records proof, and writes the landing commit (plan merged, roadmap ticked, changelog), so the branch is safe to merge as it stands. It stops with a draft pull request and a TL;DR handoff for the developer. On main it does not build; it sends the person to start-plan. Use it for "build docs/plans/<plan>.md". It never marks a pull request ready and never merges.
 ---
 
 # build-plan
@@ -13,9 +13,11 @@ You are usually a **worker**: `start-plan` started you in your own Orca worktree
 
 The current feature branch is where the plan is built. A plan usually gets its own pull request, but when the branch already has one, the plan joins it. Never build on `main`.
 
-The run is always: check the branch → claim → task sub-agents → checks → **review sub-agent (`review-branch`)** → handle findings → proof → draft. The review is not optional. Do not push the final branch, fill the pull request's review section, or report done until a `review-branch` sub-agent has returned a verdict for this plan's work.
+The run is always: check the branch → claim → task sub-agents → checks → **review sub-agent (`review-branch`)** → handle findings → proof → **land** → draft and TL;DR. The review is not optional. Do not push the final branch, fill the pull request's review section, or report done until a `review-branch` sub-agent has returned a verdict for this plan's work.
 
-**Never** mark the pull request ready or merge it. Do not edit `.factory/`, `docs/roadmap.md`, or a plan the pull request does not list. Change only paths in the `owns` lists of the plans the pull request lists, those plans, and the spec sections they implement when the code has to differ (say so in the pull request). If the implementation requires another path, add it to `owns` in the plan and explain why in the pull request.
+**The branch is always merge-safe when you hand it over.** The developer may review the diff and merge it straight away, without running `finish-plan`. So the landing bookkeeping (step 8) goes on the branch before the handoff, not later.
+
+**Never** mark the pull request ready or merge it. Do not edit `.factory/`, a plan the pull request does not list, or `docs/roadmap.md` beyond the landing edits in step 8. Change only paths in the `owns` lists of the plans the pull request lists, those plans, and the spec sections they implement when the code has to differ (say so in the pull request). If the implementation requires another path, add it to `owns` in the plan and explain why in the pull request.
 
 ## 0. Check the branch
 
@@ -130,12 +132,45 @@ If the report does not end with a `VERDICT:` line, start a new reviewer once mor
 
 Run the plan's `proves` command yourself. Paste the actual output into the pull request. Do not state that a check passed unless you ran it. Put each check you could not run under **For the developer** as a *try this* item.
 
-## 8. Stop at the draft pull request
+## 8. Land on the branch
 
 Check first: if **Review** has no verdict from a `review-branch` sub-agent for this plan, go back to step 5.
 
-Push the branch. Complete the body sections: changes, proof, review, **For the developer**, build log, found while building. In **For the developer**, include uncertainties and a short *try this* list of commands. Leave the pull request as a draft.
+Write the landing bookkeeping now, as the last commit, so that a merge at any moment leaves `main` correct. Do each step for every plan the `**Plan:**` line lists:
+
+- Set the plan to `status: merged` and check that `pr:` names this pull request. Tick its **Steps** checkboxes that were done. (`next.mjs` reads status from `origin/main` and the claim from the open pull request, so the plan stays in flight until the merge.)
+- In `docs/roadmap.md`, tick the plan's checkbox. Do not add lines or reorder: only `prioritise-roadmap` does that.
+- For each open question the build answered, move it from **Open questions** to **Decisions** in `docs/roadmap.md` with today's date and this pull request.
+- Write one changelog entry from `.factory/templates/changelog.md`: `docs/changelog/YYYY-MM-DD-<pr-slug>.md`. Say what a user of `metafab` can do now that they could not before.
+- Record each *Found while building* note with `file-work`. A note the build already fixed needs no intake file; say so beside it.
+
+Run `git fetch origin && git merge origin/main` first (never rebase a pushed branch). A conflict in `docs/roadmap.md` is usually another plan's tick on a neighbouring line: keep both. Then run `node .factory/scripts/check.mjs`, commit as `docs: land <plan-slug>`, and push.
+
+## 9. Stop at the draft pull request with a TL;DR
+
+Complete the body sections: TL;DR, changes, proof, review, **For the developer**, build log, found while building. In **For the developer**, include uncertainties and a short *try this* list of commands. Leave the pull request as a draft.
 
 Leave a worktree the orchestrator can remove after the merge: `git status --porcelain` must print nothing. Ignored files do not block removal, so clean nothing more.
 
-Report in no more than five lines: the pull request link, the plans it carries, the verdict, the worktree path and branch, and anything the setup or sub-agents needed that this workflow did not expect (a hand-run `npm install`, a `general-purpose` fallback). The developer continues with `finish-plan` in this worktree.
+The developer switches between several worker sessions and reads each one cold. End with this handoff as your final message, and put the same text (without the last line) in the body's **TL;DR** section. Write it for someone who has not read the plan, in user terms, not file lists. Keep it under 20 lines:
+
+```text
+## <plan number and name>: ready for your review
+#<pr> (draft) · <branch> · <worktree path>
+
+**What the plan was for:** one or two sentences: the problem and what metafab could not do before.
+**What it does now:** two to four bullets a metafab user would notice.
+**How it was proved:** the proves result, npm run verify, and the review verdict (n fixed, n declined).
+**Needs your eye:** decisions you made that the plan did not, spec changes, uncertainties, open
+questions you answered. Write "nothing" if there is nothing.
+**Try it:** two to four commands, runnable from this worktree.
+**Setup notes:** only if something unexpected happened (hand-run npm install, general-purpose fallback).
+
+The landing bookkeeping is already on the branch, so it is safe to merge as it is. Give feedback
+here and I will apply it, or say "looks good" and I will bring it up to date with main, re-run the
+checks and mark it ready for you to merge.
+```
+
+If a check failed, the cold review did not complete, or a BLOCKER is unresolved, put it first under **Needs your eye** and replace the last paragraph with: "Do not merge yet: <the problem>. Tell me how you want to handle it."
+
+When the developer replies, continue with `finish-plan` in this session.

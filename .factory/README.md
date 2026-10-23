@@ -37,7 +37,7 @@ idea / bug / spec gap / follow-up ──► file-work ──► docs/intake/
                                 │
                        start-plan                           (orchestrator: cuts waves, one Orca worktree + OpenCode worker per plan)
                                 │
-   build-plan ──► draft PR ──► finish-plan ──► ready ──► land (plan merged, roadmap ticked, changelog) ──► merge
+   build-plan ──► land (plan merged, roadmap ticked, changelog) ──► draft PR + TL;DR ──► finish-plan (feedback) ──► ready ──► merge
         └── review-branch (cold review, always a fresh sub-agent)
 ```
 
@@ -47,9 +47,9 @@ idea / bug / spec gap / follow-up ──► file-work ──► docs/intake/
 | `prioritise-roadmap` | "What's next" | Roadmap order, new lines, a decision on each intake note and open question raised | The person running it |
 | `plan-feature` | A roadmap line with no plan | One plan per pull request, linked by `needs`, added to the roadmap | A person approves the plans |
 | `start-plan` | On `main`: "start the next plan", "keep going" | Waves of plans whose `owns` do not collide, one Orca worktree and OpenCode worker per plan running `build-plan`, and worktree removal for merged plans on the next run | A person confirms each wave |
-| `build-plan` | A picked plan, on a feature branch (usually as the worker in its worktree) | Branch rename, claim, tasks by sub-agents, `npm run verify`, a `review-branch` sub-agent and its fixes, proof, a draft PR | Nobody: it stops at draft |
+| `build-plan` | A picked plan, on a feature branch (usually as the worker in its worktree) | Branch rename, claim, tasks by sub-agents, `npm run verify`, a `review-branch` sub-agent and its fixes, proof, the landing commit, a merge-safe draft PR and a TL;DR handoff | Nobody: it stops at draft |
 | `review-branch` | A branch, a base and a goal, in a fresh sub-agent | A graded findings report and a verdict; it never edits | The calling workflow triages each finding |
-| `finish-plan` | The draft PR | Feedback applied, PR ready, review comments answered, a landing commit that marks the plan merged, ticks the roadmap and writes the changelog | **The developer** says done; a person merges |
+| `finish-plan` | The draft PR and its TL;DR | Feedback applied, landing and TL;DR kept current, branch merged with `main`, PR ready, review comments answered | **The developer** says done; a person merges |
 
 People keep five decisions: what is next, the plan, each wave, "done", and the merge.
 
@@ -75,7 +75,7 @@ People keep five decisions: what is next, the plan, each wave, "done", and the m
 
 A plan is claimed by its draft pull request. The body's first line, `**Plan:** docs/plans/<plan>.md`, is what `next.mjs` reads through `gh`, so a claim is visible the moment the draft opens. The plan's `status: building` and `pr:` follow on the branch.
 
-`build-plan` builds on whatever feature branch it runs on; it never builds on `main`. A second plan built on the same branch joins its open pull request: the `Plan:` line lists both, and `finish-plan` lands both. Say *stack it* to give the new plan its own branch and pull request instead.
+`build-plan` builds on whatever feature branch it runs on; it never builds on `main`. A second plan built on the same branch joins its open pull request: the `Plan:` line lists both, and `build-plan` lands both. Say *stack it* to give the new plan its own branch and pull request instead.
 
 ## Workers
 
@@ -86,4 +86,4 @@ A plan is claimed by its draft pull request. The body's first line, `**Plan:** d
 - **Sub-agents.** The worker stays thin and dispatches every task, fix and review to the `agent-coding` sub-agent that `opencode.json` defines, on a cheaper coding model. The heavy build context ends with each sub-agent.
 - **Clean up.** The orchestrator does not watch the pull requests. It stops once the workers are started. On its next run it reads origin with `gh`, removes the worktree of each merged plan with `orca worktree rm`, and cuts the next wave.
 
-The landing bookkeeping stays on the branch: `finish-plan` writes it in the last commit before the merge, so the orchestrator writes nothing on `main`.
+The landing bookkeeping stays on the branch: `build-plan` writes it before the handoff, and `finish-plan` keeps it current, so the branch is safe to merge the moment the developer is happy and the orchestrator writes nothing on `main`. A developer who reviews and merges without saying a word still leaves `main` correct.
