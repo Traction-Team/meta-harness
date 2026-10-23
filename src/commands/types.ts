@@ -21,7 +21,10 @@ export interface CommandContext {
   cwd: string;
   /** Arguments after the command name that are not options. */
   positionals: readonly string[];
-  /** Options declared by the command, parsed with `node:util` `parseArgs`. */
+  /**
+   * Options declared by the command, plus the global `json` and `help` flags, parsed with
+   * `node:util` `parseArgs`.
+   */
   options: Readonly<Record<string, CommandOptionValue | undefined>>;
   /** Injected input and output; production uses the process streams. */
   io: CommandIO;

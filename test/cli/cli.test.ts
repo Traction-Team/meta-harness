@@ -137,6 +137,16 @@ describe("command arguments", () => {
     expect(result.code).toBe(ExitCode.Ok);
     expect(JSON.parse(result.stdout)).toEqual({ positionals: ["x"], options: { force: true } });
   });
+
+  test("does not strip a global flag used as an option value after the command", async () => {
+    const result = await runCli(["create", "my-skill", "--description", "--json"], {
+      cwd: repo.root,
+      tty: false,
+      commands: [capturing],
+    });
+    expect(result.code).toBe(ExitCode.Ok);
+    expect(JSON.parse(result.stdout)).toEqual({ positionals: ["my-skill"], options: { description: "--json" } });
+  });
 });
 
 describe("NeedsInput", () => {

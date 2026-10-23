@@ -23,7 +23,7 @@ import { pipelineRemoveCommand } from "./commands/pipeline-remove.js";
 import { publishCommand } from "./commands/publish.js";
 import { renameCommand } from "./commands/rename.js";
 import { updateCommand } from "./commands/update.js";
-import type { CommandDefinition, CommandOptionValue } from "./commands/types.js";
+import type { CommandDefinition, CommandOptionValue, CommandOptions } from "./commands/types.js";
 
 export const COMMANDS: readonly CommandDefinition[] = [
   initCommand,
@@ -61,16 +61,20 @@ interface GlobalFlags {
 const GLOBAL_FLAGS = new Set(["--json", "--json=true", "--help", "-h", "--version"]);
 
 function splitGlobalFlags(argv: readonly string[]): GlobalFlags {
-  const rest: string[] = [];
-  for (const token of argv) {
-    if (!GLOBAL_FLAGS.has(token)) rest.push(token);
+  let json = false;
+  let help = false;
+  let version = false;
+  let index = 0;
+
+  while (index < argv.length && GLOBAL_FLAGS.has(argv[index]!)) {
+    const token = argv[index]!;
+    if (token === "--json" || token === "--json=true") json = true;
+    else if (token === "--version") version = true;
+    else help = true;
+    index += 1;
   }
-  return {
-    json: argv.includes("--json") || argv.includes("--json=true"),
-    help: argv.includes("--help") || argv.includes("-h"),
-    version: argv.includes("--version"),
-    rest,
-  };
+
+  return { json, help, version, rest: argv.slice(index) };
 }
 
 function packageVersion(): string {
@@ -158,6 +162,22 @@ function findCommand(commands: readonly CommandDefinition[], name: string): Comm
   return commands.find((command) => command.name === name);
 }
 
+function parseCommandArgs(
+  args: readonly string[],
+  options: CommandOptions,
+): { positionals: string[]; values: Record<string, CommandOptionValue | undefined> } {
+  try {
+    return parseArgs({ args, options, allowPositionals: true, strict: true });
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("argument is ambiguous")) throw error;
+    const relaxed = parseArgs({ args, options, allowPositionals: true, strict: false });
+    for (const key of Object.keys(relaxed.values)) {
+      if (!(key in options)) throw new Error(`Unknown option: --${key}`);
+    }
+    return relaxed;
+  }
+}
+
 export async function main(
   argv: readonly string[],
   io: CliIO = {},
@@ -166,7 +186,7 @@ export async function main(
   const stdout: Write = io.stdout ?? ((text) => process.stdout.write(text));
   const stderr: Write = io.stderr ?? ((text) => process.stderr.write(text));
   const global = splitGlobalFlags(argv);
-  const json = global.json;
+  let json = global.json;
   let commandName = "metafab";
 
   try {
@@ -242,18 +262,29 @@ export async function main(
     }
 
     commandName = definition.name;
+    const options: CommandOptions = {
+      ...definition.options,
+      json: { type: "boolean" },
+      help: { type: "boolean" },
+    };
     let parsed: { positionals: string[]; values: Record<string, CommandOptionValue | undefined> };
     try {
-      parsed = parseArgs({
-        args: tokens.slice(consumed),
-        options: definition.options ?? {},
-        allowPositionals: true,
-        strict: true,
-      });
+      parsed = parseCommandArgs(tokens.slice(consumed), options);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return emit(
         failure(definition.name, message, "Run metafab --help to see the available commands."),
+        json,
+        stdout,
+        stderr,
+      );
+    }
+
+    if (parsed.values.json === true) json = true;
+
+    if (parsed.values.help === true) {
+      return emit(
+        { ok: true, command: "help", exitCode: ExitCode.Ok, summary: helpText(commands) },
         json,
         stdout,
         stderr,
