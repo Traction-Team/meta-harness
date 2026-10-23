@@ -186,6 +186,29 @@ describe("loadFactory", () => {
     }
   });
 
+  test("ignores an indented code block when reading the title", async () => {
+    const source = [
+      "---",
+      "name: demo",
+      "description: Demo skill.",
+      "---",
+      "",
+      "    ```",
+      "",
+      "# Real title",
+      "",
+    ].join("\n");
+    const repo = await makeRepo({ ".factory/skills/demo/SKILL.md": source });
+    try {
+      const factory = await loadFactory(repo.root);
+
+      expect(factory.problems).toEqual([]);
+      expect(factory.skills[0]?.title).toBe("Real title");
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
   test("preserves unknown frontmatter fields", async () => {
     const source = `---
 name: demo

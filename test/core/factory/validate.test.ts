@@ -109,6 +109,13 @@ describe("pipeline entries", () => {
 });
 
 describe("format", () => {
+  test.each(["1", "01", "+1", "0x1", "0o1"])("accepts the YAML 1.2 integer literal %s", (literal) => {
+    const result = parse(`format: ${literal}\nname: mark4\n`);
+
+    expect(result.problems).toEqual([]);
+    expect(result.yaml?.format).toBe(1);
+  });
+
   test.each(["1.0", "1.00", "1e0"])("rejects the non-integer literal %s", (literal) => {
     const result = parse(`format: ${literal}\nname: mark4\n`);
 
@@ -126,6 +133,20 @@ describe("format", () => {
 });
 
 describe("factory.yaml keys", () => {
+  test("reports a non-string pipeline option key", () => {
+    const result = parse("format: 1\nname: mark4\npipeline:\n  - build-slice: { 1: x }\n");
+
+    expect(result.problems).toEqual([
+      {
+        level: "error",
+        file: FILE,
+        line: 4,
+        message: "Pipeline option names must be strings",
+        fix: 'Remove the option or use the "stop" option',
+      },
+    ]);
+  });
+
   test("reports a non-string top-level key", () => {
     const result = parse("? [a]\n: b\nformat: 1\nname: mark4\n");
 

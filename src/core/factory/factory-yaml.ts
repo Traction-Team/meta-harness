@@ -116,8 +116,17 @@ function parsePipelineEntry(
 
   for (const option of options.items as Pair<unknown, unknown>[]) {
     const key = scalarString(option.key);
-    if (key === undefined) continue;
     const optionLine = parsed.lineOf(option.key);
+    if (key === undefined) {
+      problems.push({
+        level: "error",
+        file,
+        line: optionLine,
+        message: "Pipeline option names must be strings",
+        fix: 'Remove the option or use the "stop" option',
+      });
+      continue;
+    }
 
     if (key === "stop") {
       const value = option.value;

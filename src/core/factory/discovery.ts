@@ -19,8 +19,7 @@ function firstHeading(body: string): string | undefined {
   let fence: { marker: string; length: number } | undefined;
 
   for (const line of body.split("\n")) {
-    const trimmed = line.trimStart();
-    const fenceMatch = /^(`{3,}|~{3,})/.exec(trimmed);
+    const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(line);
     if (fenceMatch !== null) {
       const marker = fenceMatch[1]!;
       if (fence === undefined) {

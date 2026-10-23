@@ -11,6 +11,7 @@ export const RESERVED_PIPELINE_OPTIONS = ["stage", "find", "where"] as const;
 const MAX_SKILL_NAME_LENGTH = 64;
 const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const FACTORY_NAME_PATTERN = /^[a-z0-9-]+$/;
+const YAML_INTEGER_PATTERN = /^(?:[-+]?[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+)$/;
 const RESERVED_PREFIX = "metafab";
 
 export function skillFile(skill: Skill): string {
@@ -183,12 +184,8 @@ export interface FactoryField {
 
 export function isFormatOne(field: FactoryField): boolean {
   if (field.node === undefined) return field.value === 1;
-  return (
-    isScalar(field.node) &&
-    field.node.type === "PLAIN" &&
-    field.node.source === "1" &&
-    field.node.value === 1
-  );
+  if (!isScalar(field.node) || field.node.type !== "PLAIN" || field.node.value !== 1) return false;
+  return typeof field.node.source === "string" && YAML_INTEGER_PATTERN.test(field.node.source);
 }
 
 export function rule7FactoryYaml(
