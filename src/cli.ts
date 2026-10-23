@@ -77,6 +77,10 @@ function splitGlobalFlags(argv: readonly string[]): GlobalFlags {
   return { json, help, version, rest: argv.slice(index) };
 }
 
+function hasJsonFlag(argv: readonly string[]): boolean {
+  return argv.some((token) => token === "--json" || token === "--json=true");
+}
+
 function packageVersion(): string {
   const require = createRequire(import.meta.url);
   const pkg = require("../package.json") as { version?: unknown };
@@ -187,6 +191,7 @@ export async function main(
   const stderr: Write = io.stderr ?? ((text) => process.stderr.write(text));
   const global = splitGlobalFlags(argv);
   let json = global.json;
+  const failureJson = json || hasJsonFlag(argv);
   let commandName = "metafab";
 
   try {
@@ -226,14 +231,14 @@ export async function main(
 
     if (first === "pipeline") {
       const second = tokens[1];
-      if (second === undefined) {
+      if (second === undefined || second === "--json" || second === "--json=true") {
         return emit(
           failure(
             "pipeline",
             "The pipeline command requires a subcommand.",
             'Use "metafab pipeline add" or "metafab pipeline remove".',
           ),
-          json,
+          failureJson,
           stdout,
           stderr,
         );
@@ -255,7 +260,7 @@ export async function main(
           suggestion ?? "Run metafab --help to see the available commands.",
           { command: requested, suggestion },
         ),
-        json,
+        failureJson,
         stdout,
         stderr,
       );
@@ -274,7 +279,7 @@ export async function main(
       const message = error instanceof Error ? error.message : String(error);
       return emit(
         failure(definition.name, message, "Run metafab --help to see the available commands."),
-        json,
+        failureJson,
         stdout,
         stderr,
       );

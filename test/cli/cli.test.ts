@@ -73,6 +73,30 @@ describe("json output", () => {
     expect(() => JSON.parse(result.stdout)).not.toThrow();
     expect(result.stderr).toBe("");
   });
+
+  test("renders an unknown command as one object when --json follows it", async () => {
+    const result = await runCli(["chek", "--json"], { cwd: repo.root, tty: false });
+    expect(result.code).toBe(ExitCode.Failed);
+    const parsed = JSON.parse(result.stdout) as { ok: boolean };
+    expect(parsed.ok).toBe(false);
+    expect(result.stderr).toBe("");
+  });
+
+  test("renders a command parse failure as one object when --json follows the command", async () => {
+    const result = await runCli(["check", "--json", "--bogus"], { cwd: repo.root, tty: false });
+    expect(result.code).toBe(ExitCode.Failed);
+    const parsed = JSON.parse(result.stdout) as { ok: boolean };
+    expect(parsed.ok).toBe(false);
+    expect(result.stderr).toBe("");
+  });
+
+  test("renders a missing pipeline subcommand as one object when --json follows it", async () => {
+    const result = await runCli(["pipeline", "--json"], { cwd: repo.root, tty: false });
+    expect(result.code).toBe(ExitCode.Failed);
+    const parsed = JSON.parse(result.stdout) as { ok: boolean };
+    expect(parsed.ok).toBe(false);
+    expect(result.stderr).toBe("");
+  });
 });
 
 describe("unknown command", () => {
