@@ -1,6 +1,7 @@
 import { chmod, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { describe, expect, test } from "vitest";
-import { compareTrees, copyTree, isDirectory, listFiles, pathExists } from "../../src/util/fs.js";
+import { compareTrees, copyTree, isDirectory, listFiles, pathExists, toPosixPath } from "../../src/util/fs.js";
 import { makeRepo } from "../helpers/makeRepo.js";
 
 describe("listFiles", () => {
@@ -13,6 +14,20 @@ describe("listFiles", () => {
 
     try {
       expect(await listFiles(repo.root)).toEqual(["a/deep/two.txt", "a/one.txt", "b.txt"]);
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
+  test("emits forward slashes for nested paths", async () => {
+    const repo = await makeRepo({
+      "packages/a/src/deep/file.txt": "content",
+    });
+
+    try {
+      const files = await listFiles(repo.root);
+      expect(files).toEqual(["packages/a/src/deep/file.txt"]);
+      for (const file of files) expect(file).not.toContain("\\");
     } finally {
       await repo.cleanup();
     }
@@ -36,6 +51,11 @@ describe("listFiles", () => {
 });
 
 describe("path helpers", () => {
+  test("converts platform separators to forward slashes", () => {
+    expect(toPosixPath(path.join("packages", "a", "deep", "file.txt"))).toBe("packages/a/deep/file.txt");
+    expect(toPosixPath(path.join("a", "b"))).not.toContain("\\");
+  });
+
   test("report missing and existing paths", async () => {
     const repo = await makeRepo({ "dir/file.txt": "content" });
 

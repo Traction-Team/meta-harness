@@ -9,6 +9,7 @@ owns:
   - package-lock.json
   - tsconfig.json
   - vitest.config.ts
+  - .gitignore
   - .github/workflows/**
   - src/cli.ts
   - src/output.ts
@@ -129,13 +130,13 @@ A missing factory throws a `MetafabError` with exit 1 and fix `Run metafab init`
 
 - [x] Create `package.json`, `tsconfig.json`, `vitest.config.ts`, and a `files` list of `dist`, `resources`, `README.md`
 - [x] Add npm scripts `typecheck`, `test`, `build`, and `verify` (all three in order). The factory workflows run `npm run verify` as the gate for every pull request
-- [ ] Add `src/cli.ts` with `--help`, `--version`, `--json`, and an unknown-command error with a suggestion
+- [x] Add `src/cli.ts` with `--help`, `--version`, `--json`, and an unknown-command error with a suggestion
 - [x] Add `errors.ts`, `output.ts`, `input.ts` as designed above
 - [x] Add `findFactory` and `resolveNewFactoryRoot`
 - [x] Add the shared utilities
-- [ ] Add stub modules for every v1 command that return "not implemented" (exit 1), so the help text is complete from the start
-- [ ] Add test helpers: `makeRepo(files)` creates a temporary directory (optionally `git init`), and `runCli(argv, { cwd, tty })` runs the CLI in-process and captures stdout, stderr, and the exit code
-- [ ] Add one spawned end-to-end test that runs `dist/cli.js` to cover the `bin` entry
+- [x] Add stub modules for every v1 command that return "not implemented" (exit 1), so the help text is complete from the start
+- [x] Add test helpers: `makeRepo(files)` creates a temporary directory (optionally `git init`), and `runCli(argv, { cwd, tty })` runs the CLI in-process and captures stdout, stderr, and the exit code
+- [x] Add one spawned end-to-end test that runs `dist/cli.js` to cover the `bin` entry
 - [x] Add CI: Node 20 and 22 on Linux, macOS, and Windows running `npm run verify`, plus `node .factory/scripts/check.mjs` once
 
 ## Tests
