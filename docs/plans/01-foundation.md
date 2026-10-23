@@ -2,7 +2,7 @@
 title: "chore: scaffold the metafab cli package and command runner"
 status: building
 kind: chore
-pr:
+pr: 1
 needs: []
 owns:
   - package.json
