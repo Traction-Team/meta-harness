@@ -64,7 +64,10 @@ The CLI creates files but does not provide an interactive editor. A person or ag
 - `.factory/factory.yaml`
 - `.factory/AGENTS.md`
 - `.factory/metafab.yaml`
+- The Metafab block in the root `.gitignore` (see [Ignored build output](building.md#ignored-build-output))
 - The Metafab lines in the root `.gitattributes` (see [Line endings](building.md#line-endings))
+
+For a new `factory.yaml`, `init` writes `format: 1` and derives `name` from the directory that will contain `.factory/`. It lowercases the directory name, replaces each run of characters other than ASCII letters and digits with one hyphen, and removes leading and trailing hyphens. It uses `factory` when this produces an empty name. A new `.factory/AGENTS.md` is empty.
 
 `init` writes `agents` to a new `metafab.yaml`. It uses `--agents` when present. Otherwise it asks in a terminal, or selects `all` without one.
 
@@ -72,20 +75,45 @@ The CLI creates files but does not provide an interactive editor. A person or ag
 
 An existing factory remains intact. `init` adds only missing entries.
 
+### Adopt existing skills
+
+Before changing the repository, `init` scans each selected destination. When it finds repository skills that Metafab does not own in `.claude/skills/` or `.agents/skills/`, it asks:
+
+> Metafab manages installed skill directories as generated output. Move existing repository skills into `.factory/skills/` and ignore the generated copies?
+
+`init` collects this consent before creating or changing any file. When accepted, it moves each complete skill directory, including supporting files, into `.factory/skills/<name>/`, then adds the destination to the managed `.gitignore` block and runs `build`.
+
+Migration follows these rules:
+
+1. Identical skills found in both destinations are moved once.
+2. Different skills with the same name stop migration and are listed for manual resolution.
+3. A skill that conflicts with an existing factory skill stops migration and is listed for manual resolution.
+4. Files or directories in a skill destination that are not part of a valid skill stop migration and are listed for manual resolution.
+5. Declining the migration leaves the repository unchanged.
+6. When standard input is not a terminal, required migration consent produces exit code 2 and a machine-readable description of the decision.
+
+Metafab does not stage the moved, deleted, or generated files. Git shows the migration for review.
+
+Run `metafab init` again to adopt a skill added directly to a managed destination later. `build` does not prompt or adopt files.
+
 ### Edit a factory
 
 | Command | Behaviour |
 | --- | --- |
-| `metafab create <path> [--description D] [--uses <list>]` | Creates `.factory/<path>/SKILL.md` with valid frontmatter. The last path segment is the skill name |
-| `metafab rename <old> <new>` | Renames a skill. It moves the directory and updates `name`, every `uses` list, and the pipeline |
+| `metafab create <path> [--description D]` | Creates `.factory/<path>/SKILL.md` with valid frontmatter. The last path segment is the skill name |
+| `metafab rename <old> <new>` | Renames a skill. It moves the directory and updates `name` and the pipeline |
 | `metafab pipeline add <workflow> [--after <workflow>] [--stop S]` | Adds an existing workflow to the pipeline, at the end or after `--after` |
 | `metafab pipeline remove <workflow>` | Removes a workflow from the pipeline. The workflow file does not change |
 
 The path places the skill. For example, `metafab create workflows/review-slice` creates a workflow, and `metafab create review/security` creates a skill in the `review` group.
 
+`create` requires a non-empty description. It uses `--description` when present, asks for the description when standard input is a terminal, and exits with code 2 without changing files when neither source is available. The generated file contains `name` and `description` frontmatter, followed by a heading made from the skill name and an empty body.
+
+Before writing, `create` validates the resulting name. It refuses a path inside an existing skill directory or a path that would contain an existing skill directory.
+
 `create` stops when the name is not unique in the factory. It prints the new path and does not run `build`.
 
-Metafab does not create templates, scripts, or other files. Create them directly. Edit frontmatter such as `bundle` directly.
+Metafab does not create templates, scripts, or other files. Create them directly.
 
 ### Inspect a factory
 
@@ -94,7 +122,6 @@ Metafab does not create templates, scripts, or other files. Create them directly
 - The pipeline with its stops
 - The standalone workflows
 - Every skill, grouped by directory
-- The `uses` tree of each workflow
 
 With `--json`, `map` also includes each skill's path and frontmatter.
 
@@ -116,7 +143,7 @@ Each problem includes a path, line number, and suggested fix. Errors return exit
 
 | Command | Behaviour |
 | --- | --- |
-| `metafab import <source> [--agents <list>] [--force]` | Copies a fab into `.factory/`, records it as the upstream, builds it, and prints a review summary. Runs `init` first when the repository has no factory |
+| `metafab import <source> [--agents <list>] [--force]` | Copies a fab into `.factory/`, records it as the upstream, adopts existing repository skills when required, builds it, and prints a review summary. In a repository without a factory, it creates local configuration without creating source placeholders |
 | `metafab update [--to <version\|range\|ref>] [--dry-run] [--no-build]` | Merges a newer upstream version into `.factory/`, or overwrites from an unversioned source. The source comes from the `upstream` key in `metafab.yaml` |
 | `metafab diff [<path>]` | Shows local edits since the recorded upstream version |
 | `metafab detach` | Removes upstream metadata without changing factory files |
@@ -143,10 +170,10 @@ Example failed check:
   "problems": [
     {
       "level": "error",
-      "file": ".factory/workflows/review-slice/SKILL.md",
-      "line": 4,
-      "message": "uses names skill 'git-convention', which does not exist",
-      "fix": "Did you mean git-conventions? You can also create it with metafab create skills/git-convention."
+      "file": ".factory/factory.yaml",
+      "line": 8,
+      "message": "pipeline names workflow 'review-slices', which does not exist",
+      "fix": "Did you mean review-slice?"
     }
   ]
 }

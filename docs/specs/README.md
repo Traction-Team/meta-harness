@@ -9,7 +9,9 @@ Version 1 has four responsibilities:
 3. Validate the factory and its installed files.
 4. Share the factory as a fab, published to npm or a Git repository.
 
-The design comes from [Mark IV](../mk4/), but v1 excludes its monitoring and runtime features.
+Version 1 installs files in the locations supported agent tools read. It does not run workflows, invoke an agent tool, or verify how an agent behaves after loading those files. Runtime execution and monitoring are outside the version 1 product boundary.
+
+The design comes from [Mark IV](../../mk4/), but v1 excludes its monitoring and runtime features.
 
 ## Specifications
 
@@ -28,7 +30,7 @@ Metafab uses three layers.
 | Layer | Definition | Owner |
 | --- | --- | --- |
 | Agent formats | `AGENTS.md` for standing instructions and `<name>/SKILL.md` for Agent Skills | Existing open formats and agent tools |
-| Factory format | An organised `.factory/` directory of skills, with a pipeline and skill dependencies | This specification |
+| Factory format | An organised `.factory/` directory of skills, with a pipeline | This specification |
 | Metafab | A CLI that creates, validates, installs, and shares factories | The Metafab project |
 
 A team can use the factory format without the Metafab CLI. Every `SKILL.md` in `.factory/` remains a standard Agent Skill.
@@ -39,13 +41,12 @@ Metafab installs factory parts as follows:
 | --- | --- |
 | Workflow | Agent Skill |
 | Skill | Agent Skill |
-| Skill dependencies (`uses`) | Compiled into each installed skill, as a reference or inline |
 | Standing instructions | Text in the generated factory block in `AGENTS.md` |
 | Pipeline (`factory.yaml`) | Ordered workflow list in the generated factory block in `AGENTS.md` |
 | Template | Not installed. Workflows use its repository path |
 | Script | Not installed. Workflows use its repository path |
 
-`metafab build` compiles `.factory/` like source code. The installed skills are build output: plain Agent Skills with dependencies resolved and factory-only fields removed. A team can therefore use a factory as a skill bundler, even if it never publishes a fab.
+`metafab build` compiles `.factory/` like source code. The installed skills are generated copies of the source Agent Skills.
 
 ## Terminology
 
@@ -69,6 +70,8 @@ Version 1 supports this workflow:
 
 Metafab does not stage, commit, or push changes in the project repository. A person reviews and commits every factory change. Only `publish` pushes, and only to a configured fab repository.
 
+Installed skill copies are ignored build output. After cloning a repository, run `metafab build` before using its factory with an agent tool.
+
 ## Deferred features
 
 Version 1 does not include these Mark IV features:
@@ -78,13 +81,13 @@ Version 1 does not include these Mark IV features:
 - Stages and decisions. The pipeline lists workflows, and `stop` marks where a person decides
 - Stage queries with `find` and `where`
 - `metafab work`
+- Workflow execution or agent invocation
+- Runtime verification of agent behaviour
 - Run records and `metafab run`
 - Score records and `metafab score`
 - History links and the Git ledger
 - The monitor application
 - Fab Cloud
-
-Version 1 also excludes skill dependencies on other fabs. `uses` names only skills in the same factory.
 
 The format reserves `scorers/`, `rules/`, and `runtimes/`, and the pipeline options `stage`, `find`, and `where`. Future versions can add these features without changing existing factories.
 
@@ -95,7 +98,7 @@ Create a factory from a published fab:
 ```sh
 cd my-repo
 npx @seasb/metafab import @seasb/fab-mark4 --agents claude,codex
-git add .factory AGENTS.md .claude .agents
+git add .factory AGENTS.md .gitignore .gitattributes
 git commit -m "Add the mark4 factory"
 ```
 
@@ -113,7 +116,6 @@ git commit -am "Update the mark4 factory to 1.3.0"
 ## Open questions
 
 - How do Cursor and Copilot behave when they find the same skill in `.agents/skills/` and `.claude/skills/`? Their documentation does not say. Test both. See [Duplicate skills](building.md#duplicate-skills).
-- Do agents reliably read the files listed in a `reference` section before they start? Test this in each target. If not, more skills need `inline`.
-- Is `reference` the right default for `bundle`, or do most small skills want `inline`?
 - Do teams need more than one upstream fab, such as a base fab plus a shared skill fab?
 - Do pipelines need branches, such as a bug path and a feature path?
+- Which commands must be transactional? In particular, should `build` and `import` preflight every write, and how should `publish` report and recover when one target succeeds and another fails?

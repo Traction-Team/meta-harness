@@ -17,13 +17,11 @@ Each skill must follow the Agent Skills format:
 - The directory name is `<name>`.
 - `SKILL.md` contains `name` and `description` frontmatter.
 - Supporting files can live beside `SKILL.md`.
+- A skill directory cannot contain another directory with a `SKILL.md`. Skills cannot be nested inside other skills.
 
 The directory structure classifies skills by purpose. It does not change how agent tools load them.
 
-A factory adds two things to plain Agent Skills:
-
-1. **A pipeline.** `factory.yaml` lists the workflows in the order that work moves through them.
-2. **Skill dependencies.** A skill can name the other skills it `uses`. Metafab includes them when it installs the skill.
+A factory adds a pipeline to plain Agent Skills. `factory.yaml` lists the workflows in the order that work moves through them.
 
 ## Directory layout
 
@@ -52,7 +50,6 @@ A workflow is a skill that performs one step of the work, such as filing a bug, 
 ---
 name: review-slice
 description: Review a slice PR against its plan. Use when a slice PR is ready for review.
-uses: [git-conventions, testing]
 ---
 
 # Review slice
@@ -63,17 +60,17 @@ uses: [git-conventions, testing]
 4. Stop and ask the code owner to approve the PR.
 ```
 
-A workflow is a standard Agent Skill. Its only factory field is the optional `uses` field, which any skill can have (see [Skill dependencies](#skill-dependencies)).
+A workflow is a standard Agent Skill. It has no factory-specific frontmatter.
 
 The order of workflows belongs in the [pipeline](#pipeline), not in workflow files. A workflow file describes one step and does not name the steps before or after it.
 
-Workflows install exactly like other skills. Agent tools load every skill's `description` up front, so an agent can select a workflow from a plain request, such as "here is a bug Kat hit". A person can also invoke a workflow by name, such as `/file-work`, in tools that support it. Only workflows can appear in the [pipeline](#pipeline).
+Workflows install exactly like other skills. Their descriptions are written for agent tools that use descriptions for skill discovery, so a request such as "here is a bug Kat hit" can identify the intended workflow. A person can also invoke a workflow by name, such as `/file-work`, in tools that support it. Metafab does not verify either behaviour. Only workflows can appear in the [pipeline](#pipeline).
 
 ### Workflow guidance
 
-1. The `description` must say when to use the workflow. Agents select workflows by description, and no other file lists them.
+1. The `description` must say when to use the workflow. It is the discovery metadata available to agent tools; no other file lists the workflow for discovery.
 2. The final step should say when the agent must stop for a person.
-3. A workflow should describe an operation without naming a specific agent tool. Put tool-specific instructions in a skill that the workflow `uses`.
+3. A workflow should describe an operation without naming a specific agent tool. Put tool-specific instructions in a separate skill and refer to it explicitly.
 4. A workflow must refer to templates and scripts by repository-relative path, such as `.factory/templates/plan.md`.
 
 For example, write "open a new worktree for this slice" in a workflow. Put the tool-specific command in a harness skill.
@@ -82,60 +79,13 @@ For example, write "open a new worktree for this slice" in a workflow. Put the t
 
 `.factory/skills/` contains reusable project knowledge. Examples include test conventions, API architecture, Git conventions, and worktree setup in a specific agent tool.
 
-Agent tools discover skills by description, as with any Agent Skill. A workflow can also include a skill directly with `uses`.
+Descriptions provide discovery metadata as they do for any Agent Skill.
 
 Separate skills from workflows so that `workflows/` remains a clear description of the process.
 
-## Skill dependencies
+## Skill frontmatter
 
-A skill can name other skills in the same factory with `uses`:
-
-```yaml
----
-name: build-slice
-description: Build one slice of an approved plan on its own branch. Use when a person picks a ready slice.
-uses: [git-conventions, our-api, testing]
----
-```
-
-When Metafab installs `build-slice`, it includes `git-conventions`, `our-api`, and `testing`. The agent then has them when it loads `build-slice`, with no reliance on the agent deciding to load them.
-
-The skill that is included chooses how it is included, with `bundle`:
-
-```yaml
----
-name: git-conventions
-description: Branch names, commit titles, and PR rules for this repository.
-bundle: inline
----
-```
-
-| `bundle` | Behaviour |
-| --- | --- |
-| `reference` | The default. The installed skill starts with an instruction to read the included skill's file before it starts |
-| `inline` | The included skill's body is copied into the installed skill |
-
-Use `inline` for short skills that every user needs in full. Use `reference` for long skills, so that the agent reads them only when it runs the skill that uses them.
-
-Dependency rules:
-
-1. `uses` names skills by `name`. The skill's directory does not matter.
-2. `uses` can name only skills in the same factory. Version 1 does not support dependencies on other fabs.
-3. Dependencies are transitive. If `build-slice` uses `our-api` and `our-api` uses `http-client`, `build-slice` includes both.
-4. A skill that is reached more than once is included once.
-5. A skill cannot use itself, directly or through other skills.
-6. An included skill is still installed as its own skill.
-
-[Building](building.md#compiled-skills) defines the exact installed output.
-
-### Factory frontmatter fields
-
-| Field | Applies to | Required | Meaning |
-| --- | --- | --- | --- |
-| `uses` | Any skill | No | List of skill names to include when this skill is installed |
-| `bundle` | Any skill | No | How this skill is included by others: `reference` (default) or `inline` |
-
-All other frontmatter belongs to the Agent Skills format or to agent tools, and Metafab copies it unchanged. Metafab removes `uses` and `bundle` from installed skills, so installed skills contain only standard frontmatter.
+Skill frontmatter belongs to the Agent Skills format or to agent tools. Metafab defines no factory-specific skill frontmatter and copies all fields unchanged.
 
 ## Standing instructions
 
@@ -189,7 +139,7 @@ These fields are required only when `factory.yaml` exists.
 
 ### Pipeline
 
-The pipeline is the order in which work moves through the workflows. When a workflow in the pipeline ends, the agent suggests the next one.
+The pipeline describes the order in which work moves through the workflows. The generated instructions tell an agent to suggest the next workflow when one ends. Metafab does not execute the pipeline or verify that an agent follows it.
 
 Each entry is either:
 
@@ -207,10 +157,28 @@ Pipeline rules:
 
 1. Each entry names a workflow in `.factory/workflows/`.
 2. Each workflow appears in the pipeline at most once.
-3. Workflows that are not in the pipeline are standalone. Agents discover and use them like any other skill.
+3. Workflows that are not in the pipeline are standalone and install like any other skill.
 4. Version 1 pipelines are linear. They have no branches.
 
-Version 1 uses the pipeline only to describe the flow in `AGENTS.md`. It does not locate, track, or start work. Metafab does not enforce `stop`. Agents follow it because `AGENTS.md` and the workflow text tell them to.
+Version 1 uses the pipeline only to describe the flow in `AGENTS.md`. It does not locate, track, or start work. Metafab does not enforce `stop`; it only writes the stop instruction into generated output.
+
+### YAML and frontmatter grammar
+
+Metafab parses YAML as YAML 1.2. YAML documents and skill frontmatter must be mappings and must not contain duplicate mapping keys.
+
+`factory.yaml` accepts only `format`, `name`, `description`, and `pipeline`. Unknown fields are errors. Field values have these types:
+
+- `format` is the integer `1`.
+- `name` is a non-empty string that follows the factory name rule above.
+- `description` is an optional non-empty, single-line string.
+- `pipeline` is an optional list.
+
+A string pipeline entry is a workflow name. A mapping pipeline entry must contain exactly one workflow name whose value is a mapping. In version 1 that option mapping can contain only `stop`, whose value is a non-empty, single-line string. Empty entries, unknown options, and duplicate workflow entries are errors.
+
+Skill frontmatter follows the Agent Skills format and can contain tool-specific fields. Metafab applies these additional type rules:
+
+- `name` and `description` are non-empty strings. `description` is a single-line string.
+Unknown skill frontmatter fields are preserved and are not errors.
 
 ## Validation
 
@@ -218,14 +186,13 @@ A version 1 factory is valid when all the following statements are true:
 
 1. Every `SKILL.md` contains `name` and `description`.
 2. Each skill name matches its directory name.
-3. Every skill name is unique across the complete factory.
-4. Skill names contain only lowercase ASCII letters, digits, and hyphens.
-5. Each `uses` value names an existing skill in the factory.
-6. No skill uses itself, directly or through other skills.
-7. Each `bundle` value is `reference` or `inline`.
-8. `factory.yaml`, when present, contains `format` and `name`.
-9. Each pipeline entry names an existing workflow, and no workflow appears twice.
-10. Pipeline entries use only the `stop` option. Reserved options are errors in version 1.
+3. No skill directory contains another skill directory.
+4. Every skill name is unique across the complete factory.
+5. Skill names contain only lowercase ASCII letters, digits, and hyphens.
+6. YAML, frontmatter, and field values follow the grammar above.
+7. `factory.yaml`, when present, contains `format` and `name`.
+8. Each pipeline entry names an existing workflow, and no workflow appears twice.
+9. Pipeline entries use only the `stop` option. Reserved options are errors in version 1.
 
 `metafab check` reports each error with a file path, line number, and suggested fix.
 

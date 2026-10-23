@@ -4,7 +4,7 @@ A **fab** is a factory packaged for reuse. Version 1 publishes fabs to npm, to a
 
 `metafab import` copies a fab into a repository. The receiving team owns that copy and can edit any file.
 
-`metafab update` merges a newer upstream version with those local edits. A person reviews and commits the result.
+`metafab update` merges a newer versioned upstream with those local edits. Updates from unversioned local paths and HTTPS tarballs replace upstream-owned files instead; see [Updating from an unversioned source](#updating-from-an-unversioned-source). A person reviews and commits the result.
 
 ## Safety model
 
@@ -14,7 +14,7 @@ Sharing follows these rules:
 2. A fab is copied into `.factory/`. It is not loaded from `node_modules` at runtime.
 3. `import` and `update` change only the working tree. They never stage, commit, or push.
 4. `publish` never changes the project repository. A Git publish commits and pushes only to the configured fab repository.
-5. `update` uses a three-way merge to preserve local edits. Git is the review and undo mechanism.
+5. `update` uses a three-way merge for versioned sources. An update from an unversioned source replaces upstream-owned files and can discard edits to them. Git is the review and undo mechanism.
 6. npm and Git act only as transport.
 7. Metafab unpacks packages itself and never runs package scripts.
 
@@ -107,7 +107,7 @@ publish:
 
 [Configuration](configuration.md#publish) defines every `publish` key.
 
-`publish` fails when an excluded skill is still named in a published `uses` list or in the pipeline.
+`publish` fails when an excluded workflow is still named in the pipeline.
 
 ### Steps
 
@@ -159,7 +159,7 @@ Use semantic versions as follows:
 | Add a workflow, skill, template, or script, or change the pipeline | Minor |
 | Change existing text without changing names | Patch |
 
-Renaming a skill is a major change because receiving teams can name it in their own `uses` lists.
+Renaming a skill is a major change because receiving teams can refer to or invoke it by name.
 
 A published version cannot be changed:
 
@@ -217,13 +217,15 @@ The command performs these steps:
 1. Resolve the source to an exact version or revision.
 2. Download the source and verify its integrity when the source provides a hash.
 3. Validate the fab and its factory.
-4. Run `metafab init` when the repository has no `.factory/`. `--agents` passes to `init`.
-5. Copy the factory into `.factory/`, except `metafab.yaml` and `README.md`.
-6. Write the [upstream entry](#upstream-entry) to `metafab.yaml`.
-7. Run `metafab build`.
-8. Print a review summary.
+4. Select the initial targets from `--agents` or with the same target-selection behaviour as `init`. Scan those destinations, compare existing skills with the incoming fab, report conflicts, and collect any consent required by the [existing-skill adoption](cli.md#adopt-existing-skills) rules. Complete this preflight before changing the repository.
+5. When the repository has no `.factory/`, create `.factory/metafab.yaml` and add the Metafab lines to `.gitattributes`. Do not create placeholder `factory.yaml` or `AGENTS.md` files.
+6. Move adopted skills into `.factory/skills/` as local additions and add each selected destination to the managed `.gitignore` block. A migrated skill that overlaps the incoming fab follows the normal conflict rule below.
+7. Copy the factory into `.factory/`, except `metafab.yaml` and `README.md`.
+8. Write the [upstream entry](#upstream-entry) to `metafab.yaml`.
+9. Run `metafab build`.
+10. Print a review summary.
 
-A failure in steps 1 to 3 leaves the repository unchanged.
+A failure in steps 1 to 4 leaves the repository unchanged.
 
 Metafab never copies `metafab.yaml` from a source. A Git source that is a project repository contains one, and it belongs to that project.
 
@@ -256,15 +258,15 @@ The command performs these steps:
 2. Stop without changes when no newer version exists.
 3. Download the base and new upstream versions.
 4. Merge each path into `.factory/`, except `metafab.yaml`.
-5. Update the version in the upstream entry.
-6. Run `metafab build` unless `--no-build` is present.
+5. Update the resolved version and revision fields in the upstream entry, including when the merge has conflicts. The selected new upstream is the base for future updates after those conflicts are resolved.
+6. When the merge has no conflicts, run `metafab build` unless `--no-build` is present. Do not build conflicted source.
 7. Print a review summary.
 
 Downloads use `~/.metafab/cache/`.
 
 `--dry-run` reports planned changes and conflicts without writing files.
 
-An update never creates a commit. Because `update` runs `build`, the installed skills in the working tree change immediately. Review the update before starting agent work in that working tree, or update on a separate branch.
+An update never creates a commit. When `update` runs `build`, the installed skills in the working tree change immediately. A conflicted update does not build, and `--no-build` skips it. Review the update before starting agent work in that working tree, or update on a separate branch.
 
 ### Merge rules
 
@@ -296,9 +298,11 @@ After a conflicted update, `metafab check` fails while either condition remains:
 - A file contains conflict markers.
 - A `.upstream` file exists.
 
+`metafab update` refuses to start while either condition remains. Resolve every marker and `.upstream` file, run `metafab build`, and then run `metafab check` before updating again. This prevents a second update from treating unresolved merge output as local edits against the newly recorded base.
+
 ### Updating from an unversioned source
 
-For an HTTPS tarball or a local path, `update` does not merge:
+For an HTTPS tarball or a local path, `update` does not merge. This operation is intentionally destructive for files that also exist in the source:
 
 1. Download or read the current source.
 2. Copy every source file into `.factory/`, replacing the local file. Files that exist only locally are kept.
@@ -329,13 +333,13 @@ Workflows
   M workflows/review-slice/SKILL.md        +9 -4    allowed-tools changed
 
 Skills
-  M skills/git-conventions/SKILL.md        +3 -1    inline in: build-slice, review-slice, finish-slice
+  M skills/git-conventions/SKILL.md        +3 -1
 
 Local edits preserved
   workflows/build-slice/SKILL.md
 
 Conflicts: 1
-  C workflows/plan-feature/SKILL.md        Resolve markers, then run metafab check
+  C workflows/plan-feature/SKILL.md        Resolve markers, then run metafab build and metafab check
 
 Nothing was committed. Review the changes with git diff.
 ```
@@ -352,8 +356,6 @@ The summary uses this order:
 The summary also calls out:
 
 - Changes to a skill's `allowed-tools` field
-- Changes to `uses` lists
-- The skills that include a changed skill, because one change to an inlined skill changes each of them
 
 `--json` returns the same information as structured data.
 
