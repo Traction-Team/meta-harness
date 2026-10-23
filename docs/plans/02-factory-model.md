@@ -2,7 +2,7 @@
 title: "feat: load and validate the factory format"
 status: building
 kind: feature
-pr:
+pr: 3
 needs:
   - docs/plans/01-foundation.md
 owns:
