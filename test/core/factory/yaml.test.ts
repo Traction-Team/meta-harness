@@ -38,7 +38,9 @@ describe("parseYaml", () => {
   test("rejects duplicate keys and reports the duplicate line", () => {
     const result = rejected(parseYaml("name: one\nname: two\n"));
 
-    expect(result.problems).toEqual([{ message: "Map keys must be unique", line: 2 }]);
+    expect(result.problems).toEqual([
+      { message: "Map keys must be unique", line: 2, fix: "Fix the YAML syntax on this line" },
+    ]);
   });
 
   test("rejects a top-level sequence", () => {

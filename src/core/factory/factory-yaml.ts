@@ -6,6 +6,7 @@ import { parseYaml } from "../../util/yaml.js";
 import type { YamlDocument } from "../../util/yaml.js";
 import type { FactoryYaml, PipelineEntry } from "./types.js";
 import {
+  isFormatOne,
   KNOWN_FACTORY_FIELDS,
   rule6FactoryDescription,
   rule6FactoryName,
@@ -17,6 +18,7 @@ import {
 
 export interface FactoryYamlParseResult {
   yaml?: FactoryYaml;
+  pipeline?: PipelineEntry[];
   problems: Problem[];
 }
 
@@ -166,7 +168,16 @@ export function parseFactoryYaml(text: string, file: string): FactoryYamlParseRe
   if (isMap(contents)) {
     for (const pair of contents.items as Pair<unknown, unknown>[]) {
       const key = scalarString(pair.key);
-      if (key === undefined) continue;
+      if (key === undefined) {
+        problems.push({
+          level: "error",
+          file,
+          line: parsed.lineOf(pair.key),
+          message: "factory.yaml field names must be strings",
+          fix: "Use a string field name",
+        });
+        continue;
+      }
       if (!isKnownField(key)) {
         problems.push(...rule6UnknownFactoryField(file, key, parsed.lineOf(pair.key)));
       } else if (!pairs.has(key)) {
@@ -192,7 +203,9 @@ export function parseFactoryYaml(text: string, file: string): FactoryYamlParseRe
 
   problems.push(
     ...rule7FactoryYaml(file, {
-      ...(formatField === undefined ? {} : { format: { value: formatField.value, line: formatField.line } }),
+      ...(formatField === undefined
+        ? {}
+        : { format: { value: formatField.value, line: formatField.line, node: formatField.node } }),
       ...(nameField === undefined ? {} : { name: { value: nameField.value, line: nameField.line } }),
     }),
   );
@@ -233,7 +246,7 @@ export function parseFactoryYaml(text: string, file: string): FactoryYamlParseRe
   }
 
   const yaml: FactoryYaml | undefined =
-    formatField?.value === 1 && name !== undefined
+    formatField !== undefined && isFormatOne(formatField) && name !== undefined
       ? {
           format: 1,
           name,
@@ -243,5 +256,5 @@ export function parseFactoryYaml(text: string, file: string): FactoryYamlParseRe
         }
       : undefined;
 
-  return { yaml, problems };
+  return { yaml, pipeline, problems };
 }

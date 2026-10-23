@@ -108,6 +108,70 @@ describe("pipeline entries", () => {
   });
 });
 
+describe("format", () => {
+  test.each(["1.0", "1.00", "1e0"])("rejects the non-integer literal %s", (literal) => {
+    const result = parse(`format: ${literal}\nname: mark4\n`);
+
+    expect(result.yaml).toBeUndefined();
+    expect(result.problems).toEqual([
+      {
+        level: "error",
+        file: FILE,
+        line: 1,
+        message: '"format" must be the integer 1',
+        fix: "Set format to 1",
+      },
+    ]);
+  });
+});
+
+describe("factory.yaml keys", () => {
+  test("reports a non-string top-level key", () => {
+    const result = parse("? [a]\n: b\nformat: 1\nname: mark4\n");
+
+    expect(result.problems).toEqual([
+      {
+        level: "error",
+        file: FILE,
+        line: 1,
+        message: "factory.yaml field names must be strings",
+        fix: "Use a string field name",
+      },
+    ]);
+    expect(result.yaml?.name).toBe("mark4");
+  });
+});
+
+describe("fallback fixes", () => {
+  test("reports an unknown field without a suggestion", () => {
+    const result = parse("format: 1\nname: mark4\nzzz: 1\n");
+
+    expect(result.problems).toEqual([
+      {
+        level: "error",
+        file: FILE,
+        line: 3,
+        message: 'Unknown field "zzz" in factory.yaml',
+        fix: "Remove the field or use a known name: format, name, description, pipeline",
+      },
+    ]);
+  });
+
+  test("reports an unknown pipeline option without a suggestion", () => {
+    const result = parse("format: 1\nname: mark4\npipeline:\n  - review-slice: { zzz: 1 }\n");
+
+    expect(result.problems).toEqual([
+      {
+        level: "error",
+        file: FILE,
+        line: 4,
+        message: 'Unknown pipeline option "zzz"',
+        fix: 'Remove the option or use the "stop" option',
+      },
+    ]);
+  });
+});
+
 describe("rule 5", () => {
   test.each(["valid-name", "a", "a1-b2", "a".repeat(64)])("accepts %s", (name) => {
     expect(rule5NameFormat(skill(name))).toEqual([]);

@@ -94,6 +94,35 @@ describe("loadFactory", () => {
     }
   });
 
+  test("reports pipeline problems even when factory.yaml is invalid", async () => {
+    const repo = await makeRepo({
+      ".factory/factory.yaml": "format: 2\nname: mark4\npipeline:\n  - nope\n",
+    });
+    try {
+      const factory = await loadFactory(repo.root);
+
+      expect(factory.factoryYaml).toBeUndefined();
+      expect(factory.problems).toEqual([
+        {
+          level: "error",
+          file: ".factory/factory.yaml",
+          line: 1,
+          message: '"format" must be the integer 1',
+          fix: "Set format to 1",
+        },
+        {
+          level: "error",
+          file: ".factory/factory.yaml",
+          line: 4,
+          message: 'Pipeline names unknown workflow "nope"',
+          fix: "Add it under .factory/workflows/ or remove the entry",
+        },
+      ]);
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
   test("reports a SKILL.md directly in .factory", async () => {
     const repo = await makeRepo({ ".factory/SKILL.md": SKILL });
     try {
@@ -129,6 +158,31 @@ describe("loadFactory", () => {
     } finally {
       await lf.cleanup();
       await crlf.cleanup();
+    }
+  });
+
+  test("ignores headings inside fenced code blocks when reading the title", async () => {
+    const source = [
+      "---",
+      "name: demo",
+      "description: Demo skill.",
+      "---",
+      "",
+      "~~~markdown",
+      "# Not the title",
+      "~~~",
+      "",
+      "# Real title",
+      "",
+    ].join("\n");
+    const repo = await makeRepo({ ".factory/skills/demo/SKILL.md": source });
+    try {
+      const factory = await loadFactory(repo.root);
+
+      expect(factory.problems).toEqual([]);
+      expect(factory.skills[0]?.title).toBe("Real title");
+    } finally {
+      await repo.cleanup();
     }
   });
 

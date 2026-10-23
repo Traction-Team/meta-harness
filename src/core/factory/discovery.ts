@@ -16,8 +16,28 @@ function factoryPath(relDir: string): string {
 }
 
 function firstHeading(body: string): string | undefined {
-  const match = /^# (.+)$/m.exec(body);
-  return match?.[1]?.trim();
+  let fence: { marker: string; length: number } | undefined;
+
+  for (const line of body.split("\n")) {
+    const trimmed = line.trimStart();
+    const fenceMatch = /^(`{3,}|~{3,})/.exec(trimmed);
+    if (fenceMatch !== null) {
+      const marker = fenceMatch[1]!;
+      if (fence === undefined) {
+        fence = { marker: marker[0]!, length: marker.length };
+      } else if (marker[0] === fence.marker && marker.length >= fence.length) {
+        fence = undefined;
+      }
+      continue;
+    }
+
+    if (fence !== undefined) continue;
+
+    const match = /^# (.+)$/.exec(line);
+    if (match) return match[1]?.trim();
+  }
+
+  return undefined;
 }
 
 async function loadSkill(

@@ -39,7 +39,9 @@ describe("parseFrontmatter", () => {
   test("offsets YAML errors to the real file line", () => {
     const result = rejected(parseFrontmatter("---\nname: one\nname: two\n---\nbody\n"));
 
-    expect(result.problems).toEqual([{ message: "Map keys must be unique", line: 3 }]);
+    expect(result.problems).toEqual([
+      { message: "Map keys must be unique", line: 3, fix: "Fix the YAML syntax on this line" },
+    ]);
   });
 
   test("offsets a top-level type error to the real file line", () => {

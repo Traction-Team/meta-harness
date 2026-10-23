@@ -12,6 +12,8 @@ Every directory below `.factory/` that contains `SKILL.md` is an Agent Skill:
 .factory/**/<name>/SKILL.md
 ```
 
+Metafab ignores directories whose name starts with `.`, such as `.git`. A `SKILL.md` below such a directory is not part of the factory.
+
 Each skill must follow the Agent Skills format:
 
 - The directory name is `<name>`. The directory name and the `name` field follow the Agent Skills name rules in [Validation](#validation).

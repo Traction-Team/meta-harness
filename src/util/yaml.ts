@@ -1,5 +1,5 @@
-import { isMap, isNode, LineCounter, parseDocument } from "yaml";
-import type { Document } from "yaml";
+import { isMap, isNode, isScalar, LineCounter, parseDocument } from "yaml";
+import type { Document, Pair } from "yaml";
 
 export interface YamlProblem {
   message: string;
@@ -30,6 +30,24 @@ function cleanMessage(message: string): string {
   return message.replace(/\s+at line \d+, column \d+:[\s\S]*$/, "").trim();
 }
 
+function hasCollectionKey(document: Document.Parsed): boolean {
+  const contents = document.contents;
+  if (!isMap(contents)) return false;
+  return contents.items.some((pair) => !isScalar((pair as Pair<unknown, unknown>).key));
+}
+
+function valueFromScalarKeys(document: Document.Parsed): Record<string, unknown> {
+  const contents = document.contents;
+  if (!isMap(contents)) return {};
+
+  const value: Record<string, unknown> = {};
+  for (const pair of contents.items as Pair<unknown, unknown>[]) {
+    if (!isScalar(pair.key) || typeof pair.key.value !== "string") continue;
+    value[pair.key.value] = isNode(pair.value) ? pair.value.toJS(document) : null;
+  }
+  return value;
+}
+
 export function parseYaml(text: string, options: YamlParseOptions = {}): YamlParseResult {
   const lineOffset = options.lineOffset ?? 0;
   const lineCounter = new LineCounter();
@@ -42,6 +60,7 @@ export function parseYaml(text: string, options: YamlParseOptions = {}): YamlPar
       problems: document.errors.map((error) => ({
         message: cleanMessage(error.message),
         line: lineAt(error.pos[0]),
+        fix: "Fix the YAML syntax on this line",
       })),
     };
   }
@@ -63,7 +82,12 @@ export function parseYaml(text: string, options: YamlParseOptions = {}): YamlPar
   return {
     ok: true,
     document,
-    value: contents === null ? {} : (document.toJS() as Record<string, unknown>),
+    value:
+      contents === null
+        ? {}
+        : hasCollectionKey(document)
+          ? valueFromScalarKeys(document)
+          : (document.toJS() as Record<string, unknown>),
     lineAt,
     lineOf(node?: unknown): number {
       return isNode(node) && node.range != null ? lineAt(node.range[0]) : lineAt(0);

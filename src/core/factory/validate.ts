@@ -1,3 +1,4 @@
+import { isScalar } from "yaml";
 import type { Problem } from "../../errors.js";
 import { isSingleLine } from "../../util/text.js";
 import { didYouMean } from "../../util/suggest.js";
@@ -177,6 +178,17 @@ export function rule6SkillGrammar(skill: Skill): Problem[] {
 export interface FactoryField {
   value: unknown;
   line: number;
+  node?: unknown;
+}
+
+export function isFormatOne(field: FactoryField): boolean {
+  if (field.node === undefined) return field.value === 1;
+  return (
+    isScalar(field.node) &&
+    field.node.type === "PLAIN" &&
+    field.node.source === "1" &&
+    field.node.value === 1
+  );
 }
 
 export function rule7FactoryYaml(
@@ -193,7 +205,7 @@ export function rule7FactoryYaml(
       message: 'factory.yaml is missing "format"',
       fix: "Add format: 1",
     });
-  } else if (fields.format.value !== 1) {
+  } else if (!isFormatOne(fields.format)) {
     problems.push({
       level: "error",
       file,
@@ -237,7 +249,11 @@ export function rule8PipelineWorkflows(pipeline: PipelineEntry[], skills: Skill[
         message: isNonWorkflowSkill
           ? `Pipeline entry "${entry.workflow}" is a skill, not a workflow`
           : `Pipeline names unknown workflow "${entry.workflow}"`,
-        ...(suggestion === undefined ? {} : { fix: suggestion }),
+        fix:
+          suggestion ??
+          (isNonWorkflowSkill
+            ? "Move the skill under .factory/workflows/ or remove the entry"
+            : "Add it under .factory/workflows/ or remove the entry"),
       });
       continue;
     }
@@ -295,7 +311,9 @@ export function rule6UnknownFactoryField(file: string, key: string, line: number
       file,
       line,
       message: `Unknown field "${key}" in factory.yaml`,
-      ...(suggestion === undefined ? {} : { fix: suggestion }),
+      fix:
+        suggestion ??
+        `Remove the field or use a known name: ${KNOWN_FACTORY_FIELDS.join(", ")}`,
     },
   ];
 }
@@ -308,7 +326,7 @@ export function rule6UnknownPipelineOption(file: string, key: string, line: numb
       file,
       line,
       message: `Unknown pipeline option "${key}"`,
-      ...(suggestion === undefined ? {} : { fix: suggestion }),
+      fix: suggestion ?? 'Remove the option or use the "stop" option',
     },
   ];
 }

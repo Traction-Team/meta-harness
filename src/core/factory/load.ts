@@ -5,7 +5,7 @@ import { toLF } from "../../util/text.js";
 import { discoverSkills } from "./discovery.js";
 import { parseFactoryYaml } from "./factory-yaml.js";
 import type { Factory, Skill } from "./types.js";
-import { validateFactory } from "./validate.js";
+import { rule8PipelineWorkflows, validateFactory } from "./validate.js";
 
 async function readTextFile(target: string): Promise<string | undefined> {
   try {
@@ -35,6 +35,9 @@ export async function loadFactory(root: string): Promise<Factory> {
     const parsed = parseFactoryYaml(factoryYamlText, file);
     if (parsed.yaml !== undefined) factory.factoryYaml = parsed.yaml;
     factory.problems.push(...parsed.problems);
+    if (parsed.yaml === undefined && parsed.pipeline !== undefined) {
+      factory.problems.push(...rule8PipelineWorkflows(parsed.pipeline, factory.skills));
+    }
   }
 
   factory.problems.push(...validateFactory(factory));
