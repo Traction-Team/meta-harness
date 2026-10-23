@@ -111,7 +111,7 @@ describe("resolveNewFactoryRoot", () => {
     }
   });
 
-  test("rethrows a git spawn failure as a MetafabError", async () => {
+  test("falls back to the current directory when git cannot be spawned", async () => {
     const repo = await makeRepo({ "nested/file.txt": "" });
 
     try {
@@ -119,10 +119,7 @@ describe("resolveNewFactoryRoot", () => {
         throw new Error("spawn git ENOENT");
       };
 
-      const error = await resolveNewFactoryRoot(repo.path("nested"), missingGit).catch((caught: unknown) => caught);
-      expect(error).toBeInstanceOf(MetafabError);
-      expect((error as MetafabError).code).toBe("git-failed");
-      expect((error as MetafabError).message).toContain("ENOENT");
+      expect(await resolveNewFactoryRoot(repo.path("nested"), missingGit)).toBe(repo.path("nested"));
     } finally {
       await repo.cleanup();
     }

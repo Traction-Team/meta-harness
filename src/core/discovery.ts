@@ -56,14 +56,8 @@ export async function resolveNewFactoryRoot(cwd: string, git: GitRunner = runGit
   let result: GitResult;
   try {
     result = await git(["rev-parse", "--show-toplevel"], { cwd: resolved });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new MetafabError(`Could not run git to find the repository root: ${message}`, {
-      exitCode: ExitCode.Failed,
-      code: GIT_FAILED_CODE,
-      details: { cwd: resolved },
-      cause: error,
-    });
+  } catch {
+    return resolved;
   }
 
   if (result.exitCode === 0 && result.stdout.trim() !== "") {
