@@ -1,6 +1,6 @@
 ---
 title: "feat: load and validate the factory format"
-status: ready
+status: building
 kind: feature
 pr:
 needs:
@@ -11,6 +11,9 @@ owns:
   - src/util/frontmatter.ts
   - test/core/factory/**
   - test/fixtures/factories/**
+  - package.json # widened: install the `yaml` dependency Plan 01 chose
+  - package-lock.json # widened: the same dependency
+  - docs/specs/factory-format.md # widened: the resolved open questions change validation rules 5 and 10
 proves: "npx vitest run test/core/factory → every validation-rule fixture reports exactly the expected problem, file and line"
 ---
 
