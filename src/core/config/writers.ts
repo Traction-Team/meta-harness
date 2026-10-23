@@ -97,16 +97,6 @@ export function setUpstreamText(text: string, entry: UpstreamEntry): string {
 
   if (existing !== undefined) {
     existing.value = value;
-
-    const key = existing.key;
-    if (isScalar(key)) {
-      const wasCommented = key.commentBefore !== undefined && key.commentBefore !== null;
-      key.commentBefore = UPSTREAM_COMMENT;
-      if (!wasCommented && doc.contents !== null && isMap(doc.contents) && doc.contents.items[0] !== existing) {
-        key.spaceBefore = true;
-      }
-    }
-
     return serialize(doc);
   }
 
@@ -119,11 +109,43 @@ export function setUpstreamText(text: string, entry: UpstreamEntry): string {
   return serialize(doc);
 }
 
+function userComment(key: unknown): string | undefined {
+  if (!isScalar(key) || typeof key.commentBefore !== "string") return undefined;
+
+  const lines = key.commentBefore
+    .split("\n")
+    .filter((line) => line.trim() !== UPSTREAM_COMMENT.trim());
+  while (lines.length > 0 && lines[0]!.trim() === "") lines.shift();
+  while (lines.length > 0 && lines[lines.length - 1]!.trim() === "") lines.pop();
+
+  return lines.length === 0 ? undefined : lines.join("\n");
+}
+
 export function removeUpstreamText(text: string): string {
   const doc = documentForWriting(text);
-  if (upstreamPair(doc) === undefined) return text;
+  const pair = upstreamPair(doc);
+  if (pair === undefined) return text;
+
+  const contents = doc.contents;
+  const map = contents !== null && isMap(contents) ? contents : undefined;
+  const next = map === undefined ? undefined : map.items[map.items.indexOf(pair) + 1];
+  const kept = userComment(pair.key);
+  const spaceBefore = isScalar(pair.key) ? pair.key.spaceBefore : undefined;
 
   doc.delete("upstream");
+
+  if (kept !== undefined) {
+    if (next !== undefined && isScalar(next.key)) {
+      next.key.commentBefore =
+        typeof next.key.commentBefore === "string" && next.key.commentBefore !== ""
+          ? `${kept}\n${next.key.commentBefore}`
+          : kept;
+      if (spaceBefore) next.key.spaceBefore = true;
+    } else {
+      doc.comment = typeof doc.comment === "string" && doc.comment !== "" ? `${kept}\n${doc.comment}` : kept;
+    }
+  }
+
   return serialize(doc);
 }
 
@@ -168,7 +190,8 @@ export async function createConfig(factoryDir: string, options: CreateConfigOpti
 export async function setUpstream(factoryDir: string, entry: UpstreamEntry): Promise<void> {
   const file = path.join(factoryDir, CONFIG_FILENAME);
   const text = (await readIfExists(file)) ?? "";
-  await writeAtomically(file, setUpstreamText(text, entry));
+  const updated = setUpstreamText(text, entry);
+  if (updated !== text) await writeAtomically(file, updated);
 }
 
 export async function removeUpstream(factoryDir: string): Promise<void> {

@@ -82,6 +82,29 @@ describe("setUpstreamText and removeUpstreamText", () => {
     expect(removeUpstreamText(twice)).toBe(original);
   });
 
+  test("keeps a user comment above the upstream key through set and remove", () => {
+    const original =
+      "agents: all\n\n# mine about upstream\nupstream:\n  source: x\n  version: 1.0.0\n";
+
+    const written = setUpstreamText(original, npmEntry);
+
+    expect(written).toContain("# mine about upstream");
+    expect(written).not.toContain("# Written by metafab import. Do not edit.");
+    expect(parseConfig(written).upstream).toEqual(npmEntry);
+    expect(removeUpstreamText(written)).toBe("agents: all\n\n# mine about upstream\n");
+  });
+
+  test("removes only the standard comment and keeps the user's comment", () => {
+    const original =
+      "agents: all\n\n# mine about upstream\n# Written by metafab import. Do not edit.\nupstream:\n  source: x\n  version: 1.0.0\n";
+
+    const written = setUpstreamText(original, npmEntry);
+
+    expect(written).toContain("# mine about upstream");
+    expect(written.match(/Written by metafab import/g)).toHaveLength(1);
+    expect(removeUpstreamText(written)).toBe("agents: all\n\n# mine about upstream\n");
+  });
+
   test("serializes npm fields only", () => {
     const text = setUpstreamText("", npmEntry);
 
@@ -209,6 +232,20 @@ describe("file writers", () => {
     await setUpstream(repo.path(".factory"), npmEntry);
 
     expect((await stat(file)).mode & 0o777).toBe(0o600);
+  });
+
+  test("setUpstream does not rewrite a file it would not change", async () => {
+    const repo = await repoWith({ ".factory/metafab.yaml": "agents: all\n" });
+    const file = repo.path(".factory/metafab.yaml");
+
+    await setUpstream(repo.path(".factory"), npmEntry);
+    const first = await stat(file);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await setUpstream(repo.path(".factory"), npmEntry);
+    const second = await stat(file);
+
+    expect(second.ino).toBe(first.ino);
+    expect(second.mtimeMs).toBe(first.mtimeMs);
   });
 
   test("setUpstream rejects invalid YAML and leaves the file untouched", async () => {

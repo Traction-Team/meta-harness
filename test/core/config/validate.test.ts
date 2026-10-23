@@ -203,6 +203,41 @@ describe("rule 2: unknown keys", () => {
     expect(config.problems).toHaveLength(1);
     expect(config.problems[0]?.message).toContain(`Did you mean "source"?`);
   });
+
+  test.each([
+    ["true: x\n", `Unknown key "true".`],
+    ["1: x\n", `Unknown key "1".`],
+    [
+      "publish:\n  name: '@seasb/fab-mark4'\n  version: 1.2.0\n  true: x\n",
+      `Unknown key "true" in "publish".`,
+    ],
+    [
+      "upstream:\n  source: '@seasb/fab-base'\n  version: 1.2.0\n  1: x\n",
+      `Unknown key "1" in "upstream".`,
+    ],
+  ])("reports a non-string key in %s", (text, message) => {
+    const config = parseConfig(text);
+
+    expect(config.problems.map((problem) => problem.message)).toContain(message);
+  });
+});
+
+describe("aliases", () => {
+  test("accepts an agents alias that resolves to a target name", () => {
+    const config = parseConfig(
+      [
+        "publish:",
+        "  name: '@seasb/fab-mark4'",
+        "  version: 1.2.0",
+        "  description: &target claude",
+        "agents: [*target]",
+        "",
+      ].join("\n"),
+    );
+
+    expect(config.problems).toEqual([]);
+    expect(config.agents).toEqual(["claude"]);
+  });
 });
 
 describe("rule 5: publish requirements", () => {
@@ -294,6 +329,18 @@ describe("rule 11: upstream requirements", () => {
     const config = parseConfig("upstream:\n  source: ../platform/.factory\n");
 
     expect(config.problems).toEqual([]);
+  });
+
+  test.each([
+    ["upstream:\n  source: '@seasb/fab-base'\n  version: ''\n", `"upstream" npm source requires "version".`],
+    ["upstream:\n  source: '@seasb/fab-base'\n  version: '   '\n", `"upstream" npm source requires "version".`],
+    ["upstream:\n  source: github:seasb/fab-mark4\n  commit: ''\n", `"upstream" Git source requires "commit".`],
+    ["upstream:\n  source: ''\n", `"upstream" requires "source".`],
+    ["upstream:\n  source: '   '\n", `"upstream" requires "source".`],
+  ])("treats empty values as absent in %s", (text, message) => {
+    const config = parseConfig(text);
+
+    expect(config.problems.map((problem) => problem.message)).toContain(message);
   });
 });
 

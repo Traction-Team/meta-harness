@@ -38,9 +38,8 @@ function parseAgents(value: unknown): "all" | Target[] | undefined {
 
   const targets: Target[] = [];
   for (const item of value) {
-    if (typeof item === "string" && KNOWN_TARGETS.has(item)) {
-      targets.push(item as Target);
-    }
+    if (typeof item !== "string" || !KNOWN_TARGETS.has(item)) return undefined;
+    targets.push(item as Target);
   }
   return targets;
 }

@@ -45,6 +45,17 @@ describe("parseConfig defaults", () => {
     expect(config.agentsRaw).toEqual(["claude", "codex"]);
   });
 
+  test.each(["agents: [claud]\n", "agents: [claude, 7]\n", "agents: nope\n"])(
+    "an invalid agents value falls back to all targets: %s",
+    (text) => {
+      const config = parseConfig(text);
+
+      expect(config.agents).toEqual(TARGETS);
+      expect(config.agentsRaw).toBeUndefined();
+      expect(config.problems.length).toBeGreaterThan(0);
+    },
+  );
+
   test("metafab-skill defaults to true and reads the kebab-case key", () => {
     expect(parseConfig("").metafabSkill).toBe(true);
     expect(parseConfig("metafab-skill: false\n").metafabSkill).toBe(false);
