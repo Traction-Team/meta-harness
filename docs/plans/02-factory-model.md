@@ -1,6 +1,6 @@
 ---
 title: "feat: load and validate the factory format"
-status: building
+status: merged
 kind: feature
 pr: 3
 needs:
@@ -117,12 +117,12 @@ workflows(factory): Skill[]
 
 ## Steps
 
-- [ ] `util/yaml.ts` with line numbers and the strict options
-- [ ] Frontmatter splitter with CRLF support and line offsets
-- [ ] Skill discovery walker
-- [ ] `factory.yaml` parser and grammar checks, including the pipeline entry forms
-- [ ] Validation rules 1 to 10, one function each
-- [ ] Fixture factories under `test/fixtures/factories/`: `empty`, `mark4-like` (valid, with groups and a full pipeline), and one invalid fixture per rule
+- [x] `util/yaml.ts` with line numbers and the strict options
+- [x] Frontmatter splitter with CRLF support and line offsets
+- [x] Skill discovery walker
+- [x] `factory.yaml` parser and grammar checks, including the pipeline entry forms
+- [x] Validation rules 1 to 10, one function each
+- [x] Fixture factories under `test/fixtures/factories/`: `empty`, `mark4-like` (valid, with groups and a full pipeline), and one invalid fixture per rule
 
 ## Tests
 

@@ -24,7 +24,7 @@ The [factory](../.factory/README.md) workflows maintain this file:
 A team can create, edit, build, and check a factory in one repository.
 
 - [x] [01 Project foundation](plans/01-foundation.md): package, command runner, JSON output, exit codes, factory discovery
-- [ ] [02 Factory model and validation](plans/02-factory-model.md): load `.factory/`, YAML and frontmatter grammar, validation rules
+- [x] [02 Factory model and validation](plans/02-factory-model.md): load `.factory/`, YAML and frontmatter grammar, validation rules
 - [ ] [03 Configuration](plans/03-configuration.md): `metafab.yaml` loading, validation, comment-preserving writes
 - [ ] [04 Build](plans/04-build.md): compiled skills, ownership, `AGENTS.md` / `CLAUDE.md` / `.gitignore` blocks, built-in skill
 - [ ] [05 Check](plans/05-check.md): source, config, and installed-output validation
@@ -62,8 +62,6 @@ Answer these before or during the named plan. Spec-level questions are linked to
 
 | Question | Blocks | Proposal |
 | --- | --- | --- |
-| Enforce the stricter Agent Skills name rules (no leading/trailing/double hyphens, max 64)? | [02](plans/02-factory-model.md#open-questions) | Yes, update the spec |
-| Reserve factory skill names that start with `metafab`? | [02](plans/02-factory-model.md#open-questions) | Yes, add to validation rules |
 | Lowercase the first letter of `stop` text in `AGENTS.md`? | [04](plans/04-build.md#open-questions) | No, render verbatim; fix the spec example |
 | How to handle symlinks inside a source skill? | [04](plans/04-build.md#open-questions) | Copy content if inside `.factory/`, else error |
 | Non-interactive consent for skill adoption | [06](plans/06-init-and-adoption.md#open-questions) | Add `--adopt` to `init` and `import` |
@@ -82,4 +80,5 @@ Record answered questions here with the date and the commit that applied them.
 
 | Date | Decision | Applied in |
 | --- | --- | --- |
-| | | |
+| 2026-10-23 | Enforce the stricter Agent Skills name rules (no leading/trailing/double hyphens, max 64); the spec now states them | #3 |
+| 2026-10-23 | Reserve factory skill names that start with `metafab`; validation rule 10 now rejects them | #3 |
