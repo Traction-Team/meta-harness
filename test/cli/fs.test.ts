@@ -1,7 +1,7 @@
 import { chmod, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
-import { compareTrees, copyTree, isDirectory, listFiles, pathExists, toPosixPath } from "../../src/util/fs.js";
+import { compareTrees, copyTree, isDirectory, listFiles, normalizeProblemPath, pathExists, toPosixPath } from "../../src/util/fs.js";
 import { makeRepo } from "../helpers/makeRepo.js";
 
 describe("listFiles", () => {
@@ -54,6 +54,13 @@ describe("path helpers", () => {
   test("converts platform separators to forward slashes", () => {
     expect(toPosixPath(path.join("packages", "a", "deep", "file.txt"))).toBe("packages/a/deep/file.txt");
     expect(toPosixPath(path.join("a", "b"))).not.toContain("\\");
+  });
+
+  test("normalizes problem paths to repository-relative forward slashes", () => {
+    expect(normalizeProblemPath("packages\\a\\deep\\file.ts")).toBe("packages/a/deep/file.ts");
+    expect(normalizeProblemPath("./src\\cli.ts")).toBe("src/cli.ts");
+    expect(normalizeProblemPath("/repo/packages\\a\\file.ts", "/repo")).toBe("packages/a/file.ts");
+    expect(normalizeProblemPath("packages/a/file.ts")).not.toContain("\\");
   });
 
   test("report missing and existing paths", async () => {

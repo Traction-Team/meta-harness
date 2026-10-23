@@ -14,6 +14,11 @@ export function toPosixPath(value: string): string {
   return value.split(path.sep).join("/");
 }
 
+export function normalizeProblemPath(file: string, root: string = process.cwd()): string {
+  const relative = path.isAbsolute(file) ? path.relative(root, file) : file;
+  return relative.split("\\").join("/").replace(/^\.\//, "");
+}
+
 function fromPosixPath(value: string): string {
   return value.split("/").join(path.sep);
 }

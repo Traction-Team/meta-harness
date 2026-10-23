@@ -9,7 +9,7 @@ owns:
   - package-lock.json
   - tsconfig.json
   - vitest.config.ts
-  - .gitignore
+  - .gitignore # widened from the plan: the package needs to ignore dist/ and node_modules/
   - .github/workflows/**
   - src/cli.ts
   - src/output.ts

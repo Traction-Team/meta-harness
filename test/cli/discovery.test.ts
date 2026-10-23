@@ -2,7 +2,6 @@ import { realpath } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
 import { findFactory, resolveNewFactoryRoot } from "../../src/core/discovery.js";
 import { MetafabError } from "../../src/errors.js";
-import { runGit } from "../../src/util/git.js";
 import { makeRepo } from "../helpers/makeRepo.js";
 
 describe("findFactory", () => {
@@ -77,14 +76,53 @@ describe("resolveNewFactoryRoot", () => {
     }
   });
 
-  test("falls back to the current directory outside git", async () => {
+  test("falls back to the current directory when git is not a repository", async () => {
     const repo = await makeRepo({ "nested/file.txt": "" });
 
     try {
-      const insideGit = await runGit(["rev-parse", "--is-inside-work-tree"], { cwd: repo.root });
-      if (insideGit.exitCode === 0 && insideGit.stdout.trim() === "true") return;
+      const notARepository = async () => ({
+        exitCode: 128,
+        stdout: "",
+        stderr: "fatal: not a git repository (or any of the parent directories): .git\n",
+      });
 
-      expect(await resolveNewFactoryRoot(repo.path("nested"))).toBe(repo.path("nested"));
+      expect(await resolveNewFactoryRoot(repo.path("nested"), notARepository)).toBe(repo.path("nested"));
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
+  test("rethrows other git failures as a MetafabError", async () => {
+    const repo = await makeRepo({ "nested/file.txt": "" });
+
+    try {
+      const refused = async () => ({
+        exitCode: 128,
+        stdout: "",
+        stderr: "fatal: detected dubious ownership in repository at '/repo'\n",
+      });
+
+      const error = await resolveNewFactoryRoot(repo.path("nested"), refused).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(MetafabError);
+      expect((error as MetafabError).code).toBe("git-failed");
+      expect((error as MetafabError).message).toContain("dubious ownership");
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
+  test("rethrows a git spawn failure as a MetafabError", async () => {
+    const repo = await makeRepo({ "nested/file.txt": "" });
+
+    try {
+      const missingGit = async () => {
+        throw new Error("spawn git ENOENT");
+      };
+
+      const error = await resolveNewFactoryRoot(repo.path("nested"), missingGit).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(MetafabError);
+      expect((error as MetafabError).code).toBe("git-failed");
+      expect((error as MetafabError).message).toContain("ENOENT");
     } finally {
       await repo.cleanup();
     }

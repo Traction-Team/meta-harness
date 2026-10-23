@@ -1,14 +1,18 @@
 import path from "node:path";
 import { ExitCode, MetafabError } from "../errors.js";
-import { isDirectory } from "../util/fs.js";
+import { isDirectory, normalizeProblemPath } from "../util/fs.js";
 import { runGit } from "../util/git.js";
+import type { GitOptions, GitResult } from "../util/git.js";
 
 export interface FactoryLocation {
   root: string;
   factoryDir: string;
 }
 
+export type GitRunner = (args: string[], options?: GitOptions) => Promise<GitResult>;
+
 const MISSING_FACTORY_CODE = "factory-not-found";
+const GIT_FAILED_CODE = "git-failed";
 
 export async function findFactory(cwd: string): Promise<FactoryLocation> {
   let current = path.resolve(cwd);
@@ -29,7 +33,7 @@ export async function findFactory(cwd: string): Promise<FactoryLocation> {
     problems: [
       {
         level: "error",
-        file: ".factory",
+        file: normalizeProblemPath(".factory", cwd),
         message: `No factory found in ${cwd} or any parent directory.`,
         fix: "Run metafab init",
       },
@@ -37,7 +41,11 @@ export async function findFactory(cwd: string): Promise<FactoryLocation> {
   });
 }
 
-export async function resolveNewFactoryRoot(cwd: string): Promise<string> {
+function isNotARepository(result: GitResult): boolean {
+  return result.exitCode === 128 && /not a git repository/i.test(result.stderr);
+}
+
+export async function resolveNewFactoryRoot(cwd: string, git: GitRunner = runGit): Promise<string> {
   try {
     return (await findFactory(cwd)).root;
   } catch (error) {
@@ -45,15 +53,34 @@ export async function resolveNewFactoryRoot(cwd: string): Promise<string> {
   }
 
   const resolved = path.resolve(cwd);
+  let result: GitResult;
   try {
-    const result = await runGit(["rev-parse", "--show-toplevel"], { cwd: resolved });
-    if (result.exitCode === 0) {
-      const topLevel = result.stdout.trim();
-      if (topLevel !== "") return path.resolve(topLevel);
-    }
-  } catch {
-    return resolved;
+    result = await git(["rev-parse", "--show-toplevel"], { cwd: resolved });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new MetafabError(`Could not run git to find the repository root: ${message}`, {
+      exitCode: ExitCode.Failed,
+      code: GIT_FAILED_CODE,
+      details: { cwd: resolved },
+      cause: error,
+    });
   }
 
-  return resolved;
+  if (result.exitCode === 0 && result.stdout.trim() !== "") {
+    return path.resolve(result.stdout.trim());
+  }
+
+  if (isNotARepository(result)) return resolved;
+
+  const message = result.stderr.trim();
+  throw new MetafabError(
+    message === ""
+      ? `git rev-parse --show-toplevel exited with ${result.exitCode}.`
+      : `Could not find the git repository root: ${message}`,
+    {
+      exitCode: ExitCode.Failed,
+      code: GIT_FAILED_CODE,
+      details: { cwd: resolved, exitCode: result.exitCode, stderr: result.stderr },
+    },
+  );
 }
