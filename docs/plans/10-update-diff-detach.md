@@ -1,8 +1,24 @@
+---
+title: "feat: metafab update, diff and detach"
+status: ready
+kind: feature
+pr:
+needs:
+  - docs/plans/09-import.md
+owns:
+  - src/core/merge.ts
+  - src/core/update/**
+  - src/commands/update.ts
+  - src/commands/diff.ts
+  - src/commands/detach.ts
+  - test/core/merge/**
+  - test/core/update/**
+proves: "npx vitest run test/core/merge test/core/update → one passing test per merge-table row; the end-to-end Git fab update produces the expected markers and summary"
+---
+
 # Plan 10: `metafab update`, `diff`, and `detach`
 
 Merge newer upstream versions with local edits, show local edits, and remove the upstream link.
-
-Depends on: [Plan 09](09-import.md).
 
 ## Specs
 

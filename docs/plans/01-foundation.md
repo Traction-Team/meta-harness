@@ -1,3 +1,27 @@
+---
+title: "chore: scaffold the metafab cli package and command runner"
+status: ready
+kind: chore
+pr:
+needs: []
+owns:
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - vitest.config.ts
+  - .github/workflows/**
+  - src/cli.ts
+  - src/output.ts
+  - src/errors.ts
+  - src/input.ts
+  - src/commands/**
+  - src/util/**
+  - src/core/discovery.ts
+  - test/helpers/**
+  - test/cli/**
+proves: "npm run verify → typecheck, tests and build pass; node dist/cli.js --help lists every v1 command"
+---
+
 # Plan 01: Project foundation
 
 Set up the `@seasb/metafab` package, the command runner, and the shared conventions that every later plan uses: JSON output, exit codes, problem reporting, non-interactive input, and factory discovery.
@@ -36,7 +60,7 @@ src/
   output.ts           human and JSON rendering
   errors.ts           MetafabError and exit codes
   input.ts            ask(), confirm(), NeedsInput
-assets/
+resources/
   metafab-skill/      built-in skill source (Plan 04)
 test/
   helpers/            temp repo fixtures, in-process CLI runner
@@ -103,7 +127,8 @@ A missing factory throws a `MetafabError` with exit 1 and fix `Run metafab init`
 
 ## Steps
 
-- [ ] Create `package.json`, `tsconfig.json`, `vitest.config.ts`, and a `files` list of `dist`, `assets`, `README.md`
+- [ ] Create `package.json`, `tsconfig.json`, `vitest.config.ts`, and a `files` list of `dist`, `resources`, `README.md`
+- [ ] Add npm scripts `typecheck`, `test`, `build`, and `verify` (all three in order). The factory workflows run `npm run verify` as the gate for every pull request
 - [ ] Add `src/cli.ts` with `--help`, `--version`, `--json`, and an unknown-command error with a suggestion
 - [ ] Add `errors.ts`, `output.ts`, `input.ts` as designed above
 - [ ] Add `findFactory` and `resolveNewFactoryRoot`
@@ -111,7 +136,7 @@ A missing factory throws a `MetafabError` with exit 1 and fix `Run metafab init`
 - [ ] Add stub modules for every v1 command that return "not implemented" (exit 1), so the help text is complete from the start
 - [ ] Add test helpers: `makeRepo(files)` creates a temporary directory (optionally `git init`), and `runCli(argv, { cwd, tty })` runs the CLI in-process and captures stdout, stderr, and the exit code
 - [ ] Add one spawned end-to-end test that runs `dist/cli.js` to cover the `bin` entry
-- [ ] Add CI: Node 20 and 22 on Linux, macOS, and Windows; type check, test, build
+- [ ] Add CI: Node 20 and 22 on Linux, macOS, and Windows running `npm run verify`, plus `node .factory/scripts/check.mjs` once
 
 ## Tests
 

@@ -1,8 +1,22 @@
+---
+title: "feat: load and validate the factory format"
+status: ready
+kind: feature
+pr:
+needs:
+  - docs/plans/01-foundation.md
+owns:
+  - src/core/factory/**
+  - src/util/yaml.ts
+  - src/util/frontmatter.ts
+  - test/core/factory/**
+  - test/fixtures/factories/**
+proves: "npx vitest run test/core/factory → every validation-rule fixture reports exactly the expected problem, file and line"
+---
+
 # Plan 02: Factory model and validation
 
 Load `.factory/` into an in-memory model and validate it against the version 1 factory format. Every other command reads the factory through this module.
-
-Depends on: [Plan 01](01-foundation.md).
 
 ## Specs
 

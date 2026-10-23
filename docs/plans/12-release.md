@@ -1,8 +1,23 @@
+---
+title: "chore: release metafab 1.0.0"
+status: draft
+kind: chore
+pr:
+needs:
+  - docs/plans/07-authoring-commands.md
+  - docs/plans/10-update-diff-detach.md
+  - docs/plans/11-publish.md
+owns:
+  - README.md
+  - docs/verification.md
+  - .github/workflows/release.yml
+  - docs/specs/**
+proves: "npx @seasb/metafab@1.0.0 import @seasb/fab-mark4 --agents claude,codex works in a fresh repository on macOS, Linux and Windows"
+---
+
 # Plan 12: Release v1
 
 Verify the CLI against real agent tools, answer the open questions that need experiments, and publish `@seasb/metafab` 1.0.0.
-
-Depends on: Plans 01 to 11.
 
 ## Specs
 

@@ -1,8 +1,21 @@
+---
+title: "feat: metafab publish to npm and git fab repositories"
+status: ready
+kind: feature
+pr:
+needs:
+  - docs/plans/05-check.md
+  - docs/plans/08-sources.md
+owns:
+  - src/core/publish/**
+  - src/commands/publish.ts
+  - test/core/publish/**
+proves: "npx vitest run test/core/publish → publish to Verdaccio and a local bare repository, then import both; a repeated version and a hand-edited fab repository are refused"
+---
+
 # Plan 11: `metafab publish`
 
 Package `.factory/` as a fab and publish it to npm, a Git fab repository, or both.
-
-Depends on: [Plan 05](05-check.md), [Plan 08](08-sources.md) (shared Git helpers).
 
 ## Specs
 

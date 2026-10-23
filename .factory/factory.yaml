@@ -1,0 +1,11 @@
+format: 1
+name: meta-harness
+description: Plan, build, and review the metafab CLI one pull request at a time, with a person at each decision.
+
+pipeline:
+  - file-work
+  - prioritise-roadmap: { stop: the person running it agrees what is next on docs/roadmap.md }
+  - plan-feature: { stop: a person approves the plans }
+  - start-plan: { stop: a person confirms each pick }
+  - build-plan
+  - finish-plan: { stop: the developer says done and a person merges the pull request }

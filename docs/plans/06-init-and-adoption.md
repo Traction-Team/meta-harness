@@ -1,8 +1,22 @@
+---
+title: "feat: metafab init creates a factory and adopts existing skills"
+status: ready
+kind: feature
+pr:
+needs:
+  - docs/plans/04-build.md
+owns:
+  - src/core/init/**
+  - src/core/adopt.ts
+  - src/commands/init.ts
+  - test/core/init/**
+  - test/core/adopt/**
+proves: "npx vitest run test/core/init test/core/adopt → init in an empty repo creates the factory and builds it; a second run changes nothing; adoption rules hold"
+---
+
 # Plan 06: `metafab init` and existing-skill adoption
 
 Create a factory in a repository, and move skills that already live in `.claude/skills/` or `.agents/skills/` into `.factory/skills/`.
-
-Depends on: [Plan 04](04-build.md).
 
 ## Specs
 

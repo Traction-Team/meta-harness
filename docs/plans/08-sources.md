@@ -1,8 +1,22 @@
+---
+title: "feat: resolve, fetch and validate fab sources"
+status: ready
+kind: feature
+pr:
+needs:
+  - docs/plans/02-factory-model.md
+  - docs/plans/03-configuration.md
+owns:
+  - src/core/sources/**
+  - test/core/sources/**
+  - test/fixtures/fabs/**
+  - test/helpers/registry/**
+proves: "npx vitest run test/core/sources → every source form resolves against local Git and Verdaccio fixtures; the extractor rejects traversal, links and oversize files"
+---
+
 # Plan 08: Fab sources, fetching, and fab validation
 
 Parse every source form, resolve it to an exact version or revision, download it safely into the cache, and validate the fab. `import`, `update`, and `diff` build on this module.
-
-Depends on: [Plan 02](02-factory-model.md), [Plan 03](03-configuration.md).
 
 ## Specs
 

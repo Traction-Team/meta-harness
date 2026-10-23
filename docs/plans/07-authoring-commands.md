@@ -1,8 +1,23 @@
+---
+title: "feat: create, rename, pipeline and map commands"
+status: ready
+kind: feature
+pr:
+needs:
+  - docs/plans/02-factory-model.md
+owns:
+  - src/core/edit/**
+  - src/commands/create.ts
+  - src/commands/rename.ts
+  - src/commands/pipeline.ts
+  - src/commands/map.ts
+  - test/core/edit/**
+proves: "npx vitest run test/core/edit → create, rename and pipeline edits produce the expected files with comments preserved; map --json matches its snapshot"
+---
+
 # Plan 07: Authoring and inspection commands
 
 Implement `create`, `rename`, `pipeline add`, `pipeline remove`, and `map`.
-
-Depends on: [Plan 02](02-factory-model.md). `map` and `create` do not need build; this plan can run in parallel with Plans 04 to 06.
 
 ## Specs
 

@@ -1,17 +1,23 @@
+---
+updated: 2026-10-23
+---
+
 # Metafab v1 roadmap
 
 This file is the source of truth for implementation progress on the `metafab` CLI v1.
 
 - **What to build:** [specs](specs/README.md)
 - **How to build it:** [plans](plans/), one per item below
-- **Where we are:** the checkboxes in this file
+- **Where we are:** the checkboxes in this file, and each plan's `status`
 
 ## How to use this file
 
-- Tick an item only when its plan's "Done when" / tests pass and the work is merged.
-- Mark the item you are working on with **(in progress)** after the link.
+The [factory](../.factory/README.md) workflows maintain this file:
+
+- `start-plan` picks the first ready plan in this order (`node .factory/scripts/next.mjs` shows ready, blocked and in-flight plans). A plan in flight has `status: building` and a draft pull request.
+- `finish-plan` ticks a plan's box in its landing commit, and moves the open questions it answered to [Decisions](#decisions).
+- `plan-feature` adds lines for new plans. `prioritise-roadmap` reorders lines, adds work that needs a plan, and decides open questions and intake notes.
 - When a plan changes scope, edit the plan and this file in the same commit.
-- When an open question is answered, move it to [Decisions](#decisions) and update the spec or plan it affects.
 
 ## Milestone 1: Local factory
 

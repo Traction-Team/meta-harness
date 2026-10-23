@@ -1,8 +1,21 @@
+---
+title: "feat: read, validate and write metafab.yaml"
+status: ready
+kind: feature
+pr:
+needs:
+  - docs/plans/01-foundation.md
+owns:
+  - src/core/config.ts
+  - src/core/config/**
+  - test/core/config/**
+  - test/fixtures/config/**
+proves: "npx vitest run test/core/config → the spec example is valid, each invalid fixture fails, and setUpstream/removeUpstream round-trip comments"
+---
+
 # Plan 03: Configuration (`metafab.yaml`)
 
 Read, validate, and safely write `.factory/metafab.yaml`.
-
-Depends on: [Plan 01](01-foundation.md). Can run in parallel with [Plan 02](02-factory-model.md).
 
 ## Specs
 

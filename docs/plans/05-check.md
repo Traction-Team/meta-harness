@@ -1,8 +1,20 @@
+---
+title: "feat: metafab check validates source, config and installed output"
+status: ready
+kind: feature
+pr:
+needs:
+  - docs/plans/04-build.md
+owns:
+  - src/core/check/**
+  - src/commands/check.ts
+  - test/core/check/**
+proves: "npx vitest run test/core/check → a built fixture passes; a fresh clone, a hand edit, a conflict marker and a .upstream file each fail with the right problem"
+---
+
 # Plan 05: `metafab check`
 
 Validate the factory source, the configuration, and the installed output in one command.
-
-Depends on: [Plan 04](04-build.md).
 
 ## Specs
 

@@ -1,8 +1,23 @@
+---
+title: "feat: metafab import copies a fab with a review summary"
+status: ready
+kind: feature
+pr:
+needs:
+  - docs/plans/06-init-and-adoption.md
+  - docs/plans/08-sources.md
+owns:
+  - src/core/import/**
+  - src/core/summary.ts
+  - src/commands/import.ts
+  - test/core/import/**
+  - test/core/summary/**
+proves: "npx vitest run test/core/import test/core/summary → import from a local path, Git and Verdaccio works end to end; the summary snapshot matches the spec example"
+---
+
 # Plan 09: `metafab import` and the review summary
 
 Copy a fab into `.factory/`, record its upstream, build it, and print a risk-ordered review summary. The review summary module is shared with `update` ([Plan 10](10-update-diff-detach.md)).
-
-Depends on: [Plan 06](06-init-and-adoption.md), [Plan 08](08-sources.md).
 
 ## Specs
 
