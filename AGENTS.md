@@ -43,6 +43,7 @@ Delivery work runs through these workflows. Each is installed as a skill. When a
 | `file-work` | A bug, idea, follow-up, spec gap or any "we should...". Also every *Found while building* note before its pull request merges |
 | `prioritise-roadmap` | "What's next", re-ordering the roadmap, reviewing intake or open questions |
 | `plan-feature` | "Plan <thing>", a roadmap line with no plan, or a bug too big for a bug plan |
+| `review-plan` | After writing plans, always in a new sub-agent. "Cold review this plan", "poke holes in this plan" |
 | `start-plan` | On `main`: "start the next plan", "pull the next chunk", "keep going", "what's ready". The orchestrator: one Orca worktree and OpenCode worker per plan |
 | `build-plan` | On a feature branch, usually as a worker in an Orca worktree: "build docs/plans/<plan>.md". Stops at a merge-safe draft pull request (landing included) and a TL;DR |
 | `review-branch` | After any implementation, always in a new sub-agent. "Cold review this branch" |

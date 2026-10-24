@@ -34,6 +34,7 @@ idea / bug / spec gap / follow-up ──► file-work ──► docs/intake/
                        prioritise-roadmap ◄─────────────┘   (orders docs/roadmap.md, decides intake)
                                 │
                        plan-feature                         (a roadmap line with no plan: one plan per PR)
+                                └── review-plan             (cold review of the plans, always a fresh sub-agent)
                                 │
                        start-plan                           (orchestrator: cuts waves, one Orca worktree + OpenCode worker per plan)
                                 │
@@ -45,7 +46,8 @@ idea / bug / spec gap / follow-up ──► file-work ──► docs/intake/
 |---|---|---|---|
 | `file-work` | A bug, idea, spec gap, follow-up | An intake note, or an addition to an unbuilt plan; a bug plan when the fix is clear | Nobody: it only files |
 | `prioritise-roadmap` | "What's next" | Roadmap order, new lines, a decision on each intake note and open question raised | The person running it |
-| `plan-feature` | A roadmap line with no plan | One plan per pull request, linked by `needs`, added to the roadmap | A person approves the plans |
+| `plan-feature` | A roadmap line with no plan | Edge cases and gaps raised with the person, one plan per pull request linked by `needs`, a `review-plan` sub-agent and its fixes, plans added to the roadmap | A person approves the plans |
+| `review-plan` | Draft plans and the specs they serve, in a fresh sub-agent | A graded report of gaps, each as a question with a proposal, and a verdict; it never edits | `plan-feature` triages each finding; the person answers the open choices |
 | `start-plan` | On `main`: "start the next plan", "keep going" | Waves of plans whose `owns` do not collide, one Orca worktree and OpenCode worker per plan running `build-plan`, and worktree removal for merged plans on the next run | A person confirms each wave |
 | `build-plan` | A picked plan, on a feature branch (usually as the worker in its worktree) | Branch rename, claim, tasks by sub-agents, `npm run verify`, a `review-branch` sub-agent and its fixes, proof, the landing commit, a merge-safe draft PR and a TL;DR handoff | Nobody: it stops at draft |
 | `review-branch` | A branch, a base and a goal, in a fresh sub-agent | A graded findings report and a verdict; it never edits | The calling workflow triages each finding |
