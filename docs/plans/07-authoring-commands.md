@@ -1,6 +1,6 @@
 ---
 title: "feat: create, rename, pipeline and map commands"
-status: ready
+status: building
 kind: feature
 pr:
 needs:
@@ -9,7 +9,8 @@ owns:
   - src/core/edit/**
   - src/commands/create.ts
   - src/commands/rename.ts
-  - src/commands/pipeline.ts
+  - src/commands/pipeline-add.ts
+  - src/commands/pipeline-remove.ts
   - src/commands/map.ts
   - test/core/edit/**
 proves: "npx vitest run test/core/edit → create, rename and pipeline edits produce the expected files with comments preserved; map --json matches its snapshot"
