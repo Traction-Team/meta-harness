@@ -125,8 +125,19 @@ export async function addWorkflow(
   requireWorkflow(factory.skills, workflow);
 
   const existing = await readFactoryYamlText(factory.dir);
-  const created = existing === undefined;
-  const text = existing ?? createFactoryYamlText(deriveFactoryName(path.basename(root)));
+  let created = existing === undefined;
+  let text = existing ?? createFactoryYamlText(deriveFactoryName(path.basename(root)));
+
+  if (existing !== undefined) {
+    const current = parseFactoryYamlDocument(existing);
+    if (current.contents === null) {
+      const header = createFactoryYamlText(deriveFactoryName(path.basename(root)));
+      const comments = existing.trim() === "" ? "" : existing;
+      text = comments === "" ? header : `${header}${existing.endsWith("\n") ? "" : "\n"}${comments}`;
+      created = true;
+    }
+  }
+
   const doc = parseFactoryYamlDocument(text);
 
   if (options.after !== undefined) requireAfter(pipelineEntryNames(doc), options.after);

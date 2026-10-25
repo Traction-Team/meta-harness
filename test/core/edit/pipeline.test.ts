@@ -90,6 +90,44 @@ pipeline:
     expect(deriveFactoryName("My Factory")).toBe("my-factory");
   });
 
+  test("treats an empty factory.yaml as missing and writes format and name", async () => {
+    const created = await makeRepo({
+      "Empty Factory/.factory/factory.yaml": "",
+      "Empty Factory/.factory/workflows/x/SKILL.md": SKILL("x"),
+    });
+    repos.push(created);
+
+    const result = await runCli(["pipeline", "add", "x"], {
+      cwd: created.path("Empty Factory"),
+      tty: false,
+    });
+
+    expect(result.code).toBe(0);
+    expect(await readFile(created.path("Empty Factory/.factory/factory.yaml"), "utf8")).toBe(
+      "format: 1\nname: empty-factory\n\npipeline:\n  - x\n",
+    );
+  });
+
+  test("keeps comments from a comment-only factory.yaml", async () => {
+    const created = await makeRepo({
+      "Empty Factory/.factory/factory.yaml": "# keep this comment\n",
+      "Empty Factory/.factory/workflows/x/SKILL.md": SKILL("x"),
+    });
+    repos.push(created);
+
+    const result = await runCli(["pipeline", "add", "x"], {
+      cwd: created.path("Empty Factory"),
+      tty: false,
+    });
+
+    expect(result.code).toBe(0);
+    const text = await readFile(created.path("Empty Factory/.factory/factory.yaml"), "utf8");
+    expect(text).toContain("format: 1\n");
+    expect(text).toContain("name: empty-factory\n");
+    expect(text).toContain("# keep this comment\n");
+    expect(text).toContain("  - x\n");
+  });
+
   test("reports the edit as one JSON object", async () => {
     const created = await repo();
 
