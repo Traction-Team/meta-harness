@@ -1,6 +1,6 @@
 ---
 title: "feat: metafab build installs the factory for agent tools"
-status: ready
+status: building
 kind: feature
 pr:
 needs:
