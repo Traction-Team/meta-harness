@@ -23,6 +23,12 @@ export interface RenameSkillResult {
   warnings: Problem[];
 }
 
+/** Seam for tests to force a write failure at a known point in the rename. */
+export interface RenameSkillOptions {
+  writeSkillText?: (file: string, text: string) => Promise<void>;
+  writeFactoryText?: (file: string, text: string) => Promise<void>;
+}
+
 function problem(file: string, message: string, fix?: string): Problem {
   return {
     level: "error",
@@ -116,7 +122,17 @@ async function mentionWarnings(
   return warnings;
 }
 
-export async function renameSkill(root: string, from: string, to: string): Promise<RenameSkillResult> {
+export async function renameSkill(
+  root: string,
+  from: string,
+  to: string,
+  options: RenameSkillOptions = {},
+): Promise<RenameSkillResult> {
+  const writeSkill = options.writeSkillText ?? writeTextAtomically;
+  const writeFactory =
+    options.writeFactoryText ??
+    ((file: string, text: string) => writeFactoryYamlText(path.dirname(file), text));
+
   const factory = await loadFactory(root);
   const skill = factory.skills.find((candidate) => candidate.name === from);
 
@@ -191,15 +207,21 @@ export async function renameSkill(root: string, from: string, to: string): Promi
     }
   }
 
+  const factoryFile = ".factory/factory.yaml";
   let moved = false;
   let skillUpdated = false;
+  let failedAction = "move";
+  let failedFile = `.factory/${skill.relDir}`;
   try {
     await rename(oldDir, destination);
     moved = true;
-    await writeTextAtomically(path.join(destination, "SKILL.md"), movedSkillText);
+    failedAction = "write";
+    failedFile = destinationFile;
+    await writeSkill(path.join(destination, "SKILL.md"), movedSkillText);
     skillUpdated = true;
     if (nextFactoryText !== undefined) {
-      await writeFactoryYamlText(path.join(root, ".factory"), nextFactoryText);
+      failedFile = factoryFile;
+      await writeFactory(path.join(root, ".factory", "factory.yaml"), nextFactoryText);
     }
   } catch (error) {
     if (moved) {
@@ -213,10 +235,11 @@ export async function renameSkill(root: string, from: string, to: string): Promi
       }
     }
 
-    const detail = error instanceof Error ? error.message : String(error);
-    const message = `Could not rename "${from}" to "${to}": ${detail}`;
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    const reason = typeof code === "string" && code !== "" ? ` (${code})` : "";
+    const message = `Could not rename "${from}" to "${to}": could not ${failedAction} ${failedFile}${reason}.`;
     throw renameError("rename-failed", message, [
-      problem(destinationFile, message, "Check file permissions and try again"),
+      problem(failedFile, message, "Check file permissions and try again"),
     ]);
   }
 

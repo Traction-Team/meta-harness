@@ -1,6 +1,7 @@
 import { chmod, readFile } from "node:fs/promises";
 import { afterEach, describe, expect, test } from "vitest";
 import { loadFactory } from "../../../src/core/factory/load.js";
+import { renameSkill } from "../../../src/core/edit/index.js";
 import { pathExists } from "../../../src/util/fs.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
 import type { TempRepo } from "../../helpers/makeRepo.js";
@@ -186,30 +187,53 @@ pipeline:
     },
   );
 
-  test.skipIf(typeof process.getuid === "function" && process.getuid() === 0)(
-    "rolls the directory back when a later write fails",
-    async () => {
-      const created = await repo();
-      const factoryDir = created.path(".factory");
-      await chmod(factoryDir, 0o555);
+  test("rolls the directory back when writing the moved skill fails", async () => {
+    const created = await repo();
 
-      try {
-        const result = await runCli(["rename", "review-slice", "review-plan"], {
-          cwd: created.root,
-          tty: false,
-        });
+    await expect(
+      renameSkill(created.root, "review-slice", "review-plan", {
+        writeSkillText: async () => {
+          throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "rename-failed",
+      problems: [
+        {
+          file: ".factory/workflows/review-plan/SKILL.md",
+          message: 'Could not rename "review-slice" to "review-plan": could not write .factory/workflows/review-plan/SKILL.md (ENOSPC).',
+        },
+      ],
+    });
 
-        expect(result.code).toBe(1);
-        expect(result.stderr).toContain('Could not rename "review-slice" to "review-plan"');
-        expect(result.stderr).not.toContain("at async");
-        expect(await pathExists(created.path(".factory/workflows/review-plan"))).toBe(false);
-        expect(await readFile(created.path(".factory/workflows/review-slice/SKILL.md"), "utf8")).toBe(REVIEW_SKILL);
-        expect(await readFile(created.path(".factory/factory.yaml"), "utf8")).toBe(FACTORY_YAML);
-      } finally {
-        await chmod(factoryDir, 0o755);
-      }
-    },
-  );
+    expect(await pathExists(created.path(".factory/workflows/review-plan"))).toBe(false);
+    expect(await readFile(created.path(".factory/workflows/review-slice/SKILL.md"), "utf8")).toBe(REVIEW_SKILL);
+    expect(await readFile(created.path(".factory/factory.yaml"), "utf8")).toBe(FACTORY_YAML);
+  });
+
+  test("rolls back and blames factory.yaml when its write fails", async () => {
+    const created = await repo();
+
+    await expect(
+      renameSkill(created.root, "review-slice", "review-plan", {
+        writeFactoryText: async () => {
+          throw Object.assign(new Error("permission denied"), { code: "EACCES" });
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "rename-failed",
+      problems: [
+        {
+          file: ".factory/factory.yaml",
+          message: 'Could not rename "review-slice" to "review-plan": could not write .factory/factory.yaml (EACCES).',
+        },
+      ],
+    });
+
+    expect(await pathExists(created.path(".factory/workflows/review-plan"))).toBe(false);
+    expect(await readFile(created.path(".factory/workflows/review-slice/SKILL.md"), "utf8")).toBe(REVIEW_SKILL);
+    expect(await readFile(created.path(".factory/factory.yaml"), "utf8")).toBe(FACTORY_YAML);
+  });
 
   test("fails when the new name already exists", async () => {
     const created = await repo();
