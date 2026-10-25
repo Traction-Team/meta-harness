@@ -47,6 +47,21 @@ export function normaliseCreatePath(input: string): CreatePath {
 
   if (segments[0] === ".factory") segments.shift();
 
+  const hidden = segments.find((segment) => segment.startsWith("."));
+  if (hidden !== undefined) {
+    const message = `The path must not include the hidden directory "${hidden}".`;
+    throw new MetafabError(message, {
+      code: "create-path-invalid",
+      problems: [
+        pathProblem(
+          input,
+          message,
+          "Use a path segment that does not start with a dot, such as skills/hidden-name",
+        ),
+      ],
+    });
+  }
+
   if (segments.length === 0) {
     const message = "The path must name a skill directory";
     throw new MetafabError(message, {

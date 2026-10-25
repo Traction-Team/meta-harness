@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { Readable } from "node:stream";
+import { Readable, PassThrough } from "node:stream";
 import { afterEach, describe, expect, test } from "vitest";
 import { loadFactory } from "../../../src/core/factory/load.js";
 import { listFiles, pathExists } from "../../../src/util/fs.js";
@@ -75,6 +75,49 @@ description: Review a slice before it merges.
     );
   });
 
+  test("re-asks the description prompt when the answer is empty", async () => {
+    const created = await repo();
+    const stdin = new PassThrough();
+
+    const pending = runCli(["create", "skills/advise"], {
+      cwd: created.root,
+      tty: true,
+      stdin,
+    });
+    stdin.write("\n");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    stdin.write("Advise on slices.\n");
+    stdin.end();
+    const result = await pending;
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain("A description is required.");
+    expect(await readFile(created.path(".factory/skills/advise/SKILL.md"), "utf8")).toContain(
+      "description: Advise on slices.",
+    );
+  });
+
+  test("gives up after repeated empty answers at the prompt", async () => {
+    const created = await repo();
+    const stdin = new PassThrough();
+
+    const pending = runCli(["create", "skills/advise"], {
+      cwd: created.root,
+      tty: true,
+      stdin,
+    });
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      stdin.write("\n");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    stdin.end();
+    const result = await pending;
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("A description is required.");
+    expect(await pathExists(created.path(".factory/skills/advise/SKILL.md"))).toBe(false);
+  });
+
   test("prints its result as one JSON object", async () => {
     const created = await repo();
 
@@ -131,6 +174,48 @@ description: Review a slice before it merges.
     expect(result.code).toBe(1);
     expect(result.stderr).toContain('would contain the skill "child"');
     expect(await pathExists(created.path(".factory/skills/SKILL.md"))).toBe(false);
+  });
+
+  test("fails when the path would contain a skill nested below a child directory", async () => {
+    const created = await repo({ ".factory/skills/deep/child/SKILL.md": SKILL("child") });
+
+    const result = await runCli(["create", "skills", "--description", "A parent."], {
+      cwd: created.root,
+      tty: false,
+    });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('would contain the skill "deep/child"');
+    expect(await pathExists(created.path(".factory/skills/SKILL.md"))).toBe(false);
+  });
+
+  test("refuses a path with a hidden segment that discovery would skip", async () => {
+    const created = await repo();
+
+    const result = await runCli(["create", ".hidden/secret", "--description", "Secret."], {
+      cwd: created.root,
+      tty: false,
+    });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('must not include the hidden directory ".hidden"');
+    expect(await pathExists(created.path(".factory/.hidden/secret/SKILL.md"))).toBe(false);
+  });
+
+  test("reports an ancestor that is a file as a problem, not a raw error", async () => {
+    const created = await repo({ ".factory/skills": "not a directory\n" });
+
+    const result = await runCli(["create", "skills/advise", "--description", "Advise.", "--json"], {
+      cwd: created.root,
+      tty: false,
+    });
+
+    expect(result.code).toBe(1);
+    const output = JSON.parse(result.stdout) as { ok: boolean; exitCode: number; problems: { message: string }[] };
+    expect(output.ok).toBe(false);
+    expect(output.exitCode).toBe(1);
+    expect(output.problems[0]?.message).toContain(".factory/skills is not a directory");
+    expect(result.stderr).toBe("");
   });
 
   test("exits 2 and writes nothing without a description in a non-TTY", async () => {

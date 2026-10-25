@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
@@ -42,7 +42,7 @@ async function hasSkillFile(directory: string): Promise<boolean> {
   }
 }
 
-async function hasChildSkill(directory: string): Promise<string | undefined> {
+async function hasChildSkill(directory: string, prefix = ""): Promise<string | undefined> {
   let entries;
   try {
     entries = await readdir(directory, { withFileTypes: true });
@@ -53,11 +53,25 @@ async function hasChildSkill(directory: string): Promise<string | undefined> {
   }
 
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    if (await hasSkillFile(path.join(directory, entry.name))) return entry.name;
+    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+    const relDir = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+    const childDir = path.join(directory, entry.name);
+    if (await hasSkillFile(childDir)) return relDir;
+    const nested = await hasChildSkill(childDir, relDir);
+    if (nested !== undefined) return nested;
   }
 
   return undefined;
+}
+
+async function isExistingFile(target: string): Promise<boolean> {
+  try {
+    return !(await stat(target)).isDirectory();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    throw error;
+  }
 }
 
 /**
@@ -74,12 +88,29 @@ export async function planCreate(root: string, input: string): Promise<CreatePla
     const ancestorSegments = resolved.segments.slice(0, index);
     const ancestorRelDir = ancestorSegments.join("/");
     const ancestorDir = path.join(factoryDir, ...ancestorSegments);
+    if (await isExistingFile(ancestorDir)) {
+      const message = `Cannot create .factory/${resolved.relDir}: .factory/${ancestorRelDir} is not a directory.`;
+      throw createError("create-ancestor-not-directory", message, [
+        problem(
+          `.factory/${ancestorRelDir}`,
+          message,
+          "Move the file or choose a path below a directory",
+        ),
+      ]);
+    }
     if (await hasSkillFile(ancestorDir)) {
       const message = `The path "${input}" is inside the skill "${ancestorRelDir}".`;
       throw createError("create-inside-skill", message, [
         problem(`.factory/${ancestorRelDir}/SKILL.md`, message, "Choose a path outside that skill directory"),
       ]);
     }
+  }
+
+  if (await isExistingFile(target)) {
+    const message = `Cannot create .factory/${resolved.relDir}/SKILL.md: .factory/${resolved.relDir} is not a directory.`;
+    throw createError("create-target-not-directory", message, [
+      problem(`.factory/${resolved.relDir}`, message, "Move the file or choose another path"),
+    ]);
   }
 
   if (await hasSkillFile(target)) {
