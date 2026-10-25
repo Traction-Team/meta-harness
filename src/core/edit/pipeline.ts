@@ -1,4 +1,6 @@
 import path from "node:path";
+import { isMap } from "yaml";
+import type { Document } from "yaml";
 import { MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import { didYouMean } from "../../util/suggest.js";
@@ -113,6 +115,34 @@ function validateStop(stop: string): void {
   ]);
 }
 
+function isEmptyDocument(doc: Document): boolean {
+  if (doc.contents === null) return true;
+  return isMap(doc.contents) && doc.contents.items.length === 0;
+}
+
+function isMarkerOrCommentLine(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed === "" || trimmed === "---" || trimmed === "..." || trimmed.startsWith("#");
+}
+
+/** False when the file holds only comments and empty-document markers such as `---`. */
+function hasDocumentContent(text: string): boolean {
+  return text.split(/\r?\n/).some((line) => !isMarkerOrCommentLine(line));
+}
+
+/** Keeps the comment lines of an otherwise empty factory.yaml, dropping document markers and `{}`. */
+function preservedComments(text: string): string {
+  const lines = text.split(/\r?\n/).filter((line) => {
+    const trimmed = line.trim();
+    return trimmed === "" || trimmed.startsWith("#");
+  });
+
+  while (lines.length > 0 && lines[0]!.trim() === "") lines.shift();
+  while (lines.length > 0 && lines[lines.length - 1]!.trim() === "") lines.pop();
+
+  return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
+}
+
 export async function addWorkflow(
   root: string,
   workflow: string,
@@ -129,11 +159,11 @@ export async function addWorkflow(
   let text = existing ?? createFactoryYamlText(deriveFactoryName(path.basename(root)));
 
   if (existing !== undefined) {
-    const current = parseFactoryYamlDocument(existing);
-    if (current.contents === null) {
+    const current = hasDocumentContent(existing) ? parseFactoryYamlDocument(existing) : undefined;
+    if (current === undefined || isEmptyDocument(current)) {
       const header = createFactoryYamlText(deriveFactoryName(path.basename(root)));
-      const comments = existing.trim() === "" ? "" : existing;
-      text = comments === "" ? header : `${header}${existing.endsWith("\n") ? "" : "\n"}${comments}`;
+      const comments = preservedComments(existing);
+      text = comments === "" ? header : `${header}${comments}`;
       created = true;
     }
   }

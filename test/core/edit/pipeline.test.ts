@@ -108,6 +108,42 @@ pipeline:
     );
   });
 
+  test("treats an empty mapping in factory.yaml as missing and writes format and name", async () => {
+    const created = await makeRepo({
+      "Empty Factory/.factory/factory.yaml": "{}\n",
+      "Empty Factory/.factory/workflows/x/SKILL.md": SKILL("x"),
+    });
+    repos.push(created);
+
+    const result = await runCli(["pipeline", "add", "x"], {
+      cwd: created.path("Empty Factory"),
+      tty: false,
+    });
+
+    expect(result.code).toBe(0);
+    expect(await readFile(created.path("Empty Factory/.factory/factory.yaml"), "utf8")).toBe(
+      "format: 1\nname: empty-factory\n\npipeline:\n  - x\n",
+    );
+  });
+
+  test("treats a document marker as an empty factory.yaml", async () => {
+    const created = await makeRepo({
+      "Empty Factory/.factory/factory.yaml": "---\n",
+      "Empty Factory/.factory/workflows/x/SKILL.md": SKILL("x"),
+    });
+    repos.push(created);
+
+    const result = await runCli(["pipeline", "add", "x"], {
+      cwd: created.path("Empty Factory"),
+      tty: false,
+    });
+
+    expect(result.code).toBe(0);
+    expect(await readFile(created.path("Empty Factory/.factory/factory.yaml"), "utf8")).toBe(
+      "format: 1\nname: empty-factory\n\npipeline:\n  - x\n",
+    );
+  });
+
   test("keeps comments from a comment-only factory.yaml", async () => {
     const created = await makeRepo({
       "Empty Factory/.factory/factory.yaml": "# keep this comment\n",
