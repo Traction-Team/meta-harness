@@ -2,7 +2,7 @@
 title: "feat: metafab build installs the factory for agent tools"
 status: building
 kind: feature
-pr:
+pr: 4
 needs:
   - docs/plans/02-factory-model.md
   - docs/plans/03-configuration.md
