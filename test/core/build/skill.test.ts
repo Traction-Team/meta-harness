@@ -65,6 +65,31 @@ describe("compileSkill", () => {
     );
   });
 
+  test("copies a file that is not valid UTF-8 byte for byte", async () => {
+    const invalid = Buffer.from([0xc3, 0x28, 0xa0, 0xa1]);
+    const repo = await makeRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: A demo skill. Use when testing.\n---\n\n# Demo\n",
+      ".factory/skills/demo/data.bin": invalid,
+    });
+
+    try {
+      const result = await compileSkill(
+        {
+          dir: repo.path(".factory/skills/demo"),
+          name: "demo",
+          sourcePath: ".factory/skills/demo",
+        },
+        { factoryDir: repo.path(".factory") },
+      );
+
+      expect(result.problems).toEqual([]);
+      expect(result.files.find((file) => file.path === "data.bin")!.content).toEqual(invalid);
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
   test("keeps the executable bit and omits mode for plain files", async () => {
     const result = await compileSkill(source, { factoryDir: fixture });
     const files = new Map(result.files.map((file) => [file.path, file]));
@@ -138,6 +163,68 @@ describe("compileSkill", () => {
       expect(result.problems).toHaveLength(1);
       expect(result.problems[0]!.file).toBe(".factory/skills/demo/outside.md");
       expect(result.problems[0]!.message).toContain("outside .factory/");
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
+  test("copies two directory symlinks to the same target", async () => {
+    const repo = await makeRepo({
+      ".factory/shared/target.md": "shared content\n",
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: A demo skill. Use when testing symlinks.\n---\n\n# Demo\n",
+    });
+
+    try {
+      await symlink("../../shared", repo.path(".factory/skills/demo/a"));
+      await symlink("../../shared", repo.path(".factory/skills/demo/b"));
+
+      const result = await compileSkill(
+        {
+          dir: repo.path(".factory/skills/demo"),
+          name: "demo",
+          sourcePath: ".factory/skills/demo",
+        },
+        { factoryDir: repo.path(".factory") },
+      );
+
+      expect(result.problems).toEqual([]);
+      expect(result.files.map((file) => file.path)).toEqual([
+        "SKILL.md",
+        "a/target.md",
+        "b/target.md",
+      ]);
+      expect(
+        result.files.find((file) => file.path === "a/target.md")!.content.toString("utf8"),
+      ).toBe("shared content\n");
+      expect(
+        result.files.find((file) => file.path === "b/target.md")!.content.toString("utf8"),
+      ).toBe("shared content\n");
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
+  test("reports a directory symlink that points to an ancestor", async () => {
+    const repo = await makeRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: A demo skill. Use when testing symlinks.\n---\n\n# Demo\n",
+    });
+
+    try {
+      await symlink(".", repo.path(".factory/skills/demo/loop"));
+
+      const result = await compileSkill(
+        {
+          dir: repo.path(".factory/skills/demo"),
+          name: "demo",
+          sourcePath: ".factory/skills/demo",
+        },
+        { factoryDir: repo.path(".factory") },
+      );
+
+      expect(result.problems).toHaveLength(1);
+      expect(result.problems[0]!.message).toContain("creates a loop");
     } finally {
       await repo.cleanup();
     }

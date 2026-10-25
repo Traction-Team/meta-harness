@@ -6,7 +6,7 @@ import { CLAUDE_SKILLS_DIRECTORY, AGENTS_SKILLS_DIRECTORY } from "../config/dest
 import { destinations } from "../config/destinations.js";
 import type { Problem } from "../../errors.js";
 import type { Factory } from "../factory/types.js";
-import { isBinary, toLF } from "../../util/text.js";
+import { toLF } from "../../util/text.js";
 import { isDirectory, pathExists } from "../../util/fs.js";
 import {
   AGENTS_BLOCK_LINE_LIMIT,
@@ -25,7 +25,7 @@ import {
   replaceMarkerBlock,
 } from "./markers.js";
 import type { MarkerLines, MarkerProblem, MarkerRange } from "./markers.js";
-import { builtinComment, compileSkill, isOwned } from "./skill.js";
+import { builtinComment, compileSkill, isOwned, textContent } from "./skill.js";
 import type { CompiledSkill } from "./skill.js";
 
 export interface BuildWrite {
@@ -212,12 +212,82 @@ async function readDirectoryIfExists(
   }
 }
 
+interface DesiredFileTree {
+  files: Set<string>;
+  directories: Set<string>;
+}
+
 interface ScanContext {
   root: string;
   selected: boolean;
-  desired: Set<string>;
+  desired: Map<string, DesiredFileTree>;
   removals: Set<string>;
   conflicts: Problem[];
+}
+
+function desiredFileTree(skill: DesiredSkill): DesiredFileTree {
+  const files = new Set<string>();
+  const directories = new Set<string>();
+
+  for (const file of skill.files) {
+    files.add(file.path);
+    let directory = path.posix.dirname(file.path);
+    while (directory !== "." && directory !== "") {
+      directories.add(directory);
+      directory = path.posix.dirname(directory);
+    }
+  }
+
+  return { files, directories };
+}
+
+function unownedEntry(relativePath: string, directory: boolean): Problem {
+  return {
+    level: "error",
+    file: relativePath,
+    message: directory
+      ? `Unowned directory ${relativePath} is in the way`
+      : `Unowned file ${relativePath} is in the way`,
+    fix: "Move it into .factory/skills/, or run metafab init to adopt it",
+  };
+}
+
+async function reconcileOwnedDirectory(
+  target: string,
+  installedPath: string,
+  skillPath: string,
+  desired: DesiredFileTree,
+  removals: Set<string>,
+): Promise<void> {
+  const entries = (await readDirectoryIfExists(target)) ?? [];
+  entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+
+  for (const entry of entries) {
+    const childInstalled = `${installedPath}/${entry.name}`;
+    const childSkill = skillPath === "" ? entry.name : `${skillPath}/${entry.name}`;
+
+    if (desired.files.has(childSkill)) {
+      if (!entry.isFile()) removals.add(childInstalled);
+      continue;
+    }
+
+    if (desired.directories.has(childSkill)) {
+      if (entry.isDirectory()) {
+        await reconcileOwnedDirectory(
+          path.join(target, entry.name),
+          childInstalled,
+          childSkill,
+          desired,
+          removals,
+        );
+      } else {
+        removals.add(childInstalled);
+      }
+      continue;
+    }
+
+    removals.add(childInstalled);
+  }
 }
 
 async function scanDestination(context: ScanContext, directory: string): Promise<void> {
@@ -229,7 +299,7 @@ async function scanDestination(context: ScanContext, directory: string): Promise
       level: "error",
       file: directory,
       message: `${directory} is not a directory`,
-      fix: "Move the file or rename it, then run metafab build again",
+      fix: "Move the file or rename it, then run metafab build again; metafab init can adopt existing skills",
     });
     return;
   }
@@ -242,31 +312,24 @@ async function scanDestination(context: ScanContext, directory: string): Promise
     const owned = entry.isDirectory() && (await isOwned(absolute(context.root, relativePath)));
 
     if (context.selected) {
-      if (entry.isDirectory() && context.desired.has(entry.name)) {
-        if (!owned) {
-          context.conflicts.push({
-            level: "error",
-            file: relativePath,
-            message: `Unowned directory ${relativePath} is in the way`,
-            fix: "Move it into .factory/skills/ or rename it",
-          });
-        }
+      if (!owned) {
+        context.conflicts.push(unownedEntry(relativePath, entry.isDirectory()));
         continue;
       }
 
-      if (owned) {
+      const desired = context.desired.get(entry.name);
+      if (desired === undefined) {
         context.removals.add(relativePath);
         continue;
       }
 
-      context.conflicts.push({
-        level: "error",
-        file: relativePath,
-        message: entry.isDirectory()
-          ? `Unowned directory ${relativePath} is in the way`
-          : `Unowned file ${relativePath} is in the way`,
-        fix: "Move it into .factory/skills/ or rename it",
-      });
+      await reconcileOwnedDirectory(
+        absolute(context.root, relativePath),
+        relativePath,
+        "",
+        desired,
+        context.removals,
+      );
       continue;
     }
 
@@ -308,8 +371,10 @@ async function planEmptyDirectories(
 }
 
 function sameContent(existing: Buffer, desired: Buffer): boolean {
-  if (isBinary(existing) || isBinary(desired)) return existing.equals(desired);
-  return toLF(existing.toString("utf8")) === toLF(desired.toString("utf8"));
+  const existingText = textContent(existing);
+  const desiredText = textContent(desired);
+  if (existingText === undefined || desiredText === undefined) return existing.equals(desired);
+  return toLF(existingText) === toLF(desiredText);
 }
 
 async function fileMatches(
@@ -372,7 +437,7 @@ export async function planBuild(
     const context: ScanContext = {
       root,
       selected: desired !== undefined,
-      desired: new Set((desired ?? []).map((skill) => skill.name)),
+      desired: new Map((desired ?? []).map((skill) => [skill.name, desiredFileTree(skill)])),
       removals,
       conflicts: plan.conflicts,
     };

@@ -140,6 +140,16 @@ export function replaceMarkerBlock(
   return { ok: true, text: next, changed: next !== source };
 }
 
+function removeSeparatorBlank(lines: string[], index: number): void {
+  if (lines[index] !== "") return;
+
+  const before = lines[index - 1];
+  const after = lines[index + 1];
+  const joinsNonBlank =
+    before !== undefined && after !== undefined && before.trim() !== "" && after.trim() !== "";
+  if (!joinsNonBlank) lines.splice(index, 1);
+}
+
 export function removeMarkerBlock(text: string, markers: MarkerLines): MarkerResult {
   const source = toLF(text);
   const lines = source.split("\n");
@@ -153,10 +163,10 @@ export function removeMarkerBlock(text: string, markers: MarkerLines): MarkerRes
   const nextLines = [...lines.slice(0, start), ...lines.slice(end + 1)];
 
   if (nextLines[start - 1] === "" && nextLines[start] === "") {
-    nextLines.splice(start, 1);
+    removeSeparatorBlank(nextLines, start);
   }
   if (start === 0 && nextLines[0] === "") {
-    nextLines.shift();
+    removeSeparatorBlank(nextLines, 0);
   }
 
   const next = nextLines.every((line) => line.trim() === "") ? "" : nextLines.join("\n");
