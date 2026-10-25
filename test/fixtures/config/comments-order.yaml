@@ -1,0 +1,4 @@
+# Factory settings, kept in this order for humans.
+metafab-skill: false
+# Both agent tools share .agents/skills.
+agents: [codex, cursor]

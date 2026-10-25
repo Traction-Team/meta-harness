@@ -1,0 +1,22 @@
+agents: [claude, codex]
+metafab-skill: true
+
+publish:
+  name: "@seasb/fab-mark4"
+  git: git@github.com:seasb/fab-mark4.git
+  branch: main
+  version: 1.2.0
+  description: Plan, build, and review work in slices with a person at each decision.
+  license: MIT
+  access: public
+  readme: docs/fab-readme.md
+  keywords: [planning, review]
+  exclude:
+    - skills/our-api/**
+    - workflows/deploy-production/**
+
+# Written by metafab import. Do not edit.
+upstream:
+  source: "@seasb/fab-base"
+  requested: ^2.0.0
+  version: 2.1.0
