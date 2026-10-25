@@ -138,10 +138,10 @@ Review the source change in `.factory/`. The installed copies are derived from i
 Work moves through these workflows in order. When one ends, suggest the next.
 
 1. `file-work`
-2. `triage-ideas`. Then stop: the product lead picks the next item.
-3. `plan-feature`. Then stop: the tech lead approves the plan as a documentation PR.
+2. `triage-ideas`. Then stop: The product lead picks the next item.
+3. `plan-feature`. Then stop: The tech lead approves the plan as a documentation PR.
 4. `build-slice`
-5. `review-slice`. Then stop: the code owner approves the PR.
+5. `review-slice`. Then stop: The code owner approves the PR.
 6. `finish-slice`
 
 ## Factory source

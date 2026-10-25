@@ -1,0 +1,363 @@
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, describe, expect, test } from "vitest";
+import { applyBuild, planBuild } from "../../../src/core/build/index.js";
+import type { BuildPlan } from "../../../src/core/build/index.js";
+import { loadConfig } from "../../../src/core/config/load.js";
+import { loadFactory } from "../../../src/core/factory/index.js";
+import { compareTrees, copyTree, pathExists } from "../../../src/util/fs.js";
+import { makeRepo } from "../../helpers/makeRepo.js";
+import type { TempRepo } from "../../helpers/makeRepo.js";
+
+const FIXTURE_SOURCE = fileURLToPath(
+  new URL("../../fixtures/build/mark4-like/source", import.meta.url),
+);
+const FIXTURE_EXPECTED = fileURLToPath(
+  new URL("../../fixtures/build/mark4-like/expected", import.meta.url),
+);
+
+const repos: TempRepo[] = [];
+
+function track(repo: TempRepo): TempRepo {
+  repos.push(repo);
+  return repo;
+}
+
+afterEach(async () => {
+  await Promise.all(repos.splice(0).map((repo) => repo.cleanup()));
+});
+
+async function copyFixture(): Promise<TempRepo> {
+  const root = await mkdtemp(path.join(tmpdir(), "metafab-build-"));
+  const repo: TempRepo = {
+    root,
+    path: (...segments: string[]) => path.join(root, ...segments),
+    async cleanup() {
+      await rm(root, { recursive: true, force: true });
+    },
+  };
+  await copyTree(FIXTURE_SOURCE, root);
+  return track(repo);
+}
+
+async function makeBuildRepo(files: Record<string, string | Uint8Array>): Promise<TempRepo> {
+  return track(await makeRepo(files));
+}
+
+async function planRepo(root: string, cliVersion = "0.1.0"): Promise<BuildPlan> {
+  const factory = await loadFactory(root);
+  const config = await loadConfig(factory.dir);
+  return planBuild(factory, config, cliVersion);
+}
+
+async function build(root: string, cliVersion = "0.1.0") {
+  const plan = await planRepo(root, cliVersion);
+  const report = await applyBuild(plan);
+  return { plan, report };
+}
+
+async function setConfig(repo: TempRepo, text: string): Promise<void> {
+  await mkdir(repo.path(".factory"), { recursive: true });
+  await writeFile(repo.path(".factory", "metafab.yaml"), text);
+}
+
+describe("golden mark4-like build", () => {
+  test("produces the expected tree, including the AGENTS.md block from the spec", async () => {
+    const repo = await copyFixture();
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.errors).toEqual([]);
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.warnings).toEqual([]);
+    expect(report.changed.length).toBeGreaterThan(0);
+
+    const expectedAgents = await readFile(path.join(FIXTURE_EXPECTED, "AGENTS.md"), "utf8");
+    expect(await readFile(repo.path("AGENTS.md"), "utf8")).toBe(expectedAgents);
+    expect(expectedAgents).toContain(
+      "2. `triage-ideas`. Then stop: The product lead picks the next item.",
+    );
+
+    const differences = await compareTrees(FIXTURE_EXPECTED, repo.root, {
+      ignore: (relativePath) => relativePath === ".factory" || relativePath.startsWith(".factory/"),
+    });
+    expect(differences).toEqual([]);
+  });
+
+  test("a second build reports no changes", async () => {
+    const repo = await copyFixture();
+    await build(repo.root);
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.errors).toEqual([]);
+    expect(plan.conflicts).toEqual([]);
+    expect(report.changed).toEqual([]);
+  });
+});
+
+describe("target selection", () => {
+  test("dropping claude removes its owned skills, CLAUDE.md block and ignore line", async () => {
+    const repo = await copyFixture();
+    await build(repo.root);
+    await setConfig(repo, "agents: [codex]\n");
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.conflicts).toEqual([]);
+    expect(report.changed.some((change) => change.path === "CLAUDE.md" && change.action === "updated")).toBe(true);
+    expect(await pathExists(repo.path(".claude"))).toBe(false);
+    expect(await readFile(repo.path("CLAUDE.md"), "utf8")).toBe(
+      "# Mark4 repository\n\nUser notes live here.\n",
+    );
+    expect(await readFile(repo.path(".gitignore"), "utf8")).toBe(
+      "node_modules/\n\n# metafab:start\n.agents/skills/\n# metafab:end\n",
+    );
+    expect(await pathExists(repo.path(".agents", "skills", "build-slice", "SKILL.md"))).toBe(true);
+
+    const second = await build(repo.root);
+    expect(second.report.changed).toEqual([]);
+  });
+
+  test("agents: [] removes every owned output and block", async () => {
+    const repo = await copyFixture();
+    await build(repo.root);
+    await setConfig(repo, "agents: []\n");
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.conflicts).toEqual([]);
+    expect(report.changed.some((change) => change.action === "removed")).toBe(true);
+    expect(await pathExists(repo.path(".claude"))).toBe(false);
+    expect(await pathExists(repo.path(".agents"))).toBe(false);
+    expect(await pathExists(repo.path("AGENTS.md"))).toBe(false);
+    expect(await readFile(repo.path("CLAUDE.md"), "utf8")).toBe(
+      "# Mark4 repository\n\nUser notes live here.\n",
+    );
+    expect(await readFile(repo.path(".gitignore"), "utf8")).toBe("node_modules/\n");
+
+    const second = await build(repo.root);
+    expect(second.report.changed).toEqual([]);
+  });
+
+  test("deselected destinations leave unowned directories alone", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+      ".factory/metafab.yaml": "agents: [codex]\n",
+      ".claude/skills/mine/SKILL.md": "---\nname: mine\ndescription: Mine.\n---\n",
+    });
+
+    const { plan } = await build(repo.root);
+
+    expect(plan.conflicts).toEqual([]);
+    expect(await readFile(repo.path(".claude", "skills", "mine", "SKILL.md"), "utf8")).toContain(
+      "name: mine",
+    );
+    expect(await pathExists(repo.path(".agents", "skills", "demo", "SKILL.md"))).toBe(true);
+  });
+});
+
+describe("conflict preflight", () => {
+  test("an unowned skill directory stops the build with no writes", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/workflows/build-slice/SKILL.md":
+        "---\nname: build-slice\ndescription: Build. Use when building.\n---\n\n# Build\n",
+      ".factory/metafab.yaml": "agents: [claude]\n",
+      ".claude/skills/build-slice/SKILL.md": "user content\n",
+    });
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.conflicts).toHaveLength(1);
+    expect(plan.conflicts[0]?.file).toBe(".claude/skills/build-slice");
+    expect(plan.conflicts[0]?.message).toContain("Unowned directory");
+    expect(report.changed).toEqual([]);
+    expect(await readFile(repo.path(".claude", "skills", "build-slice", "SKILL.md"), "utf8")).toBe(
+      "user content\n",
+    );
+    expect(await pathExists(repo.path("AGENTS.md"))).toBe(false);
+    expect(await pathExists(repo.path(".gitignore"))).toBe(false);
+  });
+
+  test("a hand-deleted generated comment makes the directory unowned", async () => {
+    const repo = await copyFixture();
+    await build(repo.root);
+    const installed = repo.path(".agents", "skills", "build-slice", "SKILL.md");
+    const edited = (await readFile(installed, "utf8")).replace(
+      "<!-- Generated by metafab build from .factory/workflows/build-slice/. Edit the source, then run metafab build. -->\n",
+      "",
+    );
+    await writeFile(installed, edited);
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.conflicts.map((problem) => problem.file)).toContain(
+      ".agents/skills/build-slice",
+    );
+    expect(report.changed).toEqual([]);
+    expect(await readFile(installed, "utf8")).toBe(edited);
+  });
+});
+
+describe("removals", () => {
+  test("a skill removed from .factory/ removes its installed directories", async () => {
+    const repo = await copyFixture();
+    await build(repo.root);
+    await rm(repo.path(".factory", "skills", "git-conventions"), { recursive: true });
+    await rm(repo.path(".factory", "review", "security"), { recursive: true });
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.conflicts).toEqual([]);
+    expect(report.changed).toContainEqual({
+      path: ".claude/skills/git-conventions",
+      action: "removed",
+    });
+    expect(report.changed).toContainEqual({
+      path: ".agents/skills/security",
+      action: "removed",
+    });
+    expect(await pathExists(repo.path(".claude", "skills", "git-conventions"))).toBe(false);
+    expect(await pathExists(repo.path(".agents", "skills", "security"))).toBe(false);
+    expect(await pathExists(repo.path(".agents", "skills", "build-slice", "SKILL.md"))).toBe(true);
+  });
+
+  test("metafab-skill: false removes the installed built-in skill", async () => {
+    const repo = await copyFixture();
+    await build(repo.root);
+    await setConfig(repo, "agents: [claude, codex]\nmetafab-skill: false\n");
+
+    const { report } = await build(repo.root);
+
+    expect(report.changed).toContainEqual({
+      path: ".claude/skills/metafab",
+      action: "removed",
+    });
+    expect(report.changed).toContainEqual({
+      path: ".agents/skills/metafab",
+      action: "removed",
+    });
+    expect(await pathExists(repo.path(".claude", "skills", "metafab"))).toBe(false);
+    expect(await pathExists(repo.path(".agents", "skills", "metafab"))).toBe(false);
+    expect(await pathExists(repo.path(".claude", "skills", "build-slice", "SKILL.md"))).toBe(true);
+  });
+});
+
+describe("compiled files", () => {
+  test("writes LF, copies binary bytes and keeps executable bits", async () => {
+    const binary = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0xff]);
+    const repo = await makeBuildRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\r\nname: demo\r\ndescription: Demo. Use when testing.\r\n---\r\n\r\n# Demo\r\n",
+      ".factory/skills/demo/notes.txt": "first\r\nsecond\r\n",
+      ".factory/skills/demo/data.bin": binary,
+      ".factory/skills/demo/run.sh": "#!/bin/sh\necho hi\n",
+      ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+    });
+    await chmod(repo.path(".factory", "skills", "demo", "run.sh"), 0o755);
+
+    await build(repo.root);
+
+    const installed = repo.path(".agents", "skills", "demo");
+    expect(await readFile(path.join(installed, "notes.txt"), "utf8")).toBe("first\nsecond\n");
+    expect(await readFile(path.join(installed, "SKILL.md"), "utf8")).not.toContain("\r");
+    expect(await readFile(path.join(installed, "data.bin"))).toEqual(binary);
+    expect((await stat(path.join(installed, "run.sh"))).mode & 0o111).not.toBe(0);
+
+    const second = await build(repo.root);
+    expect(second.report.changed).toEqual([]);
+  });
+});
+
+describe("root CLAUDE.md", () => {
+  test("leaves a file that already imports AGENTS.md unchanged", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+      ".factory/metafab.yaml": "agents: [claude]\nmetafab-skill: false\n",
+      "CLAUDE.md": "# House rules\n\n@AGENTS.md\n",
+    });
+
+    const { plan } = await build(repo.root);
+
+    expect(plan.errors).toEqual([]);
+    expect(await readFile(repo.path("CLAUDE.md"), "utf8")).toBe("# House rules\n\n@AGENTS.md\n");
+  });
+
+  test("does not create CLAUDE.md when it is missing", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+      ".factory/metafab.yaml": "agents: [claude]\nmetafab-skill: false\n",
+    });
+
+    await build(repo.root);
+
+    expect(await pathExists(repo.path("CLAUDE.md"))).toBe(false);
+  });
+});
+
+describe("marker blocks", () => {
+  test("appends to existing AGENTS.md text and replaces only the block on the next build", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+      ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+      "AGENTS.md": "# User rules\n\nKeep this.\n",
+    });
+
+    await build(repo.root);
+    const first = await readFile(repo.path("AGENTS.md"), "utf8");
+    expect(first.startsWith("# User rules\n\nKeep this.\n\n<!-- factory:start -->")).toBe(true);
+
+    await writeFile(
+      repo.path(".factory", "AGENTS.md"),
+      "# Changed factory instructions\n",
+    );
+    await build(repo.root);
+    const second = await readFile(repo.path("AGENTS.md"), "utf8");
+
+    expect(second.startsWith("# User rules\n\nKeep this.\n\n<!-- factory:start -->")).toBe(true);
+    expect(second).toContain("# Changed factory instructions");
+    expect(second).not.toContain("# Demo");
+    expect(second.match(/<!-- factory:start -->/g)).toHaveLength(1);
+  });
+
+  test("malformed markers stop the build before writing", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+      ".factory/metafab.yaml": "agents: [codex]\n",
+      "AGENTS.md": "<!-- factory:start -->\nbody\n",
+    });
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.errors).toHaveLength(1);
+    expect(plan.errors[0]?.file).toBe("AGENTS.md");
+    expect(plan.errors[0]?.message).toContain("without an end marker");
+    expect(report.changed).toEqual([]);
+    expect(await readFile(repo.path("AGENTS.md"), "utf8")).toBe("<!-- factory:start -->\nbody\n");
+    expect(await pathExists(repo.path(".agents"))).toBe(false);
+  });
+
+  test("warns when the generated AGENTS.md block exceeds 300 lines", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+      ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+      ".factory/AGENTS.md": Array.from({ length: 300 }, (_, index) => `Line ${index + 1}`).join(
+        "\n",
+      ),
+    });
+
+    const { plan } = await build(repo.root);
+
+    expect(plan.warnings).toHaveLength(1);
+    expect(plan.warnings[0]?.file).toBe("AGENTS.md");
+    expect(plan.warnings[0]?.message).toContain("limit is 300");
+  });
+});
