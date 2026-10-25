@@ -7,7 +7,7 @@ This repository builds **Metafab**: the `metafab` CLI, published as `@seasb/meta
 - `docs/specs/`: what v1 does. The specs are the acceptance standard for every change.
 - `docs/roadmap.md`: where we are. One checkbox per plan; it is the source of truth for progress.
 - `docs/plans/`: how each piece is built. One plan is one pull request.
-- `mark-one/`, `mark-two/`, `mk3/`, `mk4/`, and `assets/` are earlier prototypes and material. Do not read or change them unless the person asks.
+- `prototype/`, and `assets/` are earlier prototypes and material. Do not read or change them unless the person asks.
 
 ## Commands
 
