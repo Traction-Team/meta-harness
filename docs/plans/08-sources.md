@@ -1,6 +1,6 @@
 ---
 title: "feat: resolve, fetch and validate fab sources"
-status: ready
+status: building
 kind: feature
 pr:
 needs:
@@ -11,6 +11,9 @@ owns:
   - test/core/sources/**
   - test/fixtures/fabs/**
   - test/helpers/registry/**
+  - src/core/config/source.ts       # step 7 replaces Plan 03's temporary classifier here
+  - package.json                    # tar, ssri runtime deps; verdaccio dev dep for the registry fixture
+  - package-lock.json
 proves: "npx vitest run test/core/sources → every source form resolves against local Git and Verdaccio fixtures; the extractor rejects traversal, links and oversize files"
 ---
 
