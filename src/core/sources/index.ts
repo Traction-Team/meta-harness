@@ -3,3 +3,5 @@ export * from "./parse.js";
 export * from "./extract.js";
 export * from "./validate.js";
 export * from "./cache.js";
+export * from "./npm.js";
+export * from "./resolve.js";

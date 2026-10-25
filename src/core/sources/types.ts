@@ -17,6 +17,7 @@ export type Resolved =
   | {
       kind: "npm";
       spec: NpmSourceSpec;
+      requested: string;
       version: string;
       tarball: string;
       integrity?: string;
