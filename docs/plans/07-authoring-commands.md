@@ -2,7 +2,7 @@
 title: "feat: create, rename, pipeline and map commands"
 status: building
 kind: feature
-pr:
+pr: 5
 needs:
   - docs/plans/02-factory-model.md
 owns:
