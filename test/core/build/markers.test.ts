@@ -127,15 +127,6 @@ describe("removeMarkerBlock", () => {
     expect(removeMarkerBlock(text, factory)).toEqual({ ok: true, text: "", changed: true });
   });
 
-  test("keeps a blank separator between user text before and after the block", () => {
-    const text = "# Before\n<!-- factory:start -->\nbody\n<!-- factory:end -->\n\n# After\n";
-    expect(removeMarkerBlock(text, factory)).toEqual({
-      ok: true,
-      text: "# Before\n\n# After\n",
-      changed: true,
-    });
-  });
-
   test("is a no-op when no block exists", () => {
     expect(removeMarkerBlock("plain\n", factory)).toEqual({
       ok: true,

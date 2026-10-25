@@ -251,7 +251,7 @@ describe("conflict preflight", () => {
 });
 
 describe("removals", () => {
-  test("removes extra files and directories inside an owned skill", async () => {
+  test("removes and reports a file added by hand inside an owned skill", async () => {
     const repo = await makeBuildRepo({
       ".factory/skills/demo/SKILL.md":
         "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
@@ -309,8 +309,11 @@ describe("removals", () => {
     expect(plan.conflicts).toEqual([]);
     expect(report.changed).toContainEqual({
       path: ".agents/skills/demo/notes.txt",
-      action: "removed",
+      action: "updated",
     });
+    expect(
+      report.changed.filter((change) => change.path === ".agents/skills/demo/notes.txt"),
+    ).toHaveLength(1);
     expect(report.changed).toContainEqual({
       path: ".agents/skills/demo/nested",
       action: "removed",

@@ -548,6 +548,8 @@ export async function applyBuild(plan: BuildPlan): Promise<BuildReport> {
     await rm(absolute(plan.root, removal), { recursive: true, force: true });
   }
 
+  const removed = new Set(existingRemovals);
+  const written = new Set(plan.writes.map((write) => write.path));
   for (const write of plan.writes) {
     const target = absolute(plan.root, write.path);
     const comparison = await fileMatches(plan.root, write);
@@ -556,10 +558,14 @@ export async function applyBuild(plan: BuildPlan): Promise<BuildReport> {
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, write.content);
     if (write.mode !== undefined) await chmod(target, write.mode);
-    changed.push({ path: write.path, action: comparison.exists ? "updated" : "created" });
+    changed.push({
+      path: write.path,
+      action: comparison.exists || removed.has(write.path) ? "updated" : "created",
+    });
   }
 
   for (const removal of existingRemovals) {
+    if (written.has(removal)) continue;
     changed.push({ path: removal, action: "removed" });
   }
 
