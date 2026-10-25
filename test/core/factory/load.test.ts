@@ -1,3 +1,4 @@
+import { chmod, mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
@@ -237,6 +238,124 @@ allowed-tools:
       const factory = await loadFactory(repo.root);
 
       expect(factory.agentsMd).toBe("# Rules\nNo secrets.\n");
+    } finally {
+      await repo.cleanup();
+    }
+  });
+});
+
+const cannotTestPermissions = process.platform === "win32" || process.getuid?.() === 0;
+
+describe("loadFactory filesystem errors", () => {
+  test.skipIf(cannotTestPermissions)("reports an unreadable factory.yaml and leaves it unset", async () => {
+    const repo = await makeRepo({ ".factory/factory.yaml": "format: 1\nname: demo\n" });
+    const file = repo.path(".factory", "factory.yaml");
+    try {
+      await chmod(file, 0o000);
+      const factory = await loadFactory(repo.root);
+
+      expect(factory.factoryYaml).toBeUndefined();
+      expect(factory.problems).toEqual([
+        {
+          level: "error",
+          file: ".factory/factory.yaml",
+          line: 1,
+          message: "Cannot read file .factory/factory.yaml",
+          fix: "Check its permissions or restore the file",
+        },
+      ]);
+    } finally {
+      await chmod(file, 0o644);
+      await repo.cleanup();
+    }
+  });
+
+  test.skipIf(cannotTestPermissions)("reports an unreadable AGENTS.md and leaves it unset", async () => {
+    const repo = await makeRepo({ ".factory/AGENTS.md": "# Rules\n" });
+    const file = repo.path(".factory", "AGENTS.md");
+    try {
+      await chmod(file, 0o000);
+      const factory = await loadFactory(repo.root);
+
+      expect(factory.agentsMd).toBeUndefined();
+      expect(factory.problems).toEqual([
+        {
+          level: "error",
+          file: ".factory/AGENTS.md",
+          line: 1,
+          message: "Cannot read file .factory/AGENTS.md",
+          fix: "Check its permissions or restore the file",
+        },
+      ]);
+    } finally {
+      await chmod(file, 0o644);
+      await repo.cleanup();
+    }
+  });
+
+  test.skipIf(cannotTestPermissions)("reports an unreadable skills directory and loads no skills", async () => {
+    const repo = await makeRepo({ ".factory/skills/demo/SKILL.md": SKILL });
+    const directory = repo.path(".factory", "skills");
+    try {
+      await chmod(directory, 0o000);
+      const factory = await loadFactory(repo.root);
+
+      expect(factory.skills).toEqual([]);
+      expect(factory.problems).toEqual([
+        {
+          level: "error",
+          file: ".factory/skills",
+          line: 1,
+          message: "Cannot read directory .factory/skills",
+          fix: "Check its permissions or restore the directory",
+        },
+      ]);
+    } finally {
+      await chmod(directory, 0o755);
+      await repo.cleanup();
+    }
+  });
+
+  test.skipIf(cannotTestPermissions)("reports an unreadable SKILL.md and skips the skill", async () => {
+    const repo = await makeRepo({ ".factory/skills/demo/SKILL.md": SKILL });
+    const file = repo.path(".factory", "skills", "demo", "SKILL.md");
+    try {
+      await chmod(file, 0o000);
+      const factory = await loadFactory(repo.root);
+
+      expect(factory.skills).toEqual([]);
+      expect(factory.problems).toEqual([
+        {
+          level: "error",
+          file: ".factory/skills/demo/SKILL.md",
+          line: 1,
+          message: "Cannot read file .factory/skills/demo/SKILL.md",
+          fix: "Check its permissions or restore the file",
+        },
+      ]);
+    } finally {
+      await chmod(file, 0o644);
+      await repo.cleanup();
+    }
+  });
+
+  test("reports a factory.yaml that is not a regular file", async () => {
+    const repo = await makeRepo({});
+    const file = repo.path(".factory", "factory.yaml");
+    try {
+      await mkdir(file, { recursive: true });
+      const factory = await loadFactory(repo.root);
+
+      expect(factory.factoryYaml).toBeUndefined();
+      expect(factory.problems).toEqual([
+        {
+          level: "error",
+          file: ".factory/factory.yaml",
+          line: 1,
+          message: ".factory/factory.yaml is not a regular file",
+          fix: "Replace it with a regular file",
+        },
+      ]);
     } finally {
       await repo.cleanup();
     }

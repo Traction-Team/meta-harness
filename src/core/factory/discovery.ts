@@ -15,6 +15,11 @@ function factoryPath(relDir: string): string {
   return relDir === "" ? ".factory" : `.factory/${relDir}`;
 }
 
+function isAbsentError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
 function firstHeading(body: string): string | undefined {
   let fence: { marker: string; length: number } | undefined;
 
@@ -45,7 +50,20 @@ async function loadSkill(
   problems: Problem[],
 ): Promise<Skill | undefined> {
   const file = `${factoryPath(relDir)}/SKILL.md`;
-  const source = await readFile(path.join(dir, "SKILL.md"), "utf8");
+  let source: string;
+  try {
+    source = await readFile(path.join(dir, "SKILL.md"), "utf8");
+  } catch (error) {
+    if (isAbsentError(error)) return undefined;
+    problems.push({
+      level: "error",
+      file,
+      line: 1,
+      message: `Cannot read file ${file}`,
+      fix: "Check its permissions or restore the file",
+    });
+    return undefined;
+  }
   const parsed = parseFrontmatter(source);
 
   if (!parsed.ok) {
@@ -86,7 +104,16 @@ export async function discoverSkills(root: string): Promise<DiscoveryResult> {
     let entries;
     try {
       entries = await readdir(dir, { withFileTypes: true });
-    } catch {
+    } catch (error) {
+      if (isAbsentError(error)) return;
+      const file = factoryPath(relDir);
+      result.problems.push({
+        level: "error",
+        file,
+        line: 1,
+        message: `Cannot read directory ${file}`,
+        fix: "Check its permissions or restore the directory",
+      });
       return;
     }
     entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
