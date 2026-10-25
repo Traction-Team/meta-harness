@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { chmod, readFile } from "node:fs/promises";
 import { afterEach, describe, expect, test } from "vitest";
 import { loadFactory } from "../../../src/core/factory/load.js";
 import { pathExists } from "../../../src/util/fs.js";
@@ -148,6 +148,68 @@ pipeline:
     expect(result.code).toBe(0);
     expect(result.stderr).toBe("");
   });
+
+  test("reports a clear error when the new name matches the old name", async () => {
+    const created = await repo();
+
+    const result = await runCli(["rename", "review-slice", "review-slice"], {
+      cwd: created.root,
+      tty: false,
+    });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('The skill is already named "review-slice".');
+    expect(result.stderr).not.toContain("destination");
+    expect(await pathExists(created.path(".factory/workflows/review-slice/SKILL.md"))).toBe(true);
+  });
+
+  test.skipIf(typeof process.getuid === "function" && process.getuid() === 0)(
+    "succeeds when an unrelated factory directory cannot be read",
+    async () => {
+      const created = await repo({ ".factory/notes/readme.txt": "See review-slice.\n" });
+      const notes = created.path(".factory/notes");
+      await chmod(notes, 0o000);
+
+      try {
+        const result = await runCli(["rename", "review-slice", "review-plan"], {
+          cwd: created.root,
+          tty: false,
+        });
+
+        expect(result.code).toBe(0);
+        expect(await readFile(created.path(".factory/workflows/review-plan/SKILL.md"), "utf8")).toContain(
+          "name: review-plan",
+        );
+      } finally {
+        await chmod(notes, 0o755);
+      }
+    },
+  );
+
+  test.skipIf(typeof process.getuid === "function" && process.getuid() === 0)(
+    "rolls the directory back when a later write fails",
+    async () => {
+      const created = await repo();
+      const factoryDir = created.path(".factory");
+      await chmod(factoryDir, 0o555);
+
+      try {
+        const result = await runCli(["rename", "review-slice", "review-plan"], {
+          cwd: created.root,
+          tty: false,
+        });
+
+        expect(result.code).toBe(1);
+        expect(result.stderr).toContain('Could not rename "review-slice" to "review-plan"');
+        expect(result.stderr).not.toContain("at async");
+        expect(await pathExists(created.path(".factory/workflows/review-plan"))).toBe(false);
+        expect(await readFile(created.path(".factory/workflows/review-slice/SKILL.md"), "utf8")).toBe(REVIEW_SKILL);
+        expect(await readFile(created.path(".factory/factory.yaml"), "utf8")).toBe(FACTORY_YAML);
+      } finally {
+        await chmod(factoryDir, 0o755);
+      }
+    },
+  );
 
   test("fails when the new name already exists", async () => {
     const created = await repo();

@@ -1,9 +1,9 @@
-import { readFile, rename } from "node:fs/promises";
+import { readFile, readdir, rename } from "node:fs/promises";
 import path from "node:path";
 import { MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import { isBinary } from "../../util/text.js";
-import { listFiles, pathExists } from "../../util/fs.js";
+import { pathExists } from "../../util/fs.js";
 import { didYouMean } from "../../util/suggest.js";
 import { loadFactory } from "../factory/load.js";
 import type { Skill } from "../factory/types.js";
@@ -51,6 +51,33 @@ function mentionsName(text: string, name: string): boolean {
   return pattern.test(text);
 }
 
+/** Lists files under a directory, skipping entries it cannot read instead of failing the rename. */
+async function readableFiles(root: string): Promise<string[]> {
+  const files: string[] = [];
+
+  async function walk(directory: string, prefix: string): Promise<void> {
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const relPath = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) {
+        await walk(path.join(directory, entry.name), relPath);
+      } else if (entry.isFile()) {
+        files.push(relPath);
+      }
+    }
+  }
+
+  await walk(root, "");
+  files.sort();
+  return files;
+}
+
 async function mentionWarnings(
   root: string,
   oldName: string,
@@ -59,7 +86,7 @@ async function mentionWarnings(
 ): Promise<Problem[]> {
   const factoryDir = path.join(root, ".factory");
   const warnings: Problem[] = [];
-  const files = await listFiles(factoryDir);
+  const files = await readableFiles(factoryDir);
 
   for (const relPath of files) {
     if (relPath === "factory.yaml") continue;
@@ -121,6 +148,13 @@ export async function renameSkill(root: string, from: string, to: string): Promi
 
   const destination = path.join(root, ".factory", ...newRelDir.split("/"));
   const destinationFile = `.factory/${newRelDir}/SKILL.md`;
+  if (to === from) {
+    const message = `The skill is already named "${from}".`;
+    throw renameError("rename-same-name", message, [
+      problem(destinationFile, message, "Choose a different name"),
+    ]);
+  }
+
   if (await pathExists(destination)) {
     const message = `The destination .factory/${newRelDir} already exists.`;
     throw renameError("rename-target-exists", message, [
@@ -157,10 +191,33 @@ export async function renameSkill(root: string, from: string, to: string): Promi
     }
   }
 
-  await rename(oldDir, destination);
-  await writeTextAtomically(path.join(destination, "SKILL.md"), movedSkillText);
-  if (nextFactoryText !== undefined) {
-    await writeFactoryYamlText(path.join(root, ".factory"), nextFactoryText);
+  let moved = false;
+  let skillUpdated = false;
+  try {
+    await rename(oldDir, destination);
+    moved = true;
+    await writeTextAtomically(path.join(destination, "SKILL.md"), movedSkillText);
+    skillUpdated = true;
+    if (nextFactoryText !== undefined) {
+      await writeFactoryYamlText(path.join(root, ".factory"), nextFactoryText);
+    }
+  } catch (error) {
+    if (moved) {
+      try {
+        if (skillUpdated) {
+          await writeTextAtomically(path.join(destination, "SKILL.md"), skillText);
+        }
+        await rename(destination, oldDir);
+      } catch {
+        // Best effort: report the original failure even if the rollback also fails.
+      }
+    }
+
+    const detail = error instanceof Error ? error.message : String(error);
+    const message = `Could not rename "${from}" to "${to}": ${detail}`;
+    throw renameError("rename-failed", message, [
+      problem(destinationFile, message, "Check file permissions and try again"),
+    ]);
   }
 
   const warnings = await mentionWarnings(root, from, to, newRelDir);
