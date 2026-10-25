@@ -1,0 +1,176 @@
+import { readFile, rename } from "node:fs/promises";
+import path from "node:path";
+import { MetafabError } from "../../errors.js";
+import type { Problem } from "../../errors.js";
+import { isBinary } from "../../util/text.js";
+import { listFiles, pathExists } from "../../util/fs.js";
+import { didYouMean } from "../../util/suggest.js";
+import { loadFactory } from "../factory/load.js";
+import type { Skill } from "../factory/types.js";
+import { renamePipelineEntry, parseFactoryYamlDocument, pipelineEntryNames, serializeFactoryYaml } from "./factory-yaml.js";
+import { readFactoryYamlText, writeFactoryYamlText, writeTextAtomically } from "./files.js";
+import { setFrontmatterName } from "./frontmatter.js";
+import { getSkillNameProblems } from "./names.js";
+
+export interface RenameSkillResult {
+  root: string;
+  from: string;
+  to: string;
+  /** New path relative to the factory root, such as `.factory/workflows/review-plan`. */
+  path: string;
+  /** True when the renamed workflow's pipeline entry was updated. */
+  pipeline: boolean;
+  warnings: Problem[];
+}
+
+function problem(file: string, message: string, fix?: string): Problem {
+  return {
+    level: "error",
+    file,
+    message,
+    ...(fix === undefined ? {} : { fix }),
+  };
+}
+
+function renameError(code: string, message: string, problems: Problem[]): MetafabError {
+  return new MetafabError(message, { code, problems });
+}
+
+function targetRelDir(skill: Skill, name: string): string {
+  const segments = skill.relDir.split("/");
+  segments[segments.length - 1] = name;
+  return segments.join("/");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function mentionsName(text: string, name: string): boolean {
+  const pattern = new RegExp(`(?<![a-z0-9-])${escapeRegExp(name)}(?![a-z0-9-])`);
+  return pattern.test(text);
+}
+
+async function mentionWarnings(
+  root: string,
+  oldName: string,
+  newName: string,
+  skipRelDir: string,
+): Promise<Problem[]> {
+  const factoryDir = path.join(root, ".factory");
+  const warnings: Problem[] = [];
+  const files = await listFiles(factoryDir);
+
+  for (const relPath of files) {
+    if (relPath === "factory.yaml") continue;
+    if (relPath === skipRelDir || relPath.startsWith(`${skipRelDir}/`)) continue;
+
+    let data: Buffer;
+    try {
+      data = await readFile(path.join(factoryDir, relPath));
+    } catch {
+      continue;
+    }
+    if (isBinary(data)) continue;
+
+    const lines = data.toString("utf8").split("\n");
+    lines.forEach((line, index) => {
+      if (!mentionsName(line, oldName)) return;
+      warnings.push({
+        level: "warning",
+        file: `.factory/${relPath}`,
+        line: index + 1,
+        message: `Mentions the old skill name "${oldName}"`,
+        fix: `Update it to "${newName}" if it refers to this skill`,
+      });
+    });
+  }
+
+  return warnings;
+}
+
+export async function renameSkill(root: string, from: string, to: string): Promise<RenameSkillResult> {
+  const factory = await loadFactory(root);
+  const skill = factory.skills.find((candidate) => candidate.name === from);
+
+  if (skill === undefined) {
+    const names = factory.skills.map((candidate) => candidate.name);
+    const suggestion = didYouMean(from, names);
+    const message = `No skill named "${from}".`;
+    throw renameError("rename-missing-skill", message, [
+      problem(`.factory/${from}`, message, suggestion ?? "Choose an existing skill name"),
+    ]);
+  }
+
+  const newRelDir = targetRelDir(skill, to);
+  const nameProblems = getSkillNameProblems(to, newRelDir);
+  if (nameProblems.length > 0) {
+    throw renameError("rename-name-invalid", nameProblems[0]!.message, nameProblems);
+  }
+
+  const clash = factory.skills.find(
+    (candidate) =>
+      candidate !== skill && (candidate.name === to || candidate.frontmatter.name === to),
+  );
+  if (clash !== undefined) {
+    const message = `A skill named "${to}" already exists at .factory/${clash.relDir}.`;
+    throw renameError("rename-duplicate-name", message, [
+      problem(`.factory/${clash.relDir}/SKILL.md`, message, "Choose another name"),
+    ]);
+  }
+
+  const destination = path.join(root, ".factory", ...newRelDir.split("/"));
+  const destinationFile = `.factory/${newRelDir}/SKILL.md`;
+  if (await pathExists(destination)) {
+    const message = `The destination .factory/${newRelDir} already exists.`;
+    throw renameError("rename-target-exists", message, [
+      problem(destinationFile, message, "Choose another name or remove the existing path"),
+    ]);
+  }
+
+  const oldDir = path.join(root, ".factory", ...skill.relDir.split("/"));
+  const oldSkillFile = path.join(oldDir, "SKILL.md");
+  let skillText: string;
+  try {
+    skillText = await readFile(oldSkillFile, "utf8");
+  } catch {
+    const message = `Cannot read .factory/${skill.relDir}/SKILL.md`;
+    throw renameError("rename-skill-unreadable", message, [
+      problem(`.factory/${skill.relDir}/SKILL.md`, message, "Check its permissions or restore the file"),
+    ]);
+  }
+
+  const movedSkillText = setFrontmatterName(skillText, to, `.factory/${skill.relDir}/SKILL.md`);
+
+  let factoryText: string | undefined;
+  let nextFactoryText: string | undefined;
+  let pipeline = false;
+  if (skill.isWorkflow) {
+    factoryText = await readFactoryYamlText(path.join(root, ".factory"));
+    if (factoryText !== undefined) {
+      const doc = parseFactoryYamlDocument(factoryText);
+      if (pipelineEntryNames(doc).includes(from)) {
+        renamePipelineEntry(doc, from, to);
+        nextFactoryText = serializeFactoryYaml(doc);
+        pipeline = true;
+      }
+    }
+  }
+
+  await rename(oldDir, destination);
+  await writeTextAtomically(path.join(destination, "SKILL.md"), movedSkillText);
+  if (nextFactoryText !== undefined) {
+    await writeFactoryYamlText(path.join(root, ".factory"), nextFactoryText);
+  }
+
+  const warnings = await mentionWarnings(root, from, to, newRelDir);
+
+  return {
+    root,
+    from,
+    to,
+    path: `.factory/${newRelDir}`,
+    pipeline,
+    warnings,
+  };
+}
