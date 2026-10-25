@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-23
+updated: 2026-10-25
 ---
 
 # Metafab v1 roadmap
@@ -26,7 +26,7 @@ A team can create, edit, build, and check a factory in one repository.
 - [x] [01 Project foundation](plans/01-foundation.md): package, command runner, JSON output, exit codes, factory discovery
 - [x] [02 Factory model and validation](plans/02-factory-model.md): load `.factory/`, YAML and frontmatter grammar, validation rules
 - [x] [03 Configuration](plans/03-configuration.md): `metafab.yaml` loading, validation, comment-preserving writes
-- [ ] [04 Build](plans/04-build.md): compiled skills, ownership, `AGENTS.md` / `CLAUDE.md` / `.gitignore` blocks, built-in skill
+- [x] [04 Build](plans/04-build.md): compiled skills, ownership, `AGENTS.md` / `CLAUDE.md` / `.gitignore` blocks, built-in skill
 - [ ] [05 Check](plans/05-check.md): source, config, and installed-output validation
 - [ ] [06 Init and adoption](plans/06-init-and-adoption.md): `init`, `.gitattributes`, moving existing skills into `.factory/`
 - [ ] [07 Authoring and inspection](plans/07-authoring-commands.md): `create`, `rename`, `pipeline add/remove`, `map`
@@ -62,8 +62,6 @@ Answer these before or during the named plan. Spec-level questions are linked to
 
 | Question | Blocks | Proposal |
 | --- | --- | --- |
-| Lowercase the first letter of `stop` text in `AGENTS.md`? | [04](plans/04-build.md#open-questions) | No, render verbatim; fix the spec example |
-| How to handle symlinks inside a source skill? | [04](plans/04-build.md#open-questions) | Copy content if inside `.factory/`, else error |
 | Non-interactive consent for skill adoption | [06](plans/06-init-and-adoption.md#open-questions) | Add `--adopt` to `init` and `import` |
 | Exit code for adoption blockers and import file conflicts | [06](plans/06-init-and-adoption.md#open-questions), [09](plans/09-import.md#open-questions) | 5 |
 | `requested` for npm sources without a range, and Git sources without tags | [08](plans/08-sources.md#open-questions) | `^<version>`; omit for untagged Git |
@@ -83,3 +81,6 @@ Record answered questions here with the date and the commit that applied them.
 | 2026-10-23 | Enforce the stricter Agent Skills name rules (no leading/trailing/double hyphens, max 64); the spec now states them | #3 |
 | 2026-10-23 | Reserve factory skill names that start with `metafab`; validation rule 10 now rejects them | #3 |
 | 2026-10-23 | A duplicate target in `agents` is a warning, not an error | #2 |
+| 2026-10-25 | Render `stop` text in `AGENTS.md` verbatim, without lowercasing; the spec examples now match | #4 |
+| 2026-10-25 | A symlink inside a source skill is copied as its target's content when it stays inside `.factory/`; otherwise `build` reports an error | #4 |
+| 2026-10-25 | An installed skill directory Metafab owns is owned as a whole: `build` rewrites it to match the source. Any unowned entry directly in a selected destination stops `build` with exit 5 and a suggestion to run `metafab init` | #4 |

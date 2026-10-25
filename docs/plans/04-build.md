@@ -1,6 +1,6 @@
 ---
 title: "feat: metafab build installs the factory for agent tools"
-status: building
+status: merged
 kind: feature
 pr: 4
 needs:
@@ -116,13 +116,13 @@ Human output lists each changed path with `+`, `~`, or `-`, then a one-line tota
 
 ## Steps
 
-- [ ] Write the built-in skill content in `resources/metafab-skill/SKILL.md`
-- [ ] Skill compiler (copy plus comment insertion) and ownership detection
-- [ ] Marker-block helper shared by `AGENTS.md`, `CLAUDE.md`, and `.gitignore` (find, replace, append, remove; detect malformed markers)
-- [ ] `AGENTS.md` renderer
-- [ ] `planBuild` with conflict preflight
-- [ ] `applyBuild` with change detection
-- [ ] `build` command
+- [x] Write the built-in skill content in `resources/metafab-skill/SKILL.md`
+- [x] Skill compiler (copy plus comment insertion) and ownership detection
+- [x] Marker-block helper shared by `AGENTS.md`, `CLAUDE.md`, and `.gitignore` (find, replace, append, remove; detect malformed markers)
+- [x] `AGENTS.md` renderer
+- [x] `planBuild` with conflict preflight
+- [x] `applyBuild` with change detection
+- [x] `build` command
 
 ## Tests
 
