@@ -1,0 +1,9 @@
+[
+  {
+    "level": "error",
+    "file": ".factory/skills/metafab-extra/SKILL.md",
+    "line": 2,
+    "message": "Skill name \"metafab-extra\" uses the reserved \"metafab\" prefix",
+    "fix": "Rename the skill so the name does not start with \"metafab\""
+  }
+]

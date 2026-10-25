@@ -1,0 +1,35 @@
+import type { Document } from "yaml";
+import type { Problem } from "../../errors.js";
+
+export interface Factory {
+  root: string;
+  dir: string;
+  factoryYaml?: FactoryYaml;
+  agentsMd?: string;
+  skills: Skill[];
+  problems: Problem[];
+}
+
+export interface FactoryYaml {
+  format: 1;
+  name: string;
+  description?: string;
+  pipeline: PipelineEntry[];
+  doc: Document.Parsed;
+}
+
+export interface PipelineEntry {
+  workflow: string;
+  stop?: string;
+  line: number;
+}
+
+export interface Skill {
+  name: string;
+  relDir: string;
+  group: string;
+  isWorkflow: boolean;
+  frontmatter: Record<string, unknown>;
+  frontmatterLines: { start: number; end: number };
+  title?: string;
+}

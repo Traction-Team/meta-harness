@@ -1,0 +1,9 @@
+[
+  {
+    "level": "error",
+    "file": ".factory/workflows/build-slice/SKILL.md",
+    "line": 1,
+    "message": "SKILL.md is missing a \"description\" field",
+    "fix": "Add a description field"
+  }
+]

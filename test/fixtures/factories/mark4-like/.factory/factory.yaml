@@ -1,0 +1,11 @@
+format: 1
+name: mark4
+description: Plan, build, and review work in slices with a person at each decision.
+
+pipeline:
+  - file-work
+  - triage-ideas: { stop: The product lead picks the next item }
+  - plan-feature: { stop: The tech lead approves the plan as a documentation PR }
+  - build-slice
+  - review-slice: { stop: The code owner approves the PR }
+  - finish-slice
