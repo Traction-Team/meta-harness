@@ -4,4 +4,7 @@ export * from "./extract.js";
 export * from "./validate.js";
 export * from "./cache.js";
 export * from "./npm.js";
+export * from "./git.js";
+export * from "./https.js";
+export * from "./path.js";
 export * from "./resolve.js";

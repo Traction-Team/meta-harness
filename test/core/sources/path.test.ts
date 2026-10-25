@@ -1,0 +1,105 @@
+import { cp, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { ExitCode, MetafabError } from "../../../src/errors.js";
+import { fetchFab, parseSource, resolve } from "../../../src/core/sources/index.js";
+import { pathExists } from "../../../src/util/fs.js";
+
+const FIXTURES = fileURLToPath(new URL("../../fixtures/fabs/", import.meta.url));
+
+let root: string;
+let sourceParent: string;
+
+function pathSource(value: string): ReturnType<typeof parseSource> {
+  return parseSource(value, { cwd: root });
+}
+
+async function fetchSource(value: string): Promise<Awaited<ReturnType<typeof fetchFab>>> {
+  return fetchFab(await resolve(pathSource(value)));
+}
+
+beforeEach(async () => {
+  root = await mkdtemp(path.join(tmpdir(), "metafab-path-"));
+  sourceParent = path.join(root, "fab-acme");
+  await cp(path.join(FIXTURES, "valid-fab", ".factory"), path.join(sourceParent, ".factory"), {
+    recursive: true,
+  });
+});
+
+afterEach(async () => {
+  await rm(root, { recursive: true, force: true });
+});
+
+describe("local path sources", () => {
+  test("fetches a directory that contains .factory", async () => {
+    const fetched = await fetchSource(sourceParent);
+
+    expect(fetched.upstream).toEqual({ kind: "unversioned", source: sourceParent });
+    expect(fetched.versioned).toBe(false);
+    expect(await pathExists(path.join(fetched.factoryDir, "AGENTS.md"))).toBe(true);
+    expect(await pathExists(path.join(fetched.factoryDir, "factory.yaml"))).toBe(true);
+  });
+
+  test("fetches a .factory directory directly", async () => {
+    const direct = path.join(sourceParent, ".factory");
+    const fetched = await fetchSource(direct);
+
+    expect(fetched.upstream).toEqual({ kind: "unversioned", source: direct });
+    expect(await pathExists(path.join(fetched.factoryDir, "AGENTS.md"))).toBe(true);
+  });
+
+  test("copies the factory so the source and the copy are isolated", async () => {
+    const fetched = await fetchSource(sourceParent);
+    const sourceAgents = path.join(sourceParent, ".factory", "AGENTS.md");
+    const copiedAgents = path.join(fetched.factoryDir, "AGENTS.md");
+    const original = await readFile(sourceAgents, "utf8");
+
+    await writeFile(sourceAgents, "# Changed at the source\n");
+    expect(await readFile(copiedAgents, "utf8")).toBe(original);
+
+    await writeFile(copiedAgents, "# Changed in the copy\n");
+    expect(await readFile(sourceAgents, "utf8")).toBe("# Changed at the source\n");
+
+    await writeFile(path.join(sourceParent, ".factory", "new-local.md"), "new\n");
+    expect(await pathExists(path.join(fetched.factoryDir, "new-local.md"))).toBe(false);
+  });
+
+  test("fails with exit 3 when the path does not exist", async () => {
+    await expect(fetchSource(path.join(root, "missing-fab"))).rejects.toMatchObject({
+      exitCode: ExitCode.FetchFailed,
+      code: "fetch-failed",
+    });
+  });
+
+  test("rejects a symlink in the factory with exit 4", async () => {
+    await writeFile(path.join(root, "outside.txt"), "outside\n");
+    await symlink(path.join(root, "outside.txt"), path.join(sourceParent, ".factory", "link.md"));
+
+    try {
+      await fetchSource(sourceParent);
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      const failure = error as MetafabError;
+      expect(failure.exitCode).toBe(ExitCode.InvalidFab);
+      expect(failure.problems?.some((problem) => problem.message.includes("links are not allowed"))).toBe(
+        true,
+      );
+      return;
+    }
+    throw new Error("expected the fetch to fail");
+  });
+
+  test("rejects an oversize file with exit 4", async () => {
+    await writeFile(
+      path.join(sourceParent, ".factory", "large.bin"),
+      Buffer.alloc(1024 * 1024 + 1),
+    );
+
+    await expect(fetchSource(sourceParent)).rejects.toMatchObject({
+      exitCode: ExitCode.InvalidFab,
+      code: "invalid-fab",
+    });
+  });
+});
