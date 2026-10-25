@@ -1,6 +1,6 @@
 ---
 title: "feat: create, rename, pipeline and map commands"
-status: building
+status: merged
 kind: feature
 pr: 5
 needs:

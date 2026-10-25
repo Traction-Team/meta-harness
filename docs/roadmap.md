@@ -29,7 +29,7 @@ A team can create, edit, build, and check a factory in one repository.
 - [ ] [04 Build](plans/04-build.md): compiled skills, ownership, `AGENTS.md` / `CLAUDE.md` / `.gitignore` blocks, built-in skill
 - [ ] [05 Check](plans/05-check.md): source, config, and installed-output validation
 - [ ] [06 Init and adoption](plans/06-init-and-adoption.md): `init`, `.gitattributes`, moving existing skills into `.factory/`
-- [ ] [07 Authoring and inspection](plans/07-authoring-commands.md): `create`, `rename`, `pipeline add/remove`, `map`
+- [x] [07 Authoring and inspection](plans/07-authoring-commands.md): `create`, `rename`, `pipeline add/remove`, `map`
 
 ## Milestone 2: Sharing
 
