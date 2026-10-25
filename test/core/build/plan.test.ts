@@ -8,7 +8,12 @@ import { applyBuild, planBuild } from "../../../src/core/build/index.js";
 import type { BuildPlan } from "../../../src/core/build/index.js";
 import { loadConfig } from "../../../src/core/config/load.js";
 import { loadFactory } from "../../../src/core/factory/index.js";
-import { compareTrees, copyTree, listFiles, pathExists } from "../../../src/util/fs.js";
+import {
+  compareTrees,
+  copyFileWithMode,
+  listFiles,
+  pathExists,
+} from "../../../src/util/fs.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
 import type { TempRepo } from "../../helpers/makeRepo.js";
 
@@ -33,6 +38,22 @@ afterEach(async () => {
   await Promise.all(repos.splice(0).map((repo) => repo.cleanup()));
 });
 
+function fixtureDestination(relativePath: string): string {
+  const segments = relativePath.split("/");
+  const name = segments[segments.length - 1];
+  if (name === "gitignore.txt") segments[segments.length - 1] = ".gitignore";
+  return segments.join("/");
+}
+
+async function copyFixtureTree(source: string, destination: string): Promise<void> {
+  for (const relativePath of await listFiles(source)) {
+    await copyFileWithMode(
+      path.join(source, ...relativePath.split("/")),
+      path.join(destination, ...fixtureDestination(relativePath).split("/")),
+    );
+  }
+}
+
 async function copyFixture(): Promise<TempRepo> {
   const root = await mkdtemp(path.join(tmpdir(), "metafab-build-"));
   const repo: TempRepo = {
@@ -42,7 +63,7 @@ async function copyFixture(): Promise<TempRepo> {
       await rm(root, { recursive: true, force: true });
     },
   };
-  await copyTree(FIXTURE_SOURCE, root);
+  await copyFixtureTree(FIXTURE_SOURCE, root);
   return track(repo);
 }
 
@@ -71,9 +92,20 @@ async function expectedTree(version: string): Promise<TempRepo> {
       await rm(root, { recursive: true, force: true });
     },
   };
-  await copyTree(FIXTURE_EXPECTED, root);
+  await copyFixtureTree(FIXTURE_EXPECTED, root);
 
-  for (const relativePath of await listFiles(root)) {
+  const files = await listFiles(root);
+  for (const agent of [".claude", ".agents"]) {
+    expect(
+      files.some(
+        (relativePath) =>
+          relativePath.startsWith(`${agent}/skills/`) && relativePath.endsWith("/SKILL.md"),
+      ),
+      `the expected fixture must contain an installed ${agent} skill`,
+    ).toBe(true);
+  }
+
+  for (const relativePath of files) {
     const target = path.join(root, ...relativePath.split("/"));
     const text = await readFile(target, "utf8");
     if (!text.includes("Do not edit. Run metafab build to update.")) continue;
