@@ -69,6 +69,18 @@ Skills
 `);
   });
 
+  test("prints the same JSON object before and after the command name", async () => {
+    const root = await fixtureRepo();
+
+    const before = await runCli(["--json", "map"], { cwd: root, tty: false });
+    const after = await runCli(["map", "--json"], { cwd: root, tty: false });
+
+    expect(before.code).toBe(0);
+    expect(after.code).toBe(0);
+    expect(JSON.parse(before.stdout)).toEqual(JSON.parse(after.stdout));
+    expect(before.stdout).toBe(after.stdout);
+  });
+
   test("works on an invalid factory and includes its problems", async () => {
     const created = await makeRepo({
       ".factory/factory.yaml": `format: 1

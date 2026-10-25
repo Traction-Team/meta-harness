@@ -38,8 +38,8 @@ export const mapCommand: CommandDefinition = {
       pipeline: data.pipeline,
       standaloneWorkflows: data.standaloneWorkflows,
       skills: data.skills,
+      summary: mapSummary(data),
     };
-    if (context.options.json !== true) result.summary = mapSummary(data);
     if (data.problems.length > 0) result.problems = data.problems;
     return result;
   },

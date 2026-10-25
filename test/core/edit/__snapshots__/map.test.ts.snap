@@ -107,5 +107,18 @@ exports[`map > writes the factory map as one JSON object 1`] = `
     },
   ],
   "standaloneWorkflows": [],
+  "summary": "mark4 — Plan, build, and review work in slices with a person at each decision.
+
+Pipeline
+  1. file-work
+  2. triage-ideas  stop: The product lead picks the next item
+  3. plan-feature  stop: The tech lead approves the plan as a documentation PR
+  4. build-slice
+  5. review-slice  stop: The code owner approves the PR
+  6. finish-slice
+
+Skills
+  review/   security
+  skills/   git-conventions",
 }
 `;
