@@ -1,0 +1,111 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`map > writes the factory map as one JSON object 1`] = `
+{
+  "command": "map",
+  "exitCode": 0,
+  "factory": {
+    "description": "Plan, build, and review work in slices with a person at each decision.",
+    "name": "mark4",
+  },
+  "ok": true,
+  "pipeline": [
+    {
+      "workflow": "file-work",
+    },
+    {
+      "stop": "The product lead picks the next item",
+      "workflow": "triage-ideas",
+    },
+    {
+      "stop": "The tech lead approves the plan as a documentation PR",
+      "workflow": "plan-feature",
+    },
+    {
+      "workflow": "build-slice",
+    },
+    {
+      "stop": "The code owner approves the PR",
+      "workflow": "review-slice",
+    },
+    {
+      "workflow": "finish-slice",
+    },
+  ],
+  "skills": [
+    {
+      "frontmatter": {
+        "description": "Security review checklist. Use when a change touches authentication or secrets.",
+        "name": "security",
+      },
+      "group": "review",
+      "name": "security",
+      "path": ".factory/review/security",
+    },
+    {
+      "frontmatter": {
+        "description": "Git branch, commit, and pull request conventions. Use when creating branches or commits.",
+        "name": "git-conventions",
+      },
+      "group": "skills",
+      "name": "git-conventions",
+      "path": ".factory/skills/git-conventions",
+    },
+    {
+      "frontmatter": {
+        "description": "Build one plan slice. Use when a plan is ready to implement.",
+        "name": "build-slice",
+      },
+      "group": "workflows",
+      "name": "build-slice",
+      "path": ".factory/workflows/build-slice",
+    },
+    {
+      "frontmatter": {
+        "description": "File a bug, idea, or follow-up. Use when work should be recorded.",
+        "name": "file-work",
+      },
+      "group": "workflows",
+      "name": "file-work",
+      "path": ".factory/workflows/file-work",
+    },
+    {
+      "frontmatter": {
+        "description": "Land a reviewed slice. Use when the code owner approved the PR.",
+        "name": "finish-slice",
+      },
+      "group": "workflows",
+      "name": "finish-slice",
+      "path": ".factory/workflows/finish-slice",
+    },
+    {
+      "frontmatter": {
+        "description": "Plan a feature as one pull request. Use when a roadmap line has no plan.",
+        "name": "plan-feature",
+      },
+      "group": "workflows",
+      "name": "plan-feature",
+      "path": ".factory/workflows/plan-feature",
+    },
+    {
+      "frontmatter": {
+        "description": "Review a slice PR against its plan. Use when a slice PR is ready for review.",
+        "name": "review-slice",
+      },
+      "group": "workflows",
+      "name": "review-slice",
+      "path": ".factory/workflows/review-slice",
+    },
+    {
+      "frontmatter": {
+        "description": "Triage intake notes. Use when the intake folder has new work.",
+        "name": "triage-ideas",
+      },
+      "group": "workflows",
+      "name": "triage-ideas",
+      "path": ".factory/workflows/triage-ideas",
+    },
+  ],
+  "standaloneWorkflows": [],
+}
+`;
