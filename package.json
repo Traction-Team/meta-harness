@@ -23,10 +23,14 @@
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
+    "@types/semver": "^7.8.0",
+    "@types/validate-npm-package-name": "^4.0.2",
     "typescript": "^7.0.2",
     "vitest": "^4.1.12"
   },
   "dependencies": {
+    "semver": "^7.8.5",
+    "validate-npm-package-name": "^5.0.1",
     "yaml": "^2.9.1"
   }
 }

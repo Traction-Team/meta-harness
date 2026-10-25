@@ -7,7 +7,7 @@ This repository builds **Metafab**: the `metafab` CLI, published as `@seasb/meta
 - `docs/specs/`: what v1 does. The specs are the acceptance standard for every change.
 - `docs/roadmap.md`: where we are. One checkbox per plan; it is the source of truth for progress.
 - `docs/plans/`: how each piece is built. One plan is one pull request.
-- `mark-one/`, `mark-two/`, `mk3/`, `mk4/`, and `assets/` are earlier prototypes and material. Do not read or change them unless the person asks.
+- `prototype/`, and `assets/` are earlier prototypes and material. Do not read or change them unless the person asks.
 
 ## Commands
 
@@ -40,6 +40,7 @@ Delivery work runs through these workflows. Each is installed as a skill. When a
 | `file-work` | A bug, idea, follow-up, spec gap or any "we should...". Also every *Found while building* note before its pull request merges |
 | `prioritise-roadmap` | "What's next", re-ordering the roadmap, reviewing intake or open questions |
 | `plan-feature` | "Plan <thing>", a roadmap line with no plan, or a bug too big for a bug plan |
+| `review-plan` | After writing plans, always in a new sub-agent. "Cold review this plan", "poke holes in this plan" |
 | `start-plan` | On `main`: "start the next plan", "pull the next chunk", "keep going", "what's ready". The orchestrator: one Orca worktree and OpenCode worker per plan |
 | `build-plan` | On a feature branch, usually as a worker in an Orca worktree: "build docs/plans/<plan>.md". Stops at a merge-safe draft pull request (landing included) and a TL;DR |
 | `review-branch` | After any implementation, always in a new sub-agent. "Cold review this branch" |

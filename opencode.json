@@ -3,7 +3,7 @@
   "subagent_depth": 2,
   "agent": {
     "build": {
-      "model": "opencode-go/deepseek-v4.1-flash"
+      "model": "anthropic/claude-opus-5-5"
     },
     "agent-coding": {
       "description": "Runs a task on the default coding agent model instead of the caller's own model. Use for all coding, review, bug fixing tasks.",

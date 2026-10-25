@@ -1,0 +1,3 @@
+publish:
+  git: not-a-git-url
+  version: 1.2.0

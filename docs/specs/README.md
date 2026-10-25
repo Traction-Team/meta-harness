@@ -11,7 +11,7 @@ Version 1 has four responsibilities:
 
 Version 1 installs files in the locations supported agent tools read. It does not run workflows, invoke an agent tool, or verify how an agent behaves after loading those files. Runtime execution and monitoring are outside the version 1 product boundary.
 
-The design comes from [Mark IV](../../mk4/), but v1 excludes its monitoring and runtime features.
+The design comes from [Mark IV](../../prototype/mk4/), but v1 excludes its monitoring and runtime features.
 
 ## Specifications
 
