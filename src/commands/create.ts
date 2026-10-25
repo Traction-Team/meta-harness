@@ -4,7 +4,7 @@ import { planCreate, validateDescription, writeCreatedSkill } from "../core/edit
 import { ask } from "../input.js";
 import { normalizeProblemPath } from "../util/fs.js";
 import type { CommandResult } from "../output.js";
-import type { CommandDefinition } from "./types.js";
+import type { CommandContext, CommandDefinition } from "./types.js";
 
 const DESCRIPTION = {
   name: "description",
@@ -29,6 +29,20 @@ function descriptionOption(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+const DESCRIPTION_ATTEMPTS = 3;
+
+async function askDescription(context: CommandContext): Promise<string> {
+  let answer = "";
+
+  for (let attempt = 0; attempt < DESCRIPTION_ATTEMPTS; attempt += 1) {
+    answer = await ask(DESCRIPTION, context.io);
+    if (answer.trim() !== "") return answer;
+    context.io.stderr?.("A description is required.\n");
+  }
+
+  return answer;
+}
+
 export const createCommand: CommandDefinition = {
   name: "create",
   description: "Create a skill in the factory",
@@ -44,7 +58,7 @@ export const createCommand: CommandDefinition = {
     const { root } = await findFactory(context.cwd);
     const plan = await planCreate(root, input[0]!);
     const given = descriptionOption(context.options.description);
-    const description = validateDescription(given ?? (await ask(DESCRIPTION, context.io)));
+    const description = validateDescription(given ?? (await askDescription(context)));
     await writeCreatedSkill(plan, description);
 
     const file = `.factory/${plan.relDir}/SKILL.md`;
