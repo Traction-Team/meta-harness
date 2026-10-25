@@ -1,8 +1,8 @@
 ---
 title: "feat: read, validate and write metafab.yaml"
-status: ready
+status: merged
 kind: feature
-pr:
+pr: 2
 needs:
   - docs/plans/01-foundation.md
 owns:
@@ -10,6 +10,8 @@ owns:
   - src/core/config/**
   - test/core/config/**
   - test/fixtures/config/**
+  - package.json
+  - package-lock.json
 proves: "npx vitest run test/core/config → the spec example is valid, each invalid fixture fails, and setUpstream/removeUpstream round-trip comments"
 ---
 
@@ -85,10 +87,10 @@ Writes edit the parsed `YAML.Document` and preserve comments, key order, and the
 
 ## Steps
 
-- [ ] `core/config.ts`: load, defaults, `destinations()`
-- [ ] Validation rules 1 to 11
-- [ ] The three writers, with round-trip tests that preserve comments
-- [ ] Fixtures: the full spec example, plus one invalid file per rule
+- [x] `core/config.ts`: load, defaults, `destinations()`
+- [x] Validation rules 1 to 11
+- [x] The three writers, with round-trip tests that preserve comments
+- [x] Fixtures: the full spec example, plus one invalid file per rule
 
 ## Tests
 
@@ -100,4 +102,4 @@ Writes edit the parsed `YAML.Document` and preserve comments, key order, and the
 
 ## Open questions
 
-1. Should a duplicate target (`agents: [codex, codex]`) be an error or a warning? Proposal: warning.
+None. Duplicate targets (`agents: [codex, codex]`) are a warning, decided 2026-10-23 in #2 and recorded in the roadmap.

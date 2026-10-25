@@ -1,0 +1,4 @@
+publish:
+  name: "@seasb/fab-mark4"
+  branch: main
+  version: 1.2.0
