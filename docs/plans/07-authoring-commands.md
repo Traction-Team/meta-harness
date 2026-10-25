@@ -13,6 +13,7 @@ owns:
   - src/commands/pipeline-remove.ts
   - src/commands/map.ts
   - test/core/edit/**
+  - test/cli/cli.test.ts
 proves: "npx vitest run test/core/edit → create, rename and pipeline edits produce the expected files with comments preserved; map --json matches its snapshot"
 ---
 
@@ -108,11 +109,11 @@ JSON output:
 
 ## Steps
 
-- [ ] Comment-preserving `factory.yaml` editor (add, insert after, remove, rename entry)
-- [ ] `create`
-- [ ] `rename`
-- [ ] `pipeline add` and `pipeline remove`
-- [ ] `map`
+- [x] Comment-preserving `factory.yaml` editor (add, insert after, remove, rename entry)
+- [x] `create`
+- [x] `rename`
+- [x] `pipeline add` and `pipeline remove`
+- [x] `map`
 
 ## Tests
 
