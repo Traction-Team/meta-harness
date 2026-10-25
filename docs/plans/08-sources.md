@@ -2,7 +2,7 @@
 title: "feat: resolve, fetch and validate fab sources"
 status: building
 kind: feature
-pr:
+pr: 6
 needs:
   - docs/plans/02-factory-model.md
   - docs/plans/03-configuration.md
