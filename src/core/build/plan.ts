@@ -381,11 +381,15 @@ async function claudeLinksToRootAgents(root: string, entry: RootEntry): Promise<
     return false;
   }
 
-  if ((await lstatIfExists(resolved)) !== undefined) {
-    return resolved === agentsPath;
+  try {
+    if ((await lstatIfExists(resolved)) !== undefined) {
+      return resolved === agentsPath;
+    }
+  } catch {
+    return false;
   }
 
-  return resolved.toLowerCase() === path.join(rootReal, "AGENTS.md").toLowerCase();
+  return resolved === path.join(rootReal, "AGENTS.md");
 }
 
 async function symlinkedEntry(relativePath: string, target: string): Promise<Problem> {

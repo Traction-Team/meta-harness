@@ -944,6 +944,49 @@ describe("symlinked root files", () => {
     },
   );
 
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "treats a CLAUDE.md link through an untraversable directory as a conflict, not a crash",
+    async () => {
+      const repo = await makeBuildRepo({
+        ".factory/skills/demo/SKILL.md":
+          "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+        ".factory/metafab.yaml": "agents: [claude]\nmetafab-skill: false\n",
+      });
+      const locked = repo.path("locked");
+      await mkdir(locked);
+      await symlink("locked/AGENTS.md", repo.path("CLAUDE.md"));
+      await chmod(locked, 0o000);
+
+      try {
+        const { plan, report } = await build(repo.root);
+
+        expect(plan.errors).toEqual([]);
+        expect(plan.conflicts.map((problem) => problem.file)).toContain("CLAUDE.md");
+        expect(plan.conflicts[0]?.message).toContain("cannot read");
+        expect(report.changed).toEqual([]);
+      } finally {
+        await chmod(locked, 0o755);
+      }
+    },
+  );
+
+  test("treats a CLAUDE.md link through a symlink loop as a conflict, not a crash", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+      ".factory/metafab.yaml": "agents: [claude]\nmetafab-skill: false\n",
+    });
+    await symlink("loop", repo.path("loop"));
+    await symlink("loop/AGENTS.md", repo.path("CLAUDE.md"));
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.errors).toEqual([]);
+    expect(plan.conflicts.map((problem) => problem.file)).toContain("CLAUDE.md");
+    expect(plan.conflicts[0]?.message).toContain("cannot read");
+    expect(report.changed).toEqual([]);
+  });
+
   test("a malformed marker block in a symlinked .gitignore is the symlink conflict", async () => {
     const repo = await makeBuildRepo({
       ".factory/skills/demo/SKILL.md":
@@ -966,7 +1009,7 @@ describe("symlinked root files", () => {
     expect(await pathExists(repo.path(".agents"))).toBe(false);
   });
 
-  test("recognises a dangling CLAUDE.md link to AGENTS.md regardless of case", async () => {
+  test("treats a dangling CLAUDE.md link with a different case as a symlink conflict", async () => {
     const repo = await makeBuildRepo({
       ".factory/skills/demo/SKILL.md":
         "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
@@ -977,9 +1020,10 @@ describe("symlinked root files", () => {
     const { plan, report } = await build(repo.root);
 
     expect(plan.errors).toEqual([]);
-    expect(plan.conflicts).toEqual([]);
-    expect(await pathExists(repo.path("AGENTS.md"))).toBe(true);
-    expect(report.changed).toContainEqual({ path: "AGENTS.md", action: "created" });
+    expect(plan.conflicts.map((problem) => problem.file)).toContain("CLAUDE.md");
+    expect(plan.conflicts[0]?.message).toContain("symbolic link");
+    expect(report.changed).toEqual([]);
+    expect(await pathExists(repo.path("AGENTS.md"))).toBe(false);
     expect((await lstat(repo.path("CLAUDE.md"))).isSymbolicLink()).toBe(true);
     expect(await readlink(repo.path("CLAUDE.md"))).toBe("agents.md");
   });
