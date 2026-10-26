@@ -1,4 +1,5 @@
-import { readFile, symlink } from "node:fs/promises";
+import { lstat, readFile, symlink, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { ExitCode } from "../../../src/errors.js";
 import { listFiles, pathExists } from "../../../src/util/fs.js";
@@ -99,6 +100,25 @@ describe("build command", () => {
     expect(result.stderr).not.toContain("    at ");
     expect(await listFiles(outside.root)).toEqual([]);
     expect(await pathExists(repo.path("AGENTS.md"))).toBe(false);
+  });
+
+  test("exits 5 without a stack when a symlinked root file needs a change", async () => {
+    const repo = await buildRepo();
+    const outside = track(await makeRepo({}, { prefix: "metafab-outside-" }));
+    const outsideAgents = path.join(outside.root, "AGENTS.md");
+    await writeFile(outsideAgents, "# Outside\n");
+    await symlink(outsideAgents, repo.path("AGENTS.md"));
+
+    const result = await runCli(["build"], { cwd: repo.root, tty: false });
+
+    expect(result.code).toBe(ExitCode.NotOwned);
+    expect(result.stderr).toContain("AGENTS.md");
+    expect(result.stderr).toContain("symbolic link");
+    expect(result.stderr).not.toContain("    at ");
+    expect(await readFile(outsideAgents, "utf8")).toBe("# Outside\n");
+    expect((await lstat(repo.path("AGENTS.md"))).isSymbolicLink()).toBe(true);
+    expect(await pathExists(repo.path(".agents"))).toBe(false);
+    expect(await pathExists(repo.path(".gitignore"))).toBe(false);
   });
 
   test("writes the JSON shape expected by the spec", async () => {
