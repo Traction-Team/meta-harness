@@ -14,22 +14,6 @@ export function scalarString(node: unknown): string | undefined {
   return isScalar(node) && typeof node.value === "string" ? node.value : undefined;
 }
 
-export function setScalarField(doc: Document, name: string, value: string): void {
-  const pair = findField(doc, name);
-
-  if (pair === undefined) {
-    doc.set(name, value);
-    return;
-  }
-
-  if (isScalar(pair.value)) {
-    pair.value.value = value;
-    return;
-  }
-
-  pair.value = doc.createNode(value);
-}
-
 export function serializeYamlDocument(doc: Document): string {
   if (doc.contents === null) return "";
   return doc.toString({ lineWidth: 0 }).replace(/\n*$/, "\n");

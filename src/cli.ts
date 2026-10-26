@@ -21,7 +21,6 @@ import { mapCommand } from "./commands/map.js";
 import { pipelineAddCommand } from "./commands/pipeline-add.js";
 import { pipelineRemoveCommand } from "./commands/pipeline-remove.js";
 import { publishCommand } from "./commands/publish.js";
-import { renameCommand } from "./commands/rename.js";
 import { updateCommand } from "./commands/update.js";
 import type { CommandDefinition, CommandOptionValue, CommandOptions } from "./commands/types.js";
 
@@ -29,7 +28,6 @@ export const COMMANDS: readonly CommandDefinition[] = [
   initCommand,
   buildCommand,
   createCommand,
-  renameCommand,
   pipelineAddCommand,
   pipelineRemoveCommand,
   mapCommand,

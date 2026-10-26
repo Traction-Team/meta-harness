@@ -6,7 +6,6 @@ import {
   parseFactoryYamlDocument,
   pipelineEntryNames,
   removePipelineEntryText,
-  renamePipelineEntryText,
   addPipelineEntry,
   removePipelineEntry,
 } from "../../../src/core/edit/index.js";
@@ -96,42 +95,6 @@ pipeline:
 
   test("does nothing when the entry is not in the pipeline", () => {
     expect(removePipelineEntryText(SOURCE, "nope")).toBe(SOURCE);
-  });
-
-  test("renames a plain entry and keeps comments", () => {
-    const text = renamePipelineEntryText(SOURCE, "y", "y2");
-
-    expect(text).toBe(`format: 1
-name: mark4
-
-# The pipeline runs in order.
-pipeline:
-  # File the work first.
-  - y2 # first workflow
-  - z
-`);
-  });
-
-  test("renames a stop entry and keeps the stop text, comments and tail comment", () => {
-    const source = `format: 1
-name: mark4
-pipeline:
-  # Keep me
-  - old: { stop: The owner reviews it } # tail comment
-`;
-
-    const text = renamePipelineEntryText(source, "old", "new");
-
-    expect(text).toBe(`format: 1
-name: mark4
-pipeline:
-  # Keep me
-  - new: { stop: The owner reviews it } # tail comment
-`);
-  });
-
-  test("renaming a missing entry changes nothing", () => {
-    expect(renamePipelineEntryText(SOURCE, "nope", "other")).toBe(SOURCE);
   });
 
   test("rejects a duplicate entry", () => {

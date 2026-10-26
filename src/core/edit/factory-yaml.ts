@@ -1,4 +1,4 @@
-import { Document, isMap, isScalar, isSeq, parseDocument } from "yaml";
+import { Document, isMap, isSeq, parseDocument } from "yaml";
 import type { Pair, YAMLSeq } from "yaml";
 import { MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
@@ -182,31 +182,6 @@ export function removePipelineEntry(doc: Document, workflow: string): boolean {
   return true;
 }
 
-export function renamePipelineEntry(doc: Document, from: string, to: string): boolean {
-  const contents = doc.contents;
-  const pipeline = isMap(contents) ? findField(doc, "pipeline") : undefined;
-  if (pipeline === undefined || !isSeq(pipeline.value)) return false;
-
-  const index = findEntryIndex(pipeline.value, from);
-  if (index === -1) return false;
-
-  const item = pipeline.value.items[index];
-  if (isScalar(item)) {
-    item.value = to;
-    return true;
-  }
-
-  if (isMap(item) && item.items.length === 1) {
-    const key = item.items[0]!.key;
-    if (isScalar(key)) {
-      key.value = to;
-      return true;
-    }
-  }
-
-  return false;
-}
-
 export function createFactoryYamlText(
   name: string,
   pipeline: readonly PipelineEntryInput[] = [],
@@ -243,13 +218,3 @@ export function removePipelineEntryText(text: string, workflow: string, file = F
   return serializeFactoryYaml(doc);
 }
 
-export function renamePipelineEntryText(
-  text: string,
-  from: string,
-  to: string,
-  file = FACTORY_FILE,
-): string {
-  const doc = parseFactoryYamlDocument(text, file);
-  renamePipelineEntry(doc, from, to);
-  return serializeFactoryYaml(doc);
-}

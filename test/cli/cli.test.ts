@@ -12,7 +12,6 @@ const V1_COMMANDS = [
   "init",
   "build",
   "create",
-  "rename",
   "pipeline add",
   "pipeline remove",
   "map",
