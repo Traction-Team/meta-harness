@@ -96,3 +96,4 @@ Footer: `Nothing was committed. Review the changes with git diff.` JSON returns 
 
 1. The spec's summary order has no group for templates and other non-skill files. Proposal: add an **Other** group after Skills.
 2. Exit code for file conflicts without `--force`. Proposal: 5 (the command would overwrite files Metafab does not own).
+3. Git sources run with `GIT_TERMINAL_PROMPT=0` unless `resolve`/`fetchFab` get `interactive: true`, and nothing passes it yet, so an SSH key with a passphrase fails even in a terminal. Proposal: `import` passes `interactive` when stdin is a TTY and `--yes` is absent. (Found while building Plan 08, #6.)

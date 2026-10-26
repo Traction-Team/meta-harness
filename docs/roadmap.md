@@ -35,7 +35,7 @@ A team can create, edit, build, and check a factory in one repository.
 
 A team can publish a factory as a fab and other teams can import and update it.
 
-- [ ] [08 Sources and fetching](plans/08-sources.md): source parsing, npm/Git/HTTPS/path fetch, cache, fab validation
+- [x] [08 Sources and fetching](plans/08-sources.md): source parsing, npm/Git/HTTPS/path fetch, cache, fab validation
 - [ ] [09 Import and review summary](plans/09-import.md): `import`, risk-ordered summary
 - [ ] [10 Update, diff, detach](plans/10-update-diff-detach.md): three-way merge, unversioned overwrite, `diff`, `detach`
 - [ ] [11 Publish](plans/11-publish.md): staging, npm target, Git fab repository target
@@ -66,8 +66,6 @@ Answer these before or during the named plan. Spec-level questions are linked to
 | How to handle symlinks inside a source skill? | [04](plans/04-build.md#open-questions) | Copy content if inside `.factory/`, else error |
 | Non-interactive consent for skill adoption | [06](plans/06-init-and-adoption.md#open-questions) | Add `--adopt` to `init` and `import` |
 | Exit code for adoption blockers and import file conflicts | [06](plans/06-init-and-adoption.md#open-questions), [09](plans/09-import.md#open-questions) | 5 |
-| `requested` for npm sources without a range, and Git sources without tags | [08](plans/08-sources.md#open-questions) | `^<version>`; omit for untagged Git |
-| `npm pack` vs direct tarball fetch | [08](plans/08-sources.md#open-questions) | `npm pack`, after a spike |
 | Summary group for templates and other files | [09](plans/09-import.md#open-questions) | Add an **Other** group |
 | Field-level frontmatter merge | [10](plans/10-update-diff-detach.md#open-questions), [spec](specs/sharing.md#open-questions) | Line merge in v1 |
 | Publish partial failure and recovery | [11](plans/11-publish.md#open-questions), [spec](specs/README.md#open-questions) | Git first, then npm; re-run skips identical published targets |
@@ -80,6 +78,8 @@ Record answered questions here with the date and the commit that applied them.
 
 | Date | Decision | Applied in |
 | --- | --- | --- |
+| 2026-10-26 | `requested` records `^<resolved version>` for an npm source or a tagged Git source given without a range; it is omitted for a Git source with no version tags | #6 |
+| 2026-10-26 | npm fabs download with `npm pack --ignore-scripts`; an `install` script does not run (verified on npm 11 only) | #6 |
 | 2026-10-23 | Enforce the stricter Agent Skills name rules (no leading/trailing/double hyphens, max 64); the spec now states them | #3 |
 | 2026-10-23 | Reserve factory skill names that start with `metafab`; validation rule 10 now rejects them | #3 |
 | 2026-10-23 | A duplicate target in `agents` is a warning, not an error | #2 |

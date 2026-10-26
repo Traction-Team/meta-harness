@@ -1,6 +1,6 @@
 ---
 title: "feat: resolve, fetch and validate fab sources"
-status: building
+status: merged
 kind: feature
 pr: 6
 needs:
@@ -114,13 +114,13 @@ Network, authentication, missing package or ref → exit 3 with the underlying `
 
 ## Steps
 
-- [ ] Source parser with a table-driven test of every spec example
-- [ ] Safe extractor and `validateFab`
-- [ ] npm resolver and fetcher
-- [ ] Git resolver and fetcher (all five ref forms)
-- [ ] HTTPS and local-path fetchers
-- [ ] Cache layout and reuse
-- [ ] Replace the temporary upstream classifier from [Plan 03](03-configuration.md)
+- [x] Source parser with a table-driven test of every spec example
+- [x] Safe extractor and `validateFab`
+- [x] npm resolver and fetcher
+- [x] Git resolver and fetcher (all five ref forms)
+- [x] HTTPS and local-path fetchers
+- [x] Cache layout and reuse
+- [x] Replace the temporary upstream classifier from [Plan 03](03-configuration.md)
 
 ## Tests
 

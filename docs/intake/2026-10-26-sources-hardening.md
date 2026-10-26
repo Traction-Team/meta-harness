@@ -1,0 +1,25 @@
+---
+title: Fab source fetching leaves temp directories and has small robustness gaps
+kind: follow-up
+status: new
+filed: 2026-10-26
+reported-by: build-plan cold reviews, PR #6, 26 Oct
+source: https://github.com/Traction-Team/meta-harness/pull/6
+links: [docs/plans/08-sources.md, docs/specs/sharing.md]
+---
+
+# Small robustness gaps in `src/core/sources/`
+
+## What happened, or what is wanted
+
+The cold reviews of Plan 08 found these after the last fix round. None makes a valid fab fail, and none lets a fab write outside its directory.
+
+1. HTTPS and local-path fetches leave their `mkdtemp` directory behind. `FetchedFab` has no cleanup hook (`https.ts`, `path.ts`).
+2. One bad link is reported twice: once when it is created, once by the realpath check (`extract.ts` `verifyLinks`, `path.ts`).
+3. `replaceMirror` in `git.ts` can leave `<mirror>.tmp-*` or `.old-*` directories if it is interrupted, and a failing `rm` of the backup throws after the swap succeeded.
+4. `getOrCreate` in `cache.ts` deletes the target when `create` fails. Two concurrent imports can delete each other's entry, and a failing `rm` hides the original error.
+5. `extractTarball` with both `stripPrefix` and `flattenSingleDirectory` does not flatten. No caller uses the combination yet.
+
+## What we know
+
+Each item names its file. Item 1 matters once `import` (Plan 09) runs many fetches in one process.
