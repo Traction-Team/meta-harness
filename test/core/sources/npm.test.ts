@@ -104,9 +104,9 @@ beforeAll(async () => {
 afterAll(async () => {
   await rm(cache, { recursive: true, force: true });
   await registry?.stop();
-});
+}, 120_000);
 
-describe("npm sources", () => {
+describe("npm sources", { timeout: 60_000 }, () => {
   test("resolves a range to the highest matching version and fetches it", async () => {
     const resolved = await resolveSource("fab-range@^1.0.0");
 

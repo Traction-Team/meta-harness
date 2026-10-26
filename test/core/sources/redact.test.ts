@@ -15,4 +15,13 @@ describe("redact", () => {
     expect(redact("npm_config__authToken=secret-value")).toContain("npm_config__authToken=***");
     expect(redact("Authorization: Bearer secret-token")).toBe("Authorization: Bearer ***");
   });
+
+  test("removes URL query strings and token fragments", () => {
+    expect(redact("GET https://bucket.example/fab.tgz?X-Amz-Signature=secret&X-Amz-Credential=key")).toBe(
+      "GET https://bucket.example/fab.tgz?<redacted>",
+    );
+    expect(redact("https://example.com/page#access_token=secret")).toBe(
+      "https://example.com/page#<redacted>",
+    );
+  });
 });

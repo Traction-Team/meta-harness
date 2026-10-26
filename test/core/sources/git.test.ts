@@ -48,7 +48,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await fixture?.cleanup();
-});
+}, 120_000);
 
 beforeEach(async () => {
   cache = await mkdtemp(path.join(tmpdir(), "metafab-git-cache-"));
@@ -58,7 +58,7 @@ afterEach(async () => {
   await rm(cache, { recursive: true, force: true });
 });
 
-describe("git sources", () => {
+describe("git sources", { timeout: 60_000 }, () => {
   test("selects the newest version tag when no ref is given", async () => {
     const spec = gitSpec(fixture.repo);
     const resolved = await resolveGit(spec);
@@ -261,6 +261,41 @@ describe("git sources", () => {
       expect(second.version).toBe(first.version);
     }
     expect(await pathExists(path.join(mirror, "config"))).toBe(true);
+  });
+
+  test("keeps a valid cached mirror when the fetch and its replacement clone both fail", async () => {
+    const missing = path.join(fixture.root, "gone.git");
+    const mirror = cacheLayout(cache).gitMirror(missing);
+    const marker = path.join(mirror, "mirror-marker");
+    await mkdir(mirror, { recursive: true });
+    await runGitIn(mirror, ["init", "-q", "--bare"]);
+    await runGitIn(mirror, ["remote", "add", "origin", missing]);
+    await writeFile(marker, "kept");
+
+    await expect(resolveGit(gitSpec(missing))).rejects.toMatchObject({
+      exitCode: ExitCode.FetchFailed,
+      code: "fetch-failed",
+    });
+    expect(await pathExists(marker)).toBe(true);
+    expect(await pathExists(mirror)).toBe(true);
+  });
+
+  test("replaces a mirror only after a fresh clone from a failed fetch succeeds", async () => {
+    const spec = gitSpec(fixture.repo);
+    const first = await resolveGit(spec);
+    expect(first.kind).toBe("git");
+
+    const mirror = cacheLayout(cache).gitMirror(fixture.repo);
+    const marker = path.join(mirror, "mirror-marker");
+    await writeFile(marker, "old");
+    const missing = path.join(fixture.root, "gone.git");
+    await runGitIn(mirror, ["remote", "set-url", "origin", missing]);
+
+    const second = await resolveGit(spec);
+
+    expect(second).toMatchObject({ kind: "git" });
+    expect(await pathExists(marker)).toBe(false);
+    expect(await runGitIn(mirror, ["config", "--get", "remote.origin.url"])).toBe(fixture.repo);
   });
 
   test("still fails with exit 3 when a broken mirror cannot be re-cloned", async () => {

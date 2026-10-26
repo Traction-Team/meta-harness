@@ -9,16 +9,24 @@ import { validateFab } from "./validate.js";
 
 export const MAX_TARBALL_SIZE = 50 * 1024 * 1024;
 export const DEFAULT_HTTPS_TIMEOUT_MS = 60_000;
+export const DEFAULT_HTTPS_IDLE_TIMEOUT_MS = 60_000;
 
 export interface HttpsOptions {
   fetch?: typeof fetch;
   maxBytes?: number;
   timeoutMs?: number;
+  idleTimeoutMs?: number;
 }
 
 export type ResolvedHttps = Extract<Resolved, { kind: "https" }>;
 
 class DownloadTooLarge extends Error {}
+class DownloadIdle extends Error {}
+
+interface ReadResult {
+  done: boolean;
+  value?: Uint8Array;
+}
 
 function fetchError(message: string, cause?: unknown): MetafabError {
   return new MetafabError(redact(message), {
@@ -32,7 +40,12 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function readBody(response: Response, maxBytes: number): Promise<Buffer> {
+async function readBody(
+  response: Response,
+  maxBytes: number,
+  idleTimeoutMs: number,
+  onIdle: () => void,
+): Promise<Buffer> {
   if (response.body === null) return Buffer.alloc(0);
 
   const reader = response.body.getReader();
@@ -40,7 +53,22 @@ async function readBody(response: Response, maxBytes: number): Promise<Buffer> {
   let total = 0;
   try {
     for (;;) {
-      const { done, value } = await reader.read();
+      const read = reader.read();
+      read.catch(() => undefined);
+      let idleTimer: NodeJS.Timeout | undefined;
+      const idle = new Promise<never>((_resolve, reject) => {
+        idleTimer = setTimeout(() => {
+          reject(new DownloadIdle());
+          onIdle();
+        }, idleTimeoutMs);
+      });
+      let result: ReadResult;
+      try {
+        result = await Promise.race([read, idle]);
+      } finally {
+        if (idleTimer !== undefined) clearTimeout(idleTimer);
+      }
+      const { done, value } = result;
       if (done) break;
       if (value === undefined) continue;
       total += value.byteLength;
@@ -51,7 +79,11 @@ async function readBody(response: Response, maxBytes: number): Promise<Buffer> {
       chunks.push(Buffer.from(value));
     }
   } finally {
-    reader.releaseLock();
+    try {
+      reader.releaseLock();
+    } catch {
+      void reader.cancel().catch(() => undefined);
+    }
   }
   return Buffer.concat(chunks, total);
 }
@@ -63,12 +95,19 @@ export async function fetchHttps(
   const url = source.spec.url;
   const fetchFn = options.fetch ?? fetch;
   const maxBytes = options.maxBytes ?? MAX_TARBALL_SIZE;
-  const timeoutMs = options.timeoutMs ?? DEFAULT_HTTPS_TIMEOUT_MS;
+  const responseTimeoutMs = options.timeoutMs ?? DEFAULT_HTTPS_TIMEOUT_MS;
+  const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_HTTPS_IDLE_TIMEOUT_MS;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let timer: NodeJS.Timeout | undefined;
+  const clearTimer = (): void => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = undefined;
+  };
 
   let response: Response;
   let data: Buffer;
+  timer = setTimeout(() => controller.abort(), responseTimeoutMs);
   try {
     try {
       response = await fetchFn(url, { signal: controller.signal, redirect: "follow" });
@@ -77,13 +116,15 @@ export async function fetchHttps(
       throw fetchError(`Cannot download ${url}: ${describe(error)}`, error);
     }
 
+    clearTimer();
+
     if (!response.ok) {
       const status = response.statusText === "" ? `${response.status}` : `${response.status} ${response.statusText}`;
       throw fetchError(`Cannot download ${url}: HTTP ${status}`);
     }
 
     try {
-      data = await readBody(response, maxBytes);
+      data = await readBody(response, maxBytes, idleTimeoutMs, () => controller.abort());
     } catch (error) {
       if (error instanceof DownloadTooLarge) {
         throw new MetafabError(
@@ -95,12 +136,18 @@ export async function fetchHttps(
       throw fetchError(`Cannot download ${url}: ${describe(error)}`, error);
     }
   } catch (error) {
+    if (error instanceof DownloadIdle) {
+      throw fetchError(
+        `Cannot download ${url}: no data received for ${idleTimeoutMs} ms`,
+        error,
+      );
+    }
     if (controller.signal.aborted) {
-      throw fetchError(`Cannot download ${url}: timed out after ${timeoutMs} ms`, error);
+      throw fetchError(`Cannot download ${url}: no response after ${responseTimeoutMs} ms`, error);
     }
     throw error;
   } finally {
-    clearTimeout(timer);
+    clearTimer();
   }
 
   const staging = await mkdtemp(path.join(tmpdir(), "metafab-https-"));

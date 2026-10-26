@@ -16,6 +16,7 @@ const FIXTURES = fileURLToPath(new URL("../../fixtures/fabs/", import.meta.url))
 let root: string;
 let server: ReturnType<typeof createServer>;
 let base: string;
+let chunkedData: Buffer;
 const requests = new Map<string, number>();
 
 function specFor(relativePath: string): HttpsSourceSpec {
@@ -40,6 +41,7 @@ beforeAll(async () => {
   const rootTarball = path.join(root, "root.tgz");
   const wrappedTarball = path.join(root, "wrapped.tgz");
   await tar.c({ gzip: true, file: rootTarball, cwd: fabRoot, portable: true }, [".factory"]);
+  chunkedData = await readFile(rootTarball);
   await tar.c({ gzip: true, file: wrappedTarball, cwd: wrappedParent, portable: true }, [
     "fab-acme-1.0.0",
   ]);
@@ -60,6 +62,20 @@ beforeAll(async () => {
     }
     if (pathname === "/slow.tgz") {
       response.writeHead(200, { "content-type": "application/gzip" });
+      response.flushHeaders();
+      return;
+    }
+    if (pathname === "/hang.tgz") {
+      return;
+    }
+    if (pathname === "/chunked.tgz") {
+      response.writeHead(200, { "content-type": "application/gzip" });
+      const chunkSize = Math.max(1, Math.ceil(chunkedData.byteLength / 10));
+      for (let offset = 0; offset < chunkedData.byteLength; offset += chunkSize) {
+        response.write(chunkedData.subarray(offset, offset + chunkSize));
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, 80));
+      }
+      response.end();
       return;
     }
     const file = files.get(pathname);
@@ -78,12 +94,14 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  server?.closeAllConnections();
-  await new Promise<void>((resolveClose) => server?.close(() => resolveClose()));
+  if (server !== undefined) {
+    server.closeAllConnections();
+    await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+  }
   await rm(root, { recursive: true, force: true });
-});
+}, 120_000);
 
-describe("https tarball sources", () => {
+describe("https tarball sources", { timeout: 60_000 }, () => {
   test("resolves an https source as unversioned", async () => {
     const spec = specFor("/root.tgz");
     const resolved = await resolve(spec);
@@ -127,12 +145,27 @@ describe("https tarball sources", () => {
     });
   });
 
-  test("fails with exit 3 when the download times out", async () => {
+  test("fails with exit 3 when the download stops sending data", async () => {
     const resolved = await resolve(specFor("/slow.tgz"));
+    await expect(fetchFab(resolved, { idleTimeoutMs: 50 })).rejects.toMatchObject({
+      exitCode: ExitCode.FetchFailed,
+      code: "fetch-failed",
+    });
+  });
+
+  test("fails with exit 3 when no response arrives", async () => {
+    const resolved = await resolve(specFor("/hang.tgz"));
     await expect(fetchFab(resolved, { timeoutMs: 50 })).rejects.toMatchObject({
       exitCode: ExitCode.FetchFailed,
       code: "fetch-failed",
     });
+  });
+
+  test("keeps downloading while chunks arrive within the idle timeout", async () => {
+    const resolved = await resolve(specFor("/chunked.tgz"));
+    const fetched = await fetchFab(resolved, { idleTimeoutMs: 500, timeoutMs: 500 });
+
+    expect(await pathExists(path.join(fetched.factoryDir, "AGENTS.md"))).toBe(true);
   });
 
   test("never caches an https source", async () => {

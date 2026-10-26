@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -140,21 +141,11 @@ function versionAtCommit(refs: MirrorRefs, commit: string): string | undefined {
   return versionTags(refs).find((tag) => tag.commit === commit)?.version;
 }
 
-async function ensureMirror(url: string, layout: CacheLayout, options: GitOptions): Promise<string> {
-  const mirror = layout.gitMirror(url);
-
-  if (await pathExists(mirror)) {
-    const bare = await tryGit(["-C", mirror, "rev-parse", "--is-bare-repository"], options);
-    if (bare.ok && bare.stdout.trim() === "true") {
-      const origin = await tryGit(["-C", mirror, "config", "--get", "remote.origin.url"], options);
-      if (origin.ok && origin.stdout.trim() !== "") {
-        const fetched = await tryGit(["-C", mirror, "fetch", "--prune", "--tags"], options);
-        if (fetched.ok) return mirror;
-      }
-    }
-    await rm(mirror, { recursive: true, force: true });
-  }
-
+async function cloneMirror(
+  url: string,
+  mirror: string,
+  options: GitOptions,
+): Promise<void> {
   await mkdir(path.dirname(mirror), { recursive: true });
   try {
     await runGit(
@@ -166,6 +157,49 @@ async function ensureMirror(url: string, layout: CacheLayout, options: GitOption
     await rm(mirror, { recursive: true, force: true });
     throw error;
   }
+}
+
+async function isUsableMirror(mirror: string, options: GitOptions): Promise<boolean> {
+  const bare = await tryGit(["-C", mirror, "rev-parse", "--is-bare-repository"], options);
+  if (!bare.ok || bare.stdout.trim() !== "true") return false;
+  const origin = await tryGit(["-C", mirror, "config", "--get", "remote.origin.url"], options);
+  return origin.ok && origin.stdout.trim() !== "";
+}
+
+async function replaceMirror(
+  url: string,
+  mirror: string,
+  options: GitOptions,
+): Promise<string> {
+  const replacement = `${mirror}.tmp-${randomUUID()}`;
+  await cloneMirror(url, replacement, options);
+
+  const backup = `${mirror}.old-${randomUUID()}`;
+  await rename(mirror, backup);
+  try {
+    await rename(replacement, mirror);
+  } catch (error) {
+    await rename(backup, mirror).catch(() => undefined);
+    await rm(replacement, { recursive: true, force: true });
+    throw error;
+  }
+  await rm(backup, { recursive: true, force: true });
+  return mirror;
+}
+
+async function ensureMirror(url: string, layout: CacheLayout, options: GitOptions): Promise<string> {
+  const mirror = layout.gitMirror(url);
+
+  if (await pathExists(mirror)) {
+    if (await isUsableMirror(mirror, options)) {
+      const fetched = await tryGit(["-C", mirror, "fetch", "--prune", "--tags"], options);
+      if (fetched.ok) return mirror;
+      return replaceMirror(url, mirror, options);
+    }
+    await rm(mirror, { recursive: true, force: true });
+  }
+
+  await cloneMirror(url, mirror, options);
   return mirror;
 }
 
