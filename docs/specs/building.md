@@ -175,6 +175,8 @@ For the `claude` target, `build` handles the file as follows:
 2. If it already imports `AGENTS.md`, leave it unchanged.
 3. Otherwise, add `@AGENTS.md` in a marked factory block at the start of the file.
 
+When `CLAUDE.md` is a symbolic link to the root `AGENTS.md`, Claude Code already reads the `AGENTS.md` content. `build` leaves the link unchanged for every `agents` value. `build` does not write through any other symbolic link at the repository root or in a skill destination. If a change needs one, `build` stops with exit code 5.
+
 ## Built-in `metafab` skill
 
 `build` installs a built-in `metafab` skill for each target. The CLI supplies this skill. It does not come from `.factory/`.
