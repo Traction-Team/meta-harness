@@ -110,6 +110,16 @@ describe("unknown command", () => {
     expect(result.code).toBe(ExitCode.Failed);
     expect(result.stderr).toContain("pipeline add");
   });
+
+  test("rejects the removed rename command", async () => {
+    const result = await runCli(["rename", "a", "b"], { cwd: repo.root, tty: false });
+    expect(result.code).toBe(ExitCode.Failed);
+    expect(result.stderr).toContain("Unknown command: rename");
+
+    const help = await runCli(["--help"], { cwd: repo.root, tty: false });
+    expect(help.code).toBe(ExitCode.Ok);
+    expect(help.stdout).not.toContain("rename");
+  });
 });
 
 describe("commands without a factory", () => {
