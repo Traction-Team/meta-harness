@@ -273,6 +273,59 @@ describe("conflict preflight", () => {
     expect(await readFile(repo.path(".agents", "skills", "notes.md"), "utf8")).toBe("mine\n");
   });
 
+  test("a regular file at a selected skill destination is a conflict, not a crash", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+      ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+      ".agents/skills": "not a directory\n",
+    });
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.conflicts.map((problem) => problem.file)).toContain(".agents/skills");
+    expect(plan.conflicts[0]?.message).toContain("is a file, not a directory");
+    expect(report.changed).toEqual([]);
+    expect(await readFile(repo.path(".agents", "skills"), "utf8")).toBe("not a directory\n");
+    expect(await pathExists(repo.path("AGENTS.md"))).toBe(false);
+    expect(await pathExists(repo.path(".gitignore"))).toBe(false);
+  });
+
+  test("symlinked root files are conflicts and are not written through", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+      ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+    });
+    const outside = await makeTempDir("metafab-build-outside-");
+    const outsideFiles = new Map([
+      ["AGENTS.md", path.join(outside.root, "AGENTS.md")],
+      ["CLAUDE.md", path.join(outside.root, "CLAUDE.md")],
+      [".gitignore", path.join(outside.root, "gitignore")],
+    ]);
+    for (const [name, target] of outsideFiles) {
+      await writeFile(target, `${name} outside\n`);
+      await symlink(target, repo.path(name));
+    }
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.conflicts.map((problem) => problem.file)).toEqual(
+      expect.arrayContaining(["AGENTS.md", "CLAUDE.md", ".gitignore"]),
+    );
+    for (const problem of plan.conflicts) {
+      expect(problem.message).toContain("symbolic link");
+    }
+    expect(report.changed).toEqual([]);
+    expect(await pathExists(repo.path(".agents"))).toBe(false);
+    for (const [name, target] of outsideFiles) {
+      expect(await readFile(target, "utf8")).toBe(`${name} outside\n`);
+    }
+    for (const name of outsideFiles.keys()) {
+      expect((await lstat(repo.path(name))).isSymbolicLink()).toBe(true);
+    }
+  });
+
   test("a hand-deleted generated comment makes the directory unowned", async () => {
     const repo = await copyFixture();
     await build(repo.root);
@@ -524,7 +577,7 @@ describe("symlinks in installed output", () => {
     });
   });
 
-  test("treats a symlinked skill directory as an unowned entry and does not follow it", async () => {
+  test("treats a symlinked skill directory as a symlink conflict, names it and does not follow it", async () => {
     const repo = await makeBuildRepo({
       ".factory/skills/demo/SKILL.md":
         "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
@@ -544,13 +597,16 @@ describe("symlinks in installed output", () => {
     const { plan, report } = await build(repo.root);
 
     expect(plan.conflicts.map((problem) => problem.file)).toContain(".agents/skills/demo");
+    expect(plan.conflicts[0]?.message).toContain("symbolic link");
+    expect(plan.conflicts[0]?.message).not.toContain("Unowned");
+    expect(plan.conflicts[0]?.fix).toContain("replace it with a real directory");
     expect(report.changed).toEqual([]);
     expect(await listFiles(outside.root)).toEqual(["SKILL.md"]);
     expect(await readFile(outsideSkill, "utf8")).toBe(outsideContent);
     expect((await lstat(repo.path(".agents", "skills", "demo"))).isSymbolicLink()).toBe(true);
   });
 
-  test("treats a symlinked skill destination as a conflict and writes nothing through it", async () => {
+  test("treats a symlinked destination as a conflict and writes nothing through it", async () => {
     const repo = await makeBuildRepo({
       ".factory/skills/demo/SKILL.md":
         "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
@@ -565,6 +621,71 @@ describe("symlinks in installed output", () => {
     expect(plan.conflicts.map((problem) => problem.file)).toContain(".agents/skills");
     expect(report.changed).toEqual([]);
     expect(await listFiles(outside.root)).toEqual([]);
+  });
+
+  test("treats a symlinked parent above a selected destination as a conflict", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+      ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+    });
+    const outside = await makeTempDir("metafab-build-outside-");
+    await symlink(outside.root, repo.path(".agents"));
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.conflicts.map((problem) => problem.file)).toContain(".agents");
+    const conflict = plan.conflicts.find((problem) => problem.file === ".agents");
+    expect(conflict?.message).toContain("symbolic link");
+    expect(report.changed).toEqual([]);
+    expect(await listFiles(outside.root)).toEqual([]);
+    expect((await lstat(repo.path(".agents"))).isSymbolicLink()).toBe(true);
+  });
+
+  test("does not delete a removed skill through a symlinked parent", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+    });
+    const outside = await makeTempDir("metafab-build-outside-");
+    const outsideSkill = path.join(outside.root, "skills", "demo", "SKILL.md");
+    await mkdir(path.dirname(outsideSkill), { recursive: true });
+    await writeFile(
+      outsideSkill,
+      "---\nname: demo\ndescription: Demo.\n---\n<!-- Generated by metafab build from .factory/skills/demo/. Edit the source, then run metafab build. -->\n",
+    );
+    await symlink(outside.root, repo.path(".agents"));
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.conflicts.map((problem) => problem.file)).toContain(".agents");
+    expect(report.changed).toEqual([]);
+    expect(await pathExists(outsideSkill)).toBe(true);
+    expect(await listFiles(outside.root)).toEqual(["skills/demo/SKILL.md"]);
+  });
+
+  test("leaves a deselected destination with a symlinked chain completely alone", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+      ".factory/metafab.yaml": "agents: [claude]\nmetafab-skill: false\n",
+    });
+    const outside = await makeTempDir("metafab-build-outside-");
+    const outsideSkill = path.join(outside.root, "old", "SKILL.md");
+    await mkdir(path.dirname(outsideSkill), { recursive: true });
+    await writeFile(
+      outsideSkill,
+      "---\nname: old\ndescription: Old.\n---\n<!-- Generated by metafab build from .factory/skills/old/. Edit the source, then run metafab build. -->\n",
+    );
+    await mkdir(repo.path(".agents"), { recursive: true });
+    await symlink(outside.root, repo.path(".agents", "skills"));
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.conflicts).toEqual([]);
+    expect(report.changed.some((change) => change.path.startsWith(".agents"))).toBe(false);
+    expect(await pathExists(outsideSkill)).toBe(true);
+    expect(await pathExists(path.join(outside.root, "demo"))).toBe(false);
+    expect((await lstat(repo.path(".agents", "skills"))).isSymbolicLink()).toBe(true);
   });
 });
 

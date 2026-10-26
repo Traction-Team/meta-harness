@@ -1,7 +1,7 @@
-import { readFile } from "node:fs/promises";
+import { readFile, symlink } from "node:fs/promises";
 import { afterEach, describe, expect, test } from "vitest";
 import { ExitCode } from "../../../src/errors.js";
-import { pathExists } from "../../../src/util/fs.js";
+import { listFiles, pathExists } from "../../../src/util/fs.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
 import type { RepoFiles, TempRepo } from "../../helpers/makeRepo.js";
 import { runCli } from "../../helpers/runCli.js";
@@ -70,6 +70,35 @@ describe("build command", () => {
     expect(await pathExists(repo.path(".agents"))).toBe(false);
     expect(await pathExists(repo.path("AGENTS.md"))).toBe(false);
     expect(await pathExists(repo.path(".gitignore"))).toBe(false);
+  });
+
+  test("exits 5 without a stack when a skill destination is a regular file", async () => {
+    const repo = await buildRepo({ ".agents/skills": "not a directory\n" });
+
+    const result = await runCli(["build"], { cwd: repo.root, tty: false });
+
+    expect(result.code).toBe(ExitCode.NotOwned);
+    expect(result.stderr).toContain(".agents/skills");
+    expect(result.stderr).toContain("is a file, not a directory");
+    expect(result.stderr).not.toContain("ENOTDIR");
+    expect(result.stderr).not.toContain("    at ");
+    expect(await readFile(repo.path(".agents", "skills"), "utf8")).toBe("not a directory\n");
+    expect(await pathExists(repo.path("AGENTS.md"))).toBe(false);
+  });
+
+  test("exits 5 without a stack when a parent of a skill destination is a symlink", async () => {
+    const repo = await buildRepo();
+    const outside = track(await makeRepo({}, { prefix: "metafab-outside-" }));
+    await symlink(outside.root, repo.path(".agents"));
+
+    const result = await runCli(["build"], { cwd: repo.root, tty: false });
+
+    expect(result.code).toBe(ExitCode.NotOwned);
+    expect(result.stderr).toContain(".agents");
+    expect(result.stderr).toContain("symbolic link");
+    expect(result.stderr).not.toContain("    at ");
+    expect(await listFiles(outside.root)).toEqual([]);
+    expect(await pathExists(repo.path("AGENTS.md"))).toBe(false);
   });
 
   test("writes the JSON shape expected by the spec", async () => {
