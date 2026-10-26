@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Config } from "../config/types.js";
@@ -7,7 +7,6 @@ import { destinations } from "../config/destinations.js";
 import type { Problem } from "../../errors.js";
 import type { Factory } from "../factory/types.js";
 import { toLF } from "../../util/text.js";
-import { isDirectory, pathExists } from "../../util/fs.js";
 import {
   AGENTS_BLOCK_LINE_LIMIT,
   AGENTS_MARKERS,
@@ -67,6 +66,15 @@ function absolute(root: string, relativePath: string): string {
 async function readTextIfExists(file: string): Promise<string | undefined> {
   try {
     return await readFile(file, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+async function lstatIfExists(target: string) {
+  try {
+    return await lstat(target);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw error;
@@ -292,14 +300,20 @@ async function reconcileOwnedDirectory(
 
 async function scanDestination(context: ScanContext, directory: string): Promise<void> {
   const target = absolute(context.root, directory);
-  if (!(await pathExists(target))) return;
+  const info = await lstatIfExists(target);
+  if (info === undefined) return;
 
-  if (!(await isDirectory(target))) {
+  if (!info.isDirectory()) {
+    const symlink = info.isSymbolicLink();
     context.conflicts.push({
       level: "error",
       file: directory,
-      message: `${directory} is not a directory`,
-      fix: "Move the file or rename it, then run metafab build again; metafab init can adopt existing skills",
+      message: symlink
+        ? `${directory} is a symbolic link, not a directory`
+        : `${directory} is not a directory`,
+      fix: symlink
+        ? "Remove the symbolic link, then run metafab build again"
+        : "Move the file or rename it, then run metafab build again; metafab init can adopt existing skills",
     });
     return;
   }
@@ -337,10 +351,16 @@ async function scanDestination(context: ScanContext, directory: string): Promise
   }
 }
 
+function hasWriteAtOrBeneath(writes: readonly string[], directory: string): boolean {
+  const prefix = `${directory}/`;
+  return writes.some((write) => write === directory || write.startsWith(prefix));
+}
+
 async function planEmptyDirectories(
   root: string,
   directory: string,
   removals: Set<string>,
+  writes: readonly string[],
 ): Promise<void> {
   const target = absolute(root, directory);
   const entries = await readDirectoryIfExists(target);
@@ -353,6 +373,7 @@ async function planEmptyDirectories(
 
   const remaining = entries.filter((entry) => !removals.has(`${directory}/${entry.name}`));
   if (remaining.length > 0) return;
+  if (hasWriteAtOrBeneath(writes, directory)) return;
 
   removals.add(directory);
 
@@ -360,14 +381,17 @@ async function planEmptyDirectories(
   if (parent === "." || parent === "") return;
 
   const parentTarget = absolute(root, parent);
-  if (!(await isDirectory(parentTarget))) return;
+  const parentInfo = await lstatIfExists(parentTarget);
+  if (parentInfo === undefined || !parentInfo.isDirectory()) return;
 
   const parentEntries = await readDirectoryIfExists(parentTarget);
   if (parentEntries === undefined) return;
   const parentRemaining = parentEntries.filter(
     (entry) => !removals.has(`${parent}/${entry.name}`),
   );
-  if (parentRemaining.length === 0) removals.add(parent);
+  if (parentRemaining.length === 0 && !hasWriteAtOrBeneath(writes, parent)) {
+    removals.add(parent);
+  }
 }
 
 function sameContent(existing: Buffer, desired: Buffer): boolean {
@@ -382,13 +406,8 @@ async function fileMatches(
   write: BuildWrite,
 ): Promise<{ exists: boolean; same: boolean }> {
   const target = absolute(root, write.path);
-  let info;
-  try {
-    info = await stat(target);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { exists: false, same: false };
-    throw error;
-  }
+  const info = await lstatIfExists(target);
+  if (info === undefined) return { exists: false, same: false };
 
   if (!info.isFile()) return { exists: true, same: false };
 
@@ -445,7 +464,12 @@ export async function planBuild(
   }
 
   for (const directory of SKILL_DESTINATIONS) {
-    await planEmptyDirectories(root, directory, removals);
+    await planEmptyDirectories(
+      root,
+      directory,
+      removals,
+      plan.writes.map((write) => write.path),
+    );
   }
 
   const agentsFile = "AGENTS.md";
@@ -540,7 +564,9 @@ export async function applyBuild(plan: BuildPlan): Promise<BuildReport> {
 
   const existingRemovals: string[] = [];
   for (const removal of plan.removals) {
-    if (await pathExists(absolute(plan.root, removal))) existingRemovals.push(removal);
+    if ((await lstatIfExists(absolute(plan.root, removal))) !== undefined) {
+      existingRemovals.push(removal);
+    }
   }
 
   const deepestFirst = [...existingRemovals].sort((left, right) => right.length - left.length);
@@ -549,7 +575,8 @@ export async function applyBuild(plan: BuildPlan): Promise<BuildReport> {
   }
 
   const removed = new Set(existingRemovals);
-  const written = new Set(plan.writes.map((write) => write.path));
+  const writePaths = plan.writes.map((write) => write.path);
+  const written = new Set(writePaths);
   for (const write of plan.writes) {
     const target = absolute(plan.root, write.path);
     const comparison = await fileMatches(plan.root, write);
@@ -566,6 +593,10 @@ export async function applyBuild(plan: BuildPlan): Promise<BuildReport> {
 
   for (const removal of existingRemovals) {
     if (written.has(removal)) continue;
+    if (writePaths.some((writePath) => writePath.startsWith(`${removal}/`))) {
+      changed.push({ path: removal, action: "updated" });
+      continue;
+    }
     changed.push({ path: removal, action: "removed" });
   }
 

@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -69,6 +69,17 @@ async function copyFixture(): Promise<TempRepo> {
 
 async function makeBuildRepo(files: Record<string, string | Uint8Array>): Promise<TempRepo> {
   return track(await makeRepo(files));
+}
+
+async function makeTempDir(prefix: string): Promise<TempRepo> {
+  const root = await mkdtemp(path.join(tmpdir(), prefix));
+  return track({
+    root,
+    path: (...segments: string[]) => path.join(root, ...segments),
+    async cleanup() {
+      await rm(root, { recursive: true, force: true });
+    },
+  });
 }
 
 async function planRepo(root: string, cliVersion = PACKAGE_VERSION): Promise<BuildPlan> {
@@ -348,12 +359,94 @@ describe("removals", () => {
     ).toHaveLength(1);
     expect(report.changed).toContainEqual({
       path: ".agents/skills/demo/nested",
-      action: "removed",
+      action: "updated",
     });
+    expect(
+      report.changed.filter((change) => change.path === ".agents/skills/demo/nested"),
+    ).toHaveLength(1);
     expect((await stat(repo.path(".agents", "skills", "demo", "notes.txt"))).isFile()).toBe(true);
     expect(await readFile(repo.path(".agents", "skills", "demo", "notes.txt"), "utf8")).toBe(
       "notes\n",
     );
+    expect((await stat(repo.path(".agents", "skills", "demo", "nested"))).isDirectory()).toBe(true);
+    expect(
+      await readFile(repo.path(".agents", "skills", "demo", "nested", "helper.md"), "utf8"),
+    ).toBe("helper\n");
+  });
+
+  test("renaming a skill removes the old directory without removing the destination", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/skills/old/SKILL.md":
+        "---\nname: old\ndescription: Old. Use when testing.\n---\n\n# Old\n",
+      ".factory/metafab.yaml": "agents: [claude, codex]\nmetafab-skill: false\n",
+    });
+    await build(repo.root);
+
+    await rm(repo.path(".factory", "skills", "old"), { recursive: true });
+    await mkdir(repo.path(".factory", "skills", "new"), { recursive: true });
+    await writeFile(
+      repo.path(".factory", "skills", "new", "SKILL.md"),
+      "---\nname: new\ndescription: New. Use when testing.\n---\n\n# New\n",
+    );
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.conflicts).toEqual([]);
+    for (const destination of [".claude", ".agents"]) {
+      expect(plan.removals).not.toContain(destination);
+      expect(plan.removals).not.toContain(`${destination}/skills`);
+    }
+    for (const agent of [".claude", ".agents"]) {
+      expect(report.changed).toContainEqual({
+        path: `${agent}/skills/old`,
+        action: "removed",
+      });
+      expect(report.changed).toContainEqual({
+        path: `${agent}/skills/new/SKILL.md`,
+        action: "created",
+      });
+      expect(
+        report.changed.some(
+          (change) => change.path === agent || change.path === `${agent}/skills`,
+        ),
+      ).toBe(false);
+      expect(await pathExists(repo.path(agent, "skills", "old"))).toBe(false);
+      expect(await pathExists(repo.path(agent, "skills", "new", "SKILL.md"))).toBe(true);
+      expect(await pathExists(repo.path(agent, "skills"))).toBe(true);
+      expect(await pathExists(repo.path(agent))).toBe(true);
+    }
+  });
+
+  test("replacing a desired file with a directory reports the path once as updated", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+      ".factory/skills/demo/nested": "old file\n",
+      ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+    });
+    await build(repo.root);
+
+    await rm(repo.path(".factory", "skills", "demo", "nested"));
+    await mkdir(repo.path(".factory", "skills", "demo", "nested"), { recursive: true });
+    await writeFile(
+      repo.path(".factory", "skills", "demo", "nested", "helper.md"),
+      "helper\n",
+    );
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.conflicts).toEqual([]);
+    expect(report.changed).toContainEqual({
+      path: ".agents/skills/demo/nested",
+      action: "updated",
+    });
+    expect(
+      report.changed.filter((change) => change.path === ".agents/skills/demo/nested"),
+    ).toHaveLength(1);
+    expect(report.changed).toContainEqual({
+      path: ".agents/skills/demo/nested/helper.md",
+      action: "created",
+    });
     expect((await stat(repo.path(".agents", "skills", "demo", "nested"))).isDirectory()).toBe(true);
     expect(
       await readFile(repo.path(".agents", "skills", "demo", "nested", "helper.md"), "utf8"),
@@ -400,6 +493,78 @@ describe("removals", () => {
     expect(await pathExists(repo.path(".claude", "skills", "metafab"))).toBe(false);
     expect(await pathExists(repo.path(".agents", "skills", "metafab"))).toBe(false);
     expect(await pathExists(repo.path(".claude", "skills", "build-slice", "SKILL.md"))).toBe(true);
+  });
+});
+
+describe("symlinks in installed output", () => {
+  test("replaces a dangling symlink at a desired file path without writing outside the repo", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+      ".factory/skills/demo/notes.txt": "notes\n",
+      ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+    });
+    await build(repo.root);
+
+    const outside = await makeTempDir("metafab-build-outside-");
+    const escaped = path.join(outside.root, "escaped.txt");
+    const installed = repo.path(".agents", "skills", "demo", "notes.txt");
+    await rm(installed);
+    await symlink(escaped, installed);
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.conflicts).toEqual([]);
+    expect(await pathExists(escaped)).toBe(false);
+    expect((await lstat(installed)).isFile()).toBe(true);
+    expect(await readFile(installed, "utf8")).toBe("notes\n");
+    expect(report.changed).toContainEqual({
+      path: ".agents/skills/demo/notes.txt",
+      action: "updated",
+    });
+  });
+
+  test("treats a symlinked skill directory as an unowned entry and does not follow it", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+      ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+    });
+    const outside = await makeTempDir("metafab-build-outside-");
+    const outsideSkill = path.join(
+      outside.root,
+      "SKILL.md",
+    );
+    const outsideContent =
+      "---\nname: demo\ndescription: Outside.\n---\n<!-- Generated by metafab build from .factory/skills/demo/. Edit the source, then run metafab build. -->\n";
+    await writeFile(outsideSkill, outsideContent);
+    await mkdir(repo.path(".agents", "skills"), { recursive: true });
+    await symlink(outside.root, repo.path(".agents", "skills", "demo"));
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.conflicts.map((problem) => problem.file)).toContain(".agents/skills/demo");
+    expect(report.changed).toEqual([]);
+    expect(await listFiles(outside.root)).toEqual(["SKILL.md"]);
+    expect(await readFile(outsideSkill, "utf8")).toBe(outsideContent);
+    expect((await lstat(repo.path(".agents", "skills", "demo"))).isSymbolicLink()).toBe(true);
+  });
+
+  test("treats a symlinked skill destination as a conflict and writes nothing through it", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+      ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+    });
+    const outside = await makeTempDir("metafab-build-outside-");
+    await mkdir(repo.path(".agents"), { recursive: true });
+    await symlink(outside.root, repo.path(".agents", "skills"));
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.conflicts.map((problem) => problem.file)).toContain(".agents/skills");
+    expect(report.changed).toEqual([]);
+    expect(await listFiles(outside.root)).toEqual([]);
   });
 });
 

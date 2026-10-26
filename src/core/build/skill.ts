@@ -1,4 +1,4 @@
-import { readdir, readFile, realpath, stat } from "node:fs/promises";
+import { lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import type { Problem } from "../../errors.js";
 import { toLF } from "../../util/text.js";
@@ -60,8 +60,11 @@ export function builtinComment(version: string): string {
 }
 
 export async function isOwned(dir: string): Promise<boolean> {
+  const skillFile = path.join(dir, "SKILL.md");
   try {
-    const text = await readFile(path.join(dir, "SKILL.md"), "utf8");
+    const info = await lstat(skillFile);
+    if (!info.isFile()) return false;
+    const text = await readFile(skillFile, "utf8");
     return text.includes(GENERATED_COMMENT_PREFIX);
   } catch {
     return false;

@@ -122,6 +122,15 @@ describe("removeMarkerBlock", () => {
     });
   });
 
+  test("keeps one blank separator between text before and after the block", () => {
+    const text = "# Before\n\n<!-- factory:start -->\nbody\n<!-- factory:end -->\n\n# After\n";
+    expect(removeMarkerBlock(text, factory)).toEqual({
+      ok: true,
+      text: "# Before\n\n# After\n",
+      changed: true,
+    });
+  });
+
   test("leaves an empty file when only the block exists", () => {
     const text = "<!-- factory:start -->\nbody\n<!-- factory:end -->\n";
     expect(removeMarkerBlock(text, factory)).toEqual({ ok: true, text: "", changed: true });

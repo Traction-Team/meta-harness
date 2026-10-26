@@ -37,7 +37,7 @@ Run `metafab build` after every change to `.factory/`. It writes the root `AGENT
 
 Targets are chosen with `agents` in `.factory/metafab.yaml`, for example `agents: [claude, codex]`. `metafab build` has no command-line override. Set `agents: []` to remove all installed output.
 
-Build removes owned output that no longer has a source. It stops with exit code 5 when a selected skill destination holds anything Metafab did not generate. Hand edits inside an installed skill are overwritten by the next build. Run `metafab init` to adopt existing repository skills.
+Build removes owned output that no longer has a source. It stops with exit code 5 when it finds anything directly in a selected skill destination that Metafab did not generate. Hand edits inside an installed skill are overwritten by the next build. Run `metafab init` to adopt existing repository skills.
 
 ## Check and resolve problems
 
