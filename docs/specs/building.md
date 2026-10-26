@@ -62,7 +62,7 @@ The block contains `.claude/skills/` when `claude` is selected. It contains `.ag
 
 The whole selected skill destination is ignored, not one entry per generated skill. Once Metafab manages a destination, repository skills for that destination belong in `.factory/` and the installed directory is disposable. Metafab never ignores all of `.claude/` or `.agents/`.
 
-Before changing any file, `build` checks selected destinations for unowned entries. If it finds one, it stops with exit code 5 and suggests `metafab init` to adopt existing skills. This preflight also applies when a configuration change selects a destination for the first time.
+Before changing any file, `build` checks selected destinations for unowned entries directly in them. If it finds one, it stops with exit code 5 and suggests `metafab init` to adopt existing skills. This preflight also applies when a configuration change selects a destination for the first time.
 
 ## Compiled skills
 
