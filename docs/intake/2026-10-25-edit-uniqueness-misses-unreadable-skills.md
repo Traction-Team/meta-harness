@@ -1,5 +1,5 @@
 ---
-title: create and rename can reuse a name held by a skill discovery dropped
+title: create can reuse a name held by a skill discovery dropped
 kind: follow-up
 status: new
 filed: 2026-10-25
@@ -16,4 +16,4 @@ With `.factory/skills/security/` unreadable (`chmod 000`) or its `SKILL.md` unpa
 
 ## What we know
 
-`src/core/edit/create.ts:136` and `src/core/edit/rename.ts:154` check uniqueness against `factory.skills`, which omits directories discovery reported as problems. Fix: also refuse when a loader problem names a skill directory with the same last segment, or walk directory names directly.
+`src/core/edit/create.ts:136` checks uniqueness against `factory.skills`, which omits directories discovery reported as problems. Fix: also refuse when a loader problem names a skill directory with the same last segment, or walk directory names directly.

@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-23
+updated: 2026-10-26
 ---
 
 # Metafab v1 roadmap
@@ -29,7 +29,7 @@ A team can create, edit, build, and check a factory in one repository.
 - [ ] [04 Build](plans/04-build.md): compiled skills, ownership, `AGENTS.md` / `CLAUDE.md` / `.gitignore` blocks, built-in skill
 - [ ] [05 Check](plans/05-check.md): source, config, and installed-output validation
 - [ ] [06 Init and adoption](plans/06-init-and-adoption.md): `init`, `.gitattributes`, moving existing skills into `.factory/`
-- [x] [07 Authoring and inspection](plans/07-authoring-commands.md): `create`, `rename`, `pipeline add/remove`, `map`
+- [x] [07 Authoring and inspection](plans/07-authoring-commands.md): `create`, `pipeline add/remove`, `map`
 
 ## Milestone 2: Sharing
 
@@ -80,6 +80,7 @@ Record answered questions here with the date and the commit that applied them.
 
 | Date | Decision | Applied in |
 | --- | --- | --- |
+| 2026-10-26 | Drop `metafab rename` from v1: rename a skill by hand, and `check` reports a directory/name or pipeline mismatch | #5 |
 | 2026-10-23 | Enforce the stricter Agent Skills name rules (no leading/trailing/double hyphens, max 64); the spec now states them | #3 |
 | 2026-10-23 | Reserve factory skill names that start with `metafab`; validation rule 10 now rejects them | #3 |
 | 2026-10-23 | A duplicate target in `agents` is a warning, not an error | #2 |
