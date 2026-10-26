@@ -100,6 +100,27 @@ describe("getOrCreate", () => {
     }
   });
 
+  test("deletes an entry whose creation fails", async () => {
+    const base = await tempDir();
+    try {
+      const target = path.join(base, "entry");
+      await expect(
+        getOrCreate(target, {
+          validate: () => readFile(path.join(target, "value"), "utf8"),
+          create: async () => {
+            await mkdir(target, { recursive: true });
+            await writeFile(path.join(target, "value"), "partial");
+            throw new Error("create failed");
+          },
+        }),
+      ).rejects.toThrow("create failed");
+
+      await expect(readFile(path.join(target, "value"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
   test("deletes an entry that is still invalid after fetching", async () => {
     const base = await tempDir();
     try {

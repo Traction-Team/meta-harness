@@ -5,6 +5,7 @@ import * as tar from "tar";
 import { describe, expect, test } from "vitest";
 import { ExitCode, MetafabError } from "../../../src/errors.js";
 import { extractTarball } from "../../../src/core/sources/index.js";
+import type { ExtractTarballOptions } from "../../../src/core/sources/index.js";
 import { pathExists } from "../../../src/util/fs.js";
 
 async function tempDir(): Promise<string> {
@@ -47,9 +48,13 @@ async function makeRawTar(archive: string, entries: RawEntry[]): Promise<void> {
   await writeFile(archive, Buffer.concat(blocks));
 }
 
-async function expectInvalid(archive: string, destination: string): Promise<MetafabError> {
+async function expectInvalid(
+  archive: string,
+  destination: string,
+  options: ExtractTarballOptions = {},
+): Promise<MetafabError> {
   try {
-    await extractTarball(archive, destination);
+    await extractTarball(archive, destination, options);
   } catch (error) {
     expect(error).toBeInstanceOf(MetafabError);
     const failure = error as MetafabError;
@@ -259,6 +264,81 @@ describe("extractTarball", () => {
     }
   });
 
+  test("rejects a chain of links that leaves the factory", async () => {
+    const base = await tempDir();
+    try {
+      const archive = path.join(base, "evil.tar");
+      await makeRawTar(archive, [
+        { path: ".factory/b", type: "SymbolicLink", linkpath: "." },
+        { path: ".factory/a", type: "SymbolicLink", linkpath: "b/../outside" },
+        { path: "outside", type: "File", body: "outside\n" },
+      ]);
+
+      const failure = await expectInvalid(archive, path.join(base, "out"));
+
+      expect(failure.problems?.some((problem) => problem.message.includes("outside"))).toBe(true);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a root-level chain of links that leaves the destination", async () => {
+    const base = await tempDir();
+    try {
+      await mkdir(path.join(base, "nested"), { recursive: true });
+      await writeFile(path.join(base, "nested", "outside"), "outside\n");
+      const archive = path.join(base, "evil.tar");
+      await makeRawTar(archive, [
+        { path: "b", type: "SymbolicLink", linkpath: "." },
+        { path: "a", type: "SymbolicLink", linkpath: "b/../outside" },
+      ]);
+
+      const failure = await expectInvalid(archive, path.join(base, "nested", "out"));
+
+      expect(failure.problems?.some((problem) => problem.message.includes("outside"))).toBe(true);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a hard link whose target does not exist", async () => {
+    const base = await tempDir();
+    try {
+      const archive = path.join(base, "evil.tar");
+      await makeRawTar(archive, [
+        { path: ".factory/b.md", type: "Link", linkpath: ".factory/a.md" },
+      ]);
+
+      const failure = await expectInvalid(archive, path.join(base, "out"));
+
+      expect(failure.problems?.some((problem) => problem.message.includes("does not exist"))).toBe(
+        true,
+      );
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("allows a directory link whose target entry comes later", async () => {
+    const base = await tempDir();
+    try {
+      const archive = path.join(base, "fab.tar");
+      await makeRawTar(archive, [
+        { path: ".factory/link", type: "SymbolicLink", linkpath: "target" },
+        { path: ".factory/target/notes.md", type: "File", body: "notes\n" },
+      ]);
+
+      const destination = path.join(base, "out");
+      await extractTarball(archive, destination);
+
+      expect(
+        await readFile(path.join(destination, ".factory", "link", "notes.md"), "utf8"),
+      ).toBe("notes\n");
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
   test("rejects an entry written through a symbolic link", async () => {
     const base = await tempDir();
     try {
@@ -271,6 +351,69 @@ describe("extractTarball", () => {
       const failure = await expectInvalid(archive, path.join(base, "out"));
 
       expect(failure.problems?.[0]?.message).toContain("written through a symbolic link");
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("normalises mixed ./ prefixes when stripping a single directory", async () => {
+    const base = await tempDir();
+    try {
+      const archive = path.join(base, "fab.tar");
+      await makeRawTar(archive, [
+        { path: "./fab/.factory/factory.yaml", type: "File", body: "format: 1\n" },
+        { path: "fab/.factory/AGENTS.md", type: "File", body: "agents\n" },
+      ]);
+
+      const destination = path.join(base, "out");
+      await extractTarball(archive, destination, { flattenSingleDirectory: true });
+
+      expect(await readFile(path.join(destination, ".factory", "factory.yaml"), "utf8")).toBe(
+        "format: 1\n",
+      );
+      expect(await readFile(path.join(destination, ".factory", "AGENTS.md"), "utf8")).toBe(
+        "agents\n",
+      );
+      expect(await pathExists(path.join(destination, "fab"))).toBe(false);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects an archive with too many entries", async () => {
+    const base = await tempDir();
+    try {
+      const archive = path.join(base, "evil.tar");
+      await makeRawTar(archive, [
+        { path: ".factory/a.md", type: "File", body: "a\n" },
+        { path: ".factory/b.md", type: "File", body: "b\n" },
+        { path: ".factory/c.md", type: "File", body: "c\n" },
+      ]);
+
+      const failure = await expectInvalid(archive, path.join(base, "out"), { maxEntries: 2 });
+
+      expect(failure.problems?.some((problem) => problem.message.includes("more than 2 entries"))).toBe(
+        true,
+      );
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects an archive whose extracted files exceed the total size cap", async () => {
+    const base = await tempDir();
+    try {
+      const archive = path.join(base, "evil.tar");
+      await makeRawTar(archive, [
+        { path: ".factory/a.bin", type: "File", body: "a".repeat(800) },
+        { path: ".factory/b.bin", type: "File", body: "b".repeat(800) },
+      ]);
+
+      const failure = await expectInvalid(archive, path.join(base, "out"), {
+        maxTotalSize: 1024,
+      });
+
+      expect(failure.problems?.some((problem) => problem.message.includes("in total"))).toBe(true);
     } finally {
       await rm(base, { recursive: true, force: true });
     }

@@ -109,6 +109,24 @@ describe("local path sources", () => {
     ).toBe("base\n");
   });
 
+  test("rejects a chain of symlinks that leaves the factory with exit 4", async () => {
+    const factory = path.join(sourceParent, ".factory");
+    await writeFile(path.join(sourceParent, "outside"), "outside\n");
+    await symlink(".", path.join(factory, "b"), "dir");
+    await symlink("b/../outside", path.join(factory, "a"));
+
+    try {
+      await fetchSource(sourceParent);
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      const failure = error as MetafabError;
+      expect(failure.exitCode).toBe(ExitCode.InvalidFab);
+      expect(failure.problems?.some((problem) => problem.message.includes("links"))).toBe(true);
+      return;
+    }
+    throw new Error("expected the fetch to fail");
+  });
+
   test("allows a hard link inside the factory", async () => {
     const factory = path.join(sourceParent, ".factory");
     await writeFile(path.join(factory, "hard-a.md"), "shared\n");

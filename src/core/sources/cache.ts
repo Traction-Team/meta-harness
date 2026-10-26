@@ -62,7 +62,12 @@ export async function getOrCreate<T>(target: string, options: GetOrCreateOptions
     }
   }
 
-  await options.create();
+  try {
+    await options.create();
+  } catch (error) {
+    await rm(target, { recursive: true, force: true });
+    throw error;
+  }
 
   try {
     return await options.validate();
