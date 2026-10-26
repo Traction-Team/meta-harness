@@ -11,6 +11,7 @@ import { fabKey, getOrCreate } from "./cache.js";
 import type { CacheLayout } from "./cache.js";
 import { cacheRoot, cacheLayout } from "./cache.js";
 import { extractTarball } from "./extract.js";
+import { redact } from "./redact.js";
 import type { FetchedFab, NpmSourceSpec, Resolved } from "./types.js";
 import { validateFab } from "./validate.js";
 
@@ -55,7 +56,7 @@ function npmMessage(failure: NpmFailure): string {
 }
 
 function fetchError(message: string, cause?: unknown): MetafabError {
-  return new MetafabError(message, {
+  return new MetafabError(redact(message), {
     exitCode: ExitCode.FetchFailed,
     code: "fetch-failed",
     cause,
@@ -162,6 +163,14 @@ interface NpmManifest {
   deprecated?: string;
 }
 
+function distIntegrity(dist: Record<string, unknown>): string | undefined {
+  if (typeof dist.integrity === "string" && dist.integrity !== "") return dist.integrity;
+  if (typeof dist.shasum === "string" && /^[0-9a-f]{40}$/i.test(dist.shasum)) {
+    return ssri.fromHex(dist.shasum, "sha1").toString();
+  }
+  return undefined;
+}
+
 async function readManifest(
   name: string,
   version: string,
@@ -179,9 +188,10 @@ async function readManifest(
     throw fetchError(`${context}: the registry did not report a tarball URL`);
   }
 
+  const integrity = distIntegrity(parsed.dist);
   return {
     tarball,
-    ...(typeof parsed.dist.integrity === "string" ? { integrity: parsed.dist.integrity } : {}),
+    ...(integrity === undefined ? {} : { integrity }),
     ...(typeof parsed.deprecated === "string" ? { deprecated: parsed.deprecated } : {}),
   };
 }
@@ -213,13 +223,14 @@ function npmFabError(
   message: string,
   fix?: string,
 ): MetafabError {
-  return new MetafabError(`Invalid fab from ${sourceLabel}`, {
+  const label = redact(sourceLabel);
+  return new MetafabError(`Invalid fab from ${label}`, {
     exitCode: ExitCode.InvalidFab,
     code: "invalid-fab",
     problems: [
       {
         level: "error",
-        file: `${sourceLabel.replace(/\/+$/, "")}/${file}`,
+        file: `${label.replace(/\/+$/, "")}/${file}`,
         line: 1,
         message,
         ...(fix === undefined ? {} : { fix }),

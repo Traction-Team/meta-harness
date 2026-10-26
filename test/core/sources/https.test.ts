@@ -52,6 +52,16 @@ beforeAll(async () => {
   server = createServer(async (request, response) => {
     const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
     requests.set(pathname, (requests.get(pathname) ?? 0) + 1);
+    if (pathname === "/large.tgz") {
+      response.writeHead(200, { "content-type": "application/gzip" });
+      response.write(Buffer.alloc(4 * 1024));
+      response.end(Buffer.alloc(4 * 1024));
+      return;
+    }
+    if (pathname === "/slow.tgz") {
+      response.writeHead(200, { "content-type": "application/gzip" });
+      return;
+    }
     const file = files.get(pathname);
     if (file === undefined) {
       response.writeHead(404, { "content-type": "text/plain" });
@@ -104,6 +114,22 @@ describe("https tarball sources", () => {
   test("fails with exit 3 for an HTTP error", async () => {
     const resolved = await resolve(specFor("/missing.tgz"));
     await expect(fetchFab(resolved)).rejects.toMatchObject({
+      exitCode: ExitCode.FetchFailed,
+      code: "fetch-failed",
+    });
+  });
+
+  test("fails with exit 4 when the download exceeds the size cap", async () => {
+    const resolved = await resolve(specFor("/large.tgz"));
+    await expect(fetchFab(resolved, { maxBytes: 1024 })).rejects.toMatchObject({
+      exitCode: ExitCode.InvalidFab,
+      code: "invalid-fab",
+    });
+  });
+
+  test("fails with exit 3 when the download times out", async () => {
+    const resolved = await resolve(specFor("/slow.tgz"));
+    await expect(fetchFab(resolved, { timeoutMs: 50 })).rejects.toMatchObject({
       exitCode: ExitCode.FetchFailed,
       code: "fetch-failed",
     });

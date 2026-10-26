@@ -1,17 +1,18 @@
-import { lstat, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readlink, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import { copyFileWithMode } from "../../util/fs.js";
 import { MAX_FAB_FILE_SIZE } from "./extract.js";
+import { redact } from "./redact.js";
 import type { FetchedFab, Resolved } from "./types.js";
 import { validateFab } from "./validate.js";
 
 export type ResolvedPath = Extract<Resolved, { kind: "path" }>;
 
 function fetchError(message: string, cause?: unknown): MetafabError {
-  return new MetafabError(message, {
+  return new MetafabError(redact(message), {
     exitCode: ExitCode.FetchFailed,
     code: "fetch-failed",
     cause,
@@ -19,7 +20,7 @@ function fetchError(message: string, cause?: unknown): MetafabError {
 }
 
 function invalidFab(sourceLabel: string, problems: Problem[]): MetafabError {
-  return new MetafabError(`Invalid fab from ${sourceLabel}`, {
+  return new MetafabError(`Invalid fab from ${redact(sourceLabel)}`, {
     exitCode: ExitCode.InvalidFab,
     code: "invalid-fab",
     problems,
@@ -27,7 +28,7 @@ function invalidFab(sourceLabel: string, problems: Problem[]): MetafabError {
 }
 
 function problemFile(sourceLabel: string, relativePath: string): string {
-  return `${sourceLabel.replace(/\/+$/, "")}/.factory/${relativePath}`;
+  return `${redact(sourceLabel).replace(/\/+$/, "")}/.factory/${relativePath}`;
 }
 
 export async function locateFactoryDir(specPath: string): Promise<string> {
@@ -57,9 +58,15 @@ export async function locateFactoryDir(specPath: string): Promise<string> {
   return candidate;
 }
 
+function insideFactory(root: string, target: string): boolean {
+  const relative = path.relative(root, target);
+  return relative !== "" && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
 async function copyFactory(sourceDir: string, destination: string, sourceLabel: string): Promise<void> {
   const problems: Problem[] = [];
   const factoryDir = path.join(destination, ".factory");
+  const factoryRoot = path.resolve(sourceDir);
   await mkdir(factoryDir, { recursive: true });
 
   async function walk(directory: string, prefix: string): Promise<void> {
@@ -72,12 +79,20 @@ async function copyFactory(sourceDir: string, destination: string, sourceLabel: 
       const entry = await lstat(absolute);
 
       if (entry.isSymbolicLink()) {
-        problems.push({
-          level: "error",
-          file: problemFile(sourceLabel, relativePath),
-          line: 1,
-          message: "links are not allowed in a fab",
-        });
+        const target = await readlink(absolute);
+        const resolved = path.resolve(path.dirname(absolute), target);
+        if (path.isAbsolute(target) || !insideFactory(factoryRoot, resolved)) {
+          problems.push({
+            level: "error",
+            file: problemFile(sourceLabel, relativePath),
+            line: 1,
+            message: "links that point outside .factory are not allowed",
+          });
+          continue;
+        }
+        const destinationPath = path.join(factoryDir, ...relativePath.split("/"));
+        await mkdir(path.dirname(destinationPath), { recursive: true });
+        await symlink(target, destinationPath);
         continue;
       }
 
@@ -120,8 +135,8 @@ export async function fetchPath(
   source: ResolvedPath,
   _options: object = {},
 ): Promise<FetchedFab> {
-  const sourceLabel = source.spec.path;
-  const factoryDir = await locateFactoryDir(sourceLabel);
+  const sourceLabel = source.spec.source;
+  const factoryDir = await locateFactoryDir(source.spec.path);
   const destination = await mkdtemp(path.join(tmpdir(), "metafab-path-"));
 
   try {

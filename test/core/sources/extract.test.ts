@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import * as tar from "tar";
@@ -13,6 +13,38 @@ async function tempDir(): Promise<string> {
 
 async function makeTar(archive: string, cwd: string, entries: string[], preservePaths = false): Promise<void> {
   await tar.c({ file: archive, gzip: true, cwd, preservePaths }, entries);
+}
+
+interface RawEntry {
+  path: string;
+  type: "File" | "SymbolicLink" | "Link";
+  linkpath?: string;
+  body?: string;
+}
+
+async function makeRawTar(archive: string, entries: RawEntry[]): Promise<void> {
+  const blocks: Buffer[] = [];
+  for (const entry of entries) {
+    const body = entry.body === undefined ? undefined : Buffer.from(entry.body);
+    const header = new tar.Header({
+      path: entry.path,
+      type: entry.type,
+      ...(entry.linkpath === undefined ? {} : { linkpath: entry.linkpath }),
+      size: body?.byteLength ?? 0,
+      mode: 0o644,
+      mtime: new Date(0),
+    });
+    const block = Buffer.alloc(512);
+    header.encode(block);
+    blocks.push(block);
+    if (body !== undefined) {
+      blocks.push(body);
+      const padding = (512 - (body.byteLength % 512)) % 512;
+      if (padding > 0) blocks.push(Buffer.alloc(padding));
+    }
+  }
+  blocks.push(Buffer.alloc(1024));
+  await writeFile(archive, Buffer.concat(blocks));
 }
 
 async function expectInvalid(archive: string, destination: string): Promise<MetafabError> {
@@ -66,6 +98,32 @@ describe("extractTarball", () => {
       expect(await readFile(path.join(destination, "README.md"), "utf8")).toBe("readme");
       expect(await readFile(path.join(destination, ".factory", "factory.yaml"), "utf8")).toBe("format: 1\n");
       expect(await pathExists(path.join(destination, "repo-main"))).toBe(false);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("strips a single top-level directory written with a ./ prefix", async () => {
+    const base = await tempDir();
+    try {
+      const staging = path.join(base, "staging");
+      await mkdir(path.join(staging, "fab-acme-1.0.0", ".factory"), { recursive: true });
+      await writeFile(path.join(staging, "fab-acme-1.0.0", "README.md"), "readme");
+      await writeFile(
+        path.join(staging, "fab-acme-1.0.0", ".factory", "factory.yaml"),
+        "format: 1\n",
+      );
+      const archive = path.join(base, "fab.tgz");
+      await makeTar(archive, staging, ["./fab-acme-1.0.0"]);
+
+      const destination = path.join(base, "out");
+      await extractTarball(archive, destination, { flattenSingleDirectory: true });
+
+      expect(await readFile(path.join(destination, "README.md"), "utf8")).toBe("readme");
+      expect(await readFile(path.join(destination, ".factory", "factory.yaml"), "utf8")).toBe(
+        "format: 1\n",
+      );
+      expect(await pathExists(path.join(destination, "fab-acme-1.0.0"))).toBe(false);
     } finally {
       await rm(base, { recursive: true, force: true });
     }
@@ -126,7 +184,7 @@ describe("extractTarball", () => {
     }
   });
 
-  test("rejects a symbolic link", async () => {
+  test("rejects a symbolic link that points outside", async () => {
     const base = await tempDir();
     try {
       const staging = path.join(base, "staging");
@@ -138,6 +196,81 @@ describe("extractTarball", () => {
       const failure = await expectInvalid(archive, path.join(base, "out"));
 
       expect(failure.problems?.[0]?.message).toContain("links");
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("allows a symbolic link whose target stays inside the root", async () => {
+    const base = await tempDir();
+    try {
+      const staging = path.join(base, "staging");
+      await mkdir(path.join(staging, ".factory", "skills", "base"), { recursive: true });
+      await mkdir(path.join(staging, ".factory", "templates"), { recursive: true });
+      await writeFile(path.join(staging, ".factory", "skills", "base", "AGENTS.md"), "base\n");
+      await symlink("../skills/base", path.join(staging, ".factory", "templates", "base"));
+      const archive = path.join(base, "fab.tar.gz");
+      await makeTar(archive, staging, [".factory"]);
+
+      const destination = path.join(base, "out");
+      await extractTarball(archive, destination);
+
+      expect(
+        await readFile(path.join(destination, ".factory", "templates", "base", "AGENTS.md"), "utf8"),
+      ).toBe("base\n");
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("allows a hard link whose target stays inside the root", async () => {
+    const base = await tempDir();
+    try {
+      const staging = path.join(base, "staging");
+      await mkdir(path.join(staging, ".factory"), { recursive: true });
+      await writeFile(path.join(staging, ".factory", "a.md"), "shared\n");
+      await link(path.join(staging, ".factory", "a.md"), path.join(staging, ".factory", "b.md"));
+      const archive = path.join(base, "fab.tar.gz");
+      await makeTar(archive, staging, [".factory"]);
+
+      const destination = path.join(base, "out");
+      await extractTarball(archive, destination);
+
+      expect(await readFile(path.join(destination, ".factory", "a.md"), "utf8")).toBe("shared\n");
+      expect(await readFile(path.join(destination, ".factory", "b.md"), "utf8")).toBe("shared\n");
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a hard link that points outside", async () => {
+    const base = await tempDir();
+    try {
+      const archive = path.join(base, "evil.tar");
+      await makeRawTar(archive, [
+        { path: ".factory/escaped.md", type: "Link", linkpath: "../outside.md" },
+      ]);
+
+      const failure = await expectInvalid(archive, path.join(base, "out"));
+
+      expect(failure.problems?.[0]?.message).toContain("links that point outside");
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects an entry written through a symbolic link", async () => {
+    const base = await tempDir();
+    try {
+      const archive = path.join(base, "evil.tar");
+      await makeRawTar(archive, [
+        { path: ".factory/link", type: "SymbolicLink", linkpath: "." },
+        { path: ".factory/link/evil.md", type: "File", body: "evil\n" },
+      ]);
+
+      const failure = await expectInvalid(archive, path.join(base, "out"));
+
+      expect(failure.problems?.[0]?.message).toContain("written through a symbolic link");
     } finally {
       await rm(base, { recursive: true, force: true });
     }

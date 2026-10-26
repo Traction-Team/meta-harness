@@ -41,11 +41,13 @@ describe("parseSource", () => {
     expect(parseSource("../platform/.factory", { cwd: CWD })).toEqual({
       kind: "path",
       path: path.resolve("/work/platform/.factory"),
+      source: "../platform/.factory",
     });
 
     expect(parseSource("file:../fab-acme", { cwd: CWD })).toEqual({
       kind: "path",
       path: path.resolve("/work/fab-acme"),
+      source: "file:../fab-acme",
     });
   });
 
@@ -99,14 +101,20 @@ describe("parseSource", () => {
   });
 
   test("resolves home and absolute paths", () => {
-    expect(parseSource("~", { cwd: CWD })).toEqual({ kind: "path", path: homedir() });
+    expect(parseSource("~", { cwd: CWD })).toEqual({
+      kind: "path",
+      path: homedir(),
+      source: "~",
+    });
     expect(parseSource("~/factories/base", { cwd: CWD })).toEqual({
       kind: "path",
       path: path.join(homedir(), "factories/base"),
+      source: "~/factories/base",
     });
     expect(parseSource("/opt/factories/base", { cwd: CWD })).toEqual({
       kind: "path",
       path: path.resolve("/opt/factories/base"),
+      source: "/opt/factories/base",
     });
   });
 
@@ -114,18 +122,22 @@ describe("parseSource", () => {
     expect(parseSource("C:\\fab\\acme", { cwd: CWD })).toEqual({
       kind: "path",
       path: path.win32.resolve("C:\\fab\\acme"),
+      source: "C:\\fab\\acme",
     });
     expect(parseSource("C:/fab/acme", { cwd: CWD })).toEqual({
       kind: "path",
       path: path.win32.resolve("C:\\fab\\acme"),
+      source: "C:/fab/acme",
     });
     expect(parseSource("\\\\server\\share\\fab", { cwd: CWD })).toEqual({
       kind: "path",
       path: path.win32.resolve("\\\\server\\share\\fab"),
+      source: "\\\\server\\share\\fab",
     });
     expect(parseSource("~\\fab", { cwd: CWD })).toEqual({
       kind: "path",
       path: path.join(homedir(), "fab"),
+      source: "~\\fab",
     });
   });
 

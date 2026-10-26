@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import validateNpmPackageName from "validate-npm-package-name";
 import { ExitCode, MetafabError } from "../../errors.js";
+import { redact } from "./redact.js";
 import type { GitRef, SourceSpec } from "./types.js";
 
 export interface ParseSourceOptions {
@@ -14,7 +15,7 @@ const DRIVE_PATH = /^[A-Za-z]:[\\/]/;
 const UNC_PATH = /^\\\\/;
 
 function invalidSource(input: string, reason: string): MetafabError {
-  return new MetafabError(`Invalid source "${input}": ${reason}`, {
+  return new MetafabError(`Invalid source "${redact(input)}": ${reason}`, {
     exitCode: ExitCode.Failed,
     code: "invalid-source",
   });
@@ -167,11 +168,12 @@ export function parseSource(input: string, options: ParseSourceOptions): SourceS
     return {
       kind: "path",
       path: resolvePath(/^file:\/\//i.test(value) ? value : withoutProtocol, options.cwd),
+      source: value,
     };
   }
 
   if (isPathLike(value)) {
-    return { kind: "path", path: resolvePath(value, options.cwd) };
+    return { kind: "path", path: resolvePath(value, options.cwd), source: value };
   }
 
   if (/^github:/i.test(value)) return parseGithub(value);

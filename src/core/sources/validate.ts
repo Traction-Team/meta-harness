@@ -5,6 +5,7 @@ import type { Problem } from "../../errors.js";
 import { isDirectory } from "../../util/fs.js";
 import { parseYaml } from "../../util/yaml.js";
 import { loadFactory } from "../factory/index.js";
+import { redact } from "./redact.js";
 import type { ValidateFabOptions, ValidatedFab } from "./types.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -12,11 +13,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function prefixedFile(sourceLabel: string, file: string): string {
-  return `${sourceLabel.replace(/\/+$/, "")}/${file.replace(/^\.\//, "")}`;
+  return `${redact(sourceLabel).replace(/\/+$/, "")}/${file.replace(/^\.\//, "")}`;
 }
 
 function invalidFab(sourceLabel: string, problems: Problem[]): MetafabError {
-  return new MetafabError(`Invalid fab from ${sourceLabel}`, {
+  return new MetafabError(`Invalid fab from ${redact(sourceLabel)}`, {
     exitCode: ExitCode.InvalidFab,
     code: "invalid-fab",
     problems,

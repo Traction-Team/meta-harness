@@ -93,6 +93,12 @@ beforeAll(async () => {
     factoryDir: VALID_FACTORY,
     metafab: { format: 2 },
   });
+  await registry.publishFab({
+    name: "fab-shasum",
+    version: "1.0.0",
+    factoryDir: VALID_FACTORY,
+  });
+  await registry.stripIntegrity("fab-shasum");
 }, 120_000);
 
 afterAll(async () => {
@@ -141,6 +147,20 @@ describe("npm sources", () => {
     const resolved = await resolveSource("fab-range@1.0.0");
 
     expect(resolved).toMatchObject({ requested: "1.0.0", version: "1.0.0" });
+  });
+
+  test("resolves an --to override", async () => {
+    const resolved = await resolve(specFor("fab-range"), { ...npmOptions(), to: "1.0.0" });
+
+    expect(resolved).toMatchObject({ requested: "1.0.0", version: "1.0.0" });
+  });
+
+  test("falls back to the registry shasum when integrity is missing", async () => {
+    const resolved = await resolveSource("fab-shasum@1.0.0");
+
+    expect(resolved.kind === "npm" ? resolved.integrity : undefined).toMatch(/^sha1-/);
+    const fetched = await fetchFab(resolved, npmOptions());
+    expect(await pathExists(path.join(fetched.factoryDir, "AGENTS.md"))).toBe(true);
   });
 
   test("fails with exit 3 when no version matches the range", async () => {

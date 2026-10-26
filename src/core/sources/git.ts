@@ -11,6 +11,7 @@ import { pathExists } from "../../util/fs.js";
 import { cacheLayout, cacheRoot, fabKey, getOrCreate } from "./cache.js";
 import type { CacheLayout } from "./cache.js";
 import { extractTarball } from "./extract.js";
+import { redact } from "./redact.js";
 import type { FetchedFab, GitRef, GitSourceSpec, Resolved } from "./types.js";
 import { validateFab } from "./validate.js";
 
@@ -91,7 +92,7 @@ function gitMessage(failure: GitFailure): string {
 }
 
 function fetchError(message: string, cause?: unknown): MetafabError {
-  return new MetafabError(message, {
+  return new MetafabError(redact(message), {
     exitCode: ExitCode.FetchFailed,
     code: "fetch-failed",
     cause,
@@ -145,12 +146,11 @@ async function ensureMirror(url: string, layout: CacheLayout, options: GitOption
   if (await pathExists(mirror)) {
     const bare = await tryGit(["-C", mirror, "rev-parse", "--is-bare-repository"], options);
     if (bare.ok && bare.stdout.trim() === "true") {
-      await runGit(
-        ["-C", mirror, "fetch", "--prune", "--tags"],
-        `Cannot fetch Git source ${url}`,
-        options,
-      );
-      return mirror;
+      const origin = await tryGit(["-C", mirror, "config", "--get", "remote.origin.url"], options);
+      if (origin.ok && origin.stdout.trim() !== "") {
+        const fetched = await tryGit(["-C", mirror, "fetch", "--prune", "--tags"], options);
+        if (fetched.ok) return mirror;
+      }
     }
     await rm(mirror, { recursive: true, force: true });
   }
@@ -324,14 +324,15 @@ async function exportFactory(
 ): Promise<void> {
   const hasFactory = await tryGit(["-C", mirror, "cat-file", "-e", `${commit}:.factory`], options);
   if (!hasFactory.ok) {
+    const label = redact(sourceLabel);
     const problem: Problem = {
       level: "error",
-      file: `${sourceLabel.replace(/\/+$/, "")}/.factory`,
+      file: `${label.replace(/\/+$/, "")}/.factory`,
       line: 1,
       message: "A fab must contain a .factory directory",
       fix: "Add .factory/ to the fab",
     };
-    throw new MetafabError(`Invalid fab from ${sourceLabel}`, {
+    throw new MetafabError(`Invalid fab from ${label}`, {
       exitCode: ExitCode.InvalidFab,
       code: "invalid-fab",
       problems: [problem],

@@ -6,7 +6,7 @@ export type SourceSpec =
   | { kind: "npm"; name: string; requested?: string }
   | { kind: "git"; url: string; source: string; ref?: GitRef }
   | { kind: "https"; url: string }
-  | { kind: "path"; path: string };
+  | { kind: "path"; path: string; source: string };
 
 export type NpmSourceSpec = Extract<SourceSpec, { kind: "npm" }>;
 export type GitSourceSpec = Extract<SourceSpec, { kind: "git" }>;

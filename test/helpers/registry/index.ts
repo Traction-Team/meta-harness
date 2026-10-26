@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -23,6 +23,7 @@ export interface Registry {
   readonly env: NodeJS.ProcessEnv;
   publishFab(options: FabPackageOptions): Promise<void>;
   deprecate(name: string, version: string, message: string): Promise<void>;
+  stripIntegrity(name: string): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -245,6 +246,16 @@ export async function startRegistry(options: StartRegistryOptions = {}): Promise
         "--registry",
         url,
       ]);
+    },
+    async stripIntegrity(name: string): Promise<void> {
+      const metadataPath = path.join(storage, ...name.split("/"), "package.json");
+      const metadata = JSON.parse(await readFile(metadataPath, "utf8")) as {
+        versions?: Record<string, { dist?: Record<string, unknown> }>;
+      };
+      for (const version of Object.values(metadata.versions ?? {})) {
+        if (version.dist !== undefined) delete version.dist.integrity;
+      }
+      await writeFile(metadataPath, JSON.stringify(metadata, null, 2));
     },
     async stop(): Promise<void> {
       if (child.exitCode === null) {

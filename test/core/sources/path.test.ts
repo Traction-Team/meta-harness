@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,6 +50,13 @@ describe("local path sources", () => {
     expect(await pathExists(path.join(fetched.factoryDir, "AGENTS.md"))).toBe(true);
   });
 
+  test("records a relative source as it was given", async () => {
+    const fetched = await fetchSource("./fab-acme");
+
+    expect(fetched.upstream).toEqual({ kind: "unversioned", source: "./fab-acme" });
+    expect(await pathExists(path.join(fetched.factoryDir, "AGENTS.md"))).toBe(true);
+  });
+
   test("copies the factory so the source and the copy are isolated", async () => {
     const fetched = await fetchSource(sourceParent);
     const sourceAgents = path.join(sourceParent, ".factory", "AGENTS.md");
@@ -73,7 +80,7 @@ describe("local path sources", () => {
     });
   });
 
-  test("rejects a symlink in the factory with exit 4", async () => {
+  test("rejects a symlink that points outside the factory with exit 4", async () => {
     await writeFile(path.join(root, "outside.txt"), "outside\n");
     await symlink(path.join(root, "outside.txt"), path.join(sourceParent, ".factory", "link.md"));
 
@@ -83,12 +90,34 @@ describe("local path sources", () => {
       expect(error).toBeInstanceOf(MetafabError);
       const failure = error as MetafabError;
       expect(failure.exitCode).toBe(ExitCode.InvalidFab);
-      expect(failure.problems?.some((problem) => problem.message.includes("links are not allowed"))).toBe(
-        true,
-      );
+      expect(failure.problems?.some((problem) => problem.message.includes("links"))).toBe(true);
       return;
     }
     throw new Error("expected the fetch to fail");
+  });
+
+  test("allows a symlink whose target stays inside the factory", async () => {
+    const templates = path.join(sourceParent, ".factory", "templates");
+    await mkdir(path.join(templates, "base"), { recursive: true });
+    await writeFile(path.join(templates, "base", "notes.md"), "base\n");
+    await symlink("base", path.join(templates, "base-link"));
+
+    const fetched = await fetchSource(sourceParent);
+
+    expect(
+      await readFile(path.join(fetched.factoryDir, "templates", "base-link", "notes.md"), "utf8"),
+    ).toBe("base\n");
+  });
+
+  test("allows a hard link inside the factory", async () => {
+    const factory = path.join(sourceParent, ".factory");
+    await writeFile(path.join(factory, "hard-a.md"), "shared\n");
+    await link(path.join(factory, "hard-a.md"), path.join(factory, "hard-b.md"));
+
+    const fetched = await fetchSource(sourceParent);
+
+    expect(await readFile(path.join(fetched.factoryDir, "hard-a.md"), "utf8")).toBe("shared\n");
+    expect(await readFile(path.join(fetched.factoryDir, "hard-b.md"), "utf8")).toBe("shared\n");
   });
 
   test("rejects an oversize file with exit 4", async () => {

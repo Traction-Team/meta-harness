@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
@@ -141,6 +141,17 @@ describe("git sources", () => {
     });
   });
 
+  test("resolves an --to override", async () => {
+    const resolved = await resolve(gitSpec(fixture.repo), { ...options(), to: "v1.0.0" });
+
+    expect(resolved).toMatchObject({
+      kind: "git",
+      commit: fixture.commits.v100,
+      version: "1.0.0",
+      requested: "v1.0.0",
+    });
+  });
+
   test("records no requested ref for a repository without version tags", async () => {
     const untagged = await createUntaggedGitFixture();
     try {
@@ -233,6 +244,78 @@ describe("git sources", () => {
 
     expect(second).toMatchObject({ kind: "git", version: "3.0.0" });
     expect(await pathExists(marker)).toBe(true);
+  });
+
+  test("re-clones when the cached mirror cannot be fetched", async () => {
+    const spec = gitSpec(fixture.repo);
+    const first = await resolveGit(spec);
+    expect(first.kind).toBe("git");
+
+    const mirror = cacheLayout(cache).gitMirror(fixture.repo);
+    await rm(path.join(mirror, "config"));
+
+    const second = await resolveGit(spec);
+
+    expect(second).toMatchObject({ kind: "git" });
+    if (first.kind === "git" && second.kind === "git") {
+      expect(second.version).toBe(first.version);
+    }
+    expect(await pathExists(path.join(mirror, "config"))).toBe(true);
+  });
+
+  test("still fails with exit 3 when a broken mirror cannot be re-cloned", async () => {
+    const missing = path.join(fixture.root, "gone.git");
+    const mirror = cacheLayout(cache).gitMirror(missing);
+    await mkdir(mirror, { recursive: true });
+    await runGitIn(mirror, ["init", "-q", "--bare"]);
+
+    await expect(resolveGit(gitSpec(missing))).rejects.toMatchObject({
+      exitCode: ExitCode.FetchFailed,
+      code: "fetch-failed",
+    });
+  });
+
+  test("redacts credentials in Git errors", async () => {
+    const token = "secret-token-value";
+    const spec = gitSpec(`https://${token}@127.0.0.1:1/fab.git`, {
+      source: `git+https://${token}@127.0.0.1:1/fab.git`,
+    });
+
+    try {
+      await resolveGit(spec);
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      const failure = error as MetafabError;
+      expect(failure.message).not.toContain(token);
+      expect(failure.message).toContain("***@");
+      return;
+    }
+    throw new Error("expected resolution to fail");
+  });
+
+  test("rejects a file larger than 1 MB in a Git fab", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "metafab-git-big-"));
+    const work = path.join(root, "work");
+    const repo = path.join(root, "repo.git");
+    try {
+      await runGitIn(root, ["init", "-q", "-b", "main", work]);
+      await runGitIn(work, ["config", "user.name", "Metafab Test"]);
+      await runGitIn(work, ["config", "user.email", "metafab@example.com"]);
+      await mkdir(path.join(work, ".factory"), { recursive: true });
+      await writeFile(path.join(work, ".factory", "factory.yaml"), "format: 1\n");
+      await writeFile(path.join(work, ".factory", "large.bin"), Buffer.alloc(2 * 1024 * 1024));
+      await runGitIn(work, ["add", "-A"]);
+      await runGitIn(work, ["commit", "-qm", "large factory"]);
+      await runGitIn(root, ["clone", "-q", "--bare", work, repo]);
+
+      const resolved = await resolveGit(gitSpec(repo));
+      await expect(fetchFab(resolved, options())).rejects.toMatchObject({
+        exitCode: ExitCode.InvalidFab,
+        code: "invalid-fab",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test("does not run git hooks from the environment", async () => {
