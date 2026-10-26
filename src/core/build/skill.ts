@@ -24,8 +24,8 @@ export interface CompiledFile {
   /** Path inside the installed skill directory, with forward slashes. */
   path: string;
   content: Buffer;
-  /** Set only for files with an executable bit. */
-  mode?: number;
+  /** Installed permission bits: 0o755 when the source has any executable bit, else 0o644. */
+  mode: number;
 }
 
 export interface SkillSource {
@@ -168,8 +168,11 @@ async function addFile(
     content = Buffer.from(inserted.text, "utf8");
   }
 
-  const file: CompiledFile = { path: relative, content };
-  if ((fileMode & 0o111) !== 0) file.mode = fileMode & 0o777;
+  const file: CompiledFile = {
+    path: relative,
+    content,
+    mode: (fileMode & 0o111) !== 0 ? 0o755 : 0o644,
+  };
   context.files.push(file);
 }
 

@@ -802,6 +802,36 @@ describe("compiled files", () => {
     expect(second.report.changed).toEqual([]);
   });
 
+  test.skipIf(process.platform === "win32")(
+    "removes the executable bit when the source loses it",
+    async () => {
+      const repo = await makeBuildRepo({
+        ".factory/skills/demo/SKILL.md":
+          "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+        ".factory/skills/demo/run.sh": "#!/bin/sh\necho hi\n",
+        ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+      });
+      const source = repo.path(".factory", "skills", "demo", "run.sh");
+      const installed = repo.path(".agents", "skills", "demo", "run.sh");
+      await chmod(source, 0o755);
+      await build(repo.root);
+      expect((await stat(installed)).mode & 0o111).not.toBe(0);
+
+      await chmod(source, 0o644);
+      const { plan, report } = await build(repo.root);
+
+      expect(plan.conflicts).toEqual([]);
+      expect(report.changed).toContainEqual({
+        path: ".agents/skills/demo/run.sh",
+        action: "updated",
+      });
+      expect((await stat(installed)).mode & 0o777).toBe(0o644);
+
+      const second = await build(repo.root);
+      expect(second.report.changed).toEqual([]);
+    },
+  );
+
   test("copies a supporting file that is not valid UTF-8 byte for byte", async () => {
     const invalid = Buffer.from([0xc3, 0x28, 0xa0, 0xa1]);
     const repo = await makeBuildRepo({
@@ -882,6 +912,32 @@ describe("symlinked root files", () => {
         expect(await pathExists(repo.path("AGENTS.md"))).toBe(false);
         expect(report.changed).toEqual([]);
       }
+
+      const second = await build(repo.root);
+      expect(second.plan.conflicts).toEqual([]);
+      expect(second.report.changed).toEqual([]);
+      expect((await lstat(repo.path("CLAUDE.md"))).isSymbolicLink()).toBe(true);
+    },
+  );
+
+  test.each(["absolute", "relative"])(
+    "leaves a dangling %s CLAUDE.md link to AGENTS.md alone before the block exists",
+    async (form) => {
+      const repo = await makeBuildRepo({
+        ".factory/skills/demo/SKILL.md":
+          "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+        ".factory/metafab.yaml": "agents: [claude]\nmetafab-skill: false\n",
+      });
+      const link = form === "absolute" ? path.join(repo.root, "AGENTS.md") : "AGENTS.md";
+      await symlink(link, repo.path("CLAUDE.md"));
+
+      const { plan, report } = await build(repo.root);
+
+      expect(plan.errors).toEqual([]);
+      expect(plan.conflicts).toEqual([]);
+      expect((await lstat(repo.path("CLAUDE.md"))).isSymbolicLink()).toBe(true);
+      expect(await readlink(repo.path("CLAUDE.md"))).toBe(link);
+      expect(report.changed).toContainEqual({ path: "AGENTS.md", action: "created" });
 
       const second = await build(repo.root);
       expect(second.plan.conflicts).toEqual([]);

@@ -35,6 +35,7 @@ function failed(exitCode: ExitCode, problems: readonly Problem[]): CommandResult
     ok: false,
     command: "build",
     exitCode,
+    changed: [],
     problems: [...problems],
   };
 }

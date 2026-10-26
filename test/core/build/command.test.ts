@@ -1,4 +1,4 @@
-import { lstat, readFile, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { ExitCode } from "../../../src/errors.js";
@@ -160,5 +160,85 @@ describe("build command", () => {
     expect(result.stderr).toContain("error:");
     expect(await pathExists(repo.path(".agents"))).toBe(false);
     expect(await pathExists(repo.path("AGENTS.md"))).toBe(false);
+  });
+
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "reports an unreadable root file as a problem with the failure JSON shape",
+    async () => {
+      const repo = await buildRepo({ "AGENTS.md": "# user\n" });
+      const agents = repo.path("AGENTS.md");
+      await chmod(agents, 0o000);
+
+      try {
+        const result = await runCli(["build", "--json"], { cwd: repo.root, tty: false });
+
+        expect(result.code).toBe(ExitCode.Failed);
+        expect(result.stderr).toBe("");
+        const json = JSON.parse(result.stdout) as {
+          ok: boolean;
+          command: string;
+          changed: unknown[];
+          problems: { level: string; file: string; fix?: string }[];
+        };
+        expect(json.ok).toBe(false);
+        expect(json.command).toBe("build");
+        expect(json.changed).toEqual([]);
+        expect(json.problems).toContainEqual(
+          expect.objectContaining({
+            level: "error",
+            file: "AGENTS.md",
+            fix: "Check its permissions",
+          }),
+        );
+      } finally {
+        await chmod(agents, 0o644);
+      }
+    },
+  );
+
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "reports an unreadable destination directory as a problem, not a stack",
+    async () => {
+      const repo = await buildRepo();
+      const skills = repo.path(".agents", "skills");
+      await mkdir(skills, { recursive: true });
+      await chmod(skills, 0o000);
+
+      try {
+        const result = await runCli(["build"], { cwd: repo.root, tty: false });
+
+        expect(result.code).toBe(ExitCode.Failed);
+        expect(result.stderr).toContain(".agents/skills");
+        expect(result.stderr).toContain("Check its permissions");
+        expect(result.stderr).not.toContain("    at ");
+        expect(await pathExists(repo.path("AGENTS.md"))).toBe(false);
+      } finally {
+        await chmod(skills, 0o755);
+      }
+    },
+  );
+
+  test("failure JSON always includes an empty changed list", async () => {
+    const invalid = await buildRepo({ ".factory/metafab.yaml": "agents: [nope]\n" });
+    const conflict = await buildRepo({
+      ".factory/metafab.yaml": "agents: [claude]\nmetafab-skill: false\n",
+      ".claude/skills/demo/SKILL.md": "user content\n",
+    });
+
+    for (const repo of [invalid, conflict]) {
+      const result = await runCli(["build", "--json"], { cwd: repo.root, tty: false });
+      const json = JSON.parse(result.stdout) as {
+        ok: boolean;
+        command: string;
+        changed: unknown[];
+        problems: unknown[];
+      };
+
+      expect(result.code).not.toBe(ExitCode.Ok);
+      expect(json.ok).toBe(false);
+      expect(json.command).toBe("build");
+      expect(json.changed).toEqual([]);
+      expect(Array.isArray(json.problems)).toBe(true);
+    }
   });
 });

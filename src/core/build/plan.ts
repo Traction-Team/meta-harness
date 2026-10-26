@@ -177,14 +177,14 @@ function claudeBlock(): string {
 
 interface DesiredSkill {
   name: string;
-  files: { path: string; content: Buffer; mode?: number }[];
+  files: { path: string; content: Buffer; mode: number }[];
 }
 
 function skillWrites(destination: string, skill: DesiredSkill): BuildWrite[] {
   return skill.files.map((file) => ({
     path: `${destination}/${skill.name}/${file.path}`,
     content: file.content,
-    ...(file.mode === undefined ? {} : { mode: file.mode }),
+    mode: file.mode,
   }));
 }
 
@@ -207,7 +207,7 @@ async function compileFactorySkills(factory: Factory, errors: Problem[]): Promis
       files: compiled.files.map((file) => ({
         path: file.path,
         content: file.content,
-        ...(file.mode === undefined ? {} : { mode: file.mode }),
+        mode: file.mode,
       })),
     });
   }
@@ -234,20 +234,36 @@ async function compileBuiltinSkill(
     files: compiled.files.map((file) => ({
       path: file.path,
       content: file.content,
-      ...(file.mode === undefined ? {} : { mode: file.mode }),
+      mode: file.mode,
     })),
+  };
+}
+
+function permissionProblem(relativePath: string, error: unknown): Problem | undefined {
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code !== "EACCES" && code !== "EPERM") return undefined;
+  return {
+    level: "error",
+    file: relativePath,
+    message: `Cannot read ${relativePath}`,
+    fix: "Check its permissions",
   };
 }
 
 async function readDirectoryIfExists(
   directory: string,
+  relativePath: string,
+  errors?: Problem[],
 ): Promise<import("node:fs").Dirent[] | undefined> {
   try {
     return await readdir(directory, { withFileTypes: true });
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT" || code === "ENOTDIR") return undefined;
-    throw error;
+    const problem = permissionProblem(relativePath, error);
+    if (problem === undefined) throw error;
+    errors?.push(problem);
+    return undefined;
   }
 }
 
@@ -294,6 +310,7 @@ interface RootEntry {
   kind: RootEntryKind;
   text?: string;
   readError?: boolean;
+  problem?: Problem;
 }
 
 async function readRootEntry(root: string, relativePath: string): Promise<RootEntry> {
@@ -313,7 +330,15 @@ async function readRootEntry(root: string, relativePath: string): Promise<RootEn
     }
   }
 
-  if (info.isFile()) return { kind: "file", text: await readFile(target, "utf8") };
+  if (info.isFile()) {
+    try {
+      return { kind: "file", text: await readFile(target, "utf8") };
+    } catch (error) {
+      const problem = permissionProblem(relativePath, error);
+      if (problem === undefined) throw error;
+      return { kind: "file", problem };
+    }
+  }
   return { kind: "other" };
 }
 
@@ -389,7 +414,12 @@ async function claudeLinksToRootAgents(root: string, entry: RootEntry): Promise<
     return false;
   }
 
-  return resolved === path.join(rootReal, "AGENTS.md");
+  try {
+    const parentReal = await realpath(path.dirname(resolved));
+    return path.join(parentReal, path.basename(resolved)) === path.join(rootReal, "AGENTS.md");
+  } catch {
+    return false;
+  }
 }
 
 async function symlinkedEntry(relativePath: string, target: string): Promise<Problem> {
@@ -423,6 +453,7 @@ interface ScanContext {
   desired: Map<string, DesiredFileTree>;
   removals: Set<string>;
   conflicts: Problem[];
+  errors: Problem[];
 }
 
 function desiredFileTree(skill: DesiredSkill): DesiredFileTree {
@@ -458,8 +489,9 @@ async function reconcileOwnedDirectory(
   skillPath: string,
   desired: DesiredFileTree,
   removals: Set<string>,
+  errors: Problem[],
 ): Promise<void> {
-  const entries = (await readDirectoryIfExists(target)) ?? [];
+  const entries = (await readDirectoryIfExists(target, installedPath, errors)) ?? [];
   entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
 
   for (const entry of entries) {
@@ -479,6 +511,7 @@ async function reconcileOwnedDirectory(
           childSkill,
           desired,
           removals,
+          errors,
         );
       } else {
         removals.add(childInstalled);
@@ -512,7 +545,7 @@ async function scanDestination(context: ScanContext, directory: string): Promise
     return;
   }
 
-  const entries = (await readDirectoryIfExists(target)) ?? [];
+  const entries = (await readDirectoryIfExists(target, directory, context.errors)) ?? [];
   entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
 
   for (const entry of entries) {
@@ -547,6 +580,7 @@ async function scanDestination(context: ScanContext, directory: string): Promise
         "",
         desired,
         context.removals,
+        context.errors,
       );
       continue;
     }
@@ -594,11 +628,12 @@ async function planEmptyDirectories(
   directory: string,
   removals: Set<string>,
   writes: readonly string[],
+  errors: Problem[],
 ): Promise<void> {
   const target = absolute(root, directory);
   const info = await lstatIfExists(target);
   if (info === undefined || !info.isDirectory()) return;
-  const entries = await readDirectoryIfExists(target);
+  const entries = await readDirectoryIfExists(target, directory, errors);
   if (entries === undefined || entries.length === 0) return;
 
   const removedChildren = entries.filter((entry) =>
@@ -619,7 +654,7 @@ async function planEmptyDirectories(
   const parentInfo = await lstatIfExists(parentTarget);
   if (parentInfo === undefined || !parentInfo.isDirectory()) return;
 
-  const parentEntries = await readDirectoryIfExists(parentTarget);
+  const parentEntries = await readDirectoryIfExists(parentTarget, parent, errors);
   if (parentEntries === undefined) return;
   const parentRemaining = parentEntries.filter(
     (entry) => !removals.has(`${parent}/${entry.name}`),
@@ -648,7 +683,9 @@ async function fileMatches(
 
   const existing = await readFile(target);
   const contentSame = sameContent(existing, write.content);
-  const modeSame = write.mode === undefined || (info.mode & 0o777) === write.mode;
+  const modeSame =
+    write.mode === undefined ||
+    ((info.mode & 0o111) !== 0) === ((write.mode & 0o111) !== 0);
   return { exists: true, same: contentSame && modeSame };
 }
 
@@ -708,6 +745,7 @@ export async function planBuild(
       desired: new Map((desired ?? []).map((skill) => [skill.name, desiredFileTree(skill)])),
       removals,
       conflicts: plan.conflicts,
+      errors: plan.errors,
     };
     await scanDestination(context, directory);
   }
@@ -719,6 +757,7 @@ export async function planBuild(
       directory,
       removals,
       plan.writes.map((write) => write.path),
+      plan.errors,
     );
   }
 
@@ -726,7 +765,9 @@ export async function planBuild(
   const agentsEntry = await readRootEntry(root, agentsFile);
   const agentsSelected = selectedDestinations.length > 0;
 
-  if (agentsEntry.readError === true) {
+  if (agentsEntry.problem !== undefined) {
+    plan.errors.push(agentsEntry.problem);
+  } else if (agentsEntry.readError === true) {
     plan.conflicts.push(symlinkReadConflict(agentsFile));
   } else {
     const agentsResult = agentsSelected
@@ -752,7 +793,9 @@ export async function planBuild(
   const claudeEntry = await readRootEntry(root, claudeFile);
   const claudeFollowsAgents = await claudeLinksToRootAgents(root, claudeEntry);
 
-  if (claudeEntry.readError === true) {
+  if (claudeEntry.problem !== undefined) {
+    plan.errors.push(claudeEntry.problem);
+  } else if (claudeEntry.readError === true) {
     plan.conflicts.push(symlinkReadConflict(claudeFile));
   } else if (!claudeFollowsAgents && claudeEntry.kind !== "absent") {
     const claudeExisting = claudeEntry.text ?? "";
@@ -800,7 +843,9 @@ export async function planBuild(
 
   const gitignoreFile = ".gitignore";
   const gitignoreEntry = await readRootEntry(root, gitignoreFile);
-  if (gitignoreEntry.readError === true) {
+  if (gitignoreEntry.problem !== undefined) {
+    plan.errors.push(gitignoreEntry.problem);
+  } else if (gitignoreEntry.readError === true) {
     plan.conflicts.push(symlinkReadConflict(gitignoreFile));
   } else {
     const gitignoreLines = gitignoreBlockBody(config.agents);
