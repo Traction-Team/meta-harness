@@ -140,16 +140,18 @@ function addBlockPlan(
   result: BlockPlan,
   removals: Set<string>,
 ): void {
-  if (result.error !== undefined) {
-    plan.errors.push(result.error);
+  if (result.error === undefined && result.text === undefined && result.removeFile !== true) {
     return;
   }
-
-  if (result.text === undefined && result.removeFile !== true) return;
 
   const conflict = rootEntryConflict(file, entry.kind);
   if (conflict !== undefined) {
     plan.conflicts.push(conflict);
+    return;
+  }
+
+  if (result.error !== undefined) {
+    plan.errors.push(result.error);
     return;
   }
 
@@ -291,6 +293,7 @@ type RootEntryKind = "absent" | "file" | "symlink" | "other";
 interface RootEntry {
   kind: RootEntryKind;
   text?: string;
+  readError?: boolean;
 }
 
 async function readRootEntry(root: string, relativePath: string): Promise<RootEntry> {
@@ -306,12 +309,21 @@ async function readRootEntry(root: string, relativePath: string): Promise<RootEn
       if (code === "ENOENT" || code === "EISDIR" || code === "ENOTDIR") {
         return { kind: "symlink" };
       }
-      throw error;
+      return { kind: "symlink", readError: true };
     }
   }
 
   if (info.isFile()) return { kind: "file", text: await readFile(target, "utf8") };
   return { kind: "other" };
+}
+
+function symlinkReadConflict(relativePath: string): Problem {
+  return {
+    level: "error",
+    file: relativePath,
+    message: `${relativePath} is a symbolic link that metafab build cannot read`,
+    fix: "Remove the symbolic link or replace it with a real file, then run metafab build again",
+  };
 }
 
 function rootEntryConflict(relativePath: string, kind: RootEntryKind): Problem | undefined {
@@ -340,19 +352,40 @@ async function claudeLinksToRootAgents(root: string, entry: RootEntry): Promise<
   const claudePath = absolute(root, "CLAUDE.md");
   const agentsPath = absolute(root, "AGENTS.md");
 
+  let rootReal = root;
+  try {
+    rootReal = await realpath(root);
+  } catch {
+    // Keep the lexical root; the comparisons below still work on a normal checkout.
+  }
+
+  try {
+    const [claudeStat, agentsStat] = await Promise.all([stat(claudePath), stat(agentsPath)]);
+    if (claudeStat.dev === agentsStat.dev && claudeStat.ino === agentsStat.ino) return true;
+  } catch {
+    // Either side is missing; the link may still dangle towards AGENTS.md.
+  }
+
   try {
     const [claudeReal, agentsReal] = await Promise.all([realpath(claudePath), realpath(agentsPath)]);
     if (claudeReal === agentsReal) return true;
   } catch {
-    // Fall through to the lexical target, which also covers a dangling link.
+    // Fall through to the link target.
   }
 
+  let resolved: string;
   try {
     const link = await readlink(claudePath);
-    return path.resolve(path.dirname(claudePath), link) === path.resolve(agentsPath);
+    resolved = path.resolve(rootReal, link);
   } catch {
     return false;
   }
+
+  if ((await lstatIfExists(resolved)) !== undefined) {
+    return resolved === agentsPath;
+  }
+
+  return resolved.toLowerCase() === path.join(rootReal, "AGENTS.md").toLowerCase();
 }
 
 async function symlinkedEntry(relativePath: string, target: string): Promise<Problem> {
@@ -518,6 +551,35 @@ async function scanDestination(context: ScanContext, directory: string): Promise
   }
 }
 
+async function deselectedSymlinkConflict(
+  root: string,
+  directory: string,
+  linkPath: string,
+): Promise<Problem | undefined> {
+  const target = absolute(root, directory);
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await readdir(target, { withFileTypes: true });
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return undefined;
+    return symlinkReadConflict(linkPath);
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (!(await isOwned(path.join(target, entry.name)))) continue;
+    return {
+      level: "error",
+      file: linkPath,
+      message: `${linkPath} is a symbolic link, and ${directory} behind it holds owned output that metafab build cannot remove`,
+      fix: "Remove the owned output by hand or replace the symbolic link with a real directory, then run metafab build again",
+    };
+  }
+
+  return undefined;
+}
+
 function hasWriteAtOrBeneath(writes: readonly string[], directory: string): boolean {
   const prefix = `${directory}/`;
   return writes.some((write) => write === directory || write.startsWith(prefix));
@@ -630,12 +692,8 @@ export async function planBuild(
       if (selected) {
         if (chain.problem !== undefined) plan.conflicts.push(chain.problem);
       } else if (chain.symlink === true && chain.problem !== undefined) {
-        plan.warnings.push({
-          level: "warning",
-          file: chain.problem.file,
-          message: `${chain.problem.file} is a symbolic link, so metafab build did not remove the owned output for the deselected target in ${directory}`,
-          fix: "Remove the symbolic link or the directory by hand, then run metafab build again",
-        });
+        const conflict = await deselectedSymlinkConflict(root, directory, chain.problem.file);
+        if (conflict !== undefined) plan.conflicts.push(conflict);
       }
       continue;
     }
@@ -664,10 +722,14 @@ export async function planBuild(
   const agentsEntry = await readRootEntry(root, agentsFile);
   const agentsSelected = selectedDestinations.length > 0;
 
-  const agentsResult = agentsSelected
-    ? planBlockFile(agentsEntry.text, AGENTS_MARKERS, agentsFile, renderAgentsBlockBody(factory), true)
-    : planBlockFile(agentsEntry.text, AGENTS_MARKERS, agentsFile, undefined, true);
-  addBlockPlan(plan, agentsFile, agentsEntry, agentsResult, removals);
+  if (agentsEntry.readError === true) {
+    plan.conflicts.push(symlinkReadConflict(agentsFile));
+  } else {
+    const agentsResult = agentsSelected
+      ? planBlockFile(agentsEntry.text, AGENTS_MARKERS, agentsFile, renderAgentsBlockBody(factory), true)
+      : planBlockFile(agentsEntry.text, AGENTS_MARKERS, agentsFile, undefined, true);
+    addBlockPlan(plan, agentsFile, agentsEntry, agentsResult, removals);
+  }
 
   if (agentsSelected) {
     const lineCount = agentsBlockLineCount(factory);
@@ -686,11 +748,15 @@ export async function planBuild(
   const claudeEntry = await readRootEntry(root, claudeFile);
   const claudeFollowsAgents = await claudeLinksToRootAgents(root, claudeEntry);
 
-  if (!claudeFollowsAgents && claudeEntry.kind !== "absent") {
+  if (claudeEntry.readError === true) {
+    plan.conflicts.push(symlinkReadConflict(claudeFile));
+  } else if (!claudeFollowsAgents && claudeEntry.kind !== "absent") {
     const claudeExisting = claudeEntry.text ?? "";
     const found = findMarkerBlock(claudeExisting, CLAUDE_MARKERS);
     if (!found.ok) {
-      plan.errors.push(markerProblem(claudeFile, found.problem));
+      const conflict = rootEntryConflict(claudeFile, claudeEntry.kind);
+      if (conflict !== undefined) plan.conflicts.push(conflict);
+      else plan.errors.push(markerProblem(claudeFile, found.problem));
     } else if (claudeSelected) {
       if (!importsAgents(claudeExisting, found.range)) {
         const without =
@@ -730,15 +796,19 @@ export async function planBuild(
 
   const gitignoreFile = ".gitignore";
   const gitignoreEntry = await readRootEntry(root, gitignoreFile);
-  const gitignoreLines = gitignoreBlockBody(config.agents);
-  const gitignoreBody = gitignoreLines.length === 0 ? undefined : gitignoreLines.join("\n");
-  const gitignoreResult = planBlockFile(
-    gitignoreEntry.text,
-    GITIGNORE_MARKERS,
-    gitignoreFile,
-    gitignoreBody,
-  );
-  addBlockPlan(plan, gitignoreFile, gitignoreEntry, gitignoreResult, removals);
+  if (gitignoreEntry.readError === true) {
+    plan.conflicts.push(symlinkReadConflict(gitignoreFile));
+  } else {
+    const gitignoreLines = gitignoreBlockBody(config.agents);
+    const gitignoreBody = gitignoreLines.length === 0 ? undefined : gitignoreLines.join("\n");
+    const gitignoreResult = planBlockFile(
+      gitignoreEntry.text,
+      GITIGNORE_MARKERS,
+      gitignoreFile,
+      gitignoreBody,
+    );
+    addBlockPlan(plan, gitignoreFile, gitignoreEntry, gitignoreResult, removals);
+  }
 
   plan.removals = [...removals].sort();
   return plan;

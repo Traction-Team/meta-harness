@@ -674,7 +674,7 @@ describe("symlinks in installed output", () => {
     expect(await listFiles(outside.root)).toEqual(["skills/demo/SKILL.md"]);
   });
 
-  test("leaves a deselected destination with a symlinked chain completely alone", async () => {
+  test("stops when a deselected destination behind a symlink still holds owned output", async () => {
     const repo = await makeBuildRepo({
       ".factory/skills/demo/SKILL.md":
         "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
@@ -692,14 +692,18 @@ describe("symlinks in installed output", () => {
 
     const { plan, report } = await build(repo.root);
 
-    expect(plan.conflicts).toEqual([]);
-    expect(report.changed.some((change) => change.path.startsWith(".agents"))).toBe(false);
+    expect(plan.warnings).toEqual([]);
+    expect(plan.conflicts.map((problem) => problem.file)).toContain(".agents/skills");
+    expect(plan.conflicts[0]?.message).toContain("symbolic link");
+    expect(plan.conflicts[0]?.message).toContain("owned output");
+    expect(plan.conflicts[0]?.fix).toContain("Remove the owned output by hand");
+    expect(report.changed).toEqual([]);
     expect(await pathExists(outsideSkill)).toBe(true);
     expect(await pathExists(path.join(outside.root, "demo"))).toBe(false);
     expect((await lstat(repo.path(".agents", "skills"))).isSymbolicLink()).toBe(true);
   });
 
-  test("warns when a deselected destination is behind a symlinked parent", async () => {
+  test("stops when a deselected destination is behind a symlinked parent that holds owned output", async () => {
     const repo = await makeBuildRepo({
       ".factory/skills/demo/SKILL.md":
         "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
@@ -716,21 +720,34 @@ describe("symlinks in installed output", () => {
 
     const { plan, report } = await build(repo.root);
 
-    expect(plan.conflicts).toEqual([]);
-    expect(plan.warnings).toHaveLength(1);
-    expect(plan.warnings[0]?.file).toBe(".agents");
-    expect(plan.warnings[0]?.message).toContain("symbolic link");
-    expect(plan.warnings[0]?.message).toContain("did not remove the owned output");
-    expect(plan.warnings[0]?.message).toContain(".agents/skills");
-    expect(plan.warnings[0]?.fix).toContain("Remove the symbolic link");
+    expect(plan.warnings).toEqual([]);
+    expect(plan.conflicts.map((problem) => problem.file)).toContain(".agents");
+    expect(plan.conflicts[0]?.message).toContain("symbolic link");
+    expect(plan.conflicts[0]?.message).toContain(".agents/skills");
+    expect(plan.conflicts[0]?.message).toContain("owned output");
     expect(await pathExists(outsideSkill)).toBe(true);
     expect(await listFiles(outside.root)).toEqual(["skills/old/SKILL.md"]);
     expect((await lstat(repo.path(".agents"))).isSymbolicLink()).toBe(true);
-    expect(report.changed.some((change) => change.path.startsWith(".agents"))).toBe(false);
+    expect(report.changed).toEqual([]);
+  });
 
-    const gitignore = await readFile(repo.path(".gitignore"), "utf8");
-    expect(gitignore).toContain(".claude/skills/");
-    expect(gitignore).not.toContain(".agents/skills/");
+  test("leaves a deselected destination behind a symlink alone when it holds no owned output", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+      ".factory/metafab.yaml": "agents: [claude]\nmetafab-skill: false\n",
+    });
+    const outside = await makeTempDir("metafab-build-outside-");
+    await writeFile(path.join(outside.root, "notes.txt"), "outside\n");
+    await symlink(outside.root, repo.path(".agents"));
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.warnings).toEqual([]);
+    expect(report.changed.some((change) => change.path.startsWith(".agents"))).toBe(false);
+    expect((await lstat(repo.path(".agents"))).isSymbolicLink()).toBe(true);
+    expect(await listFiles(outside.root)).toEqual(["notes.txt"]);
   });
 
   test("names a symlinked file inside a selected destination as a symlink, not a directory", async () => {
@@ -902,6 +919,69 @@ describe("symlinked root files", () => {
     expect(await readFile(outsideGitignore, "utf8")).toBe(gitignoreText);
     expect((await lstat(repo.path("AGENTS.md"))).isSymbolicLink()).toBe(true);
     expect((await lstat(repo.path(".gitignore"))).isSymbolicLink()).toBe(true);
+  });
+
+  test.each(["AGENTS.md", "CLAUDE.md", ".gitignore"])(
+    "treats an unreadable %s symlink as a conflict, not a crash",
+    async (name) => {
+      const repo = await makeBuildRepo({
+        ".factory/skills/demo/SKILL.md":
+          "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+        ".factory/metafab.yaml": "agents: [claude]\nmetafab-skill: false\n",
+      });
+      await symlink(name, repo.path(name));
+
+      const { plan, report } = await build(repo.root);
+
+      expect(plan.errors).toEqual([]);
+      expect(plan.conflicts.map((problem) => problem.file)).toContain(name);
+      expect(plan.conflicts[0]?.message).toContain("symbolic link");
+      expect(plan.conflicts[0]?.message).toContain("cannot read");
+      expect(report.changed).toEqual([]);
+      expect(await pathExists(repo.path(".claude"))).toBe(false);
+      expect(await pathExists(repo.path(".agents"))).toBe(false);
+      expect((await lstat(repo.path(name))).isSymbolicLink()).toBe(true);
+    },
+  );
+
+  test("a malformed marker block in a symlinked .gitignore is the symlink conflict", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+      ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+    });
+    const outside = await makeTempDir("metafab-build-outside-");
+    const outsideGitignore = path.join(outside.root, "gitignore");
+    await writeFile(outsideGitignore, "# metafab:start\nbody\n");
+    await symlink(outsideGitignore, repo.path(".gitignore"));
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.errors).toEqual([]);
+    expect(plan.conflicts.map((problem) => problem.file)).toContain(".gitignore");
+    expect(plan.conflicts[0]?.message).toContain("symbolic link");
+    expect(report.changed).toEqual([]);
+    expect(await readFile(outsideGitignore, "utf8")).toBe("# metafab:start\nbody\n");
+    expect((await lstat(repo.path(".gitignore"))).isSymbolicLink()).toBe(true);
+    expect(await pathExists(repo.path(".agents"))).toBe(false);
+  });
+
+  test("recognises a dangling CLAUDE.md link to AGENTS.md regardless of case", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+      ".factory/metafab.yaml": "agents: [claude]\nmetafab-skill: false\n",
+    });
+    await symlink("agents.md", repo.path("CLAUDE.md"));
+
+    const { plan, report } = await build(repo.root);
+
+    expect(plan.errors).toEqual([]);
+    expect(plan.conflicts).toEqual([]);
+    expect(await pathExists(repo.path("AGENTS.md"))).toBe(true);
+    expect(report.changed).toContainEqual({ path: "AGENTS.md", action: "created" });
+    expect((await lstat(repo.path("CLAUDE.md"))).isSymbolicLink()).toBe(true);
+    expect(await readlink(repo.path("CLAUDE.md"))).toBe("agents.md");
   });
 });
 
