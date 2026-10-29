@@ -180,6 +180,8 @@ A published version cannot be changed:
 | HTTPS tarball | `https://example.com/fab-acme-1.0.0.tgz` | HTTPS |
 | Local path | `../platform/.factory` or `file:../fab-acme` | Local file system |
 
+Metafab also reads `ssh://` URLs and the scp form `git@example.com:fab-acme.git` as Git sources. A plain `https://` URL is always an HTTPS tarball, even when it ends in `.git`; use `git+https://` for a Git repository. A recorded `source` never contains a password, a token, or an HTTPS query string.
+
 Every source stores the factory in `.factory/`. For a Git repository, HTTPS tarball, or `file:` package, Metafab reads `.factory/` at its root. A local path can also name a `.factory/` directory directly.
 
 A Git source can be a fab repository or any project repository. A project repository shares its whole `.factory/`, because `publish.exclude` applies only to published fabs.
