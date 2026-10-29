@@ -247,6 +247,32 @@ describe("runCheck", () => {
 
   const unreadableSkip = process.platform === "win32" || process.getuid?.() === 0;
 
+  describe.skipIf(unreadableSkip)("unreadable factory paths", () => {
+    test("reports one Cannot read error for a file that is neither config nor a skill", async () => {
+      const target = await checkRepo();
+      await build(target.root);
+      const locked = target.path(".factory", "notes.md");
+      await writeFile(locked, "notes\n");
+      await chmod(locked, 0o000);
+
+      try {
+        const problems = await runCheck(target.root, PACKAGE_VERSION);
+
+        expect(problems).toEqual([
+          {
+            level: "error",
+            file: ".factory/notes.md",
+            line: 1,
+            message: "Cannot read .factory/notes.md",
+            fix: "Check its permissions",
+          },
+        ]);
+      } finally {
+        await chmod(locked, 0o755);
+      }
+    });
+  });
+
   describe.skipIf(unreadableSkip)("unreadable installed paths", () => {
     test.each([
       [".agents", "agents: [claude]\nmetafab-skill: false\n"],

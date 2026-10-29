@@ -2,7 +2,7 @@ import { open, readdir } from "node:fs/promises";
 import path from "node:path";
 import type { Problem } from "../../errors.js";
 import { toLF } from "../../util/text.js";
-import { textContent } from "../build/skill.js";
+import { cannotReadProblem, textContent } from "../build/skill.js";
 
 const FACTORY_DIR = ".factory";
 
@@ -15,15 +15,27 @@ interface FactoryFile {
   target: string;
 }
 
-async function walkFactoryFiles(root: string): Promise<FactoryFile[]> {
-  const files: FactoryFile[] = [];
+interface FactoryWalk {
+  files: FactoryFile[];
+  problems: Problem[];
+}
 
-  async function walk(directory: string, prefix: string): Promise<void> {
+function isAbsentError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
+async function walkFactoryFiles(root: string): Promise<FactoryWalk> {
+  const files: FactoryFile[] = [];
+  const problems: Problem[] = [];
+
+  async function walk(directory: string, displayPath: string): Promise<void> {
     let entries;
     try {
       entries = await readdir(directory, { withFileTypes: true });
-    } catch {
-      // A missing or unreadable .factory directory is reported by loadFactory.
+    } catch (error) {
+      // A vanished directory is a race; an unreadable one is a real problem.
+      if (!isAbsentError(error)) problems.push(cannotReadProblem(displayPath));
       return;
     }
 
@@ -33,7 +45,7 @@ async function walkFactoryFiles(root: string): Promise<FactoryFile[]> {
       // Metafab ignores directories whose name starts with "." (factory-format).
       if (entry.isDirectory() && entry.name.startsWith(".")) continue;
 
-      const relativePath = `${prefix}/${entry.name}`;
+      const relativePath = `${displayPath}/${entry.name}`;
       const target = path.join(directory, entry.name);
 
       if (entry.isDirectory()) {
@@ -47,31 +59,39 @@ async function walkFactoryFiles(root: string): Promise<FactoryFile[]> {
 
   await walk(path.join(root, FACTORY_DIR), FACTORY_DIR);
   files.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
-  return files;
+  return { files, problems };
 }
 
+type ReadResult =
+  | { kind: "text"; text: string }
+  | { kind: "binary" }
+  | { kind: "missing" }
+  | { kind: "unreadable"; problem: Problem };
+
 /**
- * Reads a file as text, or returns undefined for a binary file.
+ * Reads a file as text, or reports it as binary or unreadable.
  *
  * The first chunk is checked for a NUL byte before the rest is read, so a large
  * binary file is not loaded into memory to be discarded.
  */
-async function readTextFile(target: string): Promise<string | undefined> {
+async function readTextFile(target: string, displayPath: string): Promise<ReadResult> {
   let handle;
   try {
     handle = await open(target, "r");
-  } catch {
-    // The factory loader reports unreadable paths; do not duplicate it here.
-    return undefined;
+  } catch (error) {
+    if (isAbsentError(error)) return { kind: "missing" };
+    return { kind: "unreadable", problem: cannotReadProblem(displayPath) };
   }
 
   try {
     const head = Buffer.alloc(BINARY_PROBE_BYTES);
     const { bytesRead } = await handle.read(head, 0, BINARY_PROBE_BYTES, 0);
-    if (head.subarray(0, bytesRead).includes(0)) return undefined;
-    return textContent(await handle.readFile());
-  } catch {
-    return undefined;
+    if (head.subarray(0, bytesRead).includes(0)) return { kind: "binary" };
+    const text = textContent(await handle.readFile());
+    return text === undefined ? { kind: "binary" } : { kind: "text", text };
+  } catch (error) {
+    if (isAbsentError(error)) return { kind: "missing" };
+    return { kind: "unreadable", problem: cannotReadProblem(displayPath) };
   } finally {
     await handle.close().catch(() => undefined);
   }
@@ -107,16 +127,21 @@ function conflictMarkerLine(lines: readonly string[]): number {
 
 /**
  * Reports the first unresolved conflict marker in each text file under
- * `.factory/`. Binary files and directories Metafab ignores are skipped.
+ * `.factory/`. Binary files, directories Metafab ignores and unreadable paths
+ * (reported once) are handled as the factory loader handles them.
  */
 export async function scanConflictMarkers(root: string): Promise<Problem[]> {
-  const problems: Problem[] = [];
+  const { files, problems } = await walkFactoryFiles(root);
 
-  for (const file of await walkFactoryFiles(root)) {
-    const text = await readTextFile(file.target);
-    if (text === undefined) continue;
+  for (const file of files) {
+    const result = await readTextFile(file.target, file.path);
+    if (result.kind === "unreadable") {
+      problems.push(result.problem);
+      continue;
+    }
+    if (result.kind !== "text") continue;
 
-    const line = conflictMarkerLine(toLF(text).split("\n"));
+    const line = conflictMarkerLine(toLF(result.text).split("\n"));
     if (line === -1) continue;
 
     problems.push({
@@ -133,11 +158,14 @@ export async function scanConflictMarkers(root: string): Promise<Problem[]> {
 
 /**
  * Reports every `*.upstream` file left behind by a conflicted update.
+ *
+ * Read errors are left to `scanConflictMarkers`, which walks the same paths.
  */
 export async function scanUpstreamFiles(root: string): Promise<Problem[]> {
   const problems: Problem[] = [];
+  const { files } = await walkFactoryFiles(root);
 
-  for (const file of await walkFactoryFiles(root)) {
+  for (const file of files) {
     if (!path.posix.basename(file.path).endsWith(".upstream")) continue;
 
     problems.push({

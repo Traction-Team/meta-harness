@@ -234,4 +234,36 @@ describe("check command", () => {
       }
     },
   );
+
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "exits 1 for an unreadable factory file that is neither config nor a skill",
+    async () => {
+      const repo = await checkRepo();
+      await build(repo.root);
+      const locked = repo.path(".factory", "notes.md");
+      await writeFile(locked, "notes\n");
+      await chmod(locked, 0o000);
+
+      try {
+        const result = await runCli(["check", "--json"], { cwd: repo.root, tty: false });
+
+        expect(result.code).toBe(ExitCode.Failed);
+        expect(result.stderr).toBe("");
+        const json = JSON.parse(result.stdout) as {
+          problems: { level: string; file: string; line: number; message: string; fix?: string }[];
+        };
+        expect(json.problems).toEqual([
+          {
+            level: "error",
+            file: ".factory/notes.md",
+            line: 1,
+            message: "Cannot read .factory/notes.md",
+            fix: "Check its permissions",
+          },
+        ]);
+      } finally {
+        await chmod(locked, 0o755);
+      }
+    },
+  );
 });

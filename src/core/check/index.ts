@@ -23,6 +23,10 @@ function problemKey(problem: Problem): string {
   ].join("\u0000");
 }
 
+function isReadError(problem: Problem): boolean {
+  return problem.message.startsWith("Cannot read ");
+}
+
 /**
  * Validates the factory source, its configuration and the installed output.
  *
@@ -38,10 +42,19 @@ export async function runCheck(root: string, cliVersion: string): Promise<Proble
   const problems: Problem[] = [];
   const seen = new Set<string>();
   const add = (problem: Problem): void => {
-    const key = problemKey(problem);
+    const next = withLine(problem);
+    const key = problemKey(next);
     if (seen.has(key)) return;
+    // The factory loader words its read errors as "Cannot read file <path>" or
+    // "Cannot read directory <path>". One read error per path is the contract.
+    if (
+      isReadError(next) &&
+      problems.some((existing) => existing.file === next.file && isReadError(existing))
+    ) {
+      return;
+    }
     seen.add(key);
-    problems.push(withLine(problem));
+    problems.push(next);
   };
 
   for (const problem of factory.problems) add(problem);
@@ -52,8 +65,8 @@ export async function runCheck(root: string, cliVersion: string): Promise<Proble
 
   const plannerHasErrors = problems.some((problem) => problem.level === "error");
 
-  for (const problem of await scanConflictMarkers(root)) problems.push(withLine(problem));
-  for (const problem of await scanUpstreamFiles(root)) problems.push(withLine(problem));
+  for (const problem of await scanConflictMarkers(root)) add(problem);
+  for (const problem of await scanUpstreamFiles(root)) add(problem);
 
   if (plannerHasErrors) {
     problems.push({
