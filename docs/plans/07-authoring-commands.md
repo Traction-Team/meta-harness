@@ -1,23 +1,28 @@
 ---
-title: "feat: create, rename, pipeline and map commands"
-status: ready
+title: "feat: create, pipeline and map commands"
+status: merged
 kind: feature
-pr:
+pr: 5
 needs:
   - docs/plans/02-factory-model.md
 owns:
   - src/core/edit/**
   - src/commands/create.ts
-  - src/commands/rename.ts
-  - src/commands/pipeline.ts
+  - src/commands/pipeline-add.ts
+  - src/commands/pipeline-remove.ts
   - src/commands/map.ts
   - test/core/edit/**
-proves: "npx vitest run test/core/edit → create, rename and pipeline edits produce the expected files with comments preserved; map --json matches its snapshot"
+  - test/cli/cli.test.ts
+  - test/cli/e2e.test.ts
+  - src/cli.ts
+proves: "npx vitest run test/core/edit → create and pipeline edits produce the expected files with comments preserved; map --json matches its snapshot"
 ---
 
 # Plan 07: Authoring and inspection commands
 
-Implement `create`, `rename`, `pipeline add`, `pipeline remove`, and `map`.
+Implement `create`, `pipeline add`, `pipeline remove`, and `map`.
+
+`rename` was in the first version of this plan and was dropped during review of PR #5: a person renames a skill by moving its directory and changing `name`, and `check` reports a mismatch. `src/cli.ts` and `test/cli/e2e.test.ts` are in `owns` only to remove the command.
 
 ## Specs
 
@@ -50,14 +55,6 @@ All edit commands validate first, then write. None of them runs `build`; each pr
    The heading capitalises the first word and replaces hyphens with spaces.
 
 The description is written as a YAML scalar with quoting when needed (use the `yaml` stringifier).
-
-### `rename <old> <new>`
-
-1. Find the skill named `<old>`; validate `<new>` (rules and uniqueness).
-2. Move the directory to the same parent with the new name.
-3. Update `name` in the frontmatter with a `YAML.Document` edit, so other fields and comments stay unchanged.
-4. If it is a workflow in the pipeline, update the entry in `factory.yaml`, keeping comments and the `stop` option.
-5. Report other text files under `.factory/` that still mention `<old>` as warnings. Do not edit them.
 
 ### `pipeline add <workflow> [--after <workflow>] [--stop S]`
 
@@ -107,17 +104,15 @@ JSON output:
 
 ## Steps
 
-- [ ] Comment-preserving `factory.yaml` editor (add, insert after, remove, rename entry)
-- [ ] `create`
-- [ ] `rename`
-- [ ] `pipeline add` and `pipeline remove`
-- [ ] `map`
+- [x] Comment-preserving `factory.yaml` editor (add, insert after, remove entry)
+- [x] `create`
+- [x] `pipeline add` and `pipeline remove`
+- [x] `map`
 
 ## Tests
 
 - `create workflows/review-slice --description "..."` produces a file that passes `check` after `build`
 - `create review/security` when `security` exists elsewhere fails; `create workflows/a/b` inside skill `a` fails
 - `create` without description in non-TTY exits 2 and writes nothing
-- `rename` of a pipeline workflow updates the pipeline and keeps the `stop` text and comments
 - `pipeline add x --after y --stop "..."` produces the expected YAML text exactly
 - `map --json` matches a snapshot for the `mark4-like` fixture

@@ -12,7 +12,6 @@ const V1_COMMANDS = [
   "init",
   "build",
   "create",
-  "rename",
   "pipeline add",
   "pipeline remove",
   "map",
@@ -53,7 +52,7 @@ describe("global flags", () => {
   test("a pipeline subcommand is dispatched", async () => {
     const result = await runCli(["pipeline", "add", "review-slice"], { cwd: repo.root, tty: false });
     expect(result.code).toBe(ExitCode.Failed);
-    expect(result.stderr).toContain("pipeline add");
+    expect(result.stderr).toContain("No factory found");
   });
 });
 
@@ -111,13 +110,23 @@ describe("unknown command", () => {
     expect(result.code).toBe(ExitCode.Failed);
     expect(result.stderr).toContain("pipeline add");
   });
+
+  test("rejects the removed rename command", async () => {
+    const result = await runCli(["rename", "a", "b"], { cwd: repo.root, tty: false });
+    expect(result.code).toBe(ExitCode.Failed);
+    expect(result.stderr).toContain("Unknown command: rename");
+
+    const help = await runCli(["--help"], { cwd: repo.root, tty: false });
+    expect(help.code).toBe(ExitCode.Ok);
+    expect(help.stdout).not.toContain("rename");
+  });
 });
 
-describe("stubs", () => {
-  test("exits 1 with a not implemented message", async () => {
+describe("commands without a factory", () => {
+  test("map exits 1 with a missing factory message", async () => {
     const result = await runCli(["map"], { cwd: repo.root, tty: false });
     expect(result.code).toBe(ExitCode.Failed);
-    expect(result.stderr.toLowerCase()).toContain("not implemented");
+    expect(result.stderr).toContain("No factory found");
   });
 
   test("does not change files", async () => {
