@@ -32,7 +32,14 @@ Today a workflow either names every variant ("if you use Orca, do X; if you use 
 
 ## Declaring dimensions
 
-The factory declares its dimensions and options in `factory.yaml`, because they are part of the factory's design and travel with a fab:
+Configuration splits in two:
+
+| What | Where | Shared |
+| --- | --- | --- |
+| Which dimensions and options exist, skill conditions, and `layout` | `factory.yaml` | Yes. Team configuration, committed, and travels with a fab |
+| Which options this developer uses | Git config. See [Selecting an environment](#selecting-an-environment) | No. Personal, never committed |
+
+`factory.yaml` holds nothing that depends on one developer's machine. It declares what is possible:
 
 ```yaml
 format: 2
@@ -47,6 +54,10 @@ environment:
     description: How parallel work gets its own checkout
     options: [orca, nodeterm, git-worktree, none]
     default: git-worktree
+  editor:
+    description: The code editor
+    options: [vscode, cursor, zed, jetbrains, none]
+    default: none
 ```
 
 Rules:
@@ -58,22 +69,41 @@ Rules:
 
 ## Selecting an environment
 
-Each developer selects options in a local, uncommitted file:
+Each developer's selection is stored in Git config, under the `metafab.env` section:
 
-```yaml
-# .factory/metafab.local.yaml  (ignored by Git)
-environment:
-  harness: [opencode]
-  workspace: orca
+```sh
+git config metafab.env.workspace orca              # this repository only (.git/config)
+git config --global metafab.env.harness opencode   # every repository on this machine
+git config --global --add metafab.env.harness claude
 ```
 
-- `metafab env` shows the current environment and where each value came from.
-- `metafab env set workspace=orca` writes the local file.
-- `build` asks for missing dimensions on first run in an interactive terminal.
-- `METAFAB_ENV_<DIMENSION>` environment variables override the file, for CI and scripts.
-- A team can set shared defaults in the committed `metafab.yaml` under `environment:`. The local file overrides them.
+```ini
+# .git/config
+[metafab "env"]
+	workspace = orca
+```
 
-`init` adds `.factory/metafab.local.yaml` to the managed `.gitignore` block.
+Git config fits this well:
+
+- It is never committed, so no ignore rule or extra file is needed.
+- `--global` sets a developer's harness and editor once for every repository, and repository config overrides it where one repository differs.
+- Every worktree of a repository shares `.git/config`. A new Orca or `git worktree` checkout already has the selection, which an ignored file in the working tree would not.
+- Multi-valued keys (`--add`) express `multiple: true` dimensions.
+
+Metafab reads Git config through `git config --get-all`. Selection precedence, highest first:
+
+1. `metafab build --env <dimension>=<option>`.
+2. `METAFAB_ENV_<DIMENSION>` environment variables, for CI and cloud agents.
+3. Repository Git config, then worktree config when enabled.
+4. Global Git config.
+5. The dimension's `default` in `factory.yaml`.
+
+Commands:
+
+- `metafab env` shows the current environment and where each value came from.
+- `metafab env set workspace=orca` writes repository Git config. `--global` writes global Git config.
+- `build` asks for missing dimensions on first run in an interactive terminal and writes the answers to Git config.
+- Metafab can detect some tools, such as an installed Orca or Codex, and suggest them. It never selects an option without the developer's confirmation.
 
 ## Conditional content inside a skill
 
@@ -96,12 +126,13 @@ Rules:
 
 1. Blocks start with `metafab:if`, may have any number of `metafab:elif` and one `metafab:else`, and end with `metafab:end`. Blocks may nest.
 2. `build` keeps the text of the first matching branch and removes the markers and every other branch.
-3. Expressions: `env.<dimension>.<option>` (true when selected), `not`, `and`, `or`, and parentheses. No other syntax.
+3. Expressions: `env.<dimension>.<option>` (true when selected), `not`, `and`, `or`, and parentheses. No other syntax. Conditions test only declared options: no detected values such as the operating system, and no version checks.
 4. A condition that names an undeclared dimension or option is a `check` error.
 5. Conditions may appear in any Markdown file of a skill, not only `SKILL.md`. Other files are copied unchanged.
 6. Conditions may not appear in frontmatter. The skill's `name` and `description` are the same in every environment.
+7. `build` removes text and nothing else. It does not renumber lists or reflow text. The author makes every branch read correctly on its own.
 
-Open question: whether numbered lists should be renumbered after a branch is removed, or whether authors avoid numbering across branches.
+Agents write most skills, so the built-in `metafab` skill teaches agents the condition grammar, when to use an inline block or a conditional skill, and how to preview each environment.
 
 ## Conditional skills
 
@@ -201,6 +232,10 @@ Proposal:
 3. The built-in `metafab` skill, and later a `metafab setup` command, explain or write the setup step for each supported cloud agent, such as `.github/workflows/copilot-setup-steps.yml` or a Codex environment setup script.
 4. `build` must stay fast and work offline from the repository alone, because it runs before every cloud task.
 
+## Previewing another environment
+
+`metafab build --env <dimension>=<option> --out <dir>` writes the installed output for that environment to `<dir>` and changes nothing else. A developer or agent uses it to see what a teammate on another harness receives. Without `--out`, `--env` installs into the normal destinations, as a cloud setup step needs.
+
 ## Validation
 
 `check` adds these rules:
@@ -216,6 +251,7 @@ Proposal:
 - A fab publishes its dimensions with its `factory.yaml`.
 - `import` asks the developer to select options, or takes `--env workspace=orca`.
 - `update` reports added, removed, or renamed dimensions and options, because they can change what a developer has installed.
+- Condition markers are ordinary lines of text, so `update`'s three-way merge treats them like any other edit. Edits to different branches of one block merge cleanly; edits to the same lines conflict as usual.
 
 ## Format version
 
@@ -223,11 +259,5 @@ Conditions, `environment`, `skills`, and `layout` change what a factory means, s
 
 ## Open questions
 
-1. Is `factory.yaml` the right home for `environment`, `skills`, and `layout`, or should they live in `metafab.yaml` as tool settings? They change the installed content, which argues for `factory.yaml`.
-2. Does the condition grammar need values beyond options, such as `env.os.windows` detected automatically, or version checks?
-3. Should Metafab detect some options itself, such as an installed Orca or Codex, and suggest them?
-4. How should a developer preview another environment's output, for example `metafab build --env harness=codex --out <dir>`?
-5. How do inline blocks interact with `update`'s three-way merge when a team edits one branch of a block and the upstream edits another?
-6. Should the built-in `metafab` skill teach agents to write conditions, or should conditions stay a human authoring feature?
-7. Which harness-specific frontmatter fields, such as Claude Code's `allowed-tools`, need per-environment values, given conditions are not allowed in frontmatter?
-8. Which cloud agents give no setup step, and what do they get: no factory skills, or an opt-in committed build for one fixed environment?
+1. Which harness-specific frontmatter fields, such as Claude Code's `allowed-tools`, need per-environment values, given conditions are not allowed in frontmatter?
+2. Which cloud agents give no setup step, and what do they get: no factory skills, or an opt-in committed build for one fixed environment?
