@@ -135,6 +135,17 @@ describe("https tarball sources", { timeout: 60_000 }, () => {
     expect(fetched.upstream.source).toBe(`${base}/root.tgz`);
   });
 
+  test("records an upper-case scheme without a signed query", async () => {
+    const upper = base.replace(/^http:/, "HTTP:");
+    const resolved = await resolve({
+      kind: "https",
+      url: `${upper}/root.tgz?X-Amz-Signature=secret`,
+    });
+    const fetched = await fetchFab(resolved);
+
+    expect(fetched.upstream.source).toBe(`${upper}/root.tgz`);
+  });
+
   test("fetches a tarball with .factory under a single top-level directory", async () => {
     const fetched = await fetchFab(await resolve(specFor("/wrapped.tgz")));
 

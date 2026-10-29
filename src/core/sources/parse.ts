@@ -13,10 +13,20 @@ export interface ParseSourceOptions {
 const GITHUB_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const DRIVE_PATH = /^[A-Za-z]:[\\/]/;
 const UNC_PATH = /^\\\\/;
-// `git@host:path` is the scp-like form Git itself accepts. The user is
-// required so a Windows drive-relative path such as `C:fab` is never mistaken
-// for a repository.
-const SCP_GIT = /^[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+:.+$/;
+// Git's own test for the scp-like form: the first colon must come before any
+// slash (so `host:path` is scp but `host/path:x` is not), and a Windows drive
+// path is a path, never a host. The user is required so a drive-relative path
+// such as `C:fab` is never mistaken for a repository.
+const SCP_GIT = /^([A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+):(.+)$/;
+
+function isScpGit(value: string): boolean {
+  if (DRIVE_PATH.test(value)) return false;
+  const colon = value.indexOf(":");
+  if (colon <= 0) return false;
+  const slash = value.indexOf("/");
+  if (slash !== -1 && slash < colon) return false;
+  return SCP_GIT.test(value);
+}
 
 function invalidSource(input: string, reason: string): MetafabError {
   return new MetafabError(`Invalid source "${redact(input)}": ${reason}`, {
@@ -95,14 +105,21 @@ function parseGithub(input: string): SourceSpec {
 
 function parseGitUrl(input: string, prefix: string): SourceSpec {
   const { base, ref } = splitRef(input);
-  const url = base.slice(prefix.length);
+  const rawUrl = base.slice(prefix.length);
   let parsed: URL;
   try {
-    parsed = new URL(url);
+    parsed = new URL(rawUrl);
   } catch {
     throw invalidSource(input, "the Git URL is not valid");
   }
   if (parsed.hostname === "") throw invalidSource(input, "the Git URL has no host");
+
+  // Git compares the scheme of the URL it is handed case-sensitively, so a
+  // source typed as `git+HTTPS://…` would reach it as an unknown protocol.
+  // Lower-case only the scheme; keep the rest of the text byte for byte, and
+  // record `source` exactly as the user wrote it.
+  const schemeEnd = rawUrl.indexOf("://");
+  const url = `${rawUrl.slice(0, schemeEnd).toLowerCase()}${rawUrl.slice(schemeEnd)}`;
 
   return {
     kind: "git",
@@ -114,15 +131,15 @@ function parseGitUrl(input: string, prefix: string): SourceSpec {
 
 function parseScpGit(input: string): SourceSpec {
   const { base, ref } = splitRef(input);
-  const match = /^([A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+):(.+)$/.exec(base);
-  const authority = match?.[1];
-  const repository = match?.[2];
-  if (authority === undefined || repository === undefined) {
+  if (!isScpGit(base)) {
     throw invalidSource(input, "the Git URL is not valid");
   }
+  // Keep the scp string as the URL: Git accepts it as written, and rewriting
+  // it to `ssh://host/path` would turn the scp form's home-relative path into
+  // an absolute one.
   return {
     kind: "git",
-    url: `ssh://${authority}/${repository}`,
+    url: base,
     source: base,
     ...(ref === undefined ? {} : { ref: parseGitRef(ref, input) }),
   };
@@ -198,7 +215,7 @@ export function parseSource(input: string, options: ParseSourceOptions): SourceS
 
   if (/^github:/i.test(value)) return parseGithub(value);
 
-  if (SCP_GIT.test(value)) return parseScpGit(value);
+  if (isScpGit(value)) return parseScpGit(value);
   if (/^ssh:\/\//i.test(value)) return parseGitUrl(value, "");
 
   if (/^git\+ssh:\/\//i.test(value)) return parseGitUrl(value, "git+");

@@ -53,7 +53,7 @@ describe("parseSource", () => {
 
     expect(parseSource("git@example.com:fab-acme.git#v1.0.0", { cwd: CWD })).toEqual({
       kind: "git",
-      url: "ssh://git@example.com/fab-acme.git",
+      url: "git@example.com:fab-acme.git",
       source: "git@example.com:fab-acme.git",
       ref: { type: "name", name: "v1.0.0" },
     });
@@ -158,6 +158,49 @@ describe("parseSource", () => {
       kind: "path",
       path: path.join(homedir(), "fab"),
       source: "~\\fab",
+    });
+  });
+
+  test("keeps the scp form as the Git URL", () => {
+    // Rewriting it to ssh:// would make the scp path absolute: Git treats
+    // `git@host:path` as relative to the user's home directory.
+    expect(parseSource("git@example.com:fab-acme.git", { cwd: CWD })).toEqual({
+      kind: "git",
+      url: "git@example.com:fab-acme.git",
+      source: "git@example.com:fab-acme.git",
+    });
+  });
+
+  test("never reads a Windows drive path as scp", () => {
+    // Git's rule: the first colon must come before any slash, and a drive
+    // letter is never a host.
+    for (const value of ["C:\\x", "C:/x", "C:\\Users\\me@work\\fab", "C:/Users/me@work/fab"]) {
+      const spec = parseSource(value, { cwd: CWD });
+      expect(spec.kind, value).toBe("path");
+    }
+  });
+
+  test("accepts upper-case and mixed-case schemes", () => {
+    expect(parseSource("HTTPS://bucket.example/fab.tgz", { cwd: CWD })).toEqual({
+      kind: "https",
+      url: "HTTPS://bucket.example/fab.tgz",
+    });
+    // Git compares the URL scheme case-sensitively, so the fetch URL is
+    // lower-cased while the recorded source keeps the user's text.
+    expect(parseSource("git+HTTPS://example.com/fab.git", { cwd: CWD })).toEqual({
+      kind: "git",
+      url: "https://example.com/fab.git",
+      source: "git+HTTPS://example.com/fab.git",
+    });
+    expect(parseSource("Git+Ssh://git@example.com/fab.git", { cwd: CWD })).toEqual({
+      kind: "git",
+      url: "ssh://git@example.com/fab.git",
+      source: "Git+Ssh://git@example.com/fab.git",
+    });
+    expect(parseSource("SSH://git@example.com/fab.git", { cwd: CWD })).toEqual({
+      kind: "git",
+      url: "ssh://git@example.com/fab.git",
+      source: "SSH://git@example.com/fab.git",
     });
   });
 

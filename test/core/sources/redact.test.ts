@@ -61,6 +61,25 @@ describe("redact", () => {
     );
   });
 
+  test("treats an upper-case or mixed-case scheme like any other", () => {
+    expect(stripSourceCredentials("HTTPS://bucket.example/x.tgz?X-Amz-Signature=secret")).toBe(
+      "HTTPS://bucket.example/x.tgz",
+    );
+    // A bare HTTP(S) username is a credential too, so it goes with the password
+    // and the signed query: `oauth2@` alone can be the token.
+    expect(
+      stripSourceCredentials("git+HTTPS://oauth2:glpat-secret@host/o/r.git?token=signed"),
+    ).toBe("git+HTTPS://host/o/r.git");
+    expect(stripSourceCredentials("git+Https://oauth2@host/o/r.git?token=signed")).toBe(
+      "git+Https://host/o/r.git",
+    );
+    // Elsewhere the scheme comparison does not matter: ssh keeps its username
+    // and drops only the password.
+    expect(stripSourceCredentials("SSH://user:password@example.com/fab.git")).toBe(
+      "SSH://user@example.com/fab.git",
+    );
+  });
+
   test("removes URL query strings and token fragments", () => {
     expect(redact("GET https://bucket.example/fab.tgz?X-Amz-Signature=secret&X-Amz-Credential=key")).toBe(
       "GET https://bucket.example/fab.tgz?<redacted>",

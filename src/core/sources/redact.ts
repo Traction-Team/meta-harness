@@ -6,13 +6,10 @@ const AUTH_SETTING = /(_authToken|_auth|password)\s*[=:]\s*\S+/gi;
 const AUTH_HEADER = /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/-]+=*/gi;
 const SOURCE_SCHEME = /^([A-Za-z][A-Za-z0-9+.-]*):\/\//;
 
+const HTTP_PROTOCOLS = new Set(["http:", "https:", "git+http:", "git+https:"]);
+
 function isHttpProtocol(protocol: string): boolean {
-  return (
-    protocol === "http:" ||
-    protocol === "https:" ||
-    protocol === "git+http:" ||
-    protocol === "git+https:"
-  );
+  return HTTP_PROTOCOLS.has(protocol.toLowerCase());
 }
 
 // Where the authority (the `host` part) ends: the first `/`, `?` or `#` after
