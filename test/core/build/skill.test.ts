@@ -90,13 +90,16 @@ describe("compileSkill", () => {
     }
   });
 
-  test("sets an explicit mode for every file from its executable bit", async () => {
-    const result = await compileSkill(source, { factoryDir: fixture });
-    const files = new Map(result.files.map((file) => [file.path, file]));
+  test.skipIf(process.platform === "win32")(
+    "sets an explicit mode for every file from its executable bit",
+    async () => {
+      const result = await compileSkill(source, { factoryDir: fixture });
+      const files = new Map(result.files.map((file) => [file.path, file]));
 
-    expect(files.get("run.sh")!.mode).toBe(0o755);
-    expect(files.get("notes.txt")!.mode).toBe(0o644);
-  });
+      expect(files.get("run.sh")!.mode).toBe(0o755);
+      expect(files.get("notes.txt")!.mode).toBe(0o644);
+    },
+  );
 
   test("uses the supplied comment for the built-in skill", async () => {
     const result = await compileSkill(
