@@ -135,6 +135,7 @@ export async function startRegistry(options: StartRegistryOptions = {}): Promise
     config,
     [
       `storage: ${storage}`,
+      "max_body_size: 100mb",
       "auth:",
       "  htpasswd:",
       `    file: ${htpasswd}`,

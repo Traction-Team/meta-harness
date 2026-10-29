@@ -7,7 +7,10 @@ import { redact } from "./redact.js";
 import type { FetchedFab, Resolved } from "./types.js";
 import { validateFab } from "./validate.js";
 
-export const MAX_TARBALL_SIZE = 50 * 1024 * 1024;
+// The compressed download cap is deliberately larger than the 64 MiB extracted
+// total (MAX_FAB_TOTAL_SIZE), so a fab at that total is rejected for its size,
+// not for how well it compressed. npm and HTTPS share this one constant.
+export const MAX_TARBALL_SIZE = 80 * 1024 * 1024;
 export const DEFAULT_HTTPS_TIMEOUT_MS = 60_000;
 export const DEFAULT_HTTPS_IDLE_TIMEOUT_MS = 60_000;
 

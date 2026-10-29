@@ -1,4 +1,5 @@
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { cp, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,6 +7,8 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { ExitCode, MetafabError } from "../../../src/errors.js";
 import {
   fetchFab,
+  MAX_FAB_TOTAL_SIZE,
+  MAX_TARBALL_SIZE,
   parseSource,
   resolve,
 } from "../../../src/core/sources/index.js";
@@ -99,6 +102,27 @@ beforeAll(async () => {
     factoryDir: VALID_FACTORY,
   });
   await registry.stripIntegrity("fab-shasum");
+
+  // 52 incompressible MiB: more than the old 50 MiB download cap, less than the
+  // 64 MiB extracted total. It must be accepted, so the total is what binds.
+  const bulkRoot = await mkdtemp(path.join(tmpdir(), "metafab-npm-bulk-"));
+  try {
+    const bulkFactory = path.join(bulkRoot, ".factory");
+    await cp(VALID_FACTORY, bulkFactory, { recursive: true });
+    for (let index = 0; index < 52; index += 1) {
+      await writeFile(
+        path.join(bulkFactory, `bulk-${index}.bin`),
+        randomBytes(1024 * 1024),
+      );
+    }
+    await registry.publishFab({
+      name: "fab-bulk",
+      version: "1.0.0",
+      factoryDir: bulkFactory,
+    });
+  } finally {
+    await rm(bulkRoot, { recursive: true, force: true });
+  }
 }, 120_000);
 
 afterAll(async () => {
@@ -274,6 +298,16 @@ describe("npm sources", { timeout: 60_000 }, () => {
     } finally {
       await rm(smallCache, { recursive: true, force: true });
     }
+  });
+
+  test("keeps the download cap larger than the extracted total the spec allows", () => {
+    expect(MAX_TARBALL_SIZE).toBeGreaterThan(MAX_FAB_TOTAL_SIZE);
+  });
+
+  test("accepts a fab bigger than 50 MiB compressed when its total is within the cap", async () => {
+    const fetched = await fetchSource("fab-bulk@1.0.0");
+
+    expect(await pathExists(path.join(fetched.factoryDir, "bulk-51.bin"))).toBe(true);
   });
 
   test("fails with exit 4 when metafab.format is not 1", async () => {
