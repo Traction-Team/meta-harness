@@ -123,7 +123,10 @@ export async function installReferenceTransactionHook(
   await execFileAsync("chmod", ["+x", hook, path.join(hooks, "post-checkout")]);
 
   const globalConfig = path.join(fixture.root, "gitconfig");
-  await writeFile(globalConfig, `[core]\n\thooksPath = ${hooks}\n`);
+  // Git reads a backslash in a config value as an escape, so a Windows path has
+  // to be written with forward slashes (Git accepts them on every platform).
+  const configPath = hooks.split(path.sep).join("/");
+  await writeFile(globalConfig, `[core]\n\thooksPath = ${configPath}\n`);
 
   return { env: { ...process.env, GIT_CONFIG_GLOBAL: globalConfig }, marker };
 }
