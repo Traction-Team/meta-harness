@@ -8,6 +8,11 @@ import { scanConflictMarkers, scanUpstreamFiles } from "./markers.js";
 export { compareBuildOutput } from "./drift.js";
 export { scanConflictMarkers, scanUpstreamFiles } from "./markers.js";
 
+/** The report always shows a line; a problem about a path reports line 1. */
+function withLine(problem: Problem): Problem {
+  return problem.line === undefined ? { ...problem, line: 1 } : problem;
+}
+
 function problemKey(problem: Problem): string {
   return [
     problem.level,
@@ -36,7 +41,7 @@ export async function runCheck(root: string, cliVersion: string): Promise<Proble
     const key = problemKey(problem);
     if (seen.has(key)) return;
     seen.add(key);
-    problems.push(problem);
+    problems.push(withLine(problem));
   };
 
   for (const problem of factory.problems) add(problem);
@@ -47,19 +52,20 @@ export async function runCheck(root: string, cliVersion: string): Promise<Proble
 
   const plannerHasErrors = problems.some((problem) => problem.level === "error");
 
-  for (const problem of await scanConflictMarkers(root)) problems.push(problem);
-  for (const problem of await scanUpstreamFiles(root)) problems.push(problem);
+  for (const problem of await scanConflictMarkers(root)) problems.push(withLine(problem));
+  for (const problem of await scanUpstreamFiles(root)) problems.push(withLine(problem));
 
   if (plannerHasErrors) {
     problems.push({
       level: "warning",
       file: ".factory",
+      line: 1,
       message: "Build output not checked: fix the errors above first",
     });
     return problems;
   }
 
-  problems.push(...(await compareBuildOutput(factory, config, plan, cliVersion)));
-  problems.push(...plan.warnings);
+  problems.push(...(await compareBuildOutput(factory, config, plan, cliVersion)).map(withLine));
+  problems.push(...plan.warnings.map(withLine));
   return problems;
 }

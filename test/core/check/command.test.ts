@@ -171,6 +171,29 @@ describe("check command", () => {
     expect(String(problem!.fix)).toContain("review-slice");
   });
 
+  test("every problem in --json has a line, including a build conflict", async () => {
+    const repo = await checkRepo({ ".agents/skills": "in the way\n" });
+
+    const result = await runCli(["check", "--json"], { cwd: repo.root, tty: false });
+
+    expect(result.code).toBe(ExitCode.Failed);
+    const json = JSON.parse(result.stdout) as {
+      problems: { file: string; line?: number; message: string }[];
+    };
+
+    expect(json.problems.length).toBeGreaterThan(0);
+    for (const problem of json.problems) {
+      expect(problem.line).toBeGreaterThanOrEqual(1);
+    }
+    expect(json.problems).toContainEqual({
+      level: "error",
+      file: ".agents/skills",
+      line: 1,
+      message: ".agents/skills is a file, not a directory",
+      fix: "Move the file or rename it, then run metafab build again",
+    });
+  });
+
   test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
     "lists an unreadable installed path in problems with --json",
     async () => {

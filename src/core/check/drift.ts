@@ -241,14 +241,15 @@ export async function compareBuildOutput(
   }
 
   for (const conflict of plan.conflicts) {
-    if (
+    const unowned =
       conflict.message.startsWith("Unowned directory ") ||
-      conflict.message.startsWith("Unowned file ")
-    ) {
-      problems.push({ ...conflict, fix: "Move it into .factory/skills/ or rename it" });
-    } else {
-      problems.push(conflict);
-    }
+      conflict.message.startsWith("Unowned file ");
+    problems.push({
+      ...conflict,
+      // A problem about a path has no line of its own; the report always shows one.
+      line: conflict.line ?? 1,
+      ...(unowned ? { fix: "Move it into .factory/skills/ or rename it" } : {}),
+    });
   }
 
   return problems;
