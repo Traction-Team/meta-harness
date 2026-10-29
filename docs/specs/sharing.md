@@ -233,6 +233,7 @@ Fab validation rejects:
 
 - Unknown factory format versions
 - Paths that escape `.factory/`
+- Paths that collide with `.factory/`, such as a case variant or a name ending in dots or spaces
 - Links that point outside `.factory/`
 - Links whose target does not exist
 - Files larger than 1 MB
