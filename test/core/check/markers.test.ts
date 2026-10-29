@@ -20,14 +20,19 @@ function repo(files: RepoFiles): Promise<TempRepo> {
 
 describe("conflict marker scanner", () => {
   test.each([
-    ["<<<<<<< HEAD", "<<<<<<< HEAD"],
-    [">>>>>>> branch", ">>>>>>> branch"],
-    ["=======", "======="],
-    ["||||||| base", "||||||| base"],
-  ])("finds a %s marker", async (_label, marker) => {
-    const target = await repo({
-      ".factory/notes.md": `# Notes\n\n${marker}\ncontent\n`,
-    });
+    ["a plain block", "<<<<<<< HEAD\nleft\n=======\nright\n>>>>>>> branch\n", 3],
+    [
+      "a block with a base section",
+      "<<<<<<< HEAD\nours\n||||||| base\nbase\n=======\ntheirs\n>>>>>>> branch\n",
+      3,
+    ],
+    [
+      "a block inside a fenced example",
+      "```\n<<<<<<< HEAD\nleft\n=======\nright\n>>>>>>> branch\n```\n",
+      4,
+    ],
+  ])("finds %s", async (_label, block, line) => {
+    const target = await repo({ ".factory/notes.md": `# Notes\n\n${block}` });
 
     const problems = await scanConflictMarkers(target.root);
 
@@ -35,17 +40,30 @@ describe("conflict marker scanner", () => {
       {
         level: "error",
         file: ".factory/notes.md",
-        line: 3,
+        line,
         message: "Unresolved conflict marker",
         fix: "Resolve the conflict, then run metafab build",
       },
     ]);
   });
 
-  test("reports only the first marker line in each file", async () => {
+  test("does not report a lone marker line", async () => {
     const target = await repo({
-      ".factory/a.md": "one\n<<<<<<< HEAD\n=======\n>>>>>>> branch\n",
-      ".factory/nested/b.md": "one\ntwo\n=======\n",
+      // A setext heading underline, not a conflict.
+      ".factory/notes.md": "Sub\n=======\n",
+      ".factory/opening.md": "<<<<<<< HEAD\nleft\n",
+      ".factory/closing.md": "right\n>>>>>>> branch\n",
+      ".factory/fenced.md": "```\n<<<<<<< HEAD\n```\n",
+    });
+
+    expect(await scanConflictMarkers(target.root)).toEqual([]);
+  });
+
+  test("reports only the first complete block in each file", async () => {
+    const target = await repo({
+      ".factory/a.md":
+        "one\n<<<<<<< HEAD\n=======\n>>>>>>> branch\n<<<<<<< HEAD\n=======\n>>>>>>> other\n",
+      ".factory/nested/b.md": "one\ntwo\n<<<<<<< HEAD\n=======\n>>>>>>> branch\n",
     });
 
     const problems = await scanConflictMarkers(target.root);
@@ -56,10 +74,15 @@ describe("conflict marker scanner", () => {
     ]);
   });
 
-  test("skips binary files and CRLF does not hide a marker", async () => {
+  test("skips binary files and CRLF does not hide a block", async () => {
     const target = await repo({
       ".factory/data.bin": Buffer.from([0x00, 0x3c, 0x3c, 0x3c, 0x3c, 0x3c, 0x3c, 0x3c, 0x20]),
-      ".factory/crlf.md": "one\r\n=======\r\n",
+      ".factory/late.bin": Buffer.concat([
+        Buffer.from("a".repeat(9000)),
+        Buffer.from([0x00]),
+        Buffer.from("<<<<<<< HEAD\n=======\n>>>>>>> branch\n"),
+      ]),
+      ".factory/crlf.md": "one\r\n<<<<<<< HEAD\r\n=======\r\n>>>>>>> branch\r\n",
     });
 
     const problems = await scanConflictMarkers(target.root);
@@ -69,9 +92,19 @@ describe("conflict marker scanner", () => {
     expect(problems[0]?.line).toBe(2);
   });
 
-  test("does not report a marker without the trailing space", async () => {
+  test("does not report a block without the trailing spaces", async () => {
     const target = await repo({
-      ".factory/notes.md": "<<<<<<<HEAD\n>>>>>>>branch\n",
+      ".factory/notes.md": "<<<<<<<HEAD\nleft\n=======\nright\n>>>>>>>branch\n",
+    });
+
+    expect(await scanConflictMarkers(target.root)).toEqual([]);
+  });
+
+  test("skips directories whose name starts with '.'", async () => {
+    const target = await repo({
+      ".factory/.git/MERGE_MSG": "<<<<<<< HEAD\nleft\n=======\nright\n>>>>>>> branch\n",
+      ".factory/.hidden/notes.md": "<<<<<<< HEAD\nleft\n=======\nright\n>>>>>>> branch\n",
+      ".factory/notes.md": "clean\n",
     });
 
     expect(await scanConflictMarkers(target.root)).toEqual([]);
@@ -105,6 +138,15 @@ describe(".upstream scanner", () => {
 
   test("ignores other files", async () => {
     const target = await repo({ ".factory/notes.md": "upstream\n" });
+
+    expect(await scanUpstreamFiles(target.root)).toEqual([]);
+  });
+
+  test("skips directories whose name starts with '.'", async () => {
+    const target = await repo({
+      ".factory/.hidden/x.md.upstream": "theirs\n",
+      ".factory/.git/COMMIT_EDITMSG": "=======\n",
+    });
 
     expect(await scanUpstreamFiles(target.root)).toEqual([]);
   });
