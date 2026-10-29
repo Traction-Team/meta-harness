@@ -81,4 +81,79 @@ describe("parseYaml", () => {
 
     expect(result.lineOf(result.document.get("name", true))).toBe(3);
   });
+
+  test("resolves an alias whose anchor comes before it", () => {
+    const result = parsed(parseYaml("base: &b one\nname: *b\n"));
+
+    expect(result.value).toEqual({ base: "one", name: "one" });
+  });
+
+  test("rejects an alias with no anchor on the alias line", () => {
+    const result = rejected(parseYaml("name: *missing\n"));
+
+    expect(result.problems).toEqual([
+      {
+        message: "Alias *missing has no anchor",
+        line: 1,
+        fix: "Remove the alias or define its anchor before it",
+      },
+    ]);
+  });
+
+  test("offsets an unresolved alias to the real line", () => {
+    const result = rejected(parseYaml("name: demo\ndescription: *missing\n", { lineOffset: 3 }));
+
+    expect(result.problems).toEqual([
+      {
+        message: "Alias *missing has no anchor",
+        line: 5,
+        fix: "Remove the alias or define its anchor before it",
+      },
+    ]);
+  });
+
+  test("allows an anchor aliased up to the alias limit", () => {
+    const result = parsed(parseYaml(aliasedPipeline(99)));
+
+    expect(result.value.pipeline).toHaveLength(100);
+  });
+
+  test("rejects an anchor aliased past the limit on the alias that crosses it", () => {
+    const result = rejected(parseYaml(aliasedPipeline(120)));
+
+    expect(result.problems).toEqual([
+      {
+        message: "Alias *gate is aliased too many times",
+        line: 102,
+        fix: "Use the anchor fewer times or write the values out",
+      },
+    ]);
+  });
+
+  test("reports a document whose aliases expand too far without a stack", () => {
+    const result = rejected(parseYaml(expandingAliases()));
+
+    expect(result.problems).toHaveLength(1);
+    expect(result.problems[0]?.message).toMatch(/^Alias \*\w+ is aliased too many times$/);
+    expect(result.problems[0]?.line).toBeGreaterThan(0);
+  });
 });
+
+/** `pipeline:` with one anchored options mapping and `uses` aliases to it. */
+function aliasedPipeline(uses: number): string {
+  const aliases = Array.from({ length: uses }, (_, index) => `  - workflow-${index}: *gate`);
+  return ["pipeline:", "  - review-slice: &gate { stop: Wait for approval }", ...aliases].join("\n");
+}
+
+/** Ten aliases per level, which doubles the expansion each level reaches. */
+function expandingAliases(): string {
+  const ten = (source: string): string => Array.from({ length: 10 }, () => `*${source}`).join(", ");
+  return [
+    "a: &a [one, two, three, four, five, six, seven, eight, nine, ten]",
+    `b: &b [${ten("a")}]`,
+    `c: &c [${ten("b")}]`,
+    `d: &d [${ten("c")}]`,
+    `e: &e [${ten("d")}]`,
+    "f: *e",
+  ].join("\n");
+}

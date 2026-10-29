@@ -85,4 +85,35 @@ describe("parseFrontmatter", () => {
     expect(result.problems[0]?.line).toBe(1);
     expect(result.problems[0]?.message).toContain("Unterminated frontmatter");
   });
+
+  test("rejects an alias with no anchor on its file line", () => {
+    const result = rejected(parseFrontmatter("---\nname: demo\ndescription: *missing\n---\nbody\n"));
+
+    expect(result.problems).toEqual([
+      {
+        message: "Alias *missing has no anchor",
+        line: 3,
+        fix: "Remove the alias or define its anchor before it",
+      },
+    ]);
+  });
+
+  test("rejects an alias reused past the limit on its file line", () => {
+    const aliases = Array.from({ length: 120 }, (_, index) => `  - workflow-${index}: *gate`);
+    const result = rejected(
+      parseFrontmatter(
+        ["---", "name: demo", "description: Demo.", "support: &gate value", "workflows:", ...aliases, "---", "body"].join(
+          "\n",
+        ),
+      ),
+    );
+
+    expect(result.problems).toEqual([
+      {
+        message: "Alias *gate is aliased too many times",
+        line: 105,
+        fix: "Use the anchor fewer times or write the values out",
+      },
+    ]);
+  });
 });

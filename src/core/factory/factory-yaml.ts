@@ -1,8 +1,8 @@
-import { isAlias, isMap, isScalar, isSeq, parseDocument, visit } from "yaml";
+import { isAlias, isMap, isScalar, isSeq } from "yaml";
 import type { Document, Pair } from "yaml";
 import type { Problem } from "../../errors.js";
 import { isSingleLine } from "../../util/text.js";
-import { parseYaml } from "../../util/yaml.js";
+import { aliasProblems, parseYaml } from "../../util/yaml.js";
 import type { YamlDocument } from "../../util/yaml.js";
 import type { FactoryYaml, PipelineEntry } from "./types.js";
 import {
@@ -24,12 +24,6 @@ export interface FactoryYamlParseResult {
 
 type Field = { value: unknown; line: number; node: unknown };
 
-const YAML_OPTIONS = {
-  version: "1.2" as const,
-  uniqueKeys: true,
-  prettyErrors: true,
-};
-
 function resolveNode(node: unknown, doc: Document): unknown {
   return isAlias(node) ? node.resolve(doc) : node;
 }
@@ -42,29 +36,17 @@ function lineAtOffset(text: string, offset: number): number {
   return line;
 }
 
-/** Problems for aliases such as `*missing` that name no anchor before them. */
-export function unresolvedAliasProblems(document: Document, text: string, file: string): Problem[] {
-  const problems: Problem[] = [];
-
-  visit(document, (_key, node) => {
-    if (!isAlias(node) || node.resolve(document) !== undefined) return;
-
-    problems.push({
-      level: "error",
-      file,
-      line: lineAtOffset(text, node.range?.[0] ?? 0),
-      message: `Alias *${node.source} has no anchor`,
-      fix: "Remove the alias or define its anchor before it",
-    });
-  });
-
-  return problems;
-}
-
-function unresolvedAliasesInText(text: string, file: string): Problem[] {
-  const document = parseDocument(text, YAML_OPTIONS);
-  if (document.errors.length > 0) return [];
-  return unresolvedAliasProblems(document, text, file);
+/**
+ * Problems for aliases in a `factory.yaml`: an alias such as `*missing` that
+ * names no anchor before it, and a document that aliases one anchor too often
+ * to convert safely.
+ */
+export function factoryAliasProblems(document: Document, text: string, file: string): Problem[] {
+  return aliasProblems(document, (offset) => lineAtOffset(text, offset)).map((problem) => ({
+    level: "error" as const,
+    file,
+    ...problem,
+  }));
 }
 
 function scalarString(node: unknown): string | undefined {
@@ -208,9 +190,6 @@ function parsePipelineEntry(
 }
 
 export function parseFactoryYaml(text: string, file: string): FactoryYamlParseResult {
-  const aliasProblems = unresolvedAliasesInText(text, file);
-  if (aliasProblems.length > 0) return { problems: aliasProblems };
-
   const parsed = parseYaml(text);
   if (!parsed.ok) {
     return {

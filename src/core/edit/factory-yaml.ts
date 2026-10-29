@@ -3,7 +3,7 @@ import type { Pair, YAMLSeq } from "yaml";
 import { MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import { isSingleLine } from "../../util/text.js";
-import { unresolvedAliasProblems } from "../factory/factory-yaml.js";
+import { factoryAliasProblems } from "../factory/factory-yaml.js";
 import type { PipelineEntry } from "../factory/types.js";
 import { findField, scalarString, serializeYamlDocument } from "./document.js";
 
@@ -50,7 +50,7 @@ export function parseFactoryYamlDocument(text: string, file = FACTORY_FILE): Doc
 
   if (doc.errors.length > 0) invalidYaml(file, text);
 
-  const aliases = unresolvedAliasProblems(doc, text, file);
+  const aliases = factoryAliasProblems(doc, text, file);
   if (aliases.length > 0) {
     const message = aliases[0]?.message ?? "Invalid YAML";
     throw new MetafabError(`${file}: ${message}`, {
