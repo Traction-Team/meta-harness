@@ -74,6 +74,7 @@ export async function runCheck(root: string, cliVersion: string): Promise<Proble
       file: ".factory",
       line: 1,
       message: "Build output not checked: fix the errors above first",
+      fix: "Fix the errors above, then run metafab check again",
     });
     return problems;
   }

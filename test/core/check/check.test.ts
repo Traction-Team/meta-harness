@@ -191,6 +191,20 @@ describe("runCheck", () => {
     expect(problems.some((problem) => problem.message.includes("has no source"))).toBe(false);
   });
 
+  test("the build-output warning says how to continue", async () => {
+    const target = await checkRepo({ ".factory/metafab.yaml": "agents: [nope]\n" });
+
+    const problems = await runCheck(target.root, PACKAGE_VERSION);
+
+    expect(problems).toContainEqual({
+      level: "warning",
+      file: ".factory",
+      line: 1,
+      message: "Build output not checked: fix the errors above first",
+      fix: "Fix the errors above, then run metafab check again",
+    });
+  });
+
   test("an unowned directory in the way is reported as build reports it", async () => {
     const target = await checkRepo();
     await build(target.root);
