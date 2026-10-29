@@ -14,7 +14,11 @@ async function tempDir(): Promise<string> {
 }
 
 async function makeTar(archive: string, cwd: string, entries: string[], preservePaths = false): Promise<void> {
-  await tar.c({ file: archive, gzip: true, cwd, preservePaths }, entries);
+  // `jobs: 1` keeps tar's packer from ending its gzip stream twice: with
+  // parallel jobs, the pending-hard-link re-processing can call back into the
+  // packer after it has already ended the compressor, and the second `end`
+  // makes zlib emit an unhandled Z_STREAM_ERROR.
+  await tar.c({ file: archive, gzip: true, cwd, preservePaths, jobs: 1 }, entries);
 }
 
 interface RawEntry {
@@ -76,6 +80,24 @@ async function expectInvalid(
     return failure;
   }
   throw new Error("expected extraction to fail");
+}
+
+// A chain of links that resolves outside the root is always rejected. Windows
+// collapses `b/..` lexically before it follows the symlink, so the chain cannot
+// be recreated there and the archive is rejected because a link target is
+// missing instead. The rejection is the security guarantee; the wording is only
+// guaranteed where the chain can be built.
+function expectLinkEscapeRejection(failure: MetafabError): void {
+  const messages = (failure.problems ?? []).map((problem) => problem.message);
+  expect(messages.length).toBeGreaterThan(0);
+  if (messages.some((message) => message.includes("outside"))) return;
+  expect(process.platform).toBe("win32");
+  expect(
+    messages.some(
+      (message) =>
+        message.includes("does not exist") || message.includes("links could not be created"),
+    ),
+  ).toBe(true);
 }
 
 describe("extractTarball", () => {
@@ -289,7 +311,7 @@ describe("extractTarball", () => {
 
       const failure = await expectInvalid(archive, path.join(base, "out"));
 
-      expect(failure.problems?.some((problem) => problem.message.includes("outside"))).toBe(true);
+      expectLinkEscapeRejection(failure);
     } finally {
       await rm(base, { recursive: true, force: true });
     }
@@ -308,7 +330,9 @@ describe("extractTarball", () => {
 
       const failure = await expectInvalid(archive, path.join(base, "nested", "out"));
 
-      expect(failure.problems?.some((problem) => problem.message.includes("outside"))).toBe(true);
+      expectLinkEscapeRejection(failure);
+      // The file the chain aimed at is untouched.
+      expect(await readFile(path.join(base, "nested", "outside"), "utf8")).toBe("outside\n");
     } finally {
       await rm(base, { recursive: true, force: true });
     }
