@@ -176,8 +176,8 @@ Example failed check:
       "level": "error",
       "file": ".factory/factory.yaml",
       "line": 8,
-      "message": "pipeline names workflow 'review-slices', which does not exist",
-      "fix": "Did you mean review-slice?"
+      "message": "Pipeline names unknown workflow \"review-slices\"",
+      "fix": "Did you mean \"review-slice\"?"
     }
   ]
 }
