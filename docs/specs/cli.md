@@ -101,9 +101,10 @@ Run `metafab init` again to adopt a skill added directly to a managed destinatio
 | Command | Behaviour |
 | --- | --- |
 | `metafab create <path> [--description D]` | Creates `.factory/<path>/SKILL.md` with valid frontmatter. The last path segment is the skill name |
-| `metafab rename <old> <new>` | Renames a skill. It moves the directory and updates `name` and the pipeline |
 | `metafab pipeline add <workflow> [--after <workflow>] [--stop S]` | Adds an existing workflow to the pipeline, at the end or after `--after` |
 | `metafab pipeline remove <workflow>` | Removes a workflow from the pipeline. The workflow file does not change |
+
+To rename a skill, move its directory and change `name` in its `SKILL.md`; for a workflow in the pipeline, also change its entry in `factory.yaml`. `metafab check` reports any of these left out.
 
 The path places the skill. For example, `metafab create workflows/review-slice` creates a workflow, and `metafab create review/security` creates a skill in the `review` group.
 
