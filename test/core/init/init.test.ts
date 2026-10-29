@@ -1,0 +1,265 @@
+import { mkdir, readFile } from "node:fs/promises";
+import path from "node:path";
+import { Readable } from "node:stream";
+import { afterEach, describe, expect, test } from "vitest";
+import { deriveFactoryName } from "../../../src/core/init/name.js";
+import { listFiles, pathExists } from "../../../src/util/fs.js";
+import { makeRepo, writeRepoFiles } from "../../helpers/makeRepo.js";
+import type { RepoFiles, TempRepo } from "../../helpers/makeRepo.js";
+import { runCli } from "../../helpers/runCli.js";
+import type { RunCliResult } from "../../helpers/runCli.js";
+
+const repos: TempRepo[] = [];
+
+afterEach(async () => {
+  await Promise.all(repos.splice(0).map((repo) => repo.cleanup()));
+});
+
+async function gitRepo(files: RepoFiles = {}): Promise<TempRepo> {
+  const repo = await makeRepo(files, { git: true });
+  repos.push(repo);
+  return repo;
+}
+
+function skill(name: string, description = `Use ${name} when the task needs it.`): string {
+  return `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`;
+}
+
+async function snapshot(root: string): Promise<Record<string, string>> {
+  const files = await listFiles(root, {
+    ignore: (relativePath) => relativePath === ".git" || relativePath.startsWith(".git/"),
+  });
+  const entries: Record<string, string> = {};
+  for (const file of files) {
+    entries[file] = await readFile(path.join(root, ...file.split("/")), "utf8");
+  }
+  return entries;
+}
+
+function parseJson(result: RunCliResult): Record<string, unknown> {
+  return JSON.parse(result.stdout) as Record<string, unknown>;
+}
+
+describe("metafab init", () => {
+  test("creates the factory files, gitattributes lines, gitignore block and built-in skills", async () => {
+    const repo = await gitRepo();
+
+    const result = await runCli(["init", "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Created .factory/factory.yaml");
+    expect(result.stdout).not.toContain("Already initialised");
+
+    const name = deriveFactoryName(path.basename(repo.root));
+    expect(await readFile(repo.path(".factory", "factory.yaml"), "utf8")).toBe(
+      `format: 1\nname: ${name}\n`,
+    );
+    expect(await readFile(repo.path(".factory", "AGENTS.md"), "utf8")).toBe("");
+    expect(await readFile(repo.path(".factory", "metafab.yaml"), "utf8")).toBe("agents: [claude]\n");
+    expect(await readFile(repo.path(".gitattributes"), "utf8")).toBe(
+      [
+        ".factory/** text=auto eol=lf",
+        ".claude/skills/** text=auto eol=lf",
+        ".agents/skills/** text=auto eol=lf",
+        "",
+      ].join("\n"),
+    );
+
+    const gitignore = await readFile(repo.path(".gitignore"), "utf8");
+    expect(gitignore).toContain("# metafab:start\n.claude/skills/\n# metafab:end\n");
+    expect(gitignore).not.toContain(".agents/skills/");
+
+    const installed = await readFile(
+      repo.path(".claude", "skills", "metafab", "SKILL.md"),
+      "utf8",
+    );
+    expect(installed).toContain("name: metafab");
+    expect(await pathExists(repo.path(".agents"))).toBe(false);
+  });
+
+  test("creates .factory at the repository root when run in a subdirectory", async () => {
+    const repo = await gitRepo();
+    await mkdir(repo.path("packages", "app"), { recursive: true });
+
+    const result = await runCli(["init", "--agents", "claude"], {
+      cwd: repo.path("packages", "app"),
+    });
+
+    expect(result.code).toBe(0);
+    expect(await pathExists(repo.path(".factory", "factory.yaml"))).toBe(true);
+    expect(await pathExists(repo.path("packages", "app", ".factory"))).toBe(false);
+  });
+
+  test("a second run changes nothing and reports Already initialised", async () => {
+    const repo = await gitRepo();
+    await runCli(["init", "--agents", "claude"], { cwd: repo.root });
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["init", "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe("Already initialised\n");
+    expect(await snapshot(repo.root)).toEqual(before);
+  });
+
+  test("selects all targets without --agents and without a terminal", async () => {
+    const repo = await gitRepo();
+
+    const result = await runCli(["init"], { cwd: repo.root, tty: false });
+
+    expect(result.code).toBe(0);
+    expect(await readFile(repo.path(".factory", "metafab.yaml"), "utf8")).toBe("agents: all\n");
+    expect(await pathExists(repo.path(".claude", "skills", "metafab", "SKILL.md"))).toBe(true);
+    expect(await pathExists(repo.path(".agents", "skills", "metafab", "SKILL.md"))).toBe(true);
+  });
+
+  test("--adopt moves an existing skill and installs the generated copy", async () => {
+    const repo = await gitRepo({
+      ".claude/skills/release/SKILL.md": skill("release"),
+      ".claude/skills/release/run.sh": "#!/bin/sh\necho release\n",
+    });
+
+    const result = await runCli(["init", "--agents", "claude", "--adopt"], { cwd: repo.root });
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Moved .claude/skills/release -> .factory/skills/release");
+    expect(await readFile(repo.path(".factory", "skills", "release", "SKILL.md"), "utf8")).toBe(
+      skill("release"),
+    );
+    expect(await readFile(repo.path(".factory", "skills", "release", "run.sh"), "utf8")).toBe(
+      "#!/bin/sh\necho release\n",
+    );
+
+    const installed = await readFile(repo.path(".claude", "skills", "release", "SKILL.md"), "utf8");
+    expect(installed).toContain("Generated by metafab build from .factory/skills/release/");
+    expect(await pathExists(repo.path(".claude", "skills", "release", "run.sh"))).toBe(true);
+    expect(await readFile(repo.path(".gitignore"), "utf8")).toContain(
+      "# metafab:start\n.claude/skills/\n# metafab:end\n",
+    );
+  });
+
+  test("requires --adopt without a terminal and changes nothing", async () => {
+    const repo = await gitRepo({
+      ".claude/skills/release/SKILL.md": skill("release"),
+    });
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["init", "--agents", "claude", "--json"], { cwd: repo.root });
+
+    expect(result.code).toBe(2);
+    const payload = parseJson(result);
+    const required = payload.required as Record<string, unknown>[];
+    expect(required).toEqual([
+      {
+        name: "adopt",
+        flag: "--adopt",
+        description: "Move existing repository skills into .factory/skills/ and ignore the generated copies",
+        moves: [
+          {
+            name: "release",
+            from: [".claude/skills/release"],
+            to: ".factory/skills/release",
+          },
+        ],
+      },
+    ]);
+    expect(await snapshot(repo.root)).toEqual(before);
+    expect(await pathExists(repo.path(".factory"))).toBe(false);
+  });
+
+  test("declining the adoption question changes nothing", async () => {
+    const repo = await gitRepo({
+      ".claude/skills/release/SKILL.md": skill("release"),
+    });
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["init", "--agents", "claude"], {
+      cwd: repo.root,
+      tty: true,
+      stdin: Readable.from(["n\n"]),
+    });
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Adoption declined");
+    expect(await snapshot(repo.root)).toEqual(before);
+    expect(await pathExists(repo.path(".factory"))).toBe(false);
+  });
+
+  test("accepting the adoption question moves the skill", async () => {
+    const repo = await gitRepo({
+      ".claude/skills/release/SKILL.md": skill("release"),
+    });
+
+    const result = await runCli(["init", "--agents", "claude"], {
+      cwd: repo.root,
+      tty: true,
+      stdin: Readable.from(["y\n"]),
+    });
+
+    expect(result.code).toBe(0);
+    expect(await pathExists(repo.path(".factory", "skills", "release", "SKILL.md"))).toBe(true);
+    expect(await pathExists(repo.path(".claude", "skills", "release", "SKILL.md"))).toBe(true);
+  });
+
+  test("a stray file blocks adoption with exit 5 and writes nothing", async () => {
+    const repo = await gitRepo({
+      ".claude/skills/README.md": "notes\n",
+    });
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["init", "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stdout).toBe("Adoption is blocked by 1 entry.\n");
+    expect(result.stderr).toContain("Unowned file .claude/skills/README.md");
+    expect(await snapshot(repo.root)).toEqual(before);
+    expect(await pathExists(repo.path(".factory"))).toBe(false);
+  });
+
+  test("adopts a skill added directly to a managed destination later", async () => {
+    const repo = await gitRepo();
+    await runCli(["init", "--agents", "claude"], { cwd: repo.root });
+    await writeRepoFiles(repo.root, {
+      ".claude/skills/later/SKILL.md": skill("later"),
+    });
+
+    const result = await runCli(["init", "--agents", "claude", "--adopt"], { cwd: repo.root });
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Moved .claude/skills/later -> .factory/skills/later");
+    expect(await readFile(repo.path(".factory", "skills", "later", "SKILL.md"), "utf8")).toBe(
+      skill("later"),
+    );
+    expect(await pathExists(repo.path(".claude", "skills", "later", "SKILL.md"))).toBe(true);
+  });
+
+  test("generated skill directories are not adoption candidates", async () => {
+    const repo = await gitRepo();
+    await runCli(["init", "--agents", "claude"], { cwd: repo.root });
+
+    const result = await runCli(["init", "--agents", "claude", "--json"], { cwd: repo.root });
+
+    expect(result.code).toBe(0);
+    const payload = parseJson(result);
+    expect(payload.moved).toEqual([]);
+    expect(payload.created).toEqual([]);
+    expect(payload.updated).toEqual([]);
+    expect(payload.gitattributes).toEqual([]);
+    expect(payload.changed).toEqual([]);
+  });
+
+  test("keeps an existing factory and adds only missing entries", async () => {
+    const repo = await gitRepo({
+      ".factory/factory.yaml": "format: 1\nname: custom\n",
+    });
+
+    const result = await runCli(["init", "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(0);
+    expect(await readFile(repo.path(".factory", "factory.yaml"), "utf8")).toBe(
+      "format: 1\nname: custom\n",
+    );
+    expect(await pathExists(repo.path(".factory", "AGENTS.md"))).toBe(true);
+    expect(await pathExists(repo.path(".factory", "metafab.yaml"))).toBe(true);
+  });
+});
