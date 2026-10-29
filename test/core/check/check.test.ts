@@ -191,6 +191,28 @@ describe("runCheck", () => {
     expect(problems.some((problem) => problem.message.includes("has no source"))).toBe(false);
   });
 
+  test("a removal in the other deselected destination is named too", async () => {
+    const target = await checkRepo({
+      ".factory/metafab.yaml": "agents: [claude, codex]\nmetafab-skill: false\n",
+    });
+    await build(target.root);
+    await writeFile(
+      target.path(".factory", "metafab.yaml"),
+      "agents: [codex]\nmetafab-skill: false\n",
+    );
+
+    const problems = await runCheck(target.root, PACKAGE_VERSION);
+
+    expect(problems).toContainEqual({
+      level: "error",
+      file: ".claude/skills/demo",
+      line: 1,
+      message: ".claude/skills/demo is installed for an agent tool that is no longer configured",
+      fix: "Run metafab build",
+    });
+    expect(problems.some((problem) => problem.message.includes("has no source"))).toBe(false);
+  });
+
   test("the build-output warning says how to continue", async () => {
     const target = await checkRepo({ ".factory/metafab.yaml": "agents: [nope]\n" });
 
