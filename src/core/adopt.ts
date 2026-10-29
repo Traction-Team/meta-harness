@@ -4,8 +4,10 @@ import { ExitCode, MetafabError } from "../errors.js";
 import type { Problem } from "../errors.js";
 import type { RequiredValue } from "../input.js";
 import { parseFrontmatter } from "../util/frontmatter.js";
+import type { FrontmatterResult } from "../util/frontmatter.js";
 import { equalIgnoringEOL } from "../util/text.js";
-import { isOwned, textContent } from "./build/skill.js";
+import { compileSkill, isOwned, textContent } from "./build/skill.js";
+import { setSkillLines } from "./factory/lines.js";
 import {
   rule1RequiredFields,
   rule2NameMatchesDirectory,
@@ -150,35 +152,40 @@ function isInside(root: string, target: string): boolean {
   );
 }
 
+type ParsedFrontmatter = Extract<FrontmatterResult, { ok: true }>;
+
 /**
  * A factory skill stub for a candidate skill, at the path it will occupy after
  * the move, so the factory's own rules validate it exactly as `build` will.
+ * The frontmatter line numbers are copied the way `loadFactory` copies them, so
+ * problems point at the field they name instead of the top of the file.
  */
-function candidateSkill(
-  name: string,
-  frontmatter: Record<string, unknown>,
-  frontmatterLines: { start: number; end: number },
-): Skill {
-  return {
+function candidateSkill(name: string, parsed: ParsedFrontmatter): Skill {
+  const skill: Skill = {
     name,
     relDir: `skills/${name}`,
     group: "skills",
     isWorkflow: false,
-    frontmatter,
-    frontmatterLines,
+    frontmatter: parsed.value,
+    frontmatterLines: { start: parsed.startLine, end: parsed.endLine },
   };
+
+  const nameNode = parsed.document.get("name", true);
+  const descriptionNode = parsed.document.get("description", true);
+  setSkillLines(skill, {
+    ...(nameNode === undefined ? {} : { name: parsed.lineOf(nameNode) }),
+    ...(descriptionNode === undefined ? {} : { description: parsed.lineOf(descriptionNode) }),
+  });
+
+  return skill;
 }
 
 /** The factory validation rules that apply to one skill. */
-function candidateSkillProblems(
-  name: string,
-  frontmatter: Record<string, unknown>,
-  frontmatterLines: { start: number; end: number },
-): Problem[] {
-  const skill = candidateSkill(name, frontmatter, frontmatterLines);
+function candidateSkillProblems(name: string, parsed: ParsedFrontmatter): Problem[] {
+  const skill = candidateSkill(name, parsed);
   const problems = [...rule1RequiredFields(skill), ...rule6SkillGrammar(skill)];
 
-  const declared = frontmatter.name;
+  const declared = parsed.value.name;
   if (typeof declared === "string" && declared !== "") {
     problems.push(
       ...rule2NameMatchesDirectory(skill),
@@ -190,57 +197,44 @@ function candidateSkillProblems(
   return problems;
 }
 
-async function symlinkProblem(
+/**
+ * A symlink inside the skill that would not point inside the skill after the
+ * move. Adoption moves only the skill directory, so anything else — a file in
+ * the repository, a directory under `.factory/`, an absolute path — would be
+ * left behind or change meaning, and `build` would fail on it after the move.
+ */
+async function linkProblem(
   root: string,
-  from: string,
-  to: string,
   relative: string,
   linkPath: string,
+  destinationRoot: string,
+  to: string,
 ): Promise<Problem | undefined> {
-  const link = absolute(root, linkPath);
   let target: string;
   try {
-    target = await readlink(link);
+    target = await readlink(absolute(root, linkPath));
   } catch {
     return unreadable(linkPath);
   }
 
-  const factoryDir = absolute(root, FACTORY_DIRECTORY);
-  const destinationRoot = absolute(root, to);
-  const resolved = path.resolve(path.dirname(absolute(root, `${to}/${relative}`)), target);
-
-  if (!isInside(factoryDir, resolved)) {
-    return {
-      level: "error",
-      file: linkPath,
-      message: `Symlink ${linkPath} points outside .factory/`,
-      fix: "Replace it with a regular file inside .factory/, or remove the symlink",
-    };
-  }
-
-  if (isInside(destinationRoot, resolved)) {
-    // The target moves with the skill, so it still lives at the source path.
-    const inner = path.relative(destinationRoot, resolved);
-    if ((await lstatIfExists(absolute(root, `${from}/${inner}`))) !== undefined) return undefined;
-  } else if ((await lstatIfExists(resolved)) !== undefined) {
-    return undefined;
-  }
+  const destinationLink = absolute(root, `${to}/${relative}`);
+  const destinationTarget = path.resolve(path.dirname(destinationLink), target);
+  if (isInside(destinationRoot, destinationTarget)) return undefined;
 
   return {
     level: "error",
     file: linkPath,
-    message: `Symlink ${linkPath} is broken`,
-    fix: "Replace it with a regular file inside .factory/, or remove the symlink",
+    message: `Symlink ${linkPath} points outside the skill directory`,
+    fix: "Point it inside the skill directory, or remove the symlink",
   };
 }
 
-async function checkSkillTree(
-  root: string,
-  name: string,
-  from: string,
-  directory: string,
-): Promise<Problem | undefined> {
-  const to = `${FACTORY_SKILLS_DIRECTORY}/${name}`;
+/**
+ * The first entry in the candidate tree that the move cannot carry: a symlink
+ * that leaves the skill, or a nested skill directory.
+ */
+async function treeProblems(root: string, from: string, to: string): Promise<Problem | undefined> {
+  const destinationRoot = absolute(root, to);
   const pending = [""];
 
   while (pending.length > 0) {
@@ -251,7 +245,8 @@ async function checkSkillTree(
     try {
       entries = await readdir(absolute(root, current), { withFileTypes: true });
     } catch {
-      return unreadable(current);
+      // `compileSkill` reports the unreadable directory itself.
+      continue;
     }
     entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
 
@@ -260,7 +255,7 @@ async function checkSkillTree(
       const childPath = `${from}/${child}`;
 
       if (entry.isSymbolicLink()) {
-        const problem = await symlinkProblem(root, from, to, child, childPath);
+        const problem = await linkProblem(root, child, childPath, destinationRoot, to);
         if (problem !== undefined) return problem;
         continue;
       }
@@ -276,6 +271,28 @@ async function checkSkillTree(
   }
 
   return undefined;
+}
+
+/**
+ * Problems that `build` would report for the skill after the move. The walk is
+ * `build`'s own `compileSkill`, so loop detection and file reads are the same
+ * code: it runs on the source tree with the skill directory as the containment
+ * root, because the directory moves as a unit, and a link that stays inside it
+ * stays inside `.factory/skills/<name>/` too.
+ */
+async function checkSkillTree(
+  root: string,
+  name: string,
+  from: string,
+): Promise<Problem | undefined> {
+  const relocation = await treeProblems(root, from, `${FACTORY_SKILLS_DIRECTORY}/${name}`);
+  if (relocation !== undefined) return relocation;
+
+  const compiled = await compileSkill(
+    { dir: absolute(root, from), name, sourcePath: from },
+    { factoryDir: absolute(root, from) },
+  );
+  return compiled.problems[0];
 }
 
 async function checkSkill(
@@ -321,14 +338,11 @@ async function checkSkill(
     };
   }
 
-  const problems = candidateSkillProblems(name, parsed.value, {
-    start: parsed.startLine,
-    end: parsed.endLine,
-  });
+  const problems = candidateSkillProblems(name, parsed);
   const problem = problems[0];
   if (problem !== undefined) return { ...problem, file: skillFile };
 
-  return checkSkillTree(root, name, from, directory);
+  return checkSkillTree(root, name, from);
 }
 
 async function scanDestination(

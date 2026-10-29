@@ -221,6 +221,22 @@ describe("planAdoption", () => {
     );
   });
 
+  test("reports the frontmatter line of a problem field", async () => {
+    const repo = await repoWith({
+      ".claude/skills/wrong-name/SKILL.md":
+        "---\nname: bar\ndescription: Use bar when the task needs it.\n---\n\n# bar\n",
+      ".claude/skills/long-description/SKILL.md":
+        "---\nname: long-description\ndescription: |\n  Two lines.\n---\n\n# long-description\n",
+    });
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.blockers.map((problem) => [problem.file, problem.line])).toEqual([
+      [".claude/skills/long-description/SKILL.md", 3],
+      [".claude/skills/wrong-name/SKILL.md", 2],
+    ]);
+  });
+
   test("blocks a SKILL.md without a description", async () => {
     const repo = await repoWith({
       ".claude/skills/release/SKILL.md": "---\nname: release\n---\n\n# release\n",
@@ -249,7 +265,7 @@ describe("planAdoption", () => {
     );
   });
 
-  test("blocks a symlink that points outside .factory", async () => {
+  test("blocks a symlink that points outside the skill directory", async () => {
     const repo = await repoWith({
       ".claude/skills/release/SKILL.md": skill("release"),
       "README.md": "# Repository\n",
@@ -262,13 +278,80 @@ describe("planAdoption", () => {
     expect(plan.blockers).toHaveLength(1);
     expect(plan.blockers[0]!.file).toBe(".claude/skills/release/link");
     expect(plan.blockers[0]!.message).toBe(
-      "Symlink .claude/skills/release/link points outside .factory/",
+      "Symlink .claude/skills/release/link points outside the skill directory",
     );
   });
 
+  test("blocks a symlink that leaves the skill even when its target moves with it", async () => {
+    const repo = await repoWith({
+      ".claude/skills/release/SKILL.md": skill("release"),
+      ".claude/skills/release/reference/notes.md": "notes\n",
+    });
+    await symlink("../reference/notes.md", repo.path(".claude/skills/release/notes-link.md"));
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.moves).toEqual([]);
+    expect(plan.blockers[0]!.message).toBe(
+      "Symlink .claude/skills/release/notes-link.md points outside the skill directory",
+    );
+  });
+
+  test("blocks a symlink that resolves through a symlinked directory into .factory", async () => {
+    const repo = await repoWith({
+      ".claude/skills/release/SKILL.md": skill("release"),
+      "outside/notes.md": "outside notes\n",
+    });
+    await mkdir(repo.path(".factory"), { recursive: true });
+    await symlink("../outside", repo.path(".factory/shared"), "dir");
+    await symlink(
+      "../../../.factory/shared/notes.md",
+      repo.path(".claude/skills/release/notes-link.md"),
+    );
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.moves).toEqual([]);
+    expect(plan.blockers[0]!.message).toBe(
+      "Symlink .claude/skills/release/notes-link.md points outside the skill directory",
+    );
+  });
+
+  test("blocks a symlink loop that build would report after the move", async () => {
+    const repo = await repoWith({ ".claude/skills/release/SKILL.md": skill("release") });
+    await symlink(".", repo.path(".claude/skills/release/loop"));
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.moves).toEqual([]);
+    expect(plan.blockers).toHaveLength(1);
+    expect(plan.blockers[0]!.file).toBe(".claude/skills/release/loop");
+    expect(plan.blockers[0]!.message).toContain("creates a loop");
+  });
+
+  test.skipIf(process.platform === "win32")(
+    "blocks an unreadable supporting file that build would report after the move",
+    async () => {
+      const repo = await repoWith({
+        ".claude/skills/release/SKILL.md": skill("release"),
+        ".claude/skills/release/notes.md": "notes\n",
+      });
+      await chmod(repo.path(".claude/skills/release/notes.md"), 0o000);
+
+      const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+      expect(plan.moves).toEqual([]);
+      expect(plan.blockers).toHaveLength(1);
+      expect(plan.blockers[0]!.file).toBe(".claude/skills/release/notes.md");
+      expect(plan.blockers[0]!.message).toBe(
+        "Cannot read file .claude/skills/release/notes.md",
+      );
+    },
+  );
+
   test("blocks a broken symlink that would remain broken after the move", async () => {
     const repo = await repoWith({ ".claude/skills/release/SKILL.md": skill("release") });
-    await symlink("../../README.md", repo.path(".claude/skills/release/link"));
+    await symlink("missing.md", repo.path(".claude/skills/release/link"));
 
     const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
 
