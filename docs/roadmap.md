@@ -30,7 +30,7 @@ A team can create, edit, build, and check a factory in one repository.
 - [ ] [1.005 Check](plans/1.005-check.md): source, config, and installed-output validation
 - [ ] [1.006 Init and adoption](plans/1.006-init-and-adoption.md): `init`, `.gitattributes`, moving existing skills into `.factory/`
 - [x] [1.007 Authoring and inspection](plans/1.007-authoring-commands.md): `create`, `pipeline add/remove`, `map`
-- [ ] [1.013 Factory edge cases](plans/1.013-factory-edge-cases.md): `factory.yaml` aliases, reserved containers, `create` and `map` fixes
+- [x] [1.013 Factory edge cases](plans/1.013-factory-edge-cases.md): `factory.yaml` aliases, reserved containers, `create` and `map` fixes
 
 ## Milestone 2: Sharing
 
