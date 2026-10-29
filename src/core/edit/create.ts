@@ -3,8 +3,9 @@ import path from "node:path";
 import { MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import { isSingleLine } from "../../util/text.js";
+import { discoverSkills } from "../factory/discovery.js";
 import { loadFactory } from "../factory/load.js";
-import { skillFile } from "../factory/validate.js";
+import { RESERVED_CONTAINERS, skillFile } from "../factory/validate.js";
 import { writeTextAtomically } from "./files.js";
 import { normaliseCreatePath } from "./paths.js";
 import { skillFileText } from "./skill.js";
@@ -29,6 +30,10 @@ function problem(file: string, message: string, fix?: string): Problem {
 
 function createError(code: string, message: string, problems: Problem[]): MetafabError {
   return new MetafabError(message, { code, problems });
+}
+
+function isReservedContainerRelDir(relDir: string): boolean {
+  return !relDir.includes("/") && (RESERVED_CONTAINERS as readonly string[]).includes(relDir);
 }
 
 async function hasSkillFile(directory: string): Promise<boolean> {
@@ -56,7 +61,7 @@ async function hasChildSkill(directory: string, prefix = ""): Promise<string | u
     if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
     const relDir = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
     const childDir = path.join(directory, entry.name);
-    if (await hasSkillFile(childDir)) return relDir;
+    if (!isReservedContainerRelDir(relDir) && (await hasSkillFile(childDir))) return relDir;
     const nested = await hasChildSkill(childDir, relDir);
     if (nested !== undefined) return nested;
   }
@@ -84,6 +89,14 @@ export async function planCreate(root: string, input: string): Promise<CreatePla
   const target = path.join(factoryDir, ...resolved.segments);
   const file = `.factory/${resolved.relDir}/SKILL.md`;
 
+  const first = resolved.segments[0];
+  if (resolved.segments.length === 1 && first !== undefined && isReservedContainerRelDir(first)) {
+    const message = `The path "${input}" is a reserved directory and cannot be a skill.`;
+    throw createError("create-reserved-path", message, [
+      problem(`.factory/${first}`, message, `Create a skill inside it, such as ${first}/<name>`),
+    ]);
+  }
+
   for (let index = 1; index < resolved.segments.length; index += 1) {
     const ancestorSegments = resolved.segments.slice(0, index);
     const ancestorRelDir = ancestorSegments.join("/");
@@ -98,7 +111,7 @@ export async function planCreate(root: string, input: string): Promise<CreatePla
         ),
       ]);
     }
-    if (await hasSkillFile(ancestorDir)) {
+    if (!isReservedContainerRelDir(ancestorRelDir) && (await hasSkillFile(ancestorDir))) {
       const message = `The path "${input}" is inside the skill "${ancestorRelDir}".`;
       throw createError("create-inside-skill", message, [
         problem(`.factory/${ancestorRelDir}/SKILL.md`, message, "Choose a path outside that skill directory"),
@@ -140,6 +153,17 @@ export async function planCreate(root: string, input: string): Promise<CreatePla
     const message = `A skill named "${resolved.name}" already exists at ${skillFile(clash)}.`;
     throw createError("create-duplicate-name", message, [
       problem(file, message, "Choose another name or rename the existing skill"),
+    ]);
+  }
+
+  const discovery = await discoverSkills(root);
+  const unreadable = discovery.skipped.find(
+    (relDir) => (relDir.split("/").pop() ?? "") === resolved.name,
+  );
+  if (unreadable !== undefined) {
+    const message = `.factory/${unreadable} may hold a skill named "${resolved.name}", but it cannot be read`;
+    throw createError("create-duplicate-name", message, [
+      problem(`.factory/${unreadable}`, message, "Make it readable or fix its SKILL.md, then try again"),
     ]);
   }
 

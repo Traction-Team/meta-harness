@@ -1,0 +1,16 @@
+[
+  {
+    "level": "error",
+    "file": ".factory/scorers/SKILL.md",
+    "line": 1,
+    "message": "scorers is a reserved directory and cannot be a skill",
+    "fix": "Move the SKILL.md into .factory/scorers/<name>/"
+  },
+  {
+    "level": "error",
+    "file": ".factory/workflows/SKILL.md",
+    "line": 1,
+    "message": "workflows is a reserved directory and cannot be a skill",
+    "fix": "Move the SKILL.md into .factory/workflows/<name>/"
+  }
+]
