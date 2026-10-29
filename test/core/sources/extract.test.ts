@@ -1,6 +1,7 @@
 import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { gzipSync } from "node:zlib";
 import * as tar from "tar";
 import { describe, expect, test } from "vitest";
 import { ExitCode, MetafabError } from "../../../src/errors.js";
@@ -46,6 +47,18 @@ async function makeRawTar(archive: string, entries: RawEntry[]): Promise<void> {
   }
   blocks.push(Buffer.alloc(1024));
   await writeFile(archive, Buffer.concat(blocks));
+}
+
+function emptyEntry(entryPath: string): Buffer {
+  const block = Buffer.alloc(512);
+  new tar.Header({
+    path: entryPath,
+    type: "File",
+    size: 0,
+    mode: 0o644,
+    mtime: new Date(0),
+  }).encode(block);
+  return block;
 }
 
 async function expectInvalid(
@@ -380,6 +393,66 @@ describe("extractTarball", () => {
     }
   });
 
+  test("rejects an entry spelled .FACTORY", async () => {
+    const base = await tempDir();
+    try {
+      const archive = path.join(base, "evil.tar");
+      await makeRawTar(archive, [
+        { path: "secret", type: "File", body: "secret\n" },
+        { path: ".FACTORY/AGENTS.md", type: "File", body: "agents\n" },
+        { path: ".FACTORY/skills/base/SKILL.md", type: "File", body: "skill\n" },
+        { path: ".FACTORY/leak", type: "SymbolicLink", linkpath: "../secret" },
+      ]);
+
+      const destination = path.join(base, "out");
+      const failure = await expectInvalid(archive, destination);
+
+      expect(
+        failure.problems?.some((problem) => problem.message.includes("collide with .factory")),
+      ).toBe(true);
+      expect(await pathExists(path.join(destination, ".factory"))).toBe(false);
+      expect(await pathExists(path.join(destination, ".FACTORY"))).toBe(false);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a case-variant .factory that would expose the destination root", async () => {
+    const base = await tempDir();
+    try {
+      const probe = path.join(base, "probe", ".factory");
+      await mkdir(probe, { recursive: true });
+      const caseInsensitive = await pathExists(path.join(base, "probe", ".FACTORY"));
+
+      const archive = path.join(base, "evil.tar");
+      await makeRawTar(archive, [
+        { path: "secret", type: "File", body: "secret\n" },
+        { path: ".FACTORY/AGENTS.md", type: "File", body: "agents\n" },
+        { path: ".FACTORY/skills/base/SKILL.md", type: "File", body: "skill\n" },
+        { path: ".FACTORY/leak", type: "SymbolicLink", linkpath: "../secret" },
+      ]);
+
+      const destination = path.join(base, "out");
+      const failure = await expectInvalid(archive, destination);
+
+      expect(
+        failure.problems?.some((problem) => problem.message.includes("collide with .factory")),
+      ).toBe(true);
+      if (caseInsensitive) {
+        // `.FACTORY/leak` physically lives in `.factory`, so it must not resolve
+        // `../secret` under either spelling.
+        expect(await pathExists(path.join(destination, ".factory", "leak"))).toBe(false);
+        expect(await pathExists(path.join(destination, ".FACTORY", "leak"))).toBe(false);
+      } else {
+        // A case-sensitive filesystem keeps the two directories apart; only the
+        // spelling rejection applies.
+        expect(await pathExists(path.join(destination, ".factory"))).toBe(false);
+      }
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
   test("rejects an archive with too many entries", async () => {
     const base = await tempDir();
     try {
@@ -414,6 +487,86 @@ describe("extractTarball", () => {
       });
 
       expect(failure.problems?.some((problem) => problem.message.includes("in total"))).toBe(true);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a truncated archive whose declared total size exceeds the cap", async () => {
+    const base = await tempDir();
+    try {
+      // The body of the huge entry is missing on purpose: the cap has to be read
+      // from the header alone.
+      const header = Buffer.alloc(512);
+      new tar.Header({
+        path: ".factory/huge.bin",
+        type: "File",
+        size: 64 * 1024 * 1024,
+        mode: 0o644,
+        mtime: new Date(0),
+      }).encode(header);
+      const archive = path.join(base, "evil.tar");
+      await writeFile(archive, Buffer.concat([header, Buffer.alloc(2048, 0)]));
+
+      const failure = await expectInvalid(archive, path.join(base, "out"), {
+        maxTotalSize: 1024,
+      });
+
+      expect(failure.problems?.some((problem) => problem.message.includes("in total"))).toBe(true);
+      expect(failure.message).not.toContain("Cannot extract");
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a truncated archive whose entry count exceeds the cap", async () => {
+    const base = await tempDir();
+    try {
+      const header = Buffer.alloc(512);
+      new tar.Header({
+        path: ".factory/next.bin",
+        type: "File",
+        size: 512 * 1024 * 1024,
+        mode: 0o644,
+        mtime: new Date(0),
+      }).encode(header);
+      const archive = path.join(base, "evil.tar");
+      await writeFile(archive, Buffer.concat([emptyEntry(".factory/first.md"), header]));
+
+      const failure = await expectInvalid(archive, path.join(base, "out"), { maxEntries: 1 });
+
+      expect(failure.problems?.some((problem) => problem.message.includes("more than 1 entries"))).toBe(
+        true,
+      );
+      expect(failure.message).not.toContain("Cannot extract");
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a zero-filled gzip without decompressing the whole archive", async () => {
+    const base = await tempDir();
+    try {
+      const header = Buffer.alloc(512);
+      new tar.Header({
+        path: ".factory/zeros.bin",
+        type: "File",
+        size: 16 * 1024 * 1024,
+        mode: 0o644,
+        mtime: new Date(0),
+      }).encode(header);
+      const archive = path.join(base, "bomb.tgz");
+      await writeFile(
+        archive,
+        gzipSync(Buffer.concat([header, Buffer.alloc(16 * 1024 * 1024)])),
+      );
+
+      const failure = await expectInvalid(archive, path.join(base, "out"), {
+        maxTotalSize: 1024 * 1024,
+      });
+
+      expect(failure.problems?.some((problem) => problem.message.includes("in total"))).toBe(true);
+      expect(failure.message).not.toContain("Cannot extract");
     } finally {
       await rm(base, { recursive: true, force: true });
     }

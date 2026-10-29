@@ -1,3 +1,4 @@
+import { createReadStream } from "node:fs";
 import { link, mkdir, realpath, rm, stat, symlink } from "node:fs/promises";
 import type { Stats } from "node:fs";
 import path from "node:path";
@@ -9,6 +10,9 @@ import type { Problem } from "../../errors.js";
 export const MAX_FAB_FILE_SIZE = 1024 * 1024;
 export const MAX_FAB_TOTAL_SIZE = 64 * 1024 * 1024;
 export const MAX_FAB_ENTRIES = 10_000;
+
+const BLOCK_SIZE = 512;
+const FACTORY_DIRECTORY = ".factory";
 
 export interface ExtractTarballOptions {
   strip?: number;
@@ -51,6 +55,20 @@ function unsafePathReason(entryPath: string): string | undefined {
   return undefined;
 }
 
+function collidesWithFactory(segment: string): boolean {
+  if (segment === FACTORY_DIRECTORY) return false;
+  return segment.replace(/[. ]+$/g, "").toLowerCase() === FACTORY_DIRECTORY;
+}
+
+function factoryCollisionReason(entryPath: string): string | undefined {
+  for (const segment of entryPath.replace(/\\/g, "/").split("/")) {
+    if (collidesWithFactory(segment)) {
+      return "paths that collide with .factory are not allowed in a fab";
+    }
+  }
+  return undefined;
+}
+
 function entryProblem(entry: ReadEntry, maxFileSize: number): string | undefined {
   if (entry.type === "BlockDevice" || entry.type === "CharacterDevice" || entry.type === "FIFO") {
     return "device files and FIFOs are not allowed in a fab";
@@ -88,10 +106,48 @@ function stripEntryPath(entryPath: string, count: number): string {
   return parts.slice(count).join("/");
 }
 
-async function readEntries(tarball: string): Promise<ArchiveEntry[]> {
+interface ListingLimits {
+  maxEntries: number;
+  maxTotalSize: number;
+}
+
+/**
+ * Header and padding blocks are read for every entry too, so a tar full of
+ * padding or metadata cannot hide behind the declared file sizes.
+ */
+function blockBytes(size: number): number {
+  return BLOCK_SIZE + Math.ceil(size / BLOCK_SIZE) * BLOCK_SIZE;
+}
+
+function listingReadCap(limits: ListingLimits): number {
+  return limits.maxTotalSize + limits.maxEntries * 2 * BLOCK_SIZE + 2 * BLOCK_SIZE;
+}
+
+function listingProblem(
+  entries: number,
+  declaredBytes: number,
+  readBytes: number,
+  limits: ListingLimits,
+): string | undefined {
+  if (entries > limits.maxEntries) {
+    return `archives with more than ${limits.maxEntries} entries are not allowed in a fab`;
+  }
+  if (declaredBytes > limits.maxTotalSize) {
+    return `extracted files larger than ${limits.maxTotalSize} bytes in total are not allowed in a fab`;
+  }
+  if (readBytes > listingReadCap(limits)) {
+    return `archives that expand to more than ${listingReadCap(limits)} bytes are not allowed in a fab`;
+  }
+  return undefined;
+}
+
+async function readEntries(tarball: string, limits: ListingLimits): Promise<ArchiveEntry[]> {
   const entries: ArchiveEntry[] = [];
-  await tar.t({
-    file: tarball,
+  let declaredBytes = 0;
+  let readBytes = 0;
+  let failure: MetafabError | undefined;
+
+  const parser = tar.list({
     onentry: (entry) => {
       entries.push({
         path: entry.path,
@@ -101,8 +157,35 @@ async function readEntries(tarball: string): Promise<ArchiveEntry[]> {
           : { linkpath: String(entry.linkpath) }),
         size: entry.size,
       });
+      readBytes += blockBytes(entry.size);
+      if (FILE_TYPES.has(entry.type)) declaredBytes += entry.size;
+
+      const problem = listingProblem(entries.length, declaredBytes, readBytes, limits);
+      if (problem === undefined) {
+        entry.resume();
+        return;
+      }
+      failure = unsafeArchive(problem);
+      parser.abort(failure);
     },
   });
+
+  const stream = createReadStream(tarball);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      parser.on("end", resolve);
+      parser.on("error", (error: unknown) => {
+        stream.destroy();
+        reject(error);
+      });
+      stream.on("error", reject);
+      stream.pipe(parser);
+    });
+  } catch (error) {
+    if (failure !== undefined) throw failure;
+    throw error;
+  }
+  if (failure !== undefined) throw failure;
   return entries;
 }
 
@@ -194,10 +277,25 @@ function linkPath(destination: string, relativePath: string): string {
   return path.join(destination, ...relativePath.split("/"));
 }
 
-async function containmentRootAbsolute(finalPath: string, destination: string): Promise<string> {
-  const root = containmentRoot(finalPath);
-  const absolute = root === "" ? path.resolve(destination) : path.join(path.resolve(destination), root);
-  return realpath(absolute).catch(() => absolute);
+async function containmentRootAbsolute(absoluteLinkPath: string, destination: string): Promise<string> {
+  const destinationRoot = await realpath(destination).catch(() => path.resolve(destination));
+  const factoryPath = path.join(destination, FACTORY_DIRECTORY);
+  const factory = await stat(factoryPath).catch(() => undefined);
+  if (factory === undefined) return destinationRoot;
+
+  // The spelling of the stored path is not what the filesystem matches on: on a
+  // case-insensitive filesystem `.FACTORY/leak` lives in the same directory as
+  // `.factory/leak`. Walk the link's real ancestors and compare their identity.
+  let current = path.dirname(absoluteLinkPath);
+  for (;;) {
+    const ancestor = await stat(current).catch(() => undefined);
+    if (ancestor !== undefined && ancestor.dev === factory.dev && ancestor.ino === factory.ino) {
+      return realpath(factoryPath).catch(() => factoryPath);
+    }
+    const parent = path.dirname(current);
+    if (parent === current) return destinationRoot;
+    current = parent;
+  }
 }
 
 function isInsideAbsolute(root: string, target: string): boolean {
@@ -290,6 +388,8 @@ async function createLinks(destination: string, tasks: LinkTask[]): Promise<Prob
 
   for (const task of hard) {
     const source = linkPath(destination, task.target);
+    const target = linkPath(destination, task.path);
+    await mkdir(path.dirname(target), { recursive: true });
     let resolved: string;
     try {
       resolved = await realpath(source);
@@ -301,7 +401,7 @@ async function createLinks(destination: string, tasks: LinkTask[]): Promise<Prob
       });
       continue;
     }
-    if (!isInsideAbsolute(await containmentRootAbsolute(task.path, destination), resolved)) {
+    if (!isInsideAbsolute(await containmentRootAbsolute(target, destination), resolved)) {
       problems.push({
         level: "error",
         file: task.path,
@@ -323,9 +423,10 @@ async function verifyLinks(destination: string, tasks: LinkTask[]): Promise<Prob
   const problems: Problem[] = [];
 
   for (const task of tasks) {
+    const target = linkPath(destination, task.path);
     let resolved: string;
     try {
-      resolved = await realpath(linkPath(destination, task.path));
+      resolved = await realpath(target);
     } catch {
       problems.push({
         level: "error",
@@ -334,7 +435,7 @@ async function verifyLinks(destination: string, tasks: LinkTask[]): Promise<Prob
       });
       continue;
     }
-    if (!isInsideAbsolute(await containmentRootAbsolute(task.path, destination), resolved)) {
+    if (!isInsideAbsolute(await containmentRootAbsolute(target, destination), resolved)) {
       problems.push({
         level: "error",
         file: task.path,
@@ -377,10 +478,7 @@ export async function extractTarball(
 
   let entries: ArchiveEntry[];
   try {
-    entries = await readEntries(tarball);
-    if (entries.length > maxEntries) {
-      throw unsafeArchive(`archives with more than ${maxEntries} entries are not allowed in a fab`);
-    }
+    entries = await readEntries(tarball, { maxEntries, maxTotalSize });
     if (options.flattenSingleDirectory === true) {
       const top = await singleTopDirectory(entries, prefix, strip);
       if (top !== undefined) strip += 1;
@@ -393,13 +491,6 @@ export async function extractTarball(
   const relevant = entries.filter(
     (entry) => prefix === undefined || cleanEntryPath(entry.path).startsWith(prefix),
   );
-  const declaredBytes = relevant.reduce(
-    (total, entry) => (FILE_TYPES.has(entry.type) ? total + entry.size : total),
-    0,
-  );
-  if (declaredBytes > maxTotalSize) {
-    throw unsafeArchive(`extracted files larger than ${maxTotalSize} bytes in total are not allowed in a fab`);
-  }
   const linkDirectories = symlinkDirectories(relevant, strip);
 
   await mkdir(destination, { recursive: true });
@@ -411,6 +502,11 @@ export async function extractTarball(
     const reason = unsafePathReason(entryPath);
     if (reason !== undefined) {
       problems.push({ level: "error", file: entryPath, message: reason });
+      return false;
+    }
+    const collision = factoryCollisionReason(entryPath);
+    if (collision !== undefined) {
+      problems.push({ level: "error", file: entryPath, message: collision });
       return false;
     }
 
