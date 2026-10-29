@@ -9,7 +9,10 @@ owns:
   - src/core/check/**
   - src/commands/check.ts
   - test/core/check/**
-proves: "npx vitest run test/core/check → a built fixture passes; a fresh clone, a hand edit, a conflict marker and a .upstream file each fail with the right problem"
+  - src/core/build/plan.ts          # permission and mode fixes, so build and check agree (intake 2026-10-26-build-permission-edges)
+  - src/core/build/skill.ts
+  - test/core/build/**
+proves: "npx vitest run test/core/check test/core/build → a built fixture passes; a fresh clone, a hand edit, a conflict marker and a .upstream file each fail with the right problem"
 ---
 
 # Plan 05: `metafab check`
@@ -48,6 +51,7 @@ Steps 5 and 6 run only when steps 1 and 2 report no errors, because the planner 
 | Installed skill missing (fresh clone) | `Installed skill '<name>' is missing from <dest>` | `Run metafab build` |
 | Installed file differs | `<path> differs from the build output` | `Edit .factory/<relDir>/ instead, then run metafab build` |
 | Owned directory without source | `<path> has no source in .factory/` | `Run metafab build` |
+| Installed file has the wrong mode (macOS, Linux) | `<path> has mode <0666>; expected <0644>` | `Run metafab build` |
 | Built-in skill from another CLI version | `The installed metafab skill is from <v>; this CLI is <v>` | `Run metafab build` |
 | `AGENTS.md` / `CLAUDE.md` / `.gitignore` block differs or is missing | `<file> factory block is out of date` | `Run metafab build` |
 | Unowned directory in the way | as `build` | `Move it into .factory/skills/ or rename it` |
@@ -58,12 +62,28 @@ When many installed skills are missing, collapse them into one problem per desti
 
 Scan text files under `.factory/` for lines that start with `<<<<<<< `, `>>>>>>> `, or are exactly `=======` or start with `||||||| `. Report the first marker line in each file. Skip binary files.
 
+### Build permission and mode fixes
+
+`check` runs `planBuild`, so it inherits these defects from [Plan 04](04-build.md), found in the PR #4 review. The rule to meet is in [Building: Repeatability](../specs/building.md#repeatability): one `Cannot read <path>` error per unreadable path, fix `Check its permissions`, line 1, pushed to `plan.errors` (exit 1). Never to `plan.conflicts` (exit 5), and never a removal.
+
+- `chmod 000 .agents`: `lstat('.agents/skills')` in `inspectDestinationChain` throws EACCES (`plan.ts:77`), so the command prints a Node stack. Catch it there and return it as a new `readError?: Problem` field beside `problem`, naming the unreadable component. In `planBuild` (`plan.ts:734`), push `chain.readError` to `plan.errors` whether or not the destination is selected; `chain.problem` (a symbolic link, or "is a file, not a directory") stays a conflict, as `test/core/build/plan.test.ts:325` asserts.
+- `chmod 000 .agents/skills`: `scanDestination` and `planEmptyDirectories` both report "Cannot read .agents/skills" (`plan.ts:548`). `planBuild` drops a Problem whose `file` and `message` match one already in `plan.errors`.
+- `chmod 000 .agents/skills/demo`: `isOwned` swallows EACCES, so the build stops with exit 5 and suggests `metafab init`. Make `isOwned` return `boolean | Problem` (a Problem for any error other than ENOENT/ENOTDIR) and handle it at every caller:
+  - the selected destination scan (`plan.ts:563`): push it to `plan.errors` and skip the entry;
+  - the unselected destination scan (`plan.ts:588`): push it to `plan.errors` and do not add the directory to `removals`;
+  - `deselectedSymlinkConflict` (`plan.ts:609`): return `{ error: Problem }` instead of a conflict, and have `planBuild` push it to `plan.errors`.
+- Modes: 0755 when the source has any executable bit, else 0644 (`skill.ts:174` already does this). On macOS and Linux, compare `mode & 0o777` exactly (`fileMatches`, `plan.ts:686`, compares only the executable bit), so an installed 0666 file is corrected by `build`. `applyBuild` today writes, then chmods (`plan.ts:891-892`); reverse that for an existing file (chmod to the target mode, then write), so a 0444 installed file is repaired instead of failing with EACCES. On Windows, compare content only.
+- `check` compares through the same helper `build` uses, so the two cannot disagree on modes or line endings. `fileMatches` returns `{ exists, contentSame, modeSame, mode }` (and `same` as both), and is exported.
+
+In `check`, add `planBuild`'s `errors` to the report after sources 1 and 2, without duplicates. When any remain, skip sources 5 and 6 with the same `Build output not checked` warning, so an unreadable path does not also show as drift. A file whose content matches but whose mode does not gets `<path> has mode <0666>; expected <0644>`, fix `Run metafab build`.
+
 ### Output
 
 Human output prints `file:line: level: message` and an indented `fix:` line, then a summary `N errors, M warnings`. Exit 1 when any error exists.
 
 ## Steps
 
+- [ ] Build permission and mode fixes
 - [ ] Conflict marker and `.upstream` scanners
 - [ ] Drift comparison on top of `planBuild`
 - [ ] `check` command with ordering, collapsing, and the summary line
@@ -75,4 +95,9 @@ Human output prints `file:line: level: message` and an indented `fix:` line, the
 - A hand edit in `.claude/skills/x/SKILL.md` fails and points to the source
 - A conflict marker and a `.upstream` file each fail with the right path and line
 - A 301-line `AGENTS.md` block is a warning and exit 0
+- `metafab create workflows/review-slice --description "..."`, then `build`, then `check` exits 0. Plan 07 could only check this with `loadFactory` (`test/core/edit/create.test.ts:49`); intake 2026-10-25-create-check-after-build
+- Each `chmod 000` case above gives one Problem with the right fix and no stack; `--json` lists it in `problems` (skip on Windows and as root)
+- An installed 0666 file and an installed 0444 file are each corrected by `build` and reported by `check` with the mode message (skip on Windows)
+- `chmod 000 .agents` with only `claude` selected: `build` and `check` exit 1 with one `Cannot read .agents` error
+- `.agents/skills` as a file and as a symbolic link still exit 5
 - The spec's JSON example shape is produced for a misspelled pipeline entry

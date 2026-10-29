@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-26
+updated: 2026-10-29
 ---
 
 # Metafab v1 roadmap
@@ -30,6 +30,7 @@ A team can create, edit, build, and check a factory in one repository.
 - [ ] [05 Check](plans/05-check.md): source, config, and installed-output validation
 - [ ] [06 Init and adoption](plans/06-init-and-adoption.md): `init`, `.gitattributes`, moving existing skills into `.factory/`
 - [x] [07 Authoring and inspection](plans/07-authoring-commands.md): `create`, `pipeline add/remove`, `map`
+- [ ] [13 Factory edge cases](plans/13-factory-edge-cases.md): `factory.yaml` aliases, reserved containers, `create` and `map` fixes
 
 ## Milestone 2: Sharing
 
@@ -54,7 +55,7 @@ A team can publish a factory as a fab and other teams can import and update it.
 all ── 12
 ```
 
-02 and 03 can run in parallel. 07 can run in parallel with 04 to 06. 08 can start once 02 and 03 are done.
+02 and 03 can run in parallel. 07 can run in parallel with 04 to 06. 13 needs nothing unmerged and can run beside 05 and 06. 08 can start once 02 and 03 are done.
 
 ## Open questions
 
@@ -86,3 +87,8 @@ Record answered questions here with the date and the commit that applied them.
 | 2026-10-25 | A symlink inside a source skill is copied as its target's content when it stays inside `.factory/`; otherwise `build` reports an error | #4 |
 | 2026-10-25 | An installed skill directory Metafab owns is owned as a whole: `build` rewrites it to match the source. Any unowned entry directly in a selected destination stops `build` with exit 5 and a suggestion to run `metafab init` | #4 |
 | 2026-10-26 | `build` never writes through a symbolic link at the repository root or in a skill destination; a change that needs one stops with exit 5. A `CLAUDE.md` link to the root `AGENTS.md` is left unchanged | #4 |
+| 2026-10-29 | Installed files are 0755 when the source has any executable bit, else 0644; `build` corrects other modes on macOS and Linux, and Windows compares content only. An unreadable path is one `Cannot read` error with exit 1, never an ownership conflict. Plan 05 fixes the build permission edge cases | [building](specs/building.md#repeatability), [05](plans/05-check.md) |
+| 2026-10-29 | A `SKILL.md` directly in a reserved top-level directory is validation rule 11, and `create` refuses those paths | [factory-format](specs/factory-format.md#validation), [13](plans/13-factory-edge-cases.md) |
+| 2026-10-29 | `import` into a factory that already has an upstream exits 5 with one problem on `.factory/metafab.yaml` | [09](plans/09-import.md#design) |
+| 2026-10-29 | Every `--json` result contains `exitCode` | [cli](specs/cli.md#json-output) |
+| 2026-10-29 | Git fetches, clones and pushes may prompt only when stdin is a terminal and `--json` is absent | [09](plans/09-import.md#fetch-hygiene), [10](plans/10-update-diff-detach.md), [11](plans/11-publish.md) |

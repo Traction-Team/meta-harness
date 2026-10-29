@@ -12,7 +12,14 @@ owns:
   - src/commands/import.ts
   - test/core/import/**
   - test/core/summary/**
-proves: "npx vitest run test/core/import test/core/summary → import from a local path, Git and Verdaccio works end to end; the summary snapshot matches the spec example"
+  - src/core/sources/types.ts       # FetchedFab cleanup hook (intake 2026-10-26-sources-hardening, items 1 and 2)
+  - src/core/sources/https.ts
+  - src/core/sources/path.ts
+  - src/core/sources/extract.ts
+  - test/core/sources/**
+  - package.json                    # the diff package for line counts
+  - package-lock.json
+proves: "npx vitest run test/core/import test/core/summary test/core/sources → import from a local path, Git and Verdaccio works end to end; the summary snapshot matches the spec example"
 ---
 
 # Plan 09: `metafab import` and the review summary
@@ -32,7 +39,7 @@ Copy a fab into `.factory/`, record its upstream, build it, and print a risk-ord
 
 Preflight (no writes; any failure leaves the repository unchanged):
 
-1. Resolve the root with `resolveNewFactoryRoot`. If `metafab.yaml` already has `upstream`, stop: `This factory already has an upstream. Use metafab update or metafab detach.`
+1. Resolve the root with `resolveNewFactoryRoot`. If `metafab.yaml` already has `upstream`, stop with exit 5 and one problem on `.factory/metafab.yaml`: `This factory already has an upstream`, fix `Use metafab update or metafab detach`.
 2. Resolve and fetch the source ([Plan 08](08-sources.md)). Exit 3 or 4 on failure.
 3. Select targets as `init` does.
 4. Plan adoption against the selected destinations, passing the incoming fab so overlapping names follow the conflict rule.
@@ -47,6 +54,15 @@ Apply:
 10. `setUpstream`.
 11. Run `build`.
 12. Print the review summary, comparing the factory before step 8 with after step 10.
+
+### Fetch hygiene
+
+`import` is the first command that fetches, so it fixes two gaps [Plan 08](08-sources.md) left (intake `2026-10-26-sources-hardening`, items 1 and 2):
+
+- HTTPS and local-path fetches leave their `mkdtemp` directory behind. Add an optional `cleanup?: () => Promise<void>` to `FetchedFab`, set by the HTTPS and path fetchers only (Git and npm return cache paths, which stay). `import` opens a `try` straight after the fetch in step 2 and calls `cleanup` in its `finally`, so every later stop (file conflicts, exit 2 for consent, a failed build) removes the directory too. Every later caller of `fetchFab` does the same. `cleanup` is best effort: it never throws, so it cannot hide the command's own error.
+- A link whose target does not exist is reported twice, in both `extract.ts` and `path.ts`: once by `createLinks` and once by the realpath check in `verifyLinks`. Keep the creation-time message, and have `verifyLinks` skip links whose creation already failed. (Dropping the creation message instead would turn a Windows EPERM on symlink creation into a false "target does not exist".)
+
+Git resolution and fetches (`resolve` and `fetchFab`, which both reach the network) pass `interactive: true` when standard input is a terminal and `--json` is absent, so an SSH key with a passphrase can prompt. Otherwise Git runs with `GIT_TERMINAL_PROMPT=0`. This answers the Git prompt question that Plan 08 left for this plan (decided 2026-10-29).
 
 ### Review summary (`core/summary.ts`)
 
@@ -79,6 +95,7 @@ Footer: `Nothing was committed. Review the changes with git diff.` JSON returns 
 - [ ] Line diff counts (`diff` package)
 - [ ] Pipeline change describer
 - [ ] Summary classifier and renderer, with a snapshot test that reproduces the spec example
+- [ ] `FetchedFab.cleanup` and the single bad-link problem
 - [ ] `import` preflight and apply
 - [ ] End-to-end tests against a local path, a local Git repository, and Verdaccio
 
@@ -89,6 +106,8 @@ Footer: `Nothing was committed. Review the changes with git diff.` JSON returns 
 - A differing local file stops import and lists it; `--force` replaces it
 - An existing upstream stops import
 - A failing fetch or invalid fab leaves `git status` clean
+- No temporary fetch directory remains after an import from HTTPS or a local path: on success, on a file conflict without `--force`, and on exit 2 for consent. Point `TMPDIR` and `TEMP` at a fresh scratch directory for the call and assert it is empty afterwards
+- A tarball with a hard link whose target is missing gives exactly one problem; a local path with a dangling symbolic link gives one; a stubbed link-creation failure gives only the creation message
 - Adopted skills that overlap the fab follow the conflict rule
 - Summary snapshot matches the spec example
 
@@ -96,4 +115,3 @@ Footer: `Nothing was committed. Review the changes with git diff.` JSON returns 
 
 1. The spec's summary order has no group for templates and other non-skill files. Proposal: add an **Other** group after Skills.
 2. Exit code for file conflicts without `--force`. Proposal: 5 (the command would overwrite files Metafab does not own).
-3. Git sources run with `GIT_TERMINAL_PROMPT=0` unless `resolve`/`fetchFab` get `interactive: true`, and nothing passes it yet, so an SSH key with a passphrase fails even in a terminal. Proposal: `import` passes `interactive` when stdin is a TTY and `--yes` is absent. (Found while building Plan 08, #6.)

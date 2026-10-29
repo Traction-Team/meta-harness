@@ -1,0 +1,119 @@
+---
+title: "fix: factory.yaml aliases, reserved containers and authoring edge cases"
+status: ready
+kind: bug
+pr:
+needs: []
+owns:
+  - src/core/factory/discovery.ts
+  - src/core/factory/validate.ts
+  - src/core/factory/factory-yaml.ts
+  - src/core/edit/**
+  - test/core/factory/**
+  - test/core/edit/**
+  - test/fixtures/factories/**      # invalid-rule-11 fixture for fixtures.test.ts
+  - src/cli.ts                      # exitCode in the needs-input and bug JSON (spec cli.md#json-output)
+  - test/cli/cli.test.ts
+proves: "npx vitest run test/core/factory test/core/edit test/cli/cli.test.ts → aliased factory.yaml loads and edits; a SKILL.md in a reserved container is rule 11; create refuses reserved paths and names held by unreadable skills; pipeline remove on an empty factory.yaml and map on a top-level skill behave as specified"
+builds-on:
+  - docs/plans/02-factory-model.md
+  - docs/plans/07-authoring-commands.md
+retires: []
+---
+
+# Plan 13: factory.yaml and authoring edge cases
+
+Fix five defects the cold reviews of PR #3 and PR #5 found after their last fix round. A valid factory that uses YAML aliases is refused today, `create` can turn a container such as `workflows/` into a skill or reuse a name, and `pipeline remove` and `map` mishandle two uncommon layouts. After this merges, every one of them behaves as the specs say.
+
+## Specs
+
+- [Factory format: YAML and frontmatter grammar](../specs/factory-format.md#yaml-and-frontmatter-grammar)
+- [Factory format: Validation](../specs/factory-format.md#validation) (rule 11 is new)
+- [Factory format: Reserved names](../specs/factory-format.md#reserved-names)
+- [CLI: Edit a factory](../specs/cli.md#edit-a-factory)
+- [CLI: Inspect a factory](../specs/cli.md#inspect-a-factory)
+
+## Decisions
+
+| Topic | Choice | Reason |
+| --- | --- | --- |
+| Reserved containers | A `SKILL.md` directly in `.factory/<name>/`, where `<name>` is `workflows`, `skills`, `templates`, `scripts`, `scorers`, `rules` or `runtimes`, is validation rule 11; `create` refuses those paths | Spec change agreed 2026-10-29 |
+| Removing an anchored pipeline entry | `pipeline remove` refuses an entry whose node (or options mapping) carries an anchor that another node aliases, exit 1, fix `Remove the alias to <anchor> first` | Deleting the anchor would leave a dangling alias and an unparseable file |
+| `pipeline remove` on an empty `factory.yaml` | Treat it like a missing file: `pipeline-entry-missing`, no write | `remove` never needs to heal the file, and `add` already does |
+| Unreadable skill directories | `create` treats a loader problem on `.factory/<dir>` or `.factory/<dir>/SKILL.md` as a skill named after `<dir>`'s last segment | We cannot read the name, so assume the directory name, as rule 2 requires |
+
+## Design
+
+### YAML aliases (intake 2026-10-23-factory-yaml-aliases)
+
+`src/core/factory/factory-yaml.ts` reads `pair.value` and pipeline `item` nodes directly, so an alias node fails `isScalar`/`isMap`. Add a `resolveNode(node, doc)` helper (`isAlias(node) ? node.resolve(doc) : node`) and use it on every node the reader type-checks: the top-level field values, the `pipeline` value, each pipeline item, an entry's options mapping (`pair.value`, before the `isMap` check), and each option value. Problems on an alias node keep the alias's line; problems inside a resolved collection report the anchored node's own lines, which is where the bad value is. `yaml` parses an alias with no anchor (`*missing`) without error, and `stringify` later throws. The loader reports it as a grammar error (rule 6) on the alias line, message `Alias *<name> has no anchor`; the editor checks the parsed document for unresolved aliases before it changes anything, and refuses with the same Problem, code `factory-yaml-invalid`, exit 1.
+
+`factory.yaml` accepts no unknown top-level fields, so the anchor must sit inside the allowed fields. The case a valid factory can use is a shared options mapping:
+
+```yaml
+pipeline:
+  - review-slice: &gate { stop: Wait for approval }
+  - finish-slice: *gate
+```
+
+The intake's `x-build: &build` example stays an error, as an unknown field (rule 6).
+
+In `src/core/edit/factory-yaml.ts`, `pipelineEntryName` and `findEntryIndex` resolve aliases the same way. They need the `Document` for that, so `pipelineEntryName(item, doc)` gains a parameter and `findEntryIndex(seq, workflow)` becomes `findEntryIndex(doc, seq, workflow)`. Both are only called inside `src/core/edit/factory-yaml.ts`. `pipeline add --after` and `pipeline remove` then see aliased entries. `removePipelineEntry` removes the entry node itself. Before removing an entry whose item, key or options mapping carries an `anchor`, look for an alias to it (`visit`), and refuse as in Decisions.
+
+### Empty `factory.yaml` (intake 2026-10-25-empty-factory-yaml-inconsistent)
+
+`removeWorkflow` in `src/core/edit/pipeline.ts` parses with the strict parser, so a file holding only `---` exits 1 with "factory.yaml must be a YAML map". Use the same `hasDocumentContent` / `isEmptyDocument` test as `addWorkflow`: an empty document goes down the `text === undefined` path.
+
+### Reserved containers (intake 2026-10-25-create-reserved-containers)
+
+- `src/core/factory/validate.ts`: export `RESERVED_CONTAINERS` and `rule11ReservedContainer(file)`, message `<dir> is a reserved directory and cannot be a skill`, fix `Move the SKILL.md into .factory/<dir>/<name>/`.
+- `src/core/factory/discovery.ts`: when `relDir` is one segment in `RESERVED_CONTAINERS` and holds `SKILL.md`, push rule 11 and do not load it as a skill. Treat the directory as not a skill when walking on: today `childParentSkill` is `relDir` whenever the directory holds `SKILL.md` (`discovery.ts:145`), which would make every skill inside it a rule 3 error. Pass the current `parentSkill` instead, so the skills inside are still found.
+- Add `test/fixtures/factories/invalid-rule-11-reserved-container/` with its `expected.json`, as the other rule fixtures do.
+- `planCreate` in `src/core/edit/create.ts`: refuse a single-segment path in `RESERVED_CONTAINERS` before any other check, code `create-reserved-path`, fix `Create a skill inside it, such as <dir>/<name>`. Matching is exact and lowercase, as names are.
+- `planCreate`'s ancestor and child checks (`hasSkillFile`, `hasChildSkill`, `create.ts:101` and `:123`) ignore a `SKILL.md` directly in a reserved container, so `create workflows/review-slice` still works when `.factory/workflows/SKILL.md` exists.
+
+### Uniqueness with unreadable skills (intake 2026-10-25-edit-uniqueness-misses-unreadable-skills)
+
+`planCreate` checks `factory.skills` only. Add `skipped: string[]` to `DiscoveryResult`: the `relDir` of every directory `discoverSkills` could not read, and of every `SKILL.md` that `loadSkill` could not read or parse (not rule 3 nested skills, which are readable). `planCreate` calls `discoverSkills(root)` and refuses with `create-duplicate-name` when the last segment of a skipped `relDir` equals the new name. The message is `.factory/<dir> may hold a skill named "<name>", but it cannot be read`, and the fix is `Make it readable or fix its SKILL.md, then try again`. An unreadable directory that holds no skill still blocks the name; that is the safe side.
+
+### `exitCode` in every JSON result (intake 2026-10-25-json-exitcode-in-spec)
+
+[CLI: JSON output](../specs/cli.md#json-output) now says every JSON result has `exitCode`. `renderNeedsInput` and `renderBug` in `src/cli.ts` omit it. Add `exitCode: error.exitCode` and `exitCode: 1` respectively.
+
+### Top-level skill in `map` (intake 2026-10-25-map-top-level-skill-group)
+
+`skillLines` in `src/core/edit/map.ts` groups by `skill.group`, which is the skill's own name for `.factory/hotfix/`. Put skills whose `path` has two segments (`.factory/hotfix` → `path.split("/").length === 2`) under a `(top level)` label, printed last as `  (top level)   hotfix` (no trailing `/`, padded like the other groups). JSON keeps `group` as it is, so `map --json` does not change.
+
+## Steps
+
+- [ ] `resolveNode` in the loader, and alias-aware pipeline reads and removal in the editor
+- [ ] `pipeline remove` on an empty document
+- [ ] Rule 11 in validation and discovery; `create-reserved-path`
+- [ ] `create` uniqueness against unreadable skills
+- [ ] `map` top-level label
+- [ ] `exitCode` in the needs-input and bug JSON
+
+## Tests
+
+- The shared-options example above loads with no problems, and `finish-slice` has `stop: Wait for approval`
+- `- review-slice: { stop: &s Wait }` then `- finish-slice: { stop: *s }` loads, and both stop at `Wait`
+- The intake's `x-build: &build` example reports rule 6 for the unknown field, not "must be a workflow name or a mapping"
+- `pipeline add x --after finish-slice` and `pipeline remove finish-slice` work on the example above and keep the anchor; `pipeline remove review-slice` exits 1 and leaves the file unchanged
+- `factory.yaml` containing `---\n`: `pipeline remove a` reports `pipeline-entry-missing` and does not write
+- `.factory/workflows/SKILL.md` gives rule 11, and `.factory/workflows/review-slice/` is still a workflow; the same for `scorers/`
+- `create workflows`, `create skills` and `create rules` each exit 1 and write nothing
+- An unreadable skill gives the new message, not "already exists at"
+- An unparseable `.factory/skills/security/SKILL.md` makes `create review/security` fail with `create-duplicate-name`; so does a `chmod 000` directory (skip on Windows and as root)
+- `pipeline add x` and `pipeline remove y` on a `factory.yaml` with `*missing` exit 1 with `Alias *missing has no anchor`, no stack, and leave the file unchanged; `check` reports it as rule 6
+- `create workflows/review-slice` succeeds when `.factory/workflows/SKILL.md` exists
+- A missing-input `--json` result has `exitCode: 2` (`test/cli/cli.test.ts`)
+- `map` on a factory with `.factory/hotfix/SKILL.md` prints `hotfix` under `(top level)`; the `map --json` snapshot is unchanged
+
+## Done when
+
+- `npm run verify` passes
+- Every case above behaves as the Tests say, on macOS, Linux and Windows
+
+## Open questions
+
+None.

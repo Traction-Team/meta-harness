@@ -6,7 +6,7 @@ Metafab format version: **1**.
 
 ## Core rule
 
-Every directory below `.factory/` that contains `SKILL.md` is an Agent Skill:
+Every directory below `.factory/` that contains `SKILL.md` is an Agent Skill, except the reserved top-level directories (see [Validation](#validation) rule 11):
 
 ```text
 .factory/**/<name>/SKILL.md
@@ -196,6 +196,7 @@ A version 1 factory is valid when all the following statements are true:
 8. Each pipeline entry names an existing workflow, and no workflow appears twice.
 9. Pipeline entries use only the `stop` option. Reserved options are errors in version 1.
 10. No factory skill name starts with `metafab`.
+11. No `SKILL.md` sits directly in a reserved top-level directory: `workflows/`, `skills/`, `templates/`, `scripts/`, `scorers/`, `rules/` or `runtimes/` (see [Reserved names](#reserved-names)), such as `.factory/workflows/SKILL.md`. Those directories hold skills; they are not skills.
 
 `metafab check` reports each error with a file path, line number, and suggested fix.
 

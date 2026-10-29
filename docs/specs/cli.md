@@ -110,9 +110,9 @@ The path places the skill. For example, `metafab create workflows/review-slice` 
 
 `create` requires a non-empty description. It uses `--description` when present, asks for the description when standard input is a terminal, and exits with code 2 without changing files when neither source is available. The generated file contains `name` and `description` frontmatter, followed by a heading made from the skill name and an empty body.
 
-Before writing, `create` validates the resulting name. It refuses a path inside an existing skill directory or a path that would contain an existing skill directory.
+Before writing, `create` validates the resulting name. It refuses a path inside an existing skill directory, a path that would contain an existing skill directory, and a path that is itself a [reserved top-level directory](factory-format.md#reserved-names), such as `workflows`.
 
-`create` stops when the name is not unique in the factory. It prints the new path and does not run `build`.
+`create` stops when the name is not unique in the factory, including a skill directory it cannot read. It prints the new path and does not run `build`.
 
 Metafab does not create templates, scripts, or other files. Create them directly.
 
@@ -160,7 +160,7 @@ The `upstream` key in `metafab.yaml` records the fab that the factory came from.
 
 ## JSON output
 
-With `--json`, a command writes one JSON object to standard output. Human-readable messages go to standard error.
+With `--json`, a command writes one JSON object to standard output. Human-readable messages go to standard error. Every result contains `ok`, `command`, `exitCode` (the process exit code) and `problems`. A result for missing input (exit 2) contains `required` instead of `problems`.
 
 Example failed check:
 
@@ -168,6 +168,7 @@ Example failed check:
 {
   "ok": false,
   "command": "check",
+  "exitCode": 1,
   "problems": [
     {
       "level": "error",

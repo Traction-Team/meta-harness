@@ -212,6 +212,10 @@ The installed copies carry the generated-file comment, with the CLI version that
 
 A second run with unchanged inputs makes no changes.
 
+An installed file has mode 0755 when its source has any executable bit, and 0644 otherwise. On macOS and Linux, `build` corrects any other mode and `check` reports it. On Windows, only content is compared.
+
+When `build` or `check` cannot read a path it needs, it reports one error for that path, `Cannot read <path>`, and exits 1. A read error is never an ownership conflict, and `build` never removes a directory it could not read.
+
 `metafab check` fails when `build` would change a file. Because installed skills are absent from a fresh CI checkout, build them before checking. Also verify that `build` did not repair stale committed integration files:
 
 ```sh

@@ -57,6 +57,8 @@ Package `.factory/` as a fab and publish it to npm, a Git fab repository, or bot
 5. Commit `Publish <version>` and create the annotated tag.
 6. `git push --atomic origin <branch> v<version>`.
 
+Run `git ls-remote` (step 8), `git clone` and `git push` through one publish helper that sets `GIT_TERMINAL_PROMPT=0` unless standard input is a terminal and `--json` is absent, as `import` does ([Plan 09](09-import.md#fetch-hygiene)), so an SSH key with a passphrase can prompt.
+
 ### Result
 
 JSON: `{ ok, command: "publish", version, files: [...], size, targets: [{ target: "npm" | "git", status: "published" | "skipped" | "failed", detail }] }`.

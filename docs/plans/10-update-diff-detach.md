@@ -43,6 +43,7 @@ Versioned flow:
 1. Select the new version: `--to`, else the recorded `requested` range (npm and Git ranges), else the branch head for a branch ref. A pinned tag or commit without `--to` reports `Pinned to <ref>. Use --to.` and exits 0.
 2. If it equals the recorded version or commit, print `Already up to date.` and exit 0.
 3. Fetch base (recorded version or commit) and theirs. A base that cannot be fetched sets `baseUnavailable`.
+   Git resolution and fetches pass `interactive: true` when standard input is a terminal and `--json` is absent, as `import` does ([Plan 09](09-import.md#fetch-hygiene)), and call `FetchedFab.cleanup` when done.
 4. Merge every path in base ∪ yours ∪ theirs, excluding `metafab.yaml` (and `README.md` at the `.factory/` root).
 5. Unless `--dry-run`: write merged files, `.upstream` files, and removals; then `setUpstream` with the new version, also when conflicts exist.
 6. Build when there are no conflicts and neither `--no-build` nor `--dry-run` is set.
@@ -90,7 +91,7 @@ type MergeResult =
 
 ### `diff [<path>]`
 
-- Versioned: fetch the recorded base. Unversioned: fetch the current source.
+- Versioned: fetch the recorded base. Unversioned: fetch the current source. Call `FetchedFab.cleanup` in a `finally` after every fetch, here and in the unversioned update flow ([Plan 09](09-import.md#fetch-hygiene)).
 - Compare with `.factory/` (excluding `metafab.yaml` and `.factory/README.md`), optionally limited to a path prefix.
 - Human output: unified diffs (`diff` package `createTwoFilesPatch`) with `a/upstream` and `b/local` labels. Binary files print one line.
 - JSON: `{ files: [{ path, status, patch? }] }`.
