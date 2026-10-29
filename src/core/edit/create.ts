@@ -4,7 +4,6 @@ import { MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import { isSingleLine } from "../../util/text.js";
 import { discoverSkills } from "../factory/discovery.js";
-import { loadFactory } from "../factory/load.js";
 import { RESERVED_CONTAINERS, skillFile } from "../factory/validate.js";
 import { writeTextAtomically } from "./files.js";
 import { normaliseCreatePath } from "./paths.js";
@@ -40,29 +39,33 @@ async function hasSkillFile(directory: string): Promise<boolean> {
   try {
     const entries = await readdir(directory, { withFileTypes: true });
     return entries.some((entry) => entry.name === "SKILL.md" && entry.isFile());
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ENOENT" || code === "ENOTDIR") return false;
-    throw error;
+  } catch {
+    // A directory that cannot be read holds no confirmable skill here. Discovery records it
+    // as skipped, and the unreadable check in planCreate refuses the create with a problem.
+    return false;
   }
 }
 
-async function hasChildSkill(directory: string, prefix = ""): Promise<string | undefined> {
+async function hasChildSkill(
+  directory: string,
+  baseRelDir: string,
+  prefix = "",
+): Promise<string | undefined> {
   let entries;
   try {
     entries = await readdir(directory, { withFileTypes: true });
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ENOENT" || code === "ENOTDIR") return undefined;
-    throw error;
+  } catch {
+    // Unreadable: discovery records the directory and the unreadable check refuses.
+    return undefined;
   }
 
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
     const relDir = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+    const factoryRelDir = baseRelDir === "" ? entry.name : `${baseRelDir}/${entry.name}`;
     const childDir = path.join(directory, entry.name);
-    if (!isReservedContainerRelDir(relDir) && (await hasSkillFile(childDir))) return relDir;
-    const nested = await hasChildSkill(childDir, relDir);
+    if (!isReservedContainerRelDir(factoryRelDir) && (await hasSkillFile(childDir))) return relDir;
+    const nested = await hasChildSkill(childDir, factoryRelDir, relDir);
     if (nested !== undefined) return nested;
   }
 
@@ -72,10 +75,9 @@ async function hasChildSkill(directory: string, prefix = ""): Promise<string | u
 async function isExistingFile(target: string): Promise<boolean> {
   try {
     return !(await stat(target)).isDirectory();
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ENOENT" || code === "ENOTDIR") return false;
-    throw error;
+  } catch {
+    // Unreadable parents are reported by discovery, not as a file ancestor.
+    return false;
   }
 }
 
@@ -133,7 +135,7 @@ export async function planCreate(root: string, input: string): Promise<CreatePla
     ]);
   }
 
-  const nested = await hasChildSkill(target);
+  const nested = await hasChildSkill(target, resolved.relDir);
   if (nested !== undefined) {
     const message = `The path "${input}" would contain the skill "${nested}".`;
     throw createError("create-contains-skill", message, [
@@ -145,8 +147,8 @@ export async function planCreate(root: string, input: string): Promise<CreatePla
     ]);
   }
 
-  const factory = await loadFactory(root);
-  const clash = factory.skills.find(
+  const discovery = await discoverSkills(root);
+  const clash = discovery.skills.find(
     (skill) => skill.name === resolved.name || skill.frontmatter.name === resolved.name,
   );
   if (clash !== undefined) {
@@ -156,9 +158,11 @@ export async function planCreate(root: string, input: string): Promise<CreatePla
     ]);
   }
 
-  const discovery = await discoverSkills(root);
   const unreadable = discovery.skipped.find(
-    (relDir) => (relDir.split("/").pop() ?? "") === resolved.name,
+    (relDir) =>
+      (relDir.split("/").pop() ?? "") === resolved.name ||
+      resolved.relDir === relDir ||
+      resolved.relDir.startsWith(`${relDir}/`),
   );
   if (unreadable !== undefined) {
     const message = `.factory/${unreadable} may hold a skill named "${resolved.name}", but it cannot be read`;
