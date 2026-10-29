@@ -12,6 +12,7 @@ import type { UpstreamEntry } from "../config/types.js";
 import { pathExists } from "../../util/fs.js";
 import { cacheLayout, cacheRoot, fabKey, getOrCreate } from "./cache.js";
 import type { CacheLayout } from "./cache.js";
+import { withEnv } from "./env.js";
 import { extractTarball } from "./extract.js";
 import { redact } from "./redact.js";
 import type { FetchedFab, GitRef, GitSourceSpec, Resolved } from "./types.js";
@@ -91,9 +92,10 @@ interface Selection {
 }
 
 function gitEnvironment(options: GitOptions): NodeJS.ProcessEnv {
-  const env = { ...(options.env ?? process.env) };
-  if (options.interactive !== true) env.GIT_TERMINAL_PROMPT = "0";
-  return env;
+  return withEnv(
+    options.env ?? process.env,
+    options.interactive === true ? {} : { GIT_TERMINAL_PROMPT: "0" },
+  );
 }
 
 function gitOptions(options: GitOptions): {

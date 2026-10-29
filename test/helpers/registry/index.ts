@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { promisify } from "node:util";
+import { withEnv } from "../../../src/core/sources/env.js";
 import { npmInvocation } from "../../../src/core/sources/npm-cli.js";
 
 const execFileAsync = promisify(execFile);
@@ -21,6 +22,7 @@ export interface Registry {
   readonly root: string;
   readonly url: string;
   readonly npmrc: string;
+  readonly cache: string;
   readonly env: NodeJS.ProcessEnv;
   publishFab(options: FabPackageOptions): Promise<void>;
   deprecate(name: string, version: string, message: string): Promise<void>;
@@ -107,12 +109,24 @@ function runningOptions(registry: Registry): { cwd: string; env: NodeJS.ProcessE
 async function runNpm(registry: Registry, args: string[]): Promise<void> {
   try {
     const npm = await npmInvocation({ env: registry.env });
-    await execFileAsync(npm.command, [...npm.args, ...args], {
-      ...runningOptions(registry),
-      encoding: "utf8",
-      maxBuffer: 32 * 1024 * 1024,
-      windowsHide: true,
-    });
+    await execFileAsync(
+      npm.command,
+      [
+        ...npm.args,
+        ...args,
+        // Command-line config outranks the child's environment, so the temp
+        // config file and cache stay in effect even when an inherited
+        // environment names the same npm settings in another case.
+        `--userconfig=${registry.npmrc}`,
+        `--cache=${registry.cache}`,
+      ],
+      {
+        ...runningOptions(registry),
+        encoding: "utf8",
+        maxBuffer: 32 * 1024 * 1024,
+        windowsHide: true,
+      },
+    );
   } catch (error) {
     const failure = error as { stdout?: string; stderr?: string; message?: string };
     const detail = (failure.stderr ?? "").trim() || (failure.stdout ?? "").trim() || failure.message;
@@ -176,17 +190,17 @@ export async function startRegistry(options: StartRegistryOptions = {}): Promise
   const token = await createUser(url);
   await writeFile(npmrc, `registry=${url}\n${authLine(url, token)}\n`);
 
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
+  const env: NodeJS.ProcessEnv = withEnv(process.env, {
     npm_config_userconfig: npmrc,
     npm_config_cache: npmCache,
     npm_config_registry: url,
-  };
+  });
 
   const registry: Registry = {
     root,
     url,
     npmrc,
+    cache: npmCache,
     env,
     async publishFab(packageOptions: FabPackageOptions): Promise<void> {
       const safeName = packageOptions.name.replace(/[^A-Za-z0-9._-]+/g, "-");

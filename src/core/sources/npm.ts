@@ -10,6 +10,7 @@ import type { UpstreamEntry } from "../config/types.js";
 import { fabKey, getOrCreate } from "./cache.js";
 import type { CacheLayout } from "./cache.js";
 import { cacheRoot, cacheLayout } from "./cache.js";
+import { withEnv } from "./env.js";
 import { extractTarball } from "./extract.js";
 import { MAX_TARBALL_SIZE } from "./https.js";
 import { npmInvocation } from "./npm-cli.js";
@@ -40,9 +41,10 @@ interface NpmFailure {
 }
 
 function npmEnv(options: NpmOptions): NodeJS.ProcessEnv {
-  const env = { ...(options.env ?? process.env) };
-  if (options.registry !== undefined) env.npm_config_registry = options.registry;
-  return env;
+  return withEnv(
+    options.env ?? process.env,
+    options.registry === undefined ? {} : { npm_config_registry: options.registry },
+  );
 }
 
 function npmMessage(failure: NpmFailure): string {
