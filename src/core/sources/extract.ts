@@ -6,6 +6,7 @@ import * as tar from "tar";
 import type { ReadEntry } from "tar";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
+import { containmentRootAbsolute, isInsideAbsolute } from "./containment.js";
 
 export const MAX_FAB_FILE_SIZE = 1024 * 1024;
 export const MAX_FAB_TOTAL_SIZE = 64 * 1024 * 1024;
@@ -293,32 +294,6 @@ function writtenThroughLink(entryPath: string, directories: Set<string>): boolea
 
 function linkPath(destination: string, relativePath: string): string {
   return path.join(destination, ...relativePath.split("/"));
-}
-
-async function containmentRootAbsolute(absoluteLinkPath: string, destination: string): Promise<string> {
-  const destinationRoot = await realpath(destination).catch(() => path.resolve(destination));
-  const factoryPath = path.join(destination, FACTORY_DIRECTORY);
-  const factory = await stat(factoryPath).catch(() => undefined);
-  if (factory === undefined) return destinationRoot;
-
-  // The spelling of the stored path is not what the filesystem matches on: on a
-  // case-insensitive filesystem `.FACTORY/leak` lives in the same directory as
-  // `.factory/leak`. Walk the link's real ancestors and compare their identity.
-  let current = path.dirname(absoluteLinkPath);
-  for (;;) {
-    const ancestor = await stat(current).catch(() => undefined);
-    if (ancestor !== undefined && ancestor.dev === factory.dev && ancestor.ino === factory.ino) {
-      return realpath(factoryPath).catch(() => factoryPath);
-    }
-    const parent = path.dirname(current);
-    if (parent === current) return destinationRoot;
-    current = parent;
-  }
-}
-
-function isInsideAbsolute(root: string, target: string): boolean {
-  const relative = path.relative(root, target);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 async function targetExists(target: string): Promise<boolean> {
