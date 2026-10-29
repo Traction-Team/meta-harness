@@ -244,6 +244,116 @@ pipeline:
   });
 });
 
+const ALIASED_SOURCE = `format: 1
+name: mark4
+pipeline:
+  - review-slice: &gate { stop: Wait for approval }
+  - finish-slice: *gate
+`;
+
+async function aliasedRepo(files: Record<string, string> = {}): Promise<TempRepo> {
+  return repo({
+    ".factory/factory.yaml": ALIASED_SOURCE,
+    ".factory/workflows/review-slice/SKILL.md": SKILL("review-slice"),
+    ".factory/workflows/finish-slice/SKILL.md": SKILL("finish-slice"),
+    ...files,
+  });
+}
+
+describe("pipeline with YAML aliases", () => {
+  test("adds after an aliased entry and keeps the anchor", async () => {
+    const created = await aliasedRepo();
+
+    const result = await runCli(["pipeline", "add", "x", "--after", "finish-slice", "--json"], {
+      cwd: created.root,
+      tty: false,
+    });
+
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: true,
+      pipeline: ["review-slice", "finish-slice", "x"],
+    });
+    const text = await readFile(created.path(".factory/factory.yaml"), "utf8");
+    expect(text).toContain("&gate");
+    expect(text).toContain("*gate");
+    expect(text.indexOf("- x")).toBeGreaterThan(text.indexOf("finish-slice"));
+  });
+
+  test("removes the aliasing entry and keeps the anchor", async () => {
+    const created = await aliasedRepo();
+
+    const result = await runCli(["pipeline", "remove", "finish-slice", "--json"], {
+      cwd: created.root,
+      tty: false,
+    });
+
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({ ok: true, pipeline: ["review-slice"] });
+    const text = await readFile(created.path(".factory/factory.yaml"), "utf8");
+    expect(text).toContain("&gate");
+    expect(text).not.toContain("*gate");
+  });
+
+  test("refuses to remove the entry that holds a used anchor", async () => {
+    const created = await aliasedRepo();
+    const before = await readFile(created.path(".factory/factory.yaml"), "utf8");
+
+    const result = await runCli(["pipeline", "remove", "review-slice"], {
+      cwd: created.root,
+      tty: false,
+    });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Remove the alias to gate first");
+    expect(await readFile(created.path(".factory/factory.yaml"), "utf8")).toBe(before);
+  });
+
+  test("add and remove refuse an unresolved alias and leave the file unchanged", async () => {
+    const source = "format: 1\nname: mark4\npipeline:\n  - review-slice: *missing\n";
+    const created = await repo({
+      ".factory/factory.yaml": source,
+      ".factory/workflows/review-slice/SKILL.md": SKILL("review-slice"),
+    });
+
+    const added = await runCli(["pipeline", "add", "x"], { cwd: created.root, tty: false });
+    expect(added.code).toBe(1);
+    expect(added.stderr).toContain("Alias *missing has no anchor");
+    expect(added.stderr).not.toContain("    at ");
+
+    const removed = await runCli(["pipeline", "remove", "y"], { cwd: created.root, tty: false });
+    expect(removed.code).toBe(1);
+    expect(removed.stderr).toContain("Alias *missing has no anchor");
+    expect(removed.stderr).not.toContain("    at ");
+
+    expect(await readFile(created.path(".factory/factory.yaml"), "utf8")).toBe(source);
+  });
+});
+
+describe("pipeline remove on an empty factory.yaml", () => {
+  test("reports pipeline-entry-missing and does not write", async () => {
+    const created = await makeRepo({
+      ".factory/factory.yaml": "---\n",
+      ".factory/workflows/a/SKILL.md": SKILL("a"),
+    });
+    repos.push(created);
+
+    const result = await runCli(["pipeline", "remove", "a", "--json"], {
+      cwd: created.root,
+      tty: false,
+    });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: false,
+      exitCode: 1,
+      code: "pipeline-entry-missing",
+    });
+    expect(await readFile(created.path(".factory/factory.yaml"), "utf8")).toBe("---\n");
+  });
+});
+
 describe("pipeline remove", () => {
   test("removes an entry and keeps every comment", async () => {
     const created = await repo();

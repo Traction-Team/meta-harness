@@ -20,6 +20,13 @@ pipeline:
   - z
 `;
 
+const ALIASED = `format: 1
+name: mark4
+pipeline:
+  - review-slice: &gate { stop: Wait for approval }
+  - finish-slice: *gate
+`;
+
 describe("factory.yaml editor", () => {
   test("inserts an entry after a named entry, keeping comments", () => {
     const text = addPipelineEntryText(SOURCE, "x", {
@@ -161,5 +168,65 @@ pipeline:
   - file-work
   - triage-ideas: { stop: The product lead picks the next item }
 `);
+  });
+});
+
+describe("factory.yaml editor with YAML aliases", () => {
+  test("lists aliased entries by their workflow name", () => {
+    expect(pipelineEntryNames(parseFactoryYamlDocument(ALIASED))).toEqual([
+      "review-slice",
+      "finish-slice",
+    ]);
+  });
+
+  test("inserts after an aliased entry and keeps the anchor", () => {
+    const text = addPipelineEntryText(ALIASED, "x", { after: "finish-slice" });
+
+    expect(text).toContain("&gate");
+    expect(text).toContain("*gate");
+    expect(text.indexOf("- x")).toBeGreaterThan(text.indexOf("finish-slice"));
+    expect(pipelineEntryNames(parseFactoryYamlDocument(text))).toEqual([
+      "review-slice",
+      "finish-slice",
+      "x",
+    ]);
+  });
+
+  test("removes an aliased entry and keeps the anchor", () => {
+    const text = removePipelineEntryText(ALIASED, "finish-slice");
+
+    expect(text).toContain("&gate");
+    expect(text).not.toContain("*gate");
+    expect(pipelineEntryNames(parseFactoryYamlDocument(text))).toEqual(["review-slice"]);
+  });
+
+  test("refuses to remove an entry whose anchor another entry aliases", () => {
+    try {
+      removePipelineEntryText(ALIASED, "review-slice");
+      throw new Error("expected the remove to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      expect((error as MetafabError).code).toBe("pipeline-entry-anchored");
+      expect((error as MetafabError).problems?.[0]).toMatchObject({
+        file: ".factory/factory.yaml",
+        message: 'Pipeline entry "review-slice" holds the anchor "gate", which another entry aliases',
+        fix: "Remove the alias to gate first",
+      });
+    }
+  });
+
+  test("refuses an unresolved alias before changing anything", () => {
+    try {
+      parseFactoryYamlDocument("format: 1\nname: mark4\npipeline:\n  - review-slice: *missing\n");
+      throw new Error("expected the parse to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      expect((error as MetafabError).code).toBe("factory-yaml-invalid");
+      expect((error as MetafabError).problems?.[0]).toMatchObject({
+        file: ".factory/factory.yaml",
+        line: 4,
+        message: "Alias *missing has no anchor",
+      });
+    }
   });
 });

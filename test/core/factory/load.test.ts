@@ -124,6 +124,28 @@ describe("loadFactory", () => {
     }
   });
 
+  test("reports an unresolved alias as a grammar problem", async () => {
+    const repo = await makeRepo({
+      ".factory/factory.yaml": "format: 1\nname: mark4\npipeline:\n  - review-slice: *missing\n",
+    });
+    try {
+      const factory = await loadFactory(repo.root);
+
+      expect(factory.factoryYaml).toBeUndefined();
+      expect(factory.problems).toEqual([
+        {
+          level: "error",
+          file: ".factory/factory.yaml",
+          line: 4,
+          message: "Alias *missing has no anchor",
+          fix: "Remove the alias or define its anchor before it",
+        },
+      ]);
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
   test("reports a SKILL.md directly in .factory", async () => {
     const repo = await makeRepo({ ".factory/SKILL.md": SKILL });
     try {

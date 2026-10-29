@@ -1,5 +1,5 @@
-import { isMap, isScalar, isSeq } from "yaml";
-import type { Pair } from "yaml";
+import { isAlias, isMap, isScalar, isSeq, parseDocument, visit } from "yaml";
+import type { Document, Pair } from "yaml";
 import type { Problem } from "../../errors.js";
 import { isSingleLine } from "../../util/text.js";
 import { parseYaml } from "../../util/yaml.js";
@@ -24,6 +24,49 @@ export interface FactoryYamlParseResult {
 
 type Field = { value: unknown; line: number; node: unknown };
 
+const YAML_OPTIONS = {
+  version: "1.2" as const,
+  uniqueKeys: true,
+  prettyErrors: true,
+};
+
+function resolveNode(node: unknown, doc: Document): unknown {
+  return isAlias(node) ? node.resolve(doc) : node;
+}
+
+function lineAtOffset(text: string, offset: number): number {
+  let line = 1;
+  for (let index = 0; index < offset && index < text.length; index += 1) {
+    if (text.charCodeAt(index) === 10) line += 1;
+  }
+  return line;
+}
+
+/** Problems for aliases such as `*missing` that name no anchor before them. */
+export function unresolvedAliasProblems(document: Document, text: string, file: string): Problem[] {
+  const problems: Problem[] = [];
+
+  visit(document, (_key, node) => {
+    if (!isAlias(node) || node.resolve(document) !== undefined) return;
+
+    problems.push({
+      level: "error",
+      file,
+      line: lineAtOffset(text, node.range?.[0] ?? 0),
+      message: `Alias *${node.source} has no anchor`,
+      fix: "Remove the alias or define its anchor before it",
+    });
+  });
+
+  return problems;
+}
+
+function unresolvedAliasesInText(text: string, file: string): Problem[] {
+  const document = parseDocument(text, YAML_OPTIONS);
+  if (document.errors.length > 0) return [];
+  return unresolvedAliasProblems(document, text, file);
+}
+
 function scalarString(node: unknown): string | undefined {
   return isScalar(node) && typeof node.value === "string" ? node.value : undefined;
 }
@@ -33,12 +76,13 @@ function isKnownField(key: string): boolean {
 }
 
 function parsePipelineEntry(
-  item: unknown,
+  itemNode: unknown,
   parsed: Extract<ReturnType<typeof parseYaml>, { ok: true }>,
   file: string,
   problems: Problem[],
 ): PipelineEntry | undefined {
-  const line = parsed.lineOf(item);
+  const line = parsed.lineOf(itemNode);
+  const item = resolveNode(itemNode, parsed.document);
 
   if (isScalar(item)) {
     const workflow = scalarString(item);
@@ -102,7 +146,7 @@ function parsePipelineEntry(
   }
 
   let stop: string | undefined;
-  const options = pair.value;
+  const options = resolveNode(pair.value, parsed.document);
   if (!isMap(options)) {
     problems.push({
       level: "error",
@@ -129,7 +173,7 @@ function parsePipelineEntry(
     }
 
     if (key === "stop") {
-      const value = option.value;
+      const value = resolveNode(option.value, parsed.document);
       if (!isScalar(value) || typeof value.value !== "string" || value.value === "") {
         problems.push({
           level: "error",
@@ -164,6 +208,9 @@ function parsePipelineEntry(
 }
 
 export function parseFactoryYaml(text: string, file: string): FactoryYamlParseResult {
+  const aliasProblems = unresolvedAliasesInText(text, file);
+  if (aliasProblems.length > 0) return { problems: aliasProblems };
+
   const parsed = parseYaml(text);
   if (!parsed.ok) {
     return {
@@ -201,7 +248,7 @@ export function parseFactoryYaml(text: string, file: string): FactoryYamlParseRe
     return {
       value: parsedDocument.value[name],
       line: parsedDocument.lineOf(pair.key),
-      node: pair.value,
+      node: resolveNode(pair.value, parsedDocument.document),
     };
   };
 
@@ -238,7 +285,8 @@ export function parseFactoryYaml(text: string, file: string): FactoryYamlParseRe
 
   const pipeline: PipelineEntry[] = [];
   if (pipelineField !== undefined) {
-    if (!isSeq(pipelineField.node)) {
+    const pipelineNode = resolveNode(pipelineField.node, parsed.document);
+    if (!isSeq(pipelineNode)) {
       problems.push({
         level: "error",
         file,
@@ -247,7 +295,7 @@ export function parseFactoryYaml(text: string, file: string): FactoryYamlParseRe
         fix: "Write each workflow on its own - entry",
       });
     } else {
-      for (const item of pipelineField.node.items) {
+      for (const item of pipelineNode.items) {
         const entry = parsePipelineEntry(item, parsed, file, problems);
         if (entry !== undefined) pipeline.push(entry);
       }

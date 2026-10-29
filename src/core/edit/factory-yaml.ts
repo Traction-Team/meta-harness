@@ -1,8 +1,9 @@
-import { Document, isMap, isSeq, parseDocument } from "yaml";
+import { Document, isAlias, isMap, isNode, isSeq, parseDocument, visit } from "yaml";
 import type { Pair, YAMLSeq } from "yaml";
 import { MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import { isSingleLine } from "../../util/text.js";
+import { unresolvedAliasProblems } from "../factory/factory-yaml.js";
 import type { PipelineEntry } from "../factory/types.js";
 import { findField, scalarString, serializeYamlDocument } from "./document.js";
 
@@ -49,6 +50,15 @@ export function parseFactoryYamlDocument(text: string, file = FACTORY_FILE): Doc
 
   if (doc.errors.length > 0) invalidYaml(file, text);
 
+  const aliases = unresolvedAliasProblems(doc, text, file);
+  if (aliases.length > 0) {
+    const message = aliases[0]?.message ?? "Invalid YAML";
+    throw new MetafabError(`${file}: ${message}`, {
+      code: "factory-yaml-invalid",
+      problems: aliases,
+    });
+  }
+
   if (doc.contents !== null && !isMap(doc.contents)) {
     const message = "factory.yaml must be a YAML map";
     throw new MetafabError(`${file}: ${message}`, {
@@ -90,7 +100,12 @@ function ensurePipeline(doc: Document, file: string): YAMLSeq {
   return seq;
 }
 
-export function pipelineEntryName(item: unknown): string | undefined {
+function resolveNode(node: unknown, doc: Document): unknown {
+  return isAlias(node) ? node.resolve(doc) : node;
+}
+
+export function pipelineEntryName(itemNode: unknown, doc: Document): string | undefined {
+  const item = resolveNode(itemNode, doc);
   const direct = scalarString(item);
   if (direct !== undefined) return direct;
 
@@ -107,12 +122,12 @@ export function pipelineEntryNames(doc: Document): string[] {
   if (pipeline === undefined || !isSeq(pipeline.value)) return [];
 
   return pipeline.value.items
-    .map((item) => pipelineEntryName(item))
+    .map((item) => pipelineEntryName(item, doc))
     .filter((name): name is string => name !== undefined);
 }
 
-function findEntryIndex(seq: YAMLSeq, workflow: string): number {
-  return seq.items.findIndex((item) => pipelineEntryName(item) === workflow);
+function findEntryIndex(doc: Document, seq: YAMLSeq, workflow: string): number {
+  return seq.items.findIndex((item) => pipelineEntryName(item, doc) === workflow);
 }
 
 function createEntry(doc: Document, workflow: string, stop: string | undefined) {
@@ -144,7 +159,7 @@ export function addPipelineEntry(
   }
 
   const seq = ensurePipeline(doc, file);
-  const existing = findEntryIndex(seq, workflow);
+  const existing = findEntryIndex(doc, seq, workflow);
   if (existing !== -1) {
     throw new MetafabError(`Pipeline already contains "${workflow}".`, {
       code: "pipeline-duplicate",
@@ -159,7 +174,7 @@ export function addPipelineEntry(
     return;
   }
 
-  const after = findEntryIndex(seq, options.after);
+  const after = findEntryIndex(doc, seq, options.after);
   if (after === -1) {
     throw new MetafabError(`Pipeline has no workflow "${options.after}".`, {
       code: "pipeline-after-missing",
@@ -170,13 +185,45 @@ export function addPipelineEntry(
   seq.items.splice(after + 1, 0, entry);
 }
 
-export function removePipelineEntry(doc: Document, workflow: string): boolean {
+function anchoredEntryUsedByAlias(doc: Document, entry: unknown): string | undefined {
+  if (!isNode(entry)) return undefined;
+
+  let inUse: string | undefined;
+
+  visit(entry, (_key, node) => {
+    if (inUse !== undefined || !isNode(node)) return;
+    const anchor = node.anchor;
+    if (anchor === undefined) return;
+
+    let aliased = false;
+    visit(doc, (_aliasKey, candidate) => {
+      if (aliased || !isAlias(candidate)) return;
+      if (candidate.resolve(doc) === node) aliased = true;
+    });
+
+    if (aliased) inUse = anchor;
+  });
+
+  return inUse;
+}
+
+export function removePipelineEntry(doc: Document, workflow: string, file = FACTORY_FILE): boolean {
   const contents = doc.contents;
   const pipeline = isMap(contents) ? findField(doc, "pipeline") : undefined;
   if (pipeline === undefined || !isSeq(pipeline.value)) return false;
 
-  const index = findEntryIndex(pipeline.value, workflow);
+  const index = findEntryIndex(doc, pipeline.value, workflow);
   if (index === -1) return false;
+
+  const entry = pipeline.value.items[index];
+  const anchor = anchoredEntryUsedByAlias(doc, entry);
+  if (anchor !== undefined) {
+    const message = `Pipeline entry "${workflow}" holds the anchor "${anchor}", which another entry aliases`;
+    throw new MetafabError(`Cannot remove "${workflow}" from the pipeline.`, {
+      code: "pipeline-entry-anchored",
+      problems: [problem(file, message, undefined, `Remove the alias to ${anchor} first`)],
+    });
+  }
 
   pipeline.value.items.splice(index, 1);
   return true;
