@@ -38,6 +38,25 @@ const FIXTURE_EXPECTED = fileURLToPath(
   new URL("../../fixtures/build/mark4-like/expected", import.meta.url),
 );
 
+const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+function isTextContent(data: Buffer): boolean {
+  if (data.includes(0)) return false;
+  try {
+    utf8Decoder.decode(data);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// A Windows checkout converts the golden fixture to CRLF. The spec compares text as LF,
+// so normalize the expected side; binary files stay byte for byte.
+function normalizeCrlfToLf(data: Buffer): Buffer {
+  if (!isTextContent(data)) return data;
+  return Buffer.from(data.toString("utf8").replace(/\r\n/g, "\n"), "utf8");
+}
+
 const repos: TempRepo[] = [];
 
 function track(repo: TempRepo): TempRepo {
@@ -117,6 +136,13 @@ async function expectedTree(version: string): Promise<TempRepo> {
   await copyFixtureTree(FIXTURE_EXPECTED, root);
 
   const files = await listFiles(root);
+  for (const relativePath of files) {
+    const target = path.join(root, ...relativePath.split("/"));
+    const data = await readFile(target);
+    const normalized = normalizeCrlfToLf(data);
+    if (!normalized.equals(data)) await writeFile(target, normalized);
+  }
+
   for (const agent of [".claude", ".agents"]) {
     expect(
       files.some(
@@ -157,7 +183,9 @@ describe("golden mark4-like build", () => {
     expect(plan.warnings).toEqual([]);
     expect(report.changed.length).toBeGreaterThan(0);
 
-    const expectedAgents = await readFile(path.join(FIXTURE_EXPECTED, "AGENTS.md"), "utf8");
+    const expectedAgents = normalizeCrlfToLf(
+      await readFile(path.join(FIXTURE_EXPECTED, "AGENTS.md")),
+    ).toString("utf8");
     expect(await readFile(repo.path("AGENTS.md"), "utf8")).toBe(expectedAgents);
     expect(expectedAgents).toContain(
       "2. `triage-ideas`. Then stop: The product lead picks the next item.",
@@ -796,7 +824,9 @@ describe("compiled files", () => {
     expect(await readFile(path.join(installed, "notes.txt"), "utf8")).toBe("first\nsecond\n");
     expect(await readFile(path.join(installed, "SKILL.md"), "utf8")).not.toContain("\r");
     expect(await readFile(path.join(installed, "data.bin"))).toEqual(binary);
-    expect((await stat(path.join(installed, "run.sh"))).mode & 0o111).not.toBe(0);
+    if (process.platform !== "win32") {
+      expect((await stat(path.join(installed, "run.sh"))).mode & 0o111).not.toBe(0);
+    }
 
     const second = await build(repo.root);
     expect(second.report.changed).toEqual([]);
