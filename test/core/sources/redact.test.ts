@@ -33,6 +33,34 @@ describe("redact", () => {
     expect(stripSourceCredentials("github:seasb/fab-mark4")).toBe("github:seasb/fab-mark4");
   });
 
+  test("leaves a source with no credentials byte-identical", () => {
+    // A Windows file URL through `new URL()` comes back as `file:///C:/a/b.git`.
+    expect(stripSourceCredentials(String.raw`file://C:\a\b.git`)).toBe(String.raw`file://C:\a\b.git`);
+    expect(stripSourceCredentials("file:///C:/Users/RUNNER~1/repo.git")).toBe(
+      "file:///C:/Users/RUNNER~1/repo.git",
+    );
+    expect(stripSourceCredentials("git+https://example.com/x.git")).toBe(
+      "git+https://example.com/x.git",
+    );
+    expect(stripSourceCredentials("https://example.com/x.git#v1.0.0")).toBe(
+      "https://example.com/x.git#v1.0.0",
+    );
+  });
+
+  test("cuts only the secret out of a source that has one", () => {
+    // HTTP(S) userinfo is dropped whole, as before, but the rest of the text
+    // is untouched.
+    expect(stripSourceCredentials("git+https://user:tok@host/x.git")).toBe(
+      "git+https://host/x.git",
+    );
+    expect(stripSourceCredentials("https://bucket.example/x.tgz?sig=abc#frag")).toBe(
+      "https://bucket.example/x.tgz#frag",
+    );
+    expect(stripSourceCredentials("ssh://:password@example.com/fab.git")).toBe(
+      "ssh://example.com/fab.git",
+    );
+  });
+
   test("removes URL query strings and token fragments", () => {
     expect(redact("GET https://bucket.example/fab.tgz?X-Amz-Signature=secret&X-Amz-Credential=key")).toBe(
       "GET https://bucket.example/fab.tgz?<redacted>",
