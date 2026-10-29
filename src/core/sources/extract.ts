@@ -173,17 +173,30 @@ async function readEntries(tarball: string, limits: ListingLimits): Promise<Arch
   const stream = createReadStream(tarball);
   try {
     await new Promise<void>((resolve, reject) => {
-      parser.on("end", resolve);
-      parser.on("error", (error: unknown) => {
+      let settled = false;
+      const fail = (error: unknown): void => {
+        if (settled) return;
+        settled = true;
         stream.destroy();
         reject(error);
+      };
+      parser.on("end", () => {
+        if (settled) return;
+        settled = true;
+        resolve();
       });
-      stream.on("error", reject);
+      parser.on("error", fail);
+      stream.on("error", fail);
       stream.pipe(parser);
     });
   } catch (error) {
     if (failure !== undefined) throw failure;
     throw error;
+  } finally {
+    // An aborted listing stops at a header, so the rest of the archive is never
+    // read. Closing the descriptor here keeps a rejected archive from leaving a
+    // stream running (and erroring) after the promise has settled.
+    stream.destroy();
   }
   if (failure !== undefined) throw failure;
   return entries;
@@ -589,10 +602,37 @@ export async function extractTarball(
   };
 
   let failure: unknown;
+  const unpack = tar.x({ cwd: destination, filter, strict: true });
+  const stream = createReadStream(tarball);
   try {
-    await tar.x({ file: tarball, cwd: destination, filter, strict: true });
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const fail = (error: unknown): void => {
+        if (settled) return;
+        settled = true;
+        stream.destroy();
+        reject(error);
+      };
+      unpack.on("end", () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      });
+      unpack.on("error", fail);
+      stream.on("error", fail);
+      stream.pipe(unpack);
+    });
   } catch (error) {
     failure = error;
+  } finally {
+    // A failed extraction aborts before the end of the archive. Tear both
+    // streams down so nothing writes into a finished stream and no descriptor
+    // or zlib handle outlives this call. `abort` is tar's own way to stop a
+    // parser: it closes the decompressor it opened.
+    stream.destroy();
+    if (failure !== undefined) {
+      unpack.abort(failure instanceof Error ? failure : new Error(String(failure)));
+    }
   }
 
   if (problems.length > 0) {
