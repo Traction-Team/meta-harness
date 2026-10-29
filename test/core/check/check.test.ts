@@ -169,6 +169,28 @@ describe("runCheck", () => {
     ]);
   });
 
+  test("a removal in a deselected destination names the agent tool", async () => {
+    const target = await checkRepo({
+      ".factory/metafab.yaml": "agents: [claude, codex]\nmetafab-skill: false\n",
+    });
+    await build(target.root);
+    await writeFile(
+      target.path(".factory", "metafab.yaml"),
+      "agents: [claude]\nmetafab-skill: false\n",
+    );
+
+    const problems = await runCheck(target.root, PACKAGE_VERSION);
+
+    expect(problems).toContainEqual({
+      level: "error",
+      file: ".agents/skills/demo",
+      line: 1,
+      message: ".agents/skills/demo is installed for an agent tool that is no longer configured",
+      fix: "Run metafab build",
+    });
+    expect(problems.some((problem) => problem.message.includes("has no source"))).toBe(false);
+  });
+
   test("an unowned directory in the way is reported as build reports it", async () => {
     const target = await checkRepo();
     await build(target.root);
