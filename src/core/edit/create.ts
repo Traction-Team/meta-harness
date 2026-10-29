@@ -35,22 +35,22 @@ function isReservedContainerRelDir(relDir: string): boolean {
   return !relDir.includes("/") && (RESERVED_CONTAINERS as readonly string[]).includes(relDir);
 }
 
+function factoryPath(relDir: string): string {
+  return relDir === "" ? ".factory" : `.factory/${relDir}`;
+}
+
 async function hasSkillFile(directory: string): Promise<boolean> {
   try {
     const entries = await readdir(directory, { withFileTypes: true });
     return entries.some((entry) => entry.name === "SKILL.md" && entry.isFile());
   } catch {
     // A directory that cannot be read holds no confirmable skill here. Discovery records it
-    // as skipped, and the unreadable check in planCreate refuses the create with a problem.
+    // as skipped, and the unreadable checks in planCreate refuse the create with a problem.
     return false;
   }
 }
 
-async function hasChildSkill(
-  directory: string,
-  baseRelDir: string,
-  prefix = "",
-): Promise<string | undefined> {
+async function hasChildSkill(directory: string, prefix = ""): Promise<string | undefined> {
   let entries;
   try {
     entries = await readdir(directory, { withFileTypes: true });
@@ -62,10 +62,9 @@ async function hasChildSkill(
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
     const relDir = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
-    const factoryRelDir = baseRelDir === "" ? entry.name : `${baseRelDir}/${entry.name}`;
     const childDir = path.join(directory, entry.name);
-    if (!isReservedContainerRelDir(factoryRelDir) && (await hasSkillFile(childDir))) return relDir;
-    const nested = await hasChildSkill(childDir, factoryRelDir, relDir);
+    if (await hasSkillFile(childDir)) return relDir;
+    const nested = await hasChildSkill(childDir, relDir);
     if (nested !== undefined) return nested;
   }
 
@@ -135,7 +134,7 @@ export async function planCreate(root: string, input: string): Promise<CreatePla
     ]);
   }
 
-  const nested = await hasChildSkill(target, resolved.relDir);
+  const nested = await hasChildSkill(target);
   if (nested !== undefined) {
     const message = `The path "${input}" would contain the skill "${nested}".`;
     throw createError("create-contains-skill", message, [
@@ -158,16 +157,42 @@ export async function planCreate(root: string, input: string): Promise<CreatePla
     ]);
   }
 
-  const unreadable = discovery.skipped.find(
-    (relDir) =>
-      (relDir.split("/").pop() ?? "") === resolved.name ||
-      resolved.relDir === relDir ||
-      resolved.relDir.startsWith(`${relDir}/`),
+  const unreadableName = discovery.skipped.find(
+    (relDir) => (relDir.split("/").pop() ?? "") === resolved.name,
   );
-  if (unreadable !== undefined) {
-    const message = `.factory/${unreadable} may hold a skill named "${resolved.name}", but it cannot be read`;
+  if (unreadableName !== undefined) {
+    const message = `${factoryPath(unreadableName)} may hold a skill named "${resolved.name}", but it cannot be read`;
     throw createError("create-duplicate-name", message, [
-      problem(`.factory/${unreadable}`, message, "Make it readable or fix its SKILL.md, then try again"),
+      problem(factoryPath(unreadableName), message, "Make it readable or fix its SKILL.md, then try again"),
+    ]);
+  }
+
+  // A directory below the target that cannot be read may hold the skill directory that makes
+  // the new skill nested (rule 3), so refuse instead of writing a path the loader rejects.
+  const unreadableChild = discovery.skipped.find((relDir) =>
+    relDir.startsWith(`${resolved.relDir}/`),
+  );
+  if (unreadableChild !== undefined) {
+    const message = `Cannot create .factory/${resolved.relDir}/SKILL.md: ${factoryPath(unreadableChild)} cannot be read.`;
+    throw createError("create-path-unreadable", message, [
+      problem(
+        factoryPath(unreadableChild),
+        message,
+        "Make it readable or fix its SKILL.md, then try again",
+      ),
+    ]);
+  }
+
+  // `.factory`, or a directory on the way to the target, cannot be read: nothing below it is
+  // confirmable, so no name or child skill check above could see what the create would join.
+  const unreadablePath = discovery.skipped.find(
+    (relDir) =>
+      relDir === "" || resolved.relDir === relDir || resolved.relDir.startsWith(`${relDir}/`),
+  );
+  if (unreadablePath !== undefined) {
+    const message = `${factoryPath(unreadablePath)} cannot be read`;
+    throw createError("create-path-unreadable", message, [
+      problem(factoryPath(unreadablePath), message, "Make it readable or fix its SKILL.md, then try again"),
     ]);
   }
 

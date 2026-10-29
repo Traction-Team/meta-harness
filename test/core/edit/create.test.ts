@@ -333,16 +333,80 @@ description: Review a slice before it merges.
 
       expect(result.code).toBe(1);
       expect(result.stderr).toBe("");
-      const output = JSON.parse(result.stdout) as { ok: boolean; code: string; summary: string };
+      const output = JSON.parse(result.stdout) as {
+        ok: boolean;
+        code: string;
+        summary: string;
+        problems: { message: string }[];
+      };
       expect(output.ok).toBe(false);
-      expect(output.code).toBe("create-duplicate-name");
-      expect(output.summary).toBe(
-        '.factory/skills/security may hold a skill named "deep", but it cannot be read',
-      );
+      expect(output.code).toBe("create-path-unreadable");
+      expect(output.summary).toBe(".factory/skills/security cannot be read");
+      expect(output.problems[0]?.message).toBe(".factory/skills/security cannot be read");
     } finally {
       await chmod(directory, 0o755);
     }
     expect(await pathExists(created.path(".factory/skills/security/deep"))).toBe(false);
+  });
+
+  test.skipIf(cannotTestPermissions)("fails with a problem when the target holds an unreadable directory", async () => {
+    const created = await repo({ ".factory/review/notes/SKILL.md": SKILL("notes") });
+    const directory = created.path(".factory", "review", "notes");
+    try {
+      await chmod(directory, 0o000);
+
+      const result = await runCli(["create", "review", "--description", "A parent.", "--json"], {
+        cwd: created.root,
+        tty: false,
+      });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toBe("");
+      const output = JSON.parse(result.stdout) as { ok: boolean; code: string; summary: string };
+      expect(output.ok).toBe(false);
+      expect(output.code).toBe("create-path-unreadable");
+      expect(output.summary).toBe(
+        "Cannot create .factory/review/SKILL.md: .factory/review/notes cannot be read.",
+      );
+    } finally {
+      await chmod(directory, 0o755);
+    }
+
+    expect(await pathExists(created.path(".factory/review/SKILL.md"))).toBe(false);
+    // The refused path would have held a skill directory: the write the user asked for cannot
+    // be valid, so nothing is written.
+    const factory = await loadFactory(created.root);
+    expect(factory.problems).toEqual([]);
+    expect(factory.skills.map((skill) => skill.relDir)).toEqual(["review/notes"]);
+  });
+
+  test.skipIf(cannotTestPermissions)("fails with a problem when .factory cannot be read", async () => {
+    const created = await repo();
+    const directory = created.path(".factory");
+    try {
+      await chmod(directory, 0o000);
+
+      const result = await runCli(["create", "skills/x", "--description", "Ex.", "--json"], {
+        cwd: created.root,
+        tty: false,
+      });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toBe("");
+      const output = JSON.parse(result.stdout) as {
+        ok: boolean;
+        code: string;
+        summary: string;
+        problems: { message: string; file: string }[];
+      };
+      expect(output.ok).toBe(false);
+      expect(output.code).toBe("create-path-unreadable");
+      expect(output.summary).toBe(".factory cannot be read");
+      expect(output.problems[0]?.file).toBe(".factory");
+    } finally {
+      await chmod(directory, 0o755);
+    }
+    expect(await pathExists(created.path(".factory/skills/x/SKILL.md"))).toBe(false);
   });
 
   test.skipIf(cannotTestPermissions)("fails with a problem when the reserved container cannot be read", async () => {
@@ -360,10 +424,8 @@ description: Review a slice before it merges.
       expect(result.stderr).toBe("");
       const output = JSON.parse(result.stdout) as { ok: boolean; code: string; summary: string };
       expect(output.ok).toBe(false);
-      expect(output.code).toBe("create-duplicate-name");
-      expect(output.summary).toBe(
-        '.factory/skills may hold a skill named "x", but it cannot be read',
-      );
+      expect(output.code).toBe("create-path-unreadable");
+      expect(output.summary).toBe(".factory/skills cannot be read");
     } finally {
       await chmod(directory, 0o755);
     }
