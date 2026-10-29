@@ -4,12 +4,17 @@ import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import { copyFileWithMode } from "../../util/fs.js";
-import { MAX_FAB_FILE_SIZE } from "./extract.js";
+import { MAX_FAB_ENTRIES, MAX_FAB_FILE_SIZE, MAX_FAB_TOTAL_SIZE } from "./extract.js";
 import { redact } from "./redact.js";
 import type { FetchedFab, Resolved } from "./types.js";
 import { validateFab } from "./validate.js";
 
 export type ResolvedPath = Extract<Resolved, { kind: "path" }>;
+
+export interface PathOptions {
+  maxEntries?: number;
+  maxTotalSize?: number;
+}
 
 interface LinkTask {
   path: string;
@@ -184,18 +189,30 @@ async function verifyLinks(
   return problems;
 }
 
-async function copyFactory(sourceDir: string, destination: string, sourceLabel: string): Promise<void> {
+async function copyFactory(
+  sourceDir: string,
+  destination: string,
+  sourceLabel: string,
+  options: PathOptions,
+): Promise<void> {
+  const maxEntries = options.maxEntries ?? MAX_FAB_ENTRIES;
+  const maxTotalSize = options.maxTotalSize ?? MAX_FAB_TOTAL_SIZE;
   const problems: Problem[] = [];
   const links: LinkTask[] = [];
   const factoryDir = path.join(destination, ".factory");
   const factoryRoot = path.resolve(sourceDir);
+  let files = 0;
+  let totalSize = 0;
+  let stopped = false;
   await mkdir(factoryDir, { recursive: true });
 
   async function walk(directory: string, prefix: string): Promise<void> {
+    if (stopped) return;
     const entries = await readdir(directory);
     entries.sort();
 
     for (const name of entries) {
+      if (stopped) return;
       const absolute = path.join(directory, name);
       const relativePath = prefix === "" ? name : `${prefix}/${name}`;
       const entry = await lstat(absolute);
@@ -242,6 +259,29 @@ async function copyFactory(sourceDir: string, destination: string, sourceLabel: 
         continue;
       }
 
+      files += 1;
+      if (files > maxEntries) {
+        problems.push({
+          level: "error",
+          file: problemFile(sourceLabel, relativePath),
+          line: 1,
+          message: `fabs with more than ${maxEntries} files are not allowed`,
+        });
+        stopped = true;
+        return;
+      }
+      totalSize += entry.size;
+      if (totalSize > maxTotalSize) {
+        problems.push({
+          level: "error",
+          file: problemFile(sourceLabel, relativePath),
+          line: 1,
+          message: `files larger than ${maxTotalSize} bytes in total are not allowed in a fab`,
+        });
+        stopped = true;
+        return;
+      }
+
       await copyFileWithMode(absolute, path.join(factoryDir, ...relativePath.split("/")));
     }
   }
@@ -258,14 +298,14 @@ async function copyFactory(sourceDir: string, destination: string, sourceLabel: 
 
 export async function fetchPath(
   source: ResolvedPath,
-  _options: object = {},
+  options: PathOptions = {},
 ): Promise<FetchedFab> {
   const sourceLabel = source.spec.source;
   const factoryDir = await locateFactoryDir(source.spec.path);
   const destination = await mkdtemp(path.join(tmpdir(), "metafab-path-"));
 
   try {
-    await copyFactory(factoryDir, destination, sourceLabel);
+    await copyFactory(factoryDir, destination, sourceLabel, options);
     await validateFab(destination, { sourceLabel });
   } catch (error) {
     await rm(destination, { recursive: true, force: true });

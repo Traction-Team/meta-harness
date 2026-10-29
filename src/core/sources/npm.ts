@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -11,6 +11,7 @@ import { fabKey, getOrCreate } from "./cache.js";
 import type { CacheLayout } from "./cache.js";
 import { cacheRoot, cacheLayout } from "./cache.js";
 import { extractTarball } from "./extract.js";
+import { MAX_TARBALL_SIZE } from "./https.js";
 import { redact } from "./redact.js";
 import type { FetchedFab, NpmSourceSpec, Resolved } from "./types.js";
 import { validateFab } from "./validate.js";
@@ -22,6 +23,7 @@ export interface NpmOptions {
   env?: NodeJS.ProcessEnv;
   registry?: string;
   cache?: string;
+  maxTarballSize?: number;
 }
 
 export interface ResolveNpmOptions extends NpmOptions {
@@ -303,12 +305,20 @@ function verifyIntegrity(tarball: string, data: Buffer, integrity: string | unde
   }
 }
 
+function tarballTooLarge(source: ResolvedNpm, size: number, maxBytes: number): MetafabError {
+  return new MetafabError(
+    `Cannot download npm package "${source.spec.name}@${source.version}": the tarball is larger than ${maxBytes} bytes (${size} bytes)`,
+    { exitCode: ExitCode.InvalidFab, code: "invalid-fab" },
+  );
+}
+
 async function downloadTarball(
   source: ResolvedNpm,
   target: string,
   options: NpmOptions,
 ): Promise<void> {
   const context = `Cannot download npm package "${source.spec.name}@${source.version}"`;
+  const maxBytes = options.maxTarballSize ?? MAX_TARBALL_SIZE;
   const staging = await mkdtemp(path.join(tmpdir(), "metafab-pack-"));
   try {
     await runNpm(
@@ -328,8 +338,12 @@ async function downloadTarball(
     const filename = entries.find((entry) => entry.endsWith(".tgz"));
     if (filename === undefined) throw fetchError(`${context}: npm pack produced no tarball`);
 
+    const packed = path.join(staging, filename);
+    const size = (await stat(packed)).size;
+    if (size > maxBytes) throw tarballTooLarge(source, size, maxBytes);
+
     await mkdir(path.dirname(target), { recursive: true });
-    await copyFile(path.join(staging, filename), target);
+    await copyFile(packed, target);
   } finally {
     await rm(staging, { recursive: true, force: true });
   }
@@ -341,8 +355,11 @@ async function fetchNpmTarball(
   options: NpmOptions,
 ): Promise<void> {
   const target = layout.npmTarball(source.spec.name, source.version);
+  const maxBytes = options.maxTarballSize ?? MAX_TARBALL_SIZE;
   await getOrCreate(target, {
     validate: async () => {
+      const size = (await stat(target)).size;
+      if (size > maxBytes) throw tarballTooLarge(source, size, maxBytes);
       const data = await readFile(target);
       verifyIntegrity(target, data, source.integrity);
       return target;

@@ -5,9 +5,10 @@ import type { HttpsOptions } from "./https.js";
 import { fetchNpm, resolveNpm } from "./npm.js";
 import type { NpmOptions, ResolveNpmOptions } from "./npm.js";
 import { fetchPath } from "./path.js";
+import type { PathOptions } from "./path.js";
 import type { FetchedFab, Resolved, SourceSpec } from "./types.js";
 
-export type SourceOptions = NpmOptions & GitOptions & HttpsOptions;
+export type SourceOptions = NpmOptions & GitOptions & HttpsOptions & PathOptions;
 export type ResolveSourceOptions = ResolveNpmOptions & GitResolveOptions & HttpsOptions;
 
 export async function resolve(

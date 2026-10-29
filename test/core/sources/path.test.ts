@@ -16,8 +16,11 @@ function pathSource(value: string): ReturnType<typeof parseSource> {
   return parseSource(value, { cwd: root });
 }
 
-async function fetchSource(value: string): Promise<Awaited<ReturnType<typeof fetchFab>>> {
-  return fetchFab(await resolve(pathSource(value)));
+async function fetchSource(
+  value: string,
+  options: Record<string, unknown> = {},
+): Promise<Awaited<ReturnType<typeof fetchFab>>> {
+  return fetchFab(await resolve(pathSource(value)), options);
 }
 
 beforeEach(async () => {
@@ -148,5 +151,40 @@ describe("local path sources", () => {
       exitCode: ExitCode.InvalidFab,
       code: "invalid-fab",
     });
+  });
+
+  test("rejects a factory with more files than the cap", async () => {
+    for (const name of ["one.md", "two.md", "three.md"]) {
+      await writeFile(path.join(sourceParent, ".factory", name), `${name}\n`);
+    }
+
+    try {
+      await fetchSource(sourceParent, { maxEntries: 2 });
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      const failure = error as MetafabError;
+      expect(failure.exitCode).toBe(ExitCode.InvalidFab);
+      expect(failure.problems?.some((problem) => problem.message.includes("more than 2 files"))).toBe(
+        true,
+      );
+      return;
+    }
+    throw new Error("expected the fetch to fail");
+  });
+
+  test("rejects a factory with more bytes in total than the cap", async () => {
+    await writeFile(path.join(sourceParent, ".factory", "one.bin"), Buffer.alloc(600, 1));
+    await writeFile(path.join(sourceParent, ".factory", "two.bin"), Buffer.alloc(600, 2));
+
+    try {
+      await fetchSource(sourceParent, { maxTotalSize: 1000 });
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      const failure = error as MetafabError;
+      expect(failure.exitCode).toBe(ExitCode.InvalidFab);
+      expect(failure.problems?.some((problem) => problem.message.includes("in total"))).toBe(true);
+      return;
+    }
+    throw new Error("expected the fetch to fail");
   });
 });

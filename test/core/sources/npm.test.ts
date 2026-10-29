@@ -261,6 +261,21 @@ describe("npm sources", { timeout: 60_000 }, () => {
     });
   });
 
+  test("rejects an npm tarball larger than the compressed size cap", async () => {
+    const resolved = await resolveSource("fab-range@1.2.0");
+    const smallCache = await mkdtemp(path.join(tmpdir(), "metafab-npm-large-"));
+    try {
+      await expect(
+        fetchFab(resolved, { ...npmOptions(smallCache), maxTarballSize: 128 }),
+      ).rejects.toMatchObject({
+        exitCode: ExitCode.InvalidFab,
+        code: "invalid-fab",
+      });
+    } finally {
+      await rm(smallCache, { recursive: true, force: true });
+    }
+  });
+
   test("fails with exit 4 when metafab.format is not 1", async () => {
     await expect(fetchSource("fab-bad-format@1.0.0")).rejects.toMatchObject({
       exitCode: ExitCode.InvalidFab,
