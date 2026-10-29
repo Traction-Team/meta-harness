@@ -105,13 +105,11 @@ async function assertFactoryDirectoryUsable(factoryDir: string): Promise<void> {
   );
 }
 
-/** Loads `metafab.yaml`, turning an unreadable file into a problem list. */
+/** Loads `metafab.yaml`, turning any failure to read it into a problem list. */
 async function readConfig(factoryDir: string): Promise<Config> {
   try {
     return await loadConfig(factoryDir);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "EISDIR" && code !== "EACCES" && code !== "EPERM" && code !== "ENOTDIR") throw error;
+  } catch {
     const file = `.factory/${CONFIG_FILENAME}`;
     throw unreadableFactory(file, `Cannot read file ${file}`, "Check its permissions or restore the file");
   }
@@ -124,8 +122,11 @@ function isAdoptionSource(file: string, moves: readonly AdoptionMove[]): boolean
 }
 
 /**
- * The conflicts `build` would refuse, checked before `init` writes anything.
- * Problems inside a planned move are ignored: the move removes them.
+ * The output conflicts `build` would refuse, checked before `init` writes
+ * anything. Validation errors that are already in the factory are left for the
+ * closing build to report, so `init` still adds the missing entries the
+ * specification promises. Conflict problems inside a planned move are ignored:
+ * the move removes them.
  */
 async function preflightBuild(
   root: string,
@@ -139,23 +140,16 @@ async function preflightBuild(
   const planned = await planBuild(factory, effective, cliVersion());
   const conflicts = planned.conflicts.filter((problem) => !isAdoptionSource(problem.file, moves));
 
-  if (conflicts.length > 0) {
-    throw new MetafabError(
-      "Build stopped because the repository contains output that Metafab does not own.",
-      {
-        exitCode: ExitCode.NotOwned,
-        code: "build-conflict",
-        problems: [...conflicts, ...planned.errors, ...planned.warnings],
-      },
-    );
-  }
-  if (planned.errors.length > 0) {
-    throw new MetafabError("Build failed before init changed anything.", {
-      exitCode: ExitCode.Failed,
-      code: "build-failed",
-      problems: [...planned.errors, ...planned.warnings],
-    });
-  }
+  if (conflicts.length === 0) return;
+
+  throw new MetafabError(
+    "Build stopped because the repository contains output that Metafab does not own.",
+    {
+      exitCode: ExitCode.NotOwned,
+      code: "build-conflict",
+      problems: [...conflicts, ...planned.errors, ...planned.warnings],
+    },
+  );
 }
 
 async function ensureFactoryFiles(

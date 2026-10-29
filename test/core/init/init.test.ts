@@ -1,4 +1,4 @@
-import { mkdir, readFile, symlink } from "node:fs/promises";
+import { chmod, mkdir, readFile, symlink } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, describe, expect, test } from "vitest";
@@ -314,7 +314,7 @@ describe("metafab init", () => {
     expect(await pathExists(repo.path(".factory"))).toBe(false);
   });
 
-  test("blocks a skill with a symlink outside .factory before moving it", async () => {
+  test("blocks a skill with a symlink outside the skill before moving it", async () => {
     const repo = await gitRepo({
       ".claude/skills/release/SKILL.md": skill("release"),
       "README.md": "# Repository\n",
@@ -325,10 +325,112 @@ describe("metafab init", () => {
     const result = await runCli(["init", "--agents", "claude", "--adopt"], { cwd: repo.root });
 
     expect(result.code).toBe(5);
-    expect(result.stderr).toContain("points outside .factory/");
+    expect(result.stderr).toContain("points outside the skill directory");
     expect(await snapshot(repo.root)).toEqual(before);
     expect(await pathExists(repo.path(".factory"))).toBe(false);
     expect(await pathExists(repo.path(".claude", "skills", "release", "SKILL.md"))).toBe(true);
+  });
+
+  test("blocks a symlink loop before moving the skill", async () => {
+    const repo = await gitRepo({
+      ".claude/skills/release/SKILL.md": skill("release"),
+    });
+    await symlink(".", repo.path(".claude", "skills", "release", "loop"));
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["init", "--agents", "claude", "--adopt"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stderr).toContain("creates a loop");
+    expect(await snapshot(repo.root)).toEqual(before);
+    expect(await pathExists(repo.path(".factory"))).toBe(false);
+    expect(await pathExists(repo.path(".claude", "skills", "release", "loop"))).toBe(true);
+  });
+
+  test("blocks a symlink that resolves through a symlinked directory into .factory", async () => {
+    const repo = await gitRepo({
+      ".claude/skills/release/SKILL.md": skill("release"),
+      "outside/notes.md": "outside notes\n",
+    });
+    await mkdir(repo.path(".factory"), { recursive: true });
+    await symlink("../outside", repo.path(".factory", "shared"), "dir");
+    await symlink(
+      "../../../.factory/shared/notes.md",
+      repo.path(".claude", "skills", "release", "notes-link.md"),
+    );
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["init", "--agents", "claude", "--adopt"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stderr).toContain("points outside the skill directory");
+    expect(await snapshot(repo.root)).toEqual(before);
+    expect(await pathExists(repo.path(".claude", "skills", "release", "SKILL.md"))).toBe(true);
+  });
+
+  test.skipIf(process.platform === "win32")(
+    "blocks an unreadable supporting file before moving the skill",
+    async () => {
+      const repo = await gitRepo({
+        ".claude/skills/release/SKILL.md": skill("release"),
+        ".claude/skills/release/notes.md": "notes\n",
+      });
+      await chmod(repo.path(".claude", "skills", "release", "notes.md"), 0o000);
+
+      const result = await runCli(["init", "--agents", "claude", "--adopt"], { cwd: repo.root });
+
+      expect(result.code).toBe(5);
+      expect(result.stderr).toContain("Cannot read file .claude/skills/release/notes.md");
+      expect(await pathExists(repo.path(".factory"))).toBe(false);
+      expect(await pathExists(repo.path(".gitattributes"))).toBe(false);
+      expect(await pathExists(repo.path(".claude", "skills", "release", "notes.md"))).toBe(true);
+    },
+  );
+
+  test("creates missing entries despite an unrelated factory validation error", async () => {
+    const repo = await gitRepo({
+      ".factory/factory.yaml": "format: 1\nname: demo\n",
+      ".factory/skills/foo/SKILL.md": "---\nname: foo\n---\n\n# foo\n",
+    });
+
+    const result = await runCli(["init", "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('SKILL.md is missing a "description" field');
+    expect(await readFile(repo.path(".factory", "AGENTS.md"), "utf8")).toBe("");
+    expect(await readFile(repo.path(".factory", "metafab.yaml"), "utf8")).toBe("agents: [claude]\n");
+  });
+
+  test("reports a metafab.yaml symlink loop as a problem instead of crashing", async () => {
+    const repo = await gitRepo({ ".factory/factory.yaml": "format: 1\nname: demo\n" });
+    await symlink("metafab.yaml", repo.path(".factory", "metafab.yaml"));
+
+    const result = await runCli(["init", "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Cannot read file .factory/metafab.yaml");
+    expect(result.stderr).not.toContain("ELOOP");
+    expect(result.stderr).not.toMatch(/\n\s+at /u);
+  });
+
+  test("a second run after adoption changes nothing and reports Already initialised", async () => {
+    const repo = await gitRepo({
+      ".claude/skills/release/SKILL.md": skill("release"),
+      ".claude/skills/release/notes.md": "notes\n",
+      ".claude/skills/release/scripts/run.sh": "#!/bin/sh\necho release\n",
+    });
+    await symlink("notes.md", repo.path(".claude", "skills", "release", "notes-link.md"));
+
+    const first = await runCli(["init", "--agents", "claude", "--adopt"], { cwd: repo.root });
+    expect(first.code).toBe(0);
+    const before = await snapshot(repo.root);
+
+    const second = await runCli(["init", "--agents", "claude", "--adopt"], { cwd: repo.root });
+
+    expect(second.code).toBe(0);
+    expect(second.stdout).toBe("Already initialised\n");
+    expect(await snapshot(repo.root)).toEqual(before);
+    expect(await pathExists(repo.path(".factory", "skills", "release", "notes-link.md"))).toBe(true);
   });
 
   test("refuses a symlinked .claude before creating anything", async () => {
