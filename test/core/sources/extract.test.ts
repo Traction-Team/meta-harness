@@ -361,6 +361,34 @@ describe("extractTarball", () => {
     }
   });
 
+  test("rejects a symbolic link whose path is an existing directory and keeps its files", async () => {
+    const base = await tempDir();
+    try {
+      const archive = path.join(base, "evil.tar");
+      await makeRawTar(archive, [
+        { path: ".factory/target.md", type: "File", body: "target\n" },
+        { path: ".factory/dir", type: "SymbolicLink", linkpath: "target.md" },
+      ]);
+
+      const destination = path.join(base, "out");
+      await mkdir(path.join(destination, ".factory", "dir"), { recursive: true });
+      await writeFile(path.join(destination, ".factory", "dir", "notes.md"), "notes\n");
+
+      const failure = await expectInvalid(archive, destination);
+
+      // The link could not replace the directory, and nothing that was already
+      // under it was removed.
+      expect(
+        failure.problems?.some((problem) => problem.message.includes("links could not be created")),
+      ).toBe(true);
+      expect(
+        await readFile(path.join(destination, ".factory", "dir", "notes.md"), "utf8"),
+      ).toBe("notes\n");
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
   test("rejects a duplicate entry path instead of replacing earlier content", async () => {
     const base = await tempDir();
     try {
