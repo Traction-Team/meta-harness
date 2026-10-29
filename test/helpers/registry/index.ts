@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { promisify } from "node:util";
+import { npmInvocation } from "../../../src/core/sources/npm-cli.js";
 
 const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
@@ -40,10 +41,6 @@ export interface FabPackageOptions {
 
 export interface StartRegistryOptions {
   timeoutMs?: number;
-}
-
-function npmCommand(): string {
-  return process.platform === "win32" ? "npm.cmd" : "npm";
 }
 
 async function freePort(): Promise<number> {
@@ -109,7 +106,8 @@ function runningOptions(registry: Registry): { cwd: string; env: NodeJS.ProcessE
 
 async function runNpm(registry: Registry, args: string[]): Promise<void> {
   try {
-    await execFileAsync(npmCommand(), args, {
+    const npm = await npmInvocation({ env: registry.env });
+    await execFileAsync(npm.command, [...npm.args, ...args], {
       ...runningOptions(registry),
       encoding: "utf8",
       maxBuffer: 32 * 1024 * 1024,

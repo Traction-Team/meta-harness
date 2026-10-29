@@ -12,6 +12,7 @@ import type { CacheLayout } from "./cache.js";
 import { cacheRoot, cacheLayout } from "./cache.js";
 import { extractTarball } from "./extract.js";
 import { MAX_TARBALL_SIZE } from "./https.js";
+import { npmInvocation } from "./npm-cli.js";
 import { redact } from "./redact.js";
 import type { FetchedFab, NpmSourceSpec, Resolved } from "./types.js";
 import { validateFab } from "./validate.js";
@@ -38,10 +39,6 @@ interface NpmFailure {
   message?: string;
 }
 
-function npmCommand(): string {
-  return process.platform === "win32" ? "npm.cmd" : "npm";
-}
-
 function npmEnv(options: NpmOptions): NodeJS.ProcessEnv {
   const env = { ...(options.env ?? process.env) };
   if (options.registry !== undefined) env.npm_config_registry = options.registry;
@@ -66,16 +63,19 @@ function fetchError(message: string, cause?: unknown): MetafabError {
 }
 
 async function runNpm(args: string[], options: NpmOptions, context: string): Promise<string> {
+  const env = npmEnv(options);
   try {
-    const { stdout } = await execFileAsync(npmCommand(), args, {
+    const npm = await npmInvocation({ env });
+    const { stdout } = await execFileAsync(npm.command, [...npm.args, ...args], {
       cwd: options.cwd,
-      env: npmEnv(options),
+      env,
       encoding: "utf8",
       maxBuffer: 32 * 1024 * 1024,
       windowsHide: true,
     });
     return stdout;
   } catch (error) {
+    if (error instanceof MetafabError) throw error;
     const failure = error as NpmFailure;
     throw fetchError(`${context}: ${npmMessage(failure)}`, error);
   }
