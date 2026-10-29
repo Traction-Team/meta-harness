@@ -1,10 +1,79 @@
-import { notImplemented } from "./not-implemented.js";
+import { createRequire } from "node:module";
+import { applyBuild, planBuild } from "../core/build/index.js";
+import type { BuildChange } from "../core/build/index.js";
+import { loadConfig } from "../core/config/load.js";
+import { findFactory } from "../core/discovery.js";
+import { loadFactory } from "../core/factory/index.js";
+import { ExitCode } from "../errors.js";
+import type { Problem } from "../errors.js";
+import type { CommandResult } from "../output.js";
 import type { CommandDefinition } from "./types.js";
+
+const ACTION_MARK = {
+  created: "+",
+  updated: "~",
+  removed: "-",
+} as const;
+
+function cliVersion(): string {
+  const require = createRequire(import.meta.url);
+  const pkg = require("../../package.json") as { version?: unknown };
+  return typeof pkg.version === "string" ? pkg.version : "0.0.0";
+}
+
+function changesSummary(changed: readonly BuildChange[]): string {
+  if (changed.length === 0) return "Up to date.";
+
+  const lines = changed.map((change) => `${ACTION_MARK[change.action]} ${change.path}`);
+  const total =
+    changed.length === 1 ? "1 file changed." : `${changed.length} files changed.`;
+  return [...lines, total].join("\n");
+}
+
+function failed(exitCode: ExitCode, problems: readonly Problem[]): CommandResult {
+  return {
+    ok: false,
+    command: "build",
+    exitCode,
+    changed: [],
+    problems: [...problems],
+  };
+}
 
 export const buildCommand: CommandDefinition = {
   name: "build",
   description: "Compile the factory for the configured agent tools",
-  async run() {
-    return notImplemented("build");
+  async run(context) {
+    const location = await findFactory(context.cwd);
+    const factory = await loadFactory(location.root);
+    const config = await loadConfig(factory.dir);
+
+    const loadedProblems = [...factory.problems, ...config.problems];
+    if (loadedProblems.some((problem) => problem.level === "error")) {
+      return failed(ExitCode.Failed, loadedProblems);
+    }
+    const loadedWarnings = loadedProblems.filter((problem) => problem.level === "warning");
+
+    const plan = await planBuild(factory, config, cliVersion());
+    const warnings = [...loadedWarnings, ...plan.warnings];
+
+    if (plan.conflicts.length > 0) {
+      return failed(ExitCode.NotOwned, [...plan.conflicts, ...plan.errors, ...warnings]);
+    }
+    if (plan.errors.length > 0) {
+      return failed(ExitCode.Failed, [...plan.errors, ...warnings]);
+    }
+
+    const report = await applyBuild(plan);
+    const result: CommandResult = {
+      ok: true,
+      command: "build",
+      exitCode: ExitCode.Ok,
+      changed: report.changed,
+      problems: warnings,
+    };
+
+    if (context.options.json !== true) result.summary = changesSummary(report.changed);
+    return result;
   },
 };

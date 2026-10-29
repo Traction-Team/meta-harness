@@ -1,0 +1,912 @@
+import {
+  chmod,
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  readlink,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import type { Config } from "../config/types.js";
+import { CLAUDE_SKILLS_DIRECTORY, AGENTS_SKILLS_DIRECTORY } from "../config/destinations.js";
+import { destinations } from "../config/destinations.js";
+import type { Problem } from "../../errors.js";
+import type { Factory } from "../factory/types.js";
+import { toLF } from "../../util/text.js";
+import {
+  AGENTS_BLOCK_LINE_LIMIT,
+  AGENTS_MARKERS,
+  CLAUDE_MARKERS,
+  GITIGNORE_MARKERS,
+  agentsBlockLineCount,
+  claudeBlockBody,
+  gitignoreBlockBody,
+  renderAgentsBlockBody,
+} from "./agents.js";
+import {
+  appendMarkerBlock,
+  findMarkerBlock,
+  removeMarkerBlock,
+  replaceMarkerBlock,
+} from "./markers.js";
+import type { MarkerLines, MarkerProblem, MarkerRange } from "./markers.js";
+import { builtinComment, compileSkill, isOwned, textContent } from "./skill.js";
+import type { CompiledSkill } from "./skill.js";
+
+export interface BuildWrite {
+  path: string;
+  content: Buffer;
+  mode?: number;
+}
+
+export interface BuildPlan {
+  root: string;
+  writes: BuildWrite[];
+  removals: string[];
+  conflicts: Problem[];
+  warnings: Problem[];
+  errors: Problem[];
+}
+
+export interface BuildChange {
+  path: string;
+  action: "created" | "updated" | "removed";
+}
+
+export interface BuildReport {
+  changed: BuildChange[];
+}
+
+const SKILL_DESTINATIONS = [CLAUDE_SKILLS_DIRECTORY, AGENTS_SKILLS_DIRECTORY];
+
+const BUILTIN_SKILL_DIR = fileURLToPath(
+  new URL("../../../resources/metafab-skill", import.meta.url),
+);
+
+const IMPORT_AGENTS = /^@(\.\/)?AGENTS\.md\s*$/;
+
+function absolute(root: string, relativePath: string): string {
+  return path.join(root, ...relativePath.split("/"));
+}
+
+async function lstatIfExists(target: string) {
+  try {
+    return await lstat(target);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+function markerProblem(file: string, problem: MarkerProblem): Problem {
+  return {
+    level: "error",
+    file,
+    line: problem.line,
+    message: problem.message,
+    fix: problem.fix,
+  };
+}
+
+interface BlockPlan {
+  text?: string;
+  removeFile?: boolean;
+  error?: Problem;
+}
+
+function planBlockFile(
+  existing: string | undefined,
+  markers: MarkerLines,
+  file: string,
+  body: string | undefined,
+  removeWhenEmpty = false,
+): BlockPlan {
+  if (existing === undefined) {
+    if (body === undefined) return {};
+    const appended = appendMarkerBlock("", markers, body);
+    if (!appended.ok) return { error: markerProblem(file, appended.problem) };
+    return { text: appended.text };
+  }
+
+  const found = findMarkerBlock(existing, markers);
+  if (!found.ok) return { error: markerProblem(file, found.problem) };
+
+  if (body !== undefined) {
+    const result =
+      found.range === undefined
+        ? appendMarkerBlock(existing, markers, body)
+        : replaceMarkerBlock(existing, markers, body);
+    if (!result.ok) return { error: markerProblem(file, result.problem) };
+    return result.changed ? { text: result.text } : {};
+  }
+
+  if (found.range === undefined) return {};
+  const removed = removeMarkerBlock(existing, markers);
+  if (!removed.ok) return { error: markerProblem(file, removed.problem) };
+  if (!removed.changed) return {};
+  if (removed.text === "" && removeWhenEmpty) return { removeFile: true };
+  return { text: removed.text };
+}
+
+function addBlockPlan(
+  plan: BuildPlan,
+  file: string,
+  entry: RootEntry,
+  result: BlockPlan,
+  removals: Set<string>,
+): void {
+  if (result.error === undefined && result.text === undefined && result.removeFile !== true) {
+    return;
+  }
+
+  const conflict = rootEntryConflict(file, entry.kind);
+  if (conflict !== undefined) {
+    plan.conflicts.push(conflict);
+    return;
+  }
+
+  if (result.error !== undefined) {
+    plan.errors.push(result.error);
+    return;
+  }
+
+  if (result.text !== undefined) {
+    plan.writes.push({ path: file, content: Buffer.from(result.text, "utf8") });
+  }
+  if (result.removeFile === true) removals.add(file);
+}
+
+function linesOutsideRange(text: string, range: MarkerRange | undefined): string[] {
+  const lines = toLF(text).split("\n");
+  if (range === undefined) return lines;
+  return [...lines.slice(0, range.start), ...lines.slice(range.end + 1)];
+}
+
+function importsAgents(text: string, range: MarkerRange | undefined): boolean {
+  return linesOutsideRange(text, range).some((line) => IMPORT_AGENTS.test(line));
+}
+
+function claudeBlock(): string {
+  return [CLAUDE_MARKERS.start, claudeBlockBody(), CLAUDE_MARKERS.end].join("\n");
+}
+
+interface DesiredSkill {
+  name: string;
+  files: { path: string; content: Buffer; mode: number }[];
+}
+
+function skillWrites(destination: string, skill: DesiredSkill): BuildWrite[] {
+  return skill.files.map((file) => ({
+    path: `${destination}/${skill.name}/${file.path}`,
+    content: file.content,
+    mode: file.mode,
+  }));
+}
+
+async function compileFactorySkills(factory: Factory, errors: Problem[]): Promise<DesiredSkill[]> {
+  const desired: DesiredSkill[] = [];
+
+  for (const skill of factory.skills) {
+    const compiled: CompiledSkill = await compileSkill(
+      {
+        dir: path.join(factory.dir, ...skill.relDir.split("/")),
+        name: skill.name,
+        sourcePath: `.factory/${skill.relDir}`,
+      },
+      { factoryDir: factory.dir },
+    );
+
+    if (compiled.problems.length > 0) errors.push(...compiled.problems);
+    desired.push({
+      name: compiled.name,
+      files: compiled.files.map((file) => ({
+        path: file.path,
+        content: file.content,
+        mode: file.mode,
+      })),
+    });
+  }
+
+  return desired;
+}
+
+async function compileBuiltinSkill(
+  config: Config,
+  cliVersion: string,
+  errors: Problem[],
+): Promise<DesiredSkill | undefined> {
+  if (!config.metafabSkill) return undefined;
+
+  const compiled = await compileSkill(
+    { dir: BUILTIN_SKILL_DIR, name: "metafab", sourcePath: "resources/metafab-skill" },
+    { factoryDir: BUILTIN_SKILL_DIR, comment: builtinComment(cliVersion) },
+  );
+
+  if (compiled.problems.length > 0) errors.push(...compiled.problems);
+
+  return {
+    name: "metafab",
+    files: compiled.files.map((file) => ({
+      path: file.path,
+      content: file.content,
+      mode: file.mode,
+    })),
+  };
+}
+
+function permissionProblem(relativePath: string, error: unknown): Problem | undefined {
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code !== "EACCES" && code !== "EPERM") return undefined;
+  return {
+    level: "error",
+    file: relativePath,
+    message: `Cannot read ${relativePath}`,
+    fix: "Check its permissions",
+  };
+}
+
+async function readDirectoryIfExists(
+  directory: string,
+  relativePath: string,
+  errors?: Problem[],
+): Promise<import("node:fs").Dirent[] | undefined> {
+  try {
+    return await readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return undefined;
+    const problem = permissionProblem(relativePath, error);
+    if (problem === undefined) throw error;
+    errors?.push(problem);
+    return undefined;
+  }
+}
+
+function directoryChainProblem(relativePath: string, info: import("node:fs").Stats): Problem | undefined {
+  if (info.isSymbolicLink()) {
+    return {
+      level: "error",
+      file: relativePath,
+      message: `${relativePath} is a symbolic link, not a directory`,
+      fix: "Remove the symbolic link, then run metafab build again",
+    };
+  }
+  if (!info.isDirectory()) {
+    return {
+      level: "error",
+      file: relativePath,
+      message: `${relativePath} is a file, not a directory`,
+      fix: "Move the file or rename it, then run metafab build again",
+    };
+  }
+  return undefined;
+}
+
+async function inspectDestinationChain(
+  root: string,
+  directory: string,
+): Promise<{ traversable: boolean; symlink?: boolean; problem?: Problem }> {
+  let current = "";
+  for (const part of directory.split("/")) {
+    current = current === "" ? part : `${current}/${part}`;
+    const info = await lstatIfExists(absolute(root, current));
+    if (info === undefined) return { traversable: true };
+    const problem = directoryChainProblem(current, info);
+    if (problem !== undefined) {
+      return { traversable: false, symlink: info.isSymbolicLink(), problem };
+    }
+  }
+  return { traversable: true };
+}
+
+type RootEntryKind = "absent" | "file" | "symlink" | "other";
+
+interface RootEntry {
+  kind: RootEntryKind;
+  text?: string;
+  readError?: boolean;
+  problem?: Problem;
+}
+
+async function readRootEntry(root: string, relativePath: string): Promise<RootEntry> {
+  const target = absolute(root, relativePath);
+  const info = await lstatIfExists(target);
+  if (info === undefined) return { kind: "absent" };
+
+  if (info.isSymbolicLink()) {
+    try {
+      return { kind: "symlink", text: await readFile(target, "utf8") };
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "EISDIR" || code === "ENOTDIR") {
+        return { kind: "symlink" };
+      }
+      return { kind: "symlink", readError: true };
+    }
+  }
+
+  if (info.isFile()) {
+    try {
+      return { kind: "file", text: await readFile(target, "utf8") };
+    } catch (error) {
+      const problem = permissionProblem(relativePath, error);
+      if (problem === undefined) throw error;
+      return { kind: "file", problem };
+    }
+  }
+  return { kind: "other" };
+}
+
+function symlinkReadConflict(relativePath: string): Problem {
+  return {
+    level: "error",
+    file: relativePath,
+    message: `${relativePath} is a symbolic link that metafab build cannot read`,
+    fix: "Remove the symbolic link or replace it with a real file, then run metafab build again",
+  };
+}
+
+function rootEntryConflict(relativePath: string, kind: RootEntryKind): Problem | undefined {
+  if (kind === "symlink") {
+    return {
+      level: "error",
+      file: relativePath,
+      message: `${relativePath} is a symbolic link, not a regular file`,
+      fix: "Remove the symbolic link, then run metafab build again",
+    };
+  }
+  if (kind === "other") {
+    return {
+      level: "error",
+      file: relativePath,
+      message: `${relativePath} is not a regular file`,
+      fix: "Move it or rename it, then run metafab build again",
+    };
+  }
+  return undefined;
+}
+
+async function claudeLinksToRootAgents(root: string, entry: RootEntry): Promise<boolean> {
+  if (entry.kind !== "symlink") return false;
+
+  const claudePath = absolute(root, "CLAUDE.md");
+  const agentsPath = absolute(root, "AGENTS.md");
+
+  let rootReal = root;
+  try {
+    rootReal = await realpath(root);
+  } catch {
+    // Keep the lexical root; the comparisons below still work on a normal checkout.
+  }
+
+  try {
+    const [claudeStat, agentsStat] = await Promise.all([stat(claudePath), stat(agentsPath)]);
+    if (claudeStat.dev === agentsStat.dev && claudeStat.ino === agentsStat.ino) return true;
+  } catch {
+    // Either side is missing; the link may still dangle towards AGENTS.md.
+  }
+
+  try {
+    const [claudeReal, agentsReal] = await Promise.all([realpath(claudePath), realpath(agentsPath)]);
+    if (claudeReal === agentsReal) return true;
+  } catch {
+    // Fall through to the link target.
+  }
+
+  let resolved: string;
+  try {
+    const link = await readlink(claudePath);
+    resolved = path.resolve(rootReal, link);
+  } catch {
+    return false;
+  }
+
+  try {
+    if ((await lstatIfExists(resolved)) !== undefined) {
+      return resolved === agentsPath;
+    }
+  } catch {
+    return false;
+  }
+
+  try {
+    const parentReal = await realpath(path.dirname(resolved));
+    return path.join(parentReal, path.basename(resolved)) === path.join(rootReal, "AGENTS.md");
+  } catch {
+    return false;
+  }
+}
+
+async function symlinkedEntry(relativePath: string, target: string): Promise<Problem> {
+  let directory = false;
+  try {
+    directory = (await stat(target)).isDirectory();
+  } catch {
+    directory = false;
+  }
+
+  return {
+    level: "error",
+    file: relativePath,
+    message: directory
+      ? `${relativePath} is a symbolic link, not a directory`
+      : `${relativePath} is a symbolic link, not a regular file`,
+    fix: directory
+      ? "Remove the symbolic link or replace it with a real directory, then run metafab build again"
+      : "Remove the symbolic link or replace it with a real file, then run metafab build again",
+  };
+}
+
+interface DesiredFileTree {
+  files: Set<string>;
+  directories: Set<string>;
+}
+
+interface ScanContext {
+  root: string;
+  selected: boolean;
+  desired: Map<string, DesiredFileTree>;
+  removals: Set<string>;
+  conflicts: Problem[];
+  errors: Problem[];
+}
+
+function desiredFileTree(skill: DesiredSkill): DesiredFileTree {
+  const files = new Set<string>();
+  const directories = new Set<string>();
+
+  for (const file of skill.files) {
+    files.add(file.path);
+    let directory = path.posix.dirname(file.path);
+    while (directory !== "." && directory !== "") {
+      directories.add(directory);
+      directory = path.posix.dirname(directory);
+    }
+  }
+
+  return { files, directories };
+}
+
+function unownedEntry(relativePath: string, directory: boolean): Problem {
+  return {
+    level: "error",
+    file: relativePath,
+    message: directory
+      ? `Unowned directory ${relativePath} is in the way`
+      : `Unowned file ${relativePath} is in the way`,
+    fix: "Move it into .factory/skills/, or run metafab init to adopt it",
+  };
+}
+
+async function reconcileOwnedDirectory(
+  target: string,
+  installedPath: string,
+  skillPath: string,
+  desired: DesiredFileTree,
+  removals: Set<string>,
+  errors: Problem[],
+): Promise<void> {
+  const entries = (await readDirectoryIfExists(target, installedPath, errors)) ?? [];
+  entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+
+  for (const entry of entries) {
+    const childInstalled = `${installedPath}/${entry.name}`;
+    const childSkill = skillPath === "" ? entry.name : `${skillPath}/${entry.name}`;
+
+    if (desired.files.has(childSkill)) {
+      if (!entry.isFile()) removals.add(childInstalled);
+      continue;
+    }
+
+    if (desired.directories.has(childSkill)) {
+      if (entry.isDirectory()) {
+        await reconcileOwnedDirectory(
+          path.join(target, entry.name),
+          childInstalled,
+          childSkill,
+          desired,
+          removals,
+          errors,
+        );
+      } else {
+        removals.add(childInstalled);
+      }
+      continue;
+    }
+
+    removals.add(childInstalled);
+  }
+}
+
+async function scanDestination(context: ScanContext, directory: string): Promise<void> {
+  const target = absolute(context.root, directory);
+  const info = await lstatIfExists(target);
+  if (info === undefined) return;
+
+  if (!info.isDirectory()) {
+    if (context.selected) {
+      const symlink = info.isSymbolicLink();
+      context.conflicts.push({
+        level: "error",
+        file: directory,
+        message: symlink
+          ? `${directory} is a symbolic link, not a directory`
+          : `${directory} is a file, not a directory`,
+        fix: symlink
+          ? "Remove the symbolic link, then run metafab build again"
+          : "Move the file or rename it, then run metafab build again",
+      });
+    }
+    return;
+  }
+
+  const entries = (await readDirectoryIfExists(target, directory, context.errors)) ?? [];
+  entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+
+  for (const entry of entries) {
+    const relativePath = `${directory}/${entry.name}`;
+
+    if (entry.isSymbolicLink()) {
+      if (context.selected) {
+        context.conflicts.push(
+          await symlinkedEntry(relativePath, absolute(context.root, relativePath)),
+        );
+      }
+      continue;
+    }
+
+    const owned = entry.isDirectory() && (await isOwned(absolute(context.root, relativePath)));
+
+    if (context.selected) {
+      if (!owned) {
+        context.conflicts.push(unownedEntry(relativePath, entry.isDirectory()));
+        continue;
+      }
+
+      const desired = context.desired.get(entry.name);
+      if (desired === undefined) {
+        context.removals.add(relativePath);
+        continue;
+      }
+
+      await reconcileOwnedDirectory(
+        absolute(context.root, relativePath),
+        relativePath,
+        "",
+        desired,
+        context.removals,
+        context.errors,
+      );
+      continue;
+    }
+
+    if (owned) context.removals.add(relativePath);
+  }
+}
+
+async function deselectedSymlinkConflict(
+  root: string,
+  directory: string,
+  linkPath: string,
+): Promise<Problem | undefined> {
+  const target = absolute(root, directory);
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await readdir(target, { withFileTypes: true });
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return undefined;
+    return symlinkReadConflict(linkPath);
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (!(await isOwned(path.join(target, entry.name)))) continue;
+    return {
+      level: "error",
+      file: linkPath,
+      message: `${linkPath} is a symbolic link, and ${directory} behind it holds owned output that metafab build cannot remove`,
+      fix: "Remove the owned output by hand or replace the symbolic link with a real directory, then run metafab build again",
+    };
+  }
+
+  return undefined;
+}
+
+function hasWriteAtOrBeneath(writes: readonly string[], directory: string): boolean {
+  const prefix = `${directory}/`;
+  return writes.some((write) => write === directory || write.startsWith(prefix));
+}
+
+async function planEmptyDirectories(
+  root: string,
+  directory: string,
+  removals: Set<string>,
+  writes: readonly string[],
+  errors: Problem[],
+): Promise<void> {
+  const target = absolute(root, directory);
+  const info = await lstatIfExists(target);
+  if (info === undefined || !info.isDirectory()) return;
+  const entries = await readDirectoryIfExists(target, directory, errors);
+  if (entries === undefined || entries.length === 0) return;
+
+  const removedChildren = entries.filter((entry) =>
+    removals.has(`${directory}/${entry.name}`),
+  );
+  if (removedChildren.length === 0) return;
+
+  const remaining = entries.filter((entry) => !removals.has(`${directory}/${entry.name}`));
+  if (remaining.length > 0) return;
+  if (hasWriteAtOrBeneath(writes, directory)) return;
+
+  removals.add(directory);
+
+  const parent = path.posix.dirname(directory);
+  if (parent === "." || parent === "") return;
+
+  const parentTarget = absolute(root, parent);
+  const parentInfo = await lstatIfExists(parentTarget);
+  if (parentInfo === undefined || !parentInfo.isDirectory()) return;
+
+  const parentEntries = await readDirectoryIfExists(parentTarget, parent, errors);
+  if (parentEntries === undefined) return;
+  const parentRemaining = parentEntries.filter(
+    (entry) => !removals.has(`${parent}/${entry.name}`),
+  );
+  if (parentRemaining.length === 0 && !hasWriteAtOrBeneath(writes, parent)) {
+    removals.add(parent);
+  }
+}
+
+function sameContent(existing: Buffer, desired: Buffer): boolean {
+  const existingText = textContent(existing);
+  const desiredText = textContent(desired);
+  if (existingText === undefined || desiredText === undefined) return existing.equals(desired);
+  return toLF(existingText) === toLF(desiredText);
+}
+
+async function fileMatches(
+  root: string,
+  write: BuildWrite,
+): Promise<{ exists: boolean; same: boolean }> {
+  const target = absolute(root, write.path);
+  const info = await lstatIfExists(target);
+  if (info === undefined) return { exists: false, same: false };
+
+  if (!info.isFile()) return { exists: true, same: false };
+
+  const existing = await readFile(target);
+  const contentSame = sameContent(existing, write.content);
+  const modeSame =
+    write.mode === undefined ||
+    ((info.mode & 0o111) !== 0) === ((write.mode & 0o111) !== 0);
+  return { exists: true, same: contentSame && modeSame };
+}
+
+export async function planBuild(
+  factory: Factory,
+  config: Config,
+  cliVersion: string,
+): Promise<BuildPlan> {
+  const root = factory.root;
+  const plan: BuildPlan = {
+    root,
+    writes: [],
+    removals: [],
+    conflicts: [],
+    warnings: [],
+    errors: [],
+  };
+
+  for (const problem of [...factory.problems, ...config.problems]) {
+    if (problem.level === "error") plan.errors.push(problem);
+  }
+
+  const selectedDestinations = destinations(config.agents);
+  const factorySkills = await compileFactorySkills(factory, plan.errors);
+  const builtin = await compileBuiltinSkill(config, cliVersion, plan.errors);
+
+  const desiredPerDestination = new Map<string, DesiredSkill[]>();
+  for (const destination of selectedDestinations) {
+    const skills = [...factorySkills];
+    if (builtin !== undefined) skills.push(builtin);
+    desiredPerDestination.set(destination.directory, skills);
+    for (const skill of skills) {
+      plan.writes.push(...skillWrites(destination.directory, skill));
+    }
+  }
+
+  const removals = new Set<string>();
+  const untraversable = new Set<string>();
+  for (const directory of SKILL_DESTINATIONS) {
+    const desired = desiredPerDestination.get(directory);
+    const selected = desired !== undefined;
+    const chain = await inspectDestinationChain(root, directory);
+    if (!chain.traversable) {
+      untraversable.add(directory);
+      if (selected) {
+        if (chain.problem !== undefined) plan.conflicts.push(chain.problem);
+      } else if (chain.symlink === true && chain.problem !== undefined) {
+        const conflict = await deselectedSymlinkConflict(root, directory, chain.problem.file);
+        if (conflict !== undefined) plan.conflicts.push(conflict);
+      }
+      continue;
+    }
+
+    const context: ScanContext = {
+      root,
+      selected,
+      desired: new Map((desired ?? []).map((skill) => [skill.name, desiredFileTree(skill)])),
+      removals,
+      conflicts: plan.conflicts,
+      errors: plan.errors,
+    };
+    await scanDestination(context, directory);
+  }
+
+  for (const directory of SKILL_DESTINATIONS) {
+    if (untraversable.has(directory)) continue;
+    await planEmptyDirectories(
+      root,
+      directory,
+      removals,
+      plan.writes.map((write) => write.path),
+      plan.errors,
+    );
+  }
+
+  const agentsFile = "AGENTS.md";
+  const agentsEntry = await readRootEntry(root, agentsFile);
+  const agentsSelected = selectedDestinations.length > 0;
+
+  if (agentsEntry.problem !== undefined) {
+    plan.errors.push(agentsEntry.problem);
+  } else if (agentsEntry.readError === true) {
+    plan.conflicts.push(symlinkReadConflict(agentsFile));
+  } else {
+    const agentsResult = agentsSelected
+      ? planBlockFile(agentsEntry.text, AGENTS_MARKERS, agentsFile, renderAgentsBlockBody(factory), true)
+      : planBlockFile(agentsEntry.text, AGENTS_MARKERS, agentsFile, undefined, true);
+    addBlockPlan(plan, agentsFile, agentsEntry, agentsResult, removals);
+  }
+
+  if (agentsSelected) {
+    const lineCount = agentsBlockLineCount(factory);
+    if (lineCount > AGENTS_BLOCK_LINE_LIMIT) {
+      plan.warnings.push({
+        level: "warning",
+        file: agentsFile,
+        message: `The generated AGENTS.md block is ${lineCount} lines; the limit is ${AGENTS_BLOCK_LINE_LIMIT}`,
+        fix: "Move detail into .factory/AGENTS.md sections and keep the root block short",
+      });
+    }
+  }
+
+  const claudeFile = "CLAUDE.md";
+  const claudeSelected = config.agents.includes("claude");
+  const claudeEntry = await readRootEntry(root, claudeFile);
+  const claudeFollowsAgents = await claudeLinksToRootAgents(root, claudeEntry);
+
+  if (claudeEntry.problem !== undefined) {
+    plan.errors.push(claudeEntry.problem);
+  } else if (claudeEntry.readError === true) {
+    plan.conflicts.push(symlinkReadConflict(claudeFile));
+  } else if (!claudeFollowsAgents && claudeEntry.kind !== "absent") {
+    const claudeExisting = claudeEntry.text ?? "";
+    const found = findMarkerBlock(claudeExisting, CLAUDE_MARKERS);
+    if (!found.ok) {
+      const conflict = rootEntryConflict(claudeFile, claudeEntry.kind);
+      if (conflict !== undefined) plan.conflicts.push(conflict);
+      else plan.errors.push(markerProblem(claudeFile, found.problem));
+    } else if (claudeSelected) {
+      if (!importsAgents(claudeExisting, found.range)) {
+        const without =
+          found.range === undefined
+            ? { ok: true as const, text: claudeExisting }
+            : removeMarkerBlock(claudeExisting, CLAUDE_MARKERS);
+        if (!without.ok) {
+          plan.errors.push(markerProblem(claudeFile, without.problem));
+        } else {
+          const rest = toLF(without.text).replace(/^\n+/, "");
+          const block = claudeBlock();
+          const next = rest === "" ? `${block}\n` : `${block}\n\n${rest}`;
+          if (next !== claudeExisting) {
+            const conflict = rootEntryConflict(claudeFile, claudeEntry.kind);
+            if (conflict !== undefined) {
+              plan.conflicts.push(conflict);
+            } else {
+              plan.writes.push({ path: claudeFile, content: Buffer.from(next, "utf8") });
+            }
+          }
+        }
+      }
+    } else if (found.range !== undefined) {
+      const removed = removeMarkerBlock(claudeExisting, CLAUDE_MARKERS);
+      if (!removed.ok) {
+        plan.errors.push(markerProblem(claudeFile, removed.problem));
+      } else if (removed.changed) {
+        const conflict = rootEntryConflict(claudeFile, claudeEntry.kind);
+        if (conflict !== undefined) {
+          plan.conflicts.push(conflict);
+        } else {
+          plan.writes.push({ path: claudeFile, content: Buffer.from(removed.text, "utf8") });
+        }
+      }
+    }
+  }
+
+  const gitignoreFile = ".gitignore";
+  const gitignoreEntry = await readRootEntry(root, gitignoreFile);
+  if (gitignoreEntry.problem !== undefined) {
+    plan.errors.push(gitignoreEntry.problem);
+  } else if (gitignoreEntry.readError === true) {
+    plan.conflicts.push(symlinkReadConflict(gitignoreFile));
+  } else {
+    const gitignoreLines = gitignoreBlockBody(config.agents);
+    const gitignoreBody = gitignoreLines.length === 0 ? undefined : gitignoreLines.join("\n");
+    const gitignoreResult = planBlockFile(
+      gitignoreEntry.text,
+      GITIGNORE_MARKERS,
+      gitignoreFile,
+      gitignoreBody,
+    );
+    addBlockPlan(plan, gitignoreFile, gitignoreEntry, gitignoreResult, removals);
+  }
+
+  plan.removals = [...removals].sort();
+  return plan;
+}
+
+export async function applyBuild(plan: BuildPlan): Promise<BuildReport> {
+  const changed: BuildChange[] = [];
+  if (plan.errors.length > 0 || plan.conflicts.length > 0) return { changed };
+
+  const existingRemovals: string[] = [];
+  for (const removal of plan.removals) {
+    if ((await lstatIfExists(absolute(plan.root, removal))) !== undefined) {
+      existingRemovals.push(removal);
+    }
+  }
+
+  const deepestFirst = [...existingRemovals].sort((left, right) => right.length - left.length);
+  for (const removal of deepestFirst) {
+    await rm(absolute(plan.root, removal), { recursive: true, force: true });
+  }
+
+  const removed = new Set(existingRemovals);
+  const writePaths = plan.writes.map((write) => write.path);
+  const written = new Set(writePaths);
+  for (const write of plan.writes) {
+    const target = absolute(plan.root, write.path);
+    const comparison = await fileMatches(plan.root, write);
+    if (comparison.same) continue;
+
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, write.content);
+    if (write.mode !== undefined) await chmod(target, write.mode);
+    changed.push({
+      path: write.path,
+      action: comparison.exists || removed.has(write.path) ? "updated" : "created",
+    });
+  }
+
+  for (const removal of existingRemovals) {
+    if (written.has(removal)) continue;
+    if (writePaths.some((writePath) => writePath.startsWith(`${removal}/`))) {
+      changed.push({ path: removal, action: "updated" });
+      continue;
+    }
+    changed.push({ path: removal, action: "removed" });
+  }
+
+  changed.sort((left, right) =>
+    left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+  );
+  return { changed };
+}

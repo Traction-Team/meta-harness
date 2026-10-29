@@ -1,0 +1,6 @@
+node_modules/
+
+# metafab:start
+.claude/skills/
+.agents/skills/
+# metafab:end
