@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { classifySource } from "../../../src/core/config.js";
+import { classifySource, parseConfig } from "../../../src/core/config.js";
 import { parseSource } from "../../../src/core/sources/index.js";
 
 describe("classifySource", () => {
@@ -8,8 +8,11 @@ describe("classifySource", () => {
     expect(classifySource("fab-base")).toBe("npm");
   });
 
-  test("rejects a string that is not a package name or a source", () => {
-    expect(() => classifySource("seasb/fab-base")).toThrow();
+  test("never throws for a string that is not a package name or a source", () => {
+    // Config validation turns the fallback kind into a problem; throwing here
+    // would make `parseConfig` throw instead of returning its problems.
+    expect(classifySource("seasb/fab-base")).toBe("npm");
+    expect(classifySource("git+ssh://")).toBe("git");
   });
 
   test("classifies github: as git", () => {
@@ -63,5 +66,18 @@ describe("classifySource", () => {
 
   test("treats an empty source as npm", () => {
     expect(classifySource("")).toBe("npm");
+  });
+
+  test("reports an invalid upstream source and an unknown key without throwing", () => {
+    const config = parseConfig("upstream:\n  source: gitlab.com/o/r\nbogus: true\n");
+
+    expect(config.problems.map((problem) => problem.message)).toEqual([
+      'Unknown key "bogus".',
+      '"upstream" npm source requires "version".',
+    ]);
+    for (const problem of config.problems) {
+      expect(problem.file).toBe(".factory/metafab.yaml");
+      expect(problem.line).toBeGreaterThan(0);
+    }
   });
 });
