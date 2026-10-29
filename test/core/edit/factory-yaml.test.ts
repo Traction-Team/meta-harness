@@ -27,6 +27,16 @@ pipeline:
   - finish-slice: *gate
 `;
 
+/** One anchor inside another, aliased 60 times: only the expansion crosses the limit. */
+const NESTED_EXPANSION = [
+  "format: 1",
+  "name: mark4",
+  "pipeline:",
+  "  - gate: &g { stop: Wait for approval }",
+  "  - wrapped: &w { stop: *g }",
+  ...Array.from({ length: 60 }, (_, index) => `  - e${index}: *w`),
+].join("\n");
+
 describe("factory.yaml editor", () => {
   test("inserts an entry after a named entry, keeping comments", () => {
     const text = addPipelineEntryText(SOURCE, "x", {
@@ -228,5 +238,25 @@ describe("factory.yaml editor with YAML aliases", () => {
         message: "Alias *missing has no anchor",
       });
     }
+  });
+
+  test("refuses a nested expansion that crosses the alias limit", () => {
+    try {
+      parseFactoryYamlDocument(NESTED_EXPANSION);
+      throw new Error("expected the parse to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      expect((error as MetafabError).code).toBe("factory-yaml-invalid");
+      expect((error as MetafabError).problems?.[0]).toMatchObject({
+        file: ".factory/factory.yaml",
+        line: 55,
+        message: "Alias *w is aliased too many times",
+      });
+    }
+  });
+
+  test("add and remove refuse a nested expansion before changing anything", () => {
+    expect(() => addPipelineEntryText(NESTED_EXPANSION, "finish-slice")).toThrowError(MetafabError);
+    expect(() => removePipelineEntryText(NESTED_EXPANSION, "e0")).toThrowError(MetafabError);
   });
 });

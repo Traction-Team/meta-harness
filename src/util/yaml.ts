@@ -1,4 +1,4 @@
-import { isAlias, isCollection, isMap, isNode, isPair, isScalar, LineCounter, parseDocument, visit } from "yaml";
+import { isAlias, isCollection, isMap, isNode, isPair, isScalar, LineCounter, parseDocument } from "yaml";
 import type { Document, Pair } from "yaml";
 
 export interface YamlProblem {
@@ -51,114 +51,142 @@ function valueFromScalarKeys(document: Document.Parsed): Record<string, unknown>
   return value;
 }
 
-/** How many values `yaml` counts a node as when it checks the alias limit. */
-function expansionSize(node: unknown, document: Document, seen: Set<unknown>): number {
+interface AnchorUse {
+  /** The anchored node itself, plus one for each alias to it seen so far. */
+  count: number;
+  /** The largest expansion of one value of the anchored node; 0 until an alias needs it. */
+  aliasCount: number;
+}
+
+/**
+ * How many values `yaml` counts one value of `node` as while it converts a
+ * document to JavaScript: one for a scalar, the largest count in a collection,
+ * and an alias's anchor multiplied by that anchor's use count. An anchor that
+ * no alias has reached yet counts as zero, as `yaml` counts it. Aliases are not
+ * followed into a second walk, so shared subtrees are not expanded here and a
+ * nested alias finishes in linear time.
+ */
+function expansionCount(
+  node: unknown,
+  anchors: Map<string, unknown>,
+  uses: Map<unknown, AnchorUse>,
+): number {
   if (isAlias(node)) {
-    const target = node.resolve(document);
-    return target === undefined ? 0 : expansionSize(target, document, seen);
+    const target = anchors.get(node.source);
+    const use = target === undefined ? undefined : uses.get(target);
+    return use === undefined ? 0 : use.count * use.aliasCount;
   }
 
   if (isPair(node)) {
     return Math.max(
-      expansionSize(node.key, document, seen),
-      expansionSize(node.value, document, seen),
+      expansionCount(node.key, anchors, uses),
+      expansionCount(node.value, anchors, uses),
     );
   }
 
   if (isCollection(node)) {
-    if (seen.has(node)) return MAX_ALIAS_COUNT + 1;
-    seen.add(node);
     let count = 0;
     for (const item of node.items) {
-      count = Math.max(count, expansionSize(item, document, seen));
+      count = Math.max(count, expansionCount(item, anchors, uses));
     }
-    seen.delete(node);
     return count;
   }
 
   return 1;
 }
 
-function lastAlias(document: Document, lineAt: (offset: number) => number): { source?: string; line: number } {
-  let alias: { source?: string; line: number } = { line: lineAt(0) };
-  visit(document, (_key, node) => {
-    if (!isAlias(node)) return;
-    alias = { source: node.source, line: lineAt(node.range?.[0] ?? 0) };
-  });
-  return alias;
-}
-
-function expansionProblem(alias: { source?: string; line: number }, fix: string): YamlProblem {
-  return {
-    message:
-      alias.source === undefined
-        ? "The aliases in this document expand it too far"
-        : `Alias *${alias.source} is aliased too many times`,
-    line: alias.line,
-    fix,
-  };
-}
-
 /**
  * Problems for alias nodes: an alias such as `*missing` that names no anchor
- * before it, and a document whose aliases expand it past the library's limit.
- * `yaml` throws `ReferenceError` for both when the document is converted to
- * JavaScript, so callers check this first and report a grammar problem.
+ * before it, an alias that refers to an anchor it sits inside, and a document
+ * whose aliases expand it past the limit `yaml` applies when it converts one.
+ * The counts follow `yaml`'s own, so the problem names the alias that crosses
+ * the limit, and callers report it as a grammar problem instead of converting.
  */
 export function aliasProblems(document: Document, lineAt: (offset: number) => number): YamlProblem[] {
   const problems: YamlProblem[] = [];
-  const uses = new Map<unknown, { count: number; size: number }>();
+  const anchors = new Map<string, unknown>();
+  const uses = new Map<unknown, AnchorUse>();
+  const path = new Set<unknown>();
+  let reported = false;
 
-  visit(document, (_key, node) => {
-    if (!isAlias(node)) return;
+  const walk = (node: unknown): void => {
+    if (isNode(node) && typeof node.anchor === "string") anchors.set(node.anchor, node);
 
-    const target = node.resolve(document);
-    if (target === undefined) {
-      problems.push({
-        message: `Alias *${node.source} has no anchor`,
-        line: lineAt(node.range?.[0] ?? 0),
-        fix: "Remove the alias or define its anchor before it",
-      });
+    if (isAlias(node)) {
+      if (reported) return;
+
+      const line = lineAt(node.range?.[0] ?? 0);
+      const target = anchors.get(node.source);
+      if (target === undefined) {
+        problems.push({
+          message: `Alias *${node.source} has no anchor`,
+          line,
+          fix: "Remove the alias or define its anchor before it",
+        });
+        return;
+      }
+
+      if (path.has(target)) {
+        problems.push({
+          message: `Alias *${node.source} refers to itself`,
+          line,
+          fix: "Remove the alias or write the values out",
+        });
+        reported = true;
+        return;
+      }
+
+      let use = uses.get(target);
+      if (use === undefined) {
+        // `yaml` counts the anchored node itself as one use before its aliases.
+        use = { count: 1, aliasCount: 0 };
+        uses.set(target, use);
+      }
+      use.count += 1;
+      if (use.aliasCount === 0) use.aliasCount = expansionCount(target, anchors, uses);
+
+      if (use.count * use.aliasCount > MAX_ALIAS_COUNT) {
+        problems.push({
+          message: `Alias *${node.source} is aliased too many times`,
+          line,
+          fix: "Use the anchor fewer times or write the values out",
+        });
+        reported = true;
+      }
       return;
     }
 
-    if (problems.length > 0) return;
+    if (!isPair(node) && !isCollection(node)) return;
 
-    let record = uses.get(target);
-    if (record === undefined) {
-      // `yaml` counts the anchored node itself as one use before its aliases.
-      record = { count: 1, size: expansionSize(target, document, new Set()) };
-      uses.set(target, record);
+    path.add(node);
+    if (isPair(node)) {
+      walk(node.key);
+      walk(node.value);
+    } else {
+      for (const item of node.items) walk(item);
     }
-    record.count += 1;
+    path.delete(node);
+  };
 
-    if (record.count * record.size > MAX_ALIAS_COUNT) {
-      problems.push(
-        expansionProblem(
-          { source: node.source, line: lineAt(node.range?.[0] ?? 0) },
-          "Use the anchor fewer times or write the values out",
-        ),
-      );
-    }
-  });
-
+  if (document.contents !== null) walk(document.contents);
   return problems;
 }
 
-function toJsProblem(
-  error: unknown,
-  document: Document,
-  lineAt: (offset: number) => number,
-): YamlProblem {
-  const message = error instanceof Error ? error.message : String(error);
-  if (message.includes("Excessive alias count")) {
-    return expansionProblem(lastAlias(document, lineAt), "Use the anchor fewer times or write the values out");
-  }
+/** The `yaml` library's errors for an alias it cannot resolve or will not expand. */
+function isAliasError(error: unknown): boolean {
+  return (
+    error instanceof ReferenceError &&
+    /^(?:Excessive alias count|Unresolved alias|This should not happen: Alias anchor was not resolved)/.test(
+      error.message,
+    )
+  );
+}
 
+function expansionProblem(lineAt: (offset: number) => number): YamlProblem {
   return {
-    message: cleanMessage(message),
+    message: "The aliases in this document expand it too far",
     line: lineAt(0),
-    fix: "Fix the YAML syntax on this line",
+    fix: "Use the anchor fewer times or write the values out",
   };
 }
 
@@ -207,7 +235,12 @@ export function parseYaml(text: string, options: YamlParseOptions = {}): YamlPar
           ? valueFromScalarKeys(document)
           : (document.toJS() as Record<string, unknown>);
   } catch (error) {
-    return { ok: false, problems: [toJsProblem(error, document, lineAt)] };
+    if (!isAliasError(error)) throw error;
+
+    // `yaml` counts aliases per converted node, so re-check to name the alias
+    // that crosses the limit rather than guessing at its position.
+    const found = aliasProblems(document, lineAt);
+    return { ok: false, problems: found.length > 0 ? found : [expansionProblem(lineAt)] };
   }
 
   return {

@@ -131,11 +131,53 @@ describe("parseYaml", () => {
   });
 
   test("reports a document whose aliases expand too far without a stack", () => {
-    const result = rejected(parseYaml(expandingAliases()));
+    const result = rejected(parseYaml(expandingAliases(5)));
 
-    expect(result.problems).toHaveLength(1);
-    expect(result.problems[0]?.message).toMatch(/^Alias \*\w+ is aliased too many times$/);
-    expect(result.problems[0]?.line).toBeGreaterThan(0);
+    expect(result.problems).toEqual([
+      {
+        message: "Alias *b is aliased too many times",
+        line: 3,
+        fix: "Use the anchor fewer times or write the values out",
+      },
+    ]);
+  });
+
+  test("reports a nested expansion quickly and on the alias that crosses the limit", () => {
+    const started = Date.now();
+    const result = rejected(parseYaml(expandingAliases(7)));
+
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(result.problems).toEqual([
+      {
+        message: "Alias *b is aliased too many times",
+        line: 3,
+        fix: "Use the anchor fewer times or write the values out",
+      },
+    ]);
+  });
+
+  test("reports an alias that refers to its own anchor", () => {
+    const result = rejected(parseYaml("tags: &t [*t]\n"));
+
+    expect(result.problems).toEqual([
+      {
+        message: "Alias *t refers to itself",
+        line: 1,
+        fix: "Remove the alias or write the values out",
+      },
+    ]);
+  });
+
+  test("reports an alias that reaches its anchor through another anchor", () => {
+    const result = rejected(parseYaml("outer: &outer\n  inner: &inner\n    again: *outer\n"));
+
+    expect(result.problems).toEqual([
+      {
+        message: "Alias *outer refers to itself",
+        line: 3,
+        fix: "Remove the alias or write the values out",
+      },
+    ]);
   });
 });
 
@@ -145,15 +187,13 @@ function aliasedPipeline(uses: number): string {
   return ["pipeline:", "  - review-slice: &gate { stop: Wait for approval }", ...aliases].join("\n");
 }
 
-/** Ten aliases per level, which doubles the expansion each level reaches. */
-function expandingAliases(): string {
+/** Ten aliases per level, which multiplies the expansion each level reaches. */
+function expandingAliases(depth: number): string {
   const ten = (source: string): string => Array.from({ length: 10 }, () => `*${source}`).join(", ");
-  return [
-    "a: &a [one, two, three, four, five, six, seven, eight, nine, ten]",
-    `b: &b [${ten("a")}]`,
-    `c: &c [${ten("b")}]`,
-    `d: &d [${ten("c")}]`,
-    `e: &e [${ten("d")}]`,
-    "f: *e",
-  ].join("\n");
+  const names = ["a", "b", "c", "d", "e", "f", "g"];
+  const lines = ["a: &a [one, two, three, four, five, six, seven, eight, nine, ten]"];
+  for (let level = 1; level < depth; level += 1) {
+    lines.push(`${names[level]}: &${names[level]} [${ten(names[level - 1]!)}]`);
+  }
+  return lines.join("\n");
 }

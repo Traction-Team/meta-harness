@@ -362,6 +362,38 @@ describe("pipeline with YAML aliases", () => {
 
     expect(await readFile(created.path(".factory/factory.yaml"), "utf8")).toBe(source);
   });
+
+  test("add and remove refuse a nested expansion past the alias limit and leave the file unchanged", async () => {
+    const source = [
+      "format: 1",
+      "name: mark4",
+      "pipeline:",
+      "  - gate: &g { stop: Wait for approval }",
+      "  - wrapped: &w { stop: *g }",
+      ...Array.from({ length: 60 }, (_, index) => `  - e${index}: *w`),
+    ].join("\n");
+    const created = await repo({
+      ".factory/factory.yaml": source,
+      ".factory/workflows/gate/SKILL.md": SKILL("gate"),
+      ".factory/workflows/wrapped/SKILL.md": SKILL("wrapped"),
+      ".factory/workflows/finish-slice/SKILL.md": SKILL("finish-slice"),
+    });
+
+    const added = await runCli(["pipeline", "add", "finish-slice"], {
+      cwd: created.root,
+      tty: false,
+    });
+    expect(added.code).toBe(1);
+    expect(added.stderr).toContain("Alias *w is aliased too many times");
+    expect(added.stderr).not.toContain("    at ");
+
+    const removed = await runCli(["pipeline", "remove", "e0"], { cwd: created.root, tty: false });
+    expect(removed.code).toBe(1);
+    expect(removed.stderr).toContain("Alias *w is aliased too many times");
+    expect(removed.stderr).not.toContain("    at ");
+
+    expect(await readFile(created.path(".factory/factory.yaml"), "utf8")).toBe(source);
+  });
 });
 
 describe("pipeline remove on an empty factory.yaml", () => {
