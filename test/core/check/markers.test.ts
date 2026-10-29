@@ -47,19 +47,62 @@ describe("conflict marker scanner", () => {
     ]);
   });
 
-  test("does not report a lone marker line", async () => {
+  test("reports a lone opening, closing or base marker line", async () => {
+    const target = await repo({
+      ".factory/opening.md": "<<<<<<< HEAD\nleft\n",
+      ".factory/closing.md": "right\n>>>>>>> branch\n",
+      ".factory/base.md": "ours\n||||||| base\nbase\n",
+    });
+
+    const problems = await scanConflictMarkers(target.root);
+
+    expect(problems.map((problem) => [problem.file, problem.line])).toEqual([
+      [".factory/base.md", 2],
+      [".factory/closing.md", 2],
+      [".factory/opening.md", 1],
+    ]);
+  });
+
+  test("does not report a lone separator line", async () => {
     const target = await repo({
       // A setext heading underline, not a conflict.
       ".factory/notes.md": "Sub\n=======\n",
-      ".factory/opening.md": "<<<<<<< HEAD\nleft\n",
-      ".factory/closing.md": "right\n>>>>>>> branch\n",
-      ".factory/fenced.md": "```\n<<<<<<< HEAD\n```\n",
     });
 
     expect(await scanConflictMarkers(target.root)).toEqual([]);
   });
 
-  test("reports only the first complete block in each file", async () => {
+  test("reports a block whose closing marker was deleted", async () => {
+    const target = await repo({
+      ".factory/notes.md": "<<<<<<< HEAD\nours\n=======\ntheirs\n",
+    });
+
+    const problems = await scanConflictMarkers(target.root);
+
+    expect(problems).toEqual([
+      {
+        level: "error",
+        file: ".factory/notes.md",
+        line: 1,
+        message: "Unresolved conflict marker",
+        fix: "Resolve the conflict, then run metafab build",
+      },
+    ]);
+  });
+
+  test("reports a block whose separator gained a trailing space", async () => {
+    const target = await repo({
+      ".factory/notes.md": "<<<<<<< HEAD\nleft\n======= \nright\n>>>>>>> branch\n",
+    });
+
+    const problems = await scanConflictMarkers(target.root);
+
+    expect(problems.map((problem) => [problem.file, problem.line])).toEqual([
+      [".factory/notes.md", 1],
+    ]);
+  });
+
+  test("reports only the first marker line in each file", async () => {
     const target = await repo({
       ".factory/a.md":
         "one\n<<<<<<< HEAD\n=======\n>>>>>>> branch\n<<<<<<< HEAD\n=======\n>>>>>>> other\n",

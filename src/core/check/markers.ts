@@ -77,40 +77,36 @@ async function readTextFile(target: string): Promise<string | undefined> {
   }
 }
 
+function isMarkerStart(line: string): boolean {
+  return (
+    line.startsWith("<<<<<<< ") ||
+    line.startsWith(">>>>>>> ") ||
+    line.startsWith("||||||| ")
+  );
+}
+
 /**
- * Returns the line of the `<<<<<<< ` that opens the first complete conflict
- * block, or -1 when the file has none.
+ * Returns the line of the first conflict marker in the file, or -1 when there
+ * is none.
  *
- * A block is an opening marker, then a line exactly `=======`, then a closing
- * `>>>>>>> ` marker. An optional `||||||| ` base section may sit before the
- * separator. A lone separator or opening marker is not a conflict.
+ * Any line that starts with `<<<<<<< `, `>>>>>>> ` or `||||||| ` is a marker,
+ * so a leftover or half-resolved block is still caught. A line exactly
+ * `=======` is a marker only when the file also has one of those other marker
+ * lines, so a Markdown setext underline on its own stays clean.
  */
-function conflictBlockLine(lines: readonly string[]): number {
-  let opening = -1;
-  let separator = false;
+function conflictMarkerLine(lines: readonly string[]): number {
+  const hasOtherMarker = lines.some(isMarkerStart);
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]!;
-
-    if (line.startsWith("<<<<<<< ")) {
-      opening = index;
-      separator = false;
-      continue;
-    }
-    if (opening === -1) continue;
-
-    if (line === "=======") {
-      separator = true;
-      continue;
-    }
-    if (separator && line.startsWith(">>>>>>> ")) return opening + 1;
+    if (isMarkerStart(line) || (hasOtherMarker && line === "=======")) return index + 1;
   }
 
   return -1;
 }
 
 /**
- * Reports the first unresolved Git conflict block in each text file under
+ * Reports the first unresolved conflict marker in each text file under
  * `.factory/`. Binary files and directories Metafab ignores are skipped.
  */
 export async function scanConflictMarkers(root: string): Promise<Problem[]> {
@@ -120,7 +116,7 @@ export async function scanConflictMarkers(root: string): Promise<Problem[]> {
     const text = await readTextFile(file.target);
     if (text === undefined) continue;
 
-    const line = conflictBlockLine(toLF(text).split("\n"));
+    const line = conflictMarkerLine(toLF(text).split("\n"));
     if (line === -1) continue;
 
     problems.push({
