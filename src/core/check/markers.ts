@@ -2,12 +2,14 @@ import { open, readdir } from "node:fs/promises";
 import path from "node:path";
 import type { Problem } from "../../errors.js";
 import { toLF } from "../../util/text.js";
-import { cannotReadProblem, textContent } from "../build/skill.js";
+import { cannotReadProblem } from "../build/skill.js";
 
 const FACTORY_DIR = ".factory";
 
 /** Bytes read first to recognise a binary file without loading all of it. */
 const BINARY_PROBE_BYTES = 8 * 1024;
+
+const utf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 interface FactoryFile {
   /** Repository-relative path with forward slashes. */
@@ -71,8 +73,9 @@ type ReadResult =
 /**
  * Reads a file as text, or reports it as binary or unreadable.
  *
- * The first chunk is checked for a NUL byte before the rest is read, so a large
- * binary file is not loaded into memory to be discarded.
+ * The first 8 KiB decide whether the file is binary, so a large binary file is
+ * not loaded into memory to be discarded. A NUL byte after that probe does not
+ * make the file binary; invalid UTF-8 does.
  */
 async function readTextFile(target: string, displayPath: string): Promise<ReadResult> {
   let handle;
@@ -87,8 +90,13 @@ async function readTextFile(target: string, displayPath: string): Promise<ReadRe
     const head = Buffer.alloc(BINARY_PROBE_BYTES);
     const { bytesRead } = await handle.read(head, 0, BINARY_PROBE_BYTES, 0);
     if (head.subarray(0, bytesRead).includes(0)) return { kind: "binary" };
-    const text = textContent(await handle.readFile());
-    return text === undefined ? { kind: "binary" } : { kind: "text", text };
+
+    const data = await handle.readFile();
+    try {
+      return { kind: "text", text: utf8.decode(data) };
+    } catch {
+      return { kind: "binary" };
+    }
   } catch (error) {
     if (isAbsentError(error)) return { kind: "missing" };
     return { kind: "unreadable", problem: cannotReadProblem(displayPath) };

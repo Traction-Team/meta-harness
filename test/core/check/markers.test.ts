@@ -117,14 +117,32 @@ describe("conflict marker scanner", () => {
     ]);
   });
 
-  test("skips binary files and CRLF does not hide a block", async () => {
+  test("the first 8 KiB decide whether a file is binary", async () => {
+    const block = "\n<<<<<<< HEAD\n=======\n>>>>>>> branch\n";
     const target = await repo({
-      ".factory/data.bin": Buffer.from([0x00, 0x3c, 0x3c, 0x3c, 0x3c, 0x3c, 0x3c, 0x3c, 0x20]),
+      // A NUL inside the probe: skipped even though a marker follows it.
+      ".factory/early.bin": Buffer.concat([
+        Buffer.from([0x00]),
+        Buffer.from("a".repeat(9000)),
+        Buffer.from(block),
+      ]),
+      // A NUL after the probe: the file is text, so the marker is reported.
       ".factory/late.bin": Buffer.concat([
         Buffer.from("a".repeat(9000)),
         Buffer.from([0x00]),
-        Buffer.from("<<<<<<< HEAD\n=======\n>>>>>>> branch\n"),
+        Buffer.from(block),
       ]),
+    });
+
+    const problems = await scanConflictMarkers(target.root);
+
+    expect(problems.map((problem) => [problem.file, problem.line])).toEqual([
+      [".factory/late.bin", 2],
+    ]);
+  });
+
+  test("CRLF does not hide a block", async () => {
+    const target = await repo({
       ".factory/crlf.md": "one\r\n<<<<<<< HEAD\r\n=======\r\n>>>>>>> branch\r\n",
     });
 
