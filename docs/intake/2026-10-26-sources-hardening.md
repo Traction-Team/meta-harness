@@ -19,6 +19,7 @@ The cold reviews of Plan 08 found these after the last fix round. None makes a v
 3. `replaceMirror` in `git.ts` can leave `<mirror>.tmp-*` or `.old-*` directories if it is interrupted, and a failing `rm` of the backup throws after the swap succeeded.
 4. `getOrCreate` in `cache.ts` deletes the target when `create` fails. Two concurrent imports can delete each other's entry, and a failing `rm` hides the original error.
 5. `extractTarball` with both `stripPrefix` and `flattenSingleDirectory` does not flatten. No caller uses the combination yet.
+6. The npm tarball cap (`npm.ts`) is checked after `npm pack` has written the whole tarball to a temp directory. It bounds the cache, not the download. An oversize package fills the temp directory first, and a full disk surfaces npm's error (exit 3) instead of the size error. HTTPS stops the download as soon as the cap is passed.
 
 ## What we know
 
