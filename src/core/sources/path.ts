@@ -201,23 +201,39 @@ async function copyFactory(
   const links: LinkTask[] = [];
   const factoryDir = path.join(destination, ".factory");
   const factoryRoot = path.resolve(sourceDir);
-  let files = 0;
+  let entries = 0;
   let totalSize = 0;
   let stopped = false;
   await mkdir(factoryDir, { recursive: true });
 
+  // Every file, directory and link is one entry, the same things an archive
+  // counts, so the cap behaves the same for a path and for a tarball.
+  function countEntry(relativePath: string): boolean {
+    entries += 1;
+    if (entries <= maxEntries) return true;
+    problems.push({
+      level: "error",
+      file: problemFile(sourceLabel, relativePath),
+      line: 1,
+      message: `fabs with more than ${maxEntries} files, directories and links are not allowed`,
+    });
+    stopped = true;
+    return false;
+  }
+
   async function walk(directory: string, prefix: string): Promise<void> {
     if (stopped) return;
-    const entries = await readdir(directory);
-    entries.sort();
+    const names = await readdir(directory);
+    names.sort();
 
-    for (const name of entries) {
+    for (const name of names) {
       if (stopped) return;
       const absolute = path.join(directory, name);
       const relativePath = prefix === "" ? name : `${prefix}/${name}`;
       const entry = await lstat(absolute);
 
       if (entry.isSymbolicLink()) {
+        if (!countEntry(relativePath)) return;
         const target = await readlink(absolute);
         const resolved = path.resolve(path.dirname(absolute), target);
         if (path.isAbsolute(target) || !insideOrEqual(factoryRoot, resolved)) {
@@ -234,6 +250,7 @@ async function copyFactory(
       }
 
       if (entry.isDirectory()) {
+        if (!countEntry(relativePath)) return;
         await mkdir(path.join(factoryDir, ...relativePath.split("/")), { recursive: true });
         await walk(absolute, relativePath);
         continue;
@@ -249,6 +266,8 @@ async function copyFactory(
         continue;
       }
 
+      if (!countEntry(relativePath)) return;
+
       if (entry.size > MAX_FAB_FILE_SIZE) {
         problems.push({
           level: "error",
@@ -259,17 +278,6 @@ async function copyFactory(
         continue;
       }
 
-      files += 1;
-      if (files > maxEntries) {
-        problems.push({
-          level: "error",
-          file: problemFile(sourceLabel, relativePath),
-          line: 1,
-          message: `fabs with more than ${maxEntries} files are not allowed`,
-        });
-        stopped = true;
-        return;
-      }
       totalSize += entry.size;
       if (totalSize > maxTotalSize) {
         problems.push({

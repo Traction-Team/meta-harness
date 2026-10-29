@@ -40,6 +40,9 @@ const FILE_TYPES = new Set(["File", "OldFile", "ContiguousFile"]);
 const DIRECTORY_TYPES = new Set(["Directory"]);
 const METADATA_TYPES = new Set(["ExtendedHeader", "GlobalExtendedHeader"]);
 const LINK_TYPES = new Set(["SymbolicLink", "Link"]);
+// Every file, directory and link is one entry. Metadata headers and unsupported
+// entry types are not, so the cap counts the same things as a local-path copy.
+const COUNTED_TYPES = new Set([...FILE_TYPES, ...DIRECTORY_TYPES, ...LINK_TYPES]);
 
 function unsafePathReason(entryPath: string): string | undefined {
   if (entryPath === "") return "the entry has an empty path";
@@ -143,6 +146,7 @@ function listingProblem(
 
 async function readEntries(tarball: string, limits: ListingLimits): Promise<ArchiveEntry[]> {
   const entries: ArchiveEntry[] = [];
+  let countedEntries = 0;
   let declaredBytes = 0;
   let readBytes = 0;
   let failure: MetafabError | undefined;
@@ -159,8 +163,9 @@ async function readEntries(tarball: string, limits: ListingLimits): Promise<Arch
       });
       readBytes += blockBytes(entry.size);
       if (FILE_TYPES.has(entry.type)) declaredBytes += entry.size;
+      if (COUNTED_TYPES.has(entry.type)) countedEntries += 1;
 
-      const problem = listingProblem(entries.length, declaredBytes, readBytes, limits);
+      const problem = listingProblem(countedEntries, declaredBytes, readBytes, limits);
       if (problem === undefined) {
         entry.resume();
         return;

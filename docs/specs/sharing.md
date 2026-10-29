@@ -236,7 +236,7 @@ Fab validation rejects:
 - Links that point outside `.factory/`
 - Links whose target does not exist
 - Files larger than 1 MB
-- More than 10,000 files
+- More than 10,000 files, directories and links
 - More than 64 MiB in total
 
 A factory can have only one upstream fab. If `metafab.yaml` already contains an upstream entry, use `update` or `detach`.

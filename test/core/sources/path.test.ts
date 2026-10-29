@@ -164,12 +164,55 @@ describe("local path sources", () => {
       expect(error).toBeInstanceOf(MetafabError);
       const failure = error as MetafabError;
       expect(failure.exitCode).toBe(ExitCode.InvalidFab);
-      expect(failure.problems?.some((problem) => problem.message.includes("more than 2 files"))).toBe(
-        true,
-      );
+      expect(
+        failure.problems?.some((problem) =>
+          problem.message.includes("more than 2 files, directories and links"),
+        ),
+      ).toBe(true);
       return;
     }
     throw new Error("expected the fetch to fail");
+  });
+
+  test("counts directories against the entry cap, like an archive does", async () => {
+    const tinyParent = path.join(root, "tiny-fab");
+    await mkdir(path.join(tinyParent, ".factory"), { recursive: true });
+    await writeFile(path.join(tinyParent, ".factory", "factory.yaml"), "format: 1\n");
+    for (const name of ["one", "two"]) {
+      await mkdir(path.join(tinyParent, ".factory", name), { recursive: true });
+      await writeFile(path.join(tinyParent, ".factory", name, "notes.md"), `${name}\n`);
+    }
+
+    // Three files in two directories: uncounted directories keep this under the
+    // cap of three, counted directories take it to five.
+    try {
+      await fetchSource(tinyParent, { maxEntries: 3 });
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      const failure = error as MetafabError;
+      expect(failure.exitCode).toBe(ExitCode.InvalidFab);
+      expect(
+        failure.problems?.some((problem) =>
+          problem.message.includes("more than 3 files, directories and links"),
+        ),
+      ).toBe(true);
+      return;
+    }
+    throw new Error("expected the fetch to fail");
+  });
+
+  test("counts links against the entry cap, like an archive does", async () => {
+    const factory = path.join(sourceParent, ".factory");
+    for (let index = 0; index < 20; index += 1) {
+      await symlink("AGENTS.md", path.join(factory, `link-${index}.md`));
+    }
+
+    // Five files and directories plus twenty links: the links alone cross a cap
+    // of five, so a cap that counts only regular files lets all of them through.
+    await expect(fetchSource(sourceParent, { maxEntries: 5 })).rejects.toMatchObject({
+      exitCode: ExitCode.InvalidFab,
+      code: "invalid-fab",
+    });
   });
 
   test("rejects a factory with more bytes in total than the cap", async () => {

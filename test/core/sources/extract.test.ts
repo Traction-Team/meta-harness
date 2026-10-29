@@ -497,6 +497,29 @@ describe("extractTarball", () => {
     }
   });
 
+  test("counts directories and links against the entry cap", async () => {
+    const base = await tempDir();
+    try {
+      const staging = path.join(base, "staging");
+      await mkdir(path.join(staging, ".factory", "one"), { recursive: true });
+      await writeFile(path.join(staging, ".factory", "factory.yaml"), "format: 1\n");
+      await writeFile(path.join(staging, ".factory", "one", "notes.md"), "notes\n");
+      await symlink("factory.yaml", path.join(staging, ".factory", "link.md"));
+      const archive = path.join(base, "fab.tar");
+      await makeTar(archive, staging, [".factory"]);
+
+      // Two files, two directories and one link: five entries. A cap that
+      // counted only files would let this through at four.
+      const failure = await expectInvalid(archive, path.join(base, "out"), { maxEntries: 4 });
+
+      expect(failure.problems?.some((problem) => problem.message.includes("more than 4 entries"))).toBe(
+        true,
+      );
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
   test("rejects an archive whose extracted files exceed the total size cap", async () => {
     const base = await tempDir();
     try {
