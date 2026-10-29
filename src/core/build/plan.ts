@@ -35,7 +35,13 @@ import {
   replaceMarkerBlock,
 } from "./markers.js";
 import type { MarkerLines, MarkerProblem, MarkerRange } from "./markers.js";
-import { builtinComment, compileSkill, isOwned, textContent } from "./skill.js";
+import {
+  builtinComment,
+  cannotReadProblem,
+  compileSkill,
+  isOwned,
+  textContent,
+} from "./skill.js";
 import type { CompiledSkill } from "./skill.js";
 
 export interface BuildWrite {
@@ -242,12 +248,17 @@ async function compileBuiltinSkill(
 function permissionProblem(relativePath: string, error: unknown): Problem | undefined {
   const code = (error as NodeJS.ErrnoException).code;
   if (code !== "EACCES" && code !== "EPERM") return undefined;
-  return {
-    level: "error",
-    file: relativePath,
-    message: `Cannot read ${relativePath}`,
-    fix: "Check its permissions",
-  };
+  return cannotReadProblem(relativePath);
+}
+
+function dedupeErrors(errors: readonly Problem[]): Problem[] {
+  const seen = new Set<string>();
+  return errors.filter((problem) => {
+    const key = `${problem.file}\u0000${problem.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 async function readDirectoryIfExists(
@@ -287,14 +298,35 @@ function directoryChainProblem(relativePath: string, info: import("node:fs").Sta
   return undefined;
 }
 
+interface DestinationChain {
+  traversable: boolean;
+  symlink?: boolean;
+  problem?: Problem;
+  readError?: Problem;
+}
+
 async function inspectDestinationChain(
   root: string,
   directory: string,
-): Promise<{ traversable: boolean; symlink?: boolean; problem?: Problem }> {
+): Promise<DestinationChain> {
   let current = "";
+  let previous: string | undefined;
   for (const part of directory.split("/")) {
+    previous = current === "" ? undefined : current;
     current = current === "" ? part : `${current}/${part}`;
-    const info = await lstatIfExists(absolute(root, current));
+
+    let info;
+    try {
+      info = await lstatIfExists(absolute(root, current));
+    } catch (error) {
+      // An lstat on a child fails with EACCES when a component above it cannot be
+      // searched, so name the component that actually blocks the traversal.
+      const code = (error as NodeJS.ErrnoException).code;
+      const blocked =
+        (code === "EACCES" || code === "EPERM") && previous !== undefined ? previous : current;
+      return { traversable: false, readError: cannotReadProblem(blocked) };
+    }
+
     if (info === undefined) return { traversable: true };
     const problem = directoryChainProblem(current, info);
     if (problem !== undefined) {
@@ -560,7 +592,15 @@ async function scanDestination(context: ScanContext, directory: string): Promise
       continue;
     }
 
-    const owned = entry.isDirectory() && (await isOwned(absolute(context.root, relativePath)));
+    const ownedResult = entry.isDirectory()
+      ? await isOwned(absolute(context.root, relativePath), relativePath)
+      : false;
+
+    if (typeof ownedResult !== "boolean") {
+      context.errors.push(ownedResult);
+      continue;
+    }
+    const owned = ownedResult;
 
     if (context.selected) {
       if (!owned) {
@@ -593,7 +633,7 @@ async function deselectedSymlinkConflict(
   root: string,
   directory: string,
   linkPath: string,
-): Promise<Problem | undefined> {
+): Promise<Problem | { error: Problem } | undefined> {
   const target = absolute(root, directory);
   let entries: import("node:fs").Dirent[];
   try {
@@ -606,7 +646,10 @@ async function deselectedSymlinkConflict(
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    if (!(await isOwned(path.join(target, entry.name)))) continue;
+    const relativePath = `${directory}/${entry.name}`;
+    const owned = await isOwned(path.join(target, entry.name), relativePath);
+    if (typeof owned !== "boolean") return { error: owned };
+    if (!owned) continue;
     return {
       level: "error",
       file: linkPath,
@@ -671,22 +714,34 @@ function sameContent(existing: Buffer, desired: Buffer): boolean {
   return toLF(existingText) === toLF(desiredText);
 }
 
-async function fileMatches(
-  root: string,
-  write: BuildWrite,
-): Promise<{ exists: boolean; same: boolean }> {
+export interface FileMatch {
+  exists: boolean;
+  contentSame: boolean;
+  modeSame: boolean;
+  /** Installed permission bits, when the path is a regular file. */
+  mode?: number;
+  /** Content and mode both match, so `build` would leave the file alone. */
+  same: boolean;
+}
+
+export async function fileMatches(root: string, write: BuildWrite): Promise<FileMatch> {
   const target = absolute(root, write.path);
   const info = await lstatIfExists(target);
-  if (info === undefined) return { exists: false, same: false };
+  if (info === undefined) {
+    return { exists: false, contentSame: false, modeSame: false, same: false };
+  }
 
-  if (!info.isFile()) return { exists: true, same: false };
+  if (!info.isFile()) {
+    return { exists: true, contentSame: false, modeSame: false, same: false };
+  }
 
   const existing = await readFile(target);
   const contentSame = sameContent(existing, write.content);
+  const mode = info.mode & 0o777;
+  // Windows has no permission bits to compare; content alone decides.
   const modeSame =
-    write.mode === undefined ||
-    ((info.mode & 0o111) !== 0) === ((write.mode & 0o111) !== 0);
-  return { exists: true, same: contentSame && modeSame };
+    process.platform === "win32" || write.mode === undefined || mode === (write.mode & 0o777);
+  return { exists: true, contentSame, modeSame, mode, same: contentSame && modeSame };
 }
 
 export async function planBuild(
@@ -730,11 +785,17 @@ export async function planBuild(
     const chain = await inspectDestinationChain(root, directory);
     if (!chain.traversable) {
       untraversable.add(directory);
-      if (selected) {
-        if (chain.problem !== undefined) plan.conflicts.push(chain.problem);
-      } else if (chain.symlink === true && chain.problem !== undefined) {
-        const conflict = await deselectedSymlinkConflict(root, directory, chain.problem.file);
-        if (conflict !== undefined) plan.conflicts.push(conflict);
+      if (chain.readError !== undefined) plan.errors.push(chain.readError);
+      if (chain.problem !== undefined) {
+        if (selected) {
+          plan.conflicts.push(chain.problem);
+        } else if (chain.symlink === true) {
+          const result = await deselectedSymlinkConflict(root, directory, chain.problem.file);
+          if (result !== undefined) {
+            if ("error" in result) plan.errors.push(result.error);
+            else plan.conflicts.push(result);
+          }
+        }
       }
       continue;
     }
@@ -860,6 +921,7 @@ export async function planBuild(
   }
 
   plan.removals = [...removals].sort();
+  plan.errors = dedupeErrors(plan.errors);
   return plan;
 }
 
@@ -888,6 +950,12 @@ export async function applyBuild(plan: BuildPlan): Promise<BuildReport> {
     if (comparison.same) continue;
 
     await mkdir(path.dirname(target), { recursive: true });
+    // Repair the mode before writing: a read-only installed file (0444) cannot
+    // be truncated, and an executable one keeps its target mode.
+    if (comparison.exists && write.mode !== undefined) {
+      const info = await lstatIfExists(target);
+      if (info?.isFile() === true) await chmod(target, write.mode);
+    }
     await writeFile(target, write.content);
     if (write.mode !== undefined) await chmod(target, write.mode);
     changed.push({

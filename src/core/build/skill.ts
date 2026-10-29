@@ -59,15 +59,48 @@ export function builtinComment(version: string): string {
   return `${GENERATED_COMMENT_PREFIX} ${version}. Do not edit. Run metafab build to update. -->`;
 }
 
-export async function isOwned(dir: string): Promise<boolean> {
+export function cannotReadProblem(relativePath: string): Problem {
+  return {
+    level: "error",
+    file: relativePath,
+    line: 1,
+    message: `Cannot read ${relativePath}`,
+    fix: "Check its permissions",
+  };
+}
+
+function unreadablePath(displayPath: string, error: unknown): Problem | undefined {
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code === "ENOENT" || code === "ENOTDIR") return undefined;
+  return cannotReadProblem(displayPath);
+}
+
+/**
+ * Reports ownership of an installed skill directory.
+ *
+ * Returns a Problem when `SKILL.md` exists but cannot be read, so the caller can
+ * report one `Cannot read <path>` error instead of treating the entry as unowned.
+ * A missing `SKILL.md` (ENOENT/ENOTDIR) is simply not owned.
+ */
+export async function isOwned(dir: string, displayPath = dir): Promise<boolean | Problem> {
   const skillFile = path.join(dir, "SKILL.md");
+  const skillDisplay = `${displayPath}/SKILL.md`;
+
+  let info;
   try {
-    const info = await lstat(skillFile);
-    if (!info.isFile()) return false;
+    info = await lstat(skillFile);
+  } catch (error) {
+    // lstat does not need permission on the final component, so an error here
+    // means the directory itself cannot be traversed.
+    return unreadablePath(displayPath, error) ?? false;
+  }
+  if (!info.isFile()) return false;
+
+  try {
     const text = await readFile(skillFile, "utf8");
     return text.includes(GENERATED_COMMENT_PREFIX);
-  } catch {
-    return false;
+  } catch (error) {
+    return unreadablePath(skillDisplay, error) ?? false;
   }
 }
 
