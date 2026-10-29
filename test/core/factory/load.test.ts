@@ -195,6 +195,27 @@ describe("loadFactory", () => {
     }
   });
 
+  test("reports a self-referencing alias in skill frontmatter and skips the skill", async () => {
+    const source = "---\nname: demo\ndescription: Demo.\ntags: &t [*t]\n---\n\n# Demo\n";
+    const repo = await makeRepo({ ".factory/skills/demo/SKILL.md": source });
+    try {
+      const factory = await loadFactory(repo.root);
+
+      expect(factory.skills).toEqual([]);
+      expect(factory.problems).toEqual([
+        {
+          level: "error",
+          file: ".factory/skills/demo/SKILL.md",
+          line: 4,
+          message: "Alias *t refers to itself",
+          fix: "Remove the alias or write the values out",
+        },
+      ]);
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
   test("reports a SKILL.md directly in .factory", async () => {
     const repo = await makeRepo({ ".factory/SKILL.md": SKILL });
     try {

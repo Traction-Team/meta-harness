@@ -240,6 +240,25 @@ describe("factory.yaml editor with YAML aliases", () => {
     }
   });
 
+  test("refuses an alias that refers to itself before changing anything", () => {
+    const source = "format: 1\nname: mark4\ntags: &t [*t]\npipeline:\n  - review-slice\n";
+    try {
+      parseFactoryYamlDocument(source);
+      throw new Error("expected the parse to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      expect((error as MetafabError).code).toBe("factory-yaml-invalid");
+      expect((error as MetafabError).problems?.[0]).toMatchObject({
+        file: ".factory/factory.yaml",
+        line: 3,
+        message: "Alias *t refers to itself",
+        fix: "Remove the alias or write the values out",
+      });
+    }
+    expect(() => addPipelineEntryText(source, "finish-slice")).toThrowError(MetafabError);
+    expect(() => removePipelineEntryText(source, "review-slice")).toThrowError(MetafabError);
+  });
+
   test("refuses a nested expansion that crosses the alias limit", () => {
     try {
       parseFactoryYamlDocument(NESTED_EXPANSION);
