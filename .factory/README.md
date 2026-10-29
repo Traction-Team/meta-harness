@@ -2,7 +2,7 @@
 
 How work moves from idea to merged code in this repository. It was copied from the Dragonfly factory and adapted to building the Metafab CLI.
 
-The factory is written in the [Metafab v1 factory format](../docs/specs/factory-format.md), so it doubles as our first real fixture: once `metafab build` exists ([plan 04](../docs/plans/04-build.md)), it replaces `scripts/link.mjs`.
+The factory is written in the [Metafab v1 factory format](../docs/specs/factory-format.md), so it doubles as our first real fixture: once `metafab build` exists ([plan 1.004](../docs/plans/1.004-build.md)), it replaces `scripts/link.mjs`.
 
 ## Installing it
 
@@ -21,7 +21,7 @@ Restart any agent session after a change: Claude Code and Codex read `AGENTS.md`
 |---|---|---|
 | **Spec** | What v1 does. The acceptance standard | `docs/specs/*.md` |
 | **Roadmap** | Every plan in build order, a checkbox each, plus open questions and decisions | `docs/roadmap.md` |
-| **Plan** | How we build one pull request, with its `needs`, `owns` and `proves` | `docs/plans/NN-<slug>.md` |
+| **Plan** | How we build one pull request, with its `needs`, `owns` and `proves` | `docs/plans/<round>.<NNN>-<slug>.md`, such as `1.004-build.md` |
 | **Task** | One sub-agent's share of a plan's build. Never leaves the branch | The pull request's build log |
 | **Intake note** | A bug, idea, spec gap or follow-up waiting for a decision | `docs/intake/YYYY-MM-DD-<slug>.md` |
 | **Changelog entry** | What one landed pull request made true | `docs/changelog/YYYY-MM-DD-<slug>.md` |

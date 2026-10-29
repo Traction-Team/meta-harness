@@ -31,7 +31,7 @@ Before you create a file, search `docs/intake/`, `docs/plans/`, and the open que
 
 Name an intake note `docs/intake/YYYY-MM-DD-<slug>.md` with today's date, and set `status: new`. Keep it short.
 
-If a bug's fix is already clear, also write a bug plan from `.factory/templates/plan-bug.md` as the next numbered plan, `docs/plans/NN-fix-<slug>.md`, and add it to the note's `links:`. Set `owns` to the paths the fix will probably change. The builder can widen it later.
+If a bug's fix is already clear, also write a bug plan from `.factory/templates/plan-bug.md` as the next numbered plan in the current round, `docs/plans/<round>.<NNN>-fix-<slug>.md` (see `plan-feature`), and add it to the note's `links:`. Set `owns` to the paths the fix will probably change. The builder can widen it later.
 
 ## 3. Check and report
 

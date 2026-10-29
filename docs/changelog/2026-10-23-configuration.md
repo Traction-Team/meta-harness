@@ -2,7 +2,7 @@
 title: "feat: read, validate and write metafab.yaml"
 date: 2026-10-23
 pr: 2
-plan: docs/plans/03-configuration.md
+plan: docs/plans/1.003-configuration.md
 ---
 
 # `.factory/metafab.yaml` is read, validated and rewritten without losing comments
@@ -13,4 +13,4 @@ Commands can rewrite only what they own: `import`, `update` and `detach` write o
 
 ## Still to come
 
-[04 Build](../plans/04-build.md) and [05 Check](../plans/05-check.md) use these modules.
+[1.004 Build](../plans/1.004-build.md) and [1.005 Check](../plans/1.005-check.md) use these modules.

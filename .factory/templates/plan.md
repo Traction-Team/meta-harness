@@ -12,7 +12,7 @@ builds-on: []          # earlier plans this one extends, as repo paths
 retires: []            # plans this one replaces, as repo paths
 ---
 
-# Plan NN: <title>
+# Plan <round>.<NNN>: <title>
 
 <!-- One plan is one pull request. The what and why live in docs/specs/; this plan says how to build it. -->
 

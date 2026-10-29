@@ -2,7 +2,7 @@
 title: "chore: scaffold the metafab cli package and command runner"
 date: 2026-10-23
 pr: 1
-plan: docs/plans/01-foundation.md
+plan: docs/plans/1.001-foundation.md
 ---
 
 # The `metafab` CLI exists, with every v1 command stubbed
@@ -11,4 +11,4 @@ plan: docs/plans/01-foundation.md
 
 ## Still to come
 
-[02 Factory model](../plans/02-factory-model.md) and [03 Configuration](../plans/03-configuration.md) build on this and can run in parallel.
+[1.002 Factory model](../plans/1.002-factory-model.md) and [1.003 Configuration](../plans/1.003-configuration.md) build on this and can run in parallel.

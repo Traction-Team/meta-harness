@@ -79,14 +79,14 @@ Your final message is the report. The session that started you parses it, so kee
 <plans> — <n> blockers, <n> gaps, <n> notes.
 
 BLOCKERS
-- B1 docs/plans/NN-slug.md#design — the gap in one sentence.
+- B1 docs/plans/1.001-slug.md#design — the gap in one sentence.
   Question: what the author must decide. Proposal: <answer, or "none">.
 
 GAPS
-- G1 docs/plans/NN-slug.md#tests — …
+- G1 docs/plans/1.001-slug.md#tests — …
 
 NOTES
-- N1 docs/plans/NN-slug.md#steps — …
+- N1 docs/plans/1.001-slug.md#steps — …
 
 NOT CHECKED
 - Each material gap in this review, or "Nothing material."

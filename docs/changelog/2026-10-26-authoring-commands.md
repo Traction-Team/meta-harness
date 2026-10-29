@@ -2,7 +2,7 @@
 title: "feat: create, pipeline and map commands"
 date: 2026-10-26
 pr: 5
-plan: docs/plans/07-authoring-commands.md
+plan: docs/plans/1.007-authoring-commands.md
 ---
 
 # Metafab can create and order skills, and print a map of the factory
@@ -13,4 +13,4 @@ There is no `rename` command: rename a skill by moving its directory and changin
 
 ## Still to come
 
-Plan 04 installs the factory with `metafab build`. Follow-ups filed to intake on 2026-10-25.
+Plan 1.004 installs the factory with `metafab build`. Follow-ups filed to intake on 2026-10-25.

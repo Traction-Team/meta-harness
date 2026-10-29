@@ -9,7 +9,7 @@ A plan explains how to build one pull request. When the work needs more than one
 
 The run is always: read → poke holes with the person → divide → write → **cold review sub-agent (`review-plan`)** → handle findings → approval. The goal is a plan a builder can follow without guessing.
 
-Use `.factory/templates/plan.md`. See `docs/plans/04-build.md` for an example of the depth expected.
+Use `.factory/templates/plan.md`. See `docs/plans/1.004-build.md` for an example of the depth expected.
 
 ## 1. Read the context
 
@@ -42,7 +42,7 @@ Agree the list with the person in one message: one line per plan, with its title
 
 ## 3. Write each plan
 
-Create `docs/plans/NN-<slug>.md` for each plan, numbering on from the highest existing plan. Name the slug for what the plan makes true. Copy the frontmatter from the template. Keep `status: draft` while you write.
+Create `docs/plans/<round>.<NNN>-<slug>.md` for each plan, such as `1.014-publish-dry-run.md`. `<round>` is the planning round, which matches the major version the plans build towards (v1 plans are `1.xxx`); `<NNN>` is three digits, numbering on from the highest plan in that round. The first plan of a new round is `<round>.001`. Refer to a plan by its number, as in "Plan 1.014". Name the slug for what the plan makes true. Copy the frontmatter from the template. Keep `status: draft` while you write.
 
 - `title` is the pull request title: `<type>: <what becomes true>`, lowercase, no scope.
 - `owns` lists the paths the pull request can change. Keep it narrow so independent plans can run in parallel. Use globs for directories.

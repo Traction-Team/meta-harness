@@ -11,7 +11,7 @@ This repository builds **Metafab**: the `metafab` CLI, published as `@seasb/meta
 
 ## Commands
 
-Plan 01 creates the package. Until it merges there is nothing to build or test.
+Plan 1.001 creates the package. Until it merges there is nothing to build or test.
 
 ```bash
 npm install

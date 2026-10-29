@@ -54,7 +54,7 @@ Run the gate once, here, for the whole wave:
 npm install && npm run verify
 ```
 
-Skip this when `origin/main` has no `package.json` (before plan 01 merges), and say so. A red gate stops the run: fix `main` on a branch of its own, then start again. Every worker branches from this same `origin/main`, so `build-plan` does not take a baseline of its own.
+Skip this when `origin/main` has no `package.json` (before plan 1.001 merges), and say so. A red gate stops the run: fix `main` on a branch of its own, then start again. Every worker branches from this same `origin/main`, so `build-plan` does not take a baseline of its own.
 
 Then start one worker per approved plan in wave A:
 
