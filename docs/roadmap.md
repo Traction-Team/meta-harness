@@ -64,8 +64,6 @@ Answer these before or during the named plan. Spec-level questions are linked to
 
 | Question | Blocks | Proposal |
 | --- | --- | --- |
-| Non-interactive consent for skill adoption | [1.006](plans/1.006-init-and-adoption.md#open-questions) | Add `--adopt` to `init` and `import` |
-| Exit code for adoption blockers and import file conflicts | [1.006](plans/1.006-init-and-adoption.md#open-questions), [1.009](plans/1.009-import.md#open-questions) | 5 |
 | Summary group for templates and other files | [1.009](plans/1.009-import.md#open-questions) | Add an **Other** group |
 | Field-level frontmatter merge | [1.010](plans/1.010-update-diff-detach.md#open-questions), [spec](specs/sharing.md#open-questions) | Line merge in v1 |
 | Publish partial failure and recovery | [1.011](plans/1.011-publish.md#open-questions), [spec](specs/README.md#open-questions) | Git first, then npm; re-run skips identical published targets |
@@ -91,5 +89,7 @@ Record answered questions here with the date and the commit that applied them.
 | 2026-10-29 | Installed files are 0755 when the source has any executable bit, else 0644; `build` corrects other modes on macOS and Linux, and Windows compares content only. An unreadable path is one `Cannot read` error with exit 1, never an ownership conflict. Plan 1.005 fixes the build permission edge cases | [building](specs/building.md#repeatability), [1.005](plans/1.005-check.md) |
 | 2026-10-29 | A `SKILL.md` directly in a reserved top-level directory is validation rule 11, and `create` refuses those paths | [factory-format](specs/factory-format.md#validation), [1.013](plans/1.013-factory-edge-cases.md) |
 | 2026-10-29 | `import` into a factory that already has an upstream exits 5 with one problem on `.factory/metafab.yaml` | [1.009](plans/1.009-import.md#design) |
+| 2026-10-29 | `--adopt` on `init` and `import` gives skill-adoption consent without a terminal; the exit-2 payload names it | [cli](specs/cli.md#adopt-existing-skills), [1.006](plans/1.006-init-and-adoption.md#decisions) |
+| 2026-10-29 | Adoption blockers and `import` file conflicts without `--force` exit 5 | [cli](specs/cli.md#adopt-existing-skills), [1.006](plans/1.006-init-and-adoption.md#decisions), [1.009](plans/1.009-import.md) |
 | 2026-10-29 | Every `--json` result contains `exitCode` | [cli](specs/cli.md#json-output) |
 | 2026-10-29 | Git fetches, clones and pushes may prompt only when stdin is a terminal and `--json` is absent | [1.009](plans/1.009-import.md#fetch-hygiene), [1.010](plans/1.010-update-diff-detach.md), [1.011](plans/1.011-publish.md) |

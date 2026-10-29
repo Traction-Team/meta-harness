@@ -54,7 +54,7 @@ The CLI creates files but does not provide an interactive editor. A person or ag
 
 | Command | Behaviour |
 | --- | --- |
-| `metafab init [--agents <list>]` | Creates missing factory files, then runs `build` |
+| `metafab init [--agents <list>] [--adopt]` | Creates missing factory files, then runs `build` |
 | `metafab build` | Compiles the factory for the agent tools in `metafab.yaml` and removes obsolete output owned by Metafab |
 
 `build` takes no options. Edit [`metafab.yaml`](configuration.md) to change what it writes. To remove all output, set `agents: []` and run `build`.
@@ -90,7 +90,9 @@ Migration follows these rules:
 3. A skill that conflicts with an existing factory skill stops migration and is listed for manual resolution.
 4. Files or directories in a skill destination that are not part of a valid skill stop migration and are listed for manual resolution.
 5. Declining the migration leaves the repository unchanged.
-6. When standard input is not a terminal, required migration consent produces exit code 2 and a machine-readable description of the decision.
+6. `--adopt` gives the consent in advance, so the command does not ask.
+7. When standard input is not a terminal and `--adopt` is absent, required migration consent produces exit code 2 and a machine-readable description of the decision that names `--adopt` as its flag.
+8. A migration stopped by rules 2 to 4 exits with code 5 and changes nothing.
 
 Metafab does not stage the moved, deleted, or generated files. Git shows the migration for review.
 
@@ -144,7 +146,7 @@ Each problem includes a path, line number, and suggested fix. Errors return exit
 
 | Command | Behaviour |
 | --- | --- |
-| `metafab import <source> [--agents <list>] [--force]` | Copies a fab into `.factory/`, records it as the upstream, adopts existing repository skills when required, builds it, and prints a review summary. In a repository without a factory, it creates local configuration without creating source placeholders |
+| `metafab import <source> [--agents <list>] [--force] [--adopt]` | Copies a fab into `.factory/`, records it as the upstream, adopts existing repository skills when required, builds it, and prints a review summary. In a repository without a factory, it creates local configuration without creating source placeholders |
 | `metafab update [--to <version\|range\|ref>] [--dry-run] [--no-build]` | Merges a newer upstream version into `.factory/`, or overwrites from an unversioned source. The source comes from the `upstream` key in `metafab.yaml` |
 | `metafab diff [<path>]` | Shows local edits since the recorded upstream version |
 | `metafab detach` | Removes upstream metadata without changing factory files |
