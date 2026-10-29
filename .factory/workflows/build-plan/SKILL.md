@@ -30,10 +30,10 @@ gh pr view --json number,state,body,baseRefName,headRefName   # the pull request
 node .factory/scripts/next.mjs --json                         # inFlight shows every open pull request that claims a plan
 ```
 
-**The Orca branch.** Orca names a new worktree's branch `<git user>/<flattened name>`, for example `sebastiankade/chore-foundation`. If the branch has that shape, has no commit beyond its base, and has no pull request, rename it now, before the claim, and treat it as case 3:
+**The Orca branch.** Orca names a new worktree's branch `<git user>/<flattened name>`, for example `sebastiankade/feat-1.005-check`. If the branch has that shape, has no commit beyond its base, and has no pull request, rename it now, before the claim, and treat it as case 3:
 
 ```bash
-git branch -m <type>/<plan-slug-without-number>   # the type comes from the plan's title
+git branch -m <type>/<plan-file-stem>   # the type comes from the plan's title; the stem is the file name without .md, e.g. feat/1.005-check
 git branch --show-current                         # must print the new name
 ```
 
@@ -41,11 +41,11 @@ git branch --show-current                         # must print the new name
 
 Then take the first case that matches:
 
-1. **On `main` or a detached HEAD: stop.** Do not branch, claim, commit, or build. Tell the person in two or three lines that build-plan builds on a feature branch, and offer `start-plan` (the plan exists and is ready) or `plan-feature` (no plan yet). Continue only if the person then explicitly asks to build in this session anyway: create the branch as `start-plan` names it (`git switch -c <type>/<plan-slug-without-number> origin/main`) and go to case 3.
+1. **On `main` or a detached HEAD: stop.** Do not branch, claim, commit, or build. Tell the person in two or three lines that build-plan builds on a feature branch, and offer `start-plan` (the plan exists and is ready) or `plan-feature` (no plan yet). Continue only if the person then explicitly asks to build in this session anyway: create the branch as `start-plan` names it (`git switch -c <type>/<plan-file-stem> origin/main`) and go to case 3.
 2. **Another branch's open pull request claims this plan:** stop. Report the pull request and branch that own it.
 3. **On a feature branch with no open pull request:** build here. Claim the plan with a new draft pull request (step 1a).
 4. **On a feature branch whose pull request already lists this plan:** resume. Read the build log and go to the first task not done.
-5. **On a feature branch whose open pull request lists other plans:** build here, in that pull request (step 1b). Tell the person in one line, for example "Adding this plan to #12 on `feat/x`. Say *stack it* if you want its own pull request." Do not wait. If they say *stack it*, run `git switch -c <type>/<plan-slug-without-number>` and claim with step 1a, with `--base <current branch>`.
+5. **On a feature branch whose open pull request lists other plans:** build here, in that pull request (step 1b). Tell the person in one line, for example "Adding this plan to #12 on `feat/x`. Say *stack it* if you want its own pull request." Do not wait. If they say *stack it*, run `git switch -c <type>/<plan-file-stem>` and claim with step 1a, with `--base <current branch>`.
 6. **On a feature branch whose pull request is merged or closed:** stop. Offer `start-plan`.
 
 ## 1. Read and claim the plan

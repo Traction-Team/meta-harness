@@ -25,7 +25,7 @@ node .factory/scripts/next.mjs    # plans that can be built next
 
 - **Specs first.** When the code has to differ from a spec, change the spec in the same pull request and say so in its body. Never let them drift.
 - **One plan, one pull request.** Change only the paths in the plan's `owns`; widen `owns` in the plan when you must, and say why.
-- Conventional Commits with no scope: `feat`, `fix`, `refactor`, `docs`, `chore`, `test`, `ci`, `build`. Branches are `<type>/<slug>`.
+- Conventional Commits with no scope: `feat`, `fix`, `refactor`, `docs`, `chore`, `test`, `ci`, `build`. Branches are `<type>/<slug>`. A plan's branch carries its number: `<type>/<plan file name without .md>`, such as `feat/1.005-check`.
 - Code reaches `main` only through a pull request. Docs-only changes (`docs/`, and `.factory/` except `.factory/scripts/`) may be committed straight to `main`; see "Publishing docs changes".
 - Sub-agents run as `subagent_type: "agent-coding"`, defined in `opencode.json`, even when the Agent tool does not list it.
 - Run child processes with `execFile` and an argument list, never through a shell.

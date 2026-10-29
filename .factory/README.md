@@ -83,7 +83,7 @@ A plan is claimed by its draft pull request. The body's first line, `**Plan:** d
 
 `start-plan` is the orchestrator. It runs on `main`, cuts the ready plans into waves whose `owns` paths do not collide (four plans, five at the most), and after the person approves, proves `main` green once with `npm run verify`. Then it starts one worker per plan:
 
-- **Worktree.** `orca worktree create --repo id:<MetaFab repo id> --base-branch origin/main --no-parent --setup run --agent opencode`. Orca names the branch `<git user>/<flattened name>`; the worker renames it to `<type>/<slug>` before the claim. Without Orca, `git worktree add` is the fallback, and the Orca board cannot see that worktree.
+- **Worktree.** `orca worktree create --repo id:<MetaFab repo id> --base-branch origin/main --no-parent --setup run --agent opencode`. Orca names the branch `<git user>/<flattened name>`; the worker renames it to `<type>/<plan-file-stem>`, such as `feat/1.005-check`, before the claim. Without Orca, `git worktree add` is the fallback, and the Orca board cannot see that worktree.
 - **Session.** The worker is an OpenCode session that reads a short brief and runs `build-plan`. The orchestrator never follows it: it does not read the worker's terminal or open its worktree.
 - **Sub-agents.** The worker stays thin and dispatches every task, fix and review to the `agent-coding` sub-agent that `opencode.json` defines, on a cheaper coding model. The heavy build context ends with each sub-agent.
 - **Clean up.** The orchestrator does not watch the pull requests. It stops once the workers are started. On its next run it reads origin with `gh`, removes the worktree of each merged plan with `orca worktree rm`, and cuts the next wave.

@@ -59,7 +59,7 @@ Skip this when `origin/main` has no `package.json` (before plan 1.001 merges), a
 Then start one worker per approved plan in wave A:
 
 ```bash
-orca worktree create --name <type>/<plan-slug-without-number> \
+orca worktree create --name <type>/<plan-file-stem> \
   --repo id:ea0f45bd-7c49-42b2-9fb8-1c280896e7c4 \
   --base-branch <base> --no-parent --setup run \
   --agent opencode --prompt "<brief>" --json
@@ -67,7 +67,7 @@ orca worktree create --name <type>/<plan-slug-without-number> \
 
 - **`--repo` is required.** Without it, Orca infers the repo from the caller's worktree, and a plain checkout infers nothing or the wrong repo. `orca repo list --json` prints the id; `name:MetaFab` resolves to the same repo.
 - **`--base-branch`** is `origin/main`. For a plan stacked on an unmerged plan, it is `origin/<that plan's branch>`. Always use the remote ref: Orca records it as the worktree's base, and the Orca board can only rebase against a remote ref.
-- **`--name`** sets the display name, and Orca derives the branch from it. It flattens the slash and adds the git user, so `--name chore/foundation` gives the branch `sebastiankade/chore-foundation`. There is no flag for the branch. The worker renames it to `<type>/<plan-slug-without-number>` in `build-plan` step 0, before the claim. Take the type from the plan's title.
+- **`--name`** sets the display name, and Orca derives the branch from it. It flattens the slash and adds the git user, so `--name feat/1.005-check` gives the branch `sebastiankade/feat-1.005-check`. There is no flag for the branch. The worker renames it to `<type>/<plan-file-stem>` (the plan file name without `.md`, so the branch carries the plan number, as in `feat/1.005-check`) in `build-plan` step 0, before the claim. Take the type from the plan's title.
 - **`--agent opencode`** always. Do not override the agent or its model. The repo's `opencode.json` defines the sub-agents the worker dispatches.
 - **`--setup run`** runs the repo's setup hook in the new checkout. `--no-parent` is deliberate: each plan is independent work.
 
@@ -76,7 +76,7 @@ The brief is the first thing the worker reads, so write it for a session with no
 ```text
 You are the worker for docs/plans/<plan>.md (<label>), in its own Orca worktree.
 Load the build-plan workflow and build docs/plans/<plan>.md. You are the worker:
-step 0 renames this branch to <type>/<plan-slug-without-number> before the claim.
+step 0 renames this branch to <type>/<plan-file-stem> before the claim.
 <Stacked on <branch> (#<pr>).> main was proved green at <sha>; do not re-run the baseline.
 Dispatch every sub-agent with subagent_type "agent-coding", even though the Agent
 tool's list does not show it. The call works.
@@ -117,7 +117,7 @@ gh pr list --head <branch> --state all --json number,state --jq '.[0] // empty |
 
    ```bash
    orca worktree list
-   orca worktree rm --worktree name:<type>/<plan-slug-without-number>
+   orca worktree rm --worktree name:<type>/<plan-file-stem>
    ```
 
    `--force` is for a tree the worker left dirty. Say so when you use it.
