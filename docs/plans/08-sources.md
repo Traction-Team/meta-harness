@@ -12,6 +12,7 @@ owns:
   - test/fixtures/fabs/**
   - test/helpers/registry/**
   - src/core/config/source.ts       # step 7 replaces Plan 03's temporary classifier here
+  - test/core/config/source.test.ts  # its tests follow the classifier now agreeing with the parser
   - package.json                    # tar, ssri runtime deps; verdaccio dev dep for the registry fixture
   - package-lock.json
 proves: "npx vitest run test/core/sources → every source form resolves against local Git and Verdaccio fixtures; the extractor rejects traversal, links and oversize files"
@@ -93,7 +94,7 @@ One extractor (`tar` package) with a filter that rejects, as exit 4:
 After extraction, `validateFab(dir)`:
 
 1. Format: `package.json` `metafab.format` for npm, else `factory.yaml` `format`, else format 1. Unknown → exit 4.
-2. Drop `.factory/metafab.yaml` and `.factory/README.md` from the payload (they never enter the receiving repository).
+2. The fetchers drop `.factory/metafab.yaml` and `.factory/README.md` from their own copy of the payload (`dropPayloadFiles`); they never enter the receiving repository. `validateFab` itself never changes the tree it checks.
 3. Run `loadFactory` validation. Invalid → exit 4 with the problems, paths prefixed with the source.
 
 ### Cache
