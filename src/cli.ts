@@ -134,7 +134,9 @@ function fromMetafabError(command: string, error: MetafabError): CommandResult {
 
 function renderNeedsInput(error: NeedsInput, command: string, json: boolean, stdout: Write, stderr: Write): number {
   if (json) {
-    stdout(`${JSON.stringify({ ok: false, command, required: error.required }, null, 2)}\n`);
+    stdout(
+      `${JSON.stringify({ ok: false, command, exitCode: error.exitCode, required: error.required }, null, 2)}\n`,
+    );
     return error.exitCode;
   }
 
@@ -152,7 +154,7 @@ function renderNeedsInput(error: NeedsInput, command: string, json: boolean, std
 function renderBug(error: unknown, json: boolean, stdout: Write, stderr: Write): number {
   if (json) {
     const message = error instanceof Error ? error.message : String(error);
-    stdout(`${JSON.stringify({ ok: false, error: message }, null, 2)}\n`);
+    stdout(`${JSON.stringify({ ok: false, exitCode: ExitCode.Failed, error: message }, null, 2)}\n`);
   } else {
     const text = error instanceof Error ? error.stack ?? error.message : String(error);
     stderr(`${text}\n`);

@@ -69,6 +69,46 @@ Skills
 `);
   });
 
+  test("prints a top-level skill under (top level), last", async () => {
+    const created = await makeRepo({
+      ".factory/factory.yaml": "format: 1\nname: tiny\ndescription: A tiny factory.\n",
+      ".factory/hotfix/SKILL.md":
+        "---\nname: hotfix\ndescription: Fix one urgent bug.\n---\n\n# Hotfix\n",
+    });
+    repos.push(created);
+
+    const result = await runCli(["map"], { cwd: created.root, tty: false });
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe(`tiny — A tiny factory.
+
+Skills
+  (top level)   hotfix
+`);
+  });
+
+  test("keeps a top-level skill's group in the JSON object", async () => {
+    const created = await makeRepo({
+      ".factory/factory.yaml": "format: 1\nname: tiny\ndescription: A tiny factory.\n",
+      ".factory/hotfix/SKILL.md":
+        "---\nname: hotfix\ndescription: Fix one urgent bug.\n---\n\n# Hotfix\n",
+      ".factory/skills/git-conventions/SKILL.md":
+        "---\nname: git-conventions\ndescription: Use conventional commit messages.\n---\n\n# Git conventions\n",
+    });
+    repos.push(created);
+
+    const result = await runCli(["map", "--json"], { cwd: created.root, tty: false });
+
+    expect(result.code).toBe(0);
+    const output = JSON.parse(result.stdout) as {
+      skills: { name: string; group: string; path: string }[];
+    };
+    expect(output.skills.map(({ name, group, path }) => ({ name, group, path }))).toEqual([
+      { name: "hotfix", group: "hotfix", path: ".factory/hotfix" },
+      { name: "git-conventions", group: "skills", path: ".factory/skills/git-conventions" },
+    ]);
+  });
+
   test("prints the same JSON object before and after the command name", async () => {
     const root = await fixtureRepo();
 
