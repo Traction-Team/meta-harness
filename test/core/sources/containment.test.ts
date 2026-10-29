@@ -38,6 +38,15 @@ describe("containment root", () => {
     ).toBe(true);
   });
 
+  test("keeps a name that only begins with two dots inside the root", () => {
+    const root = path.join(destination, ".factory");
+
+    expect(isInsideAbsolute(root, path.join(root, "..notes.md"))).toBe(true);
+    expect(isInsideAbsolute(root, path.join(root, "..hidden", "notes.md"))).toBe(true);
+    expect(isInsideAbsolute(root, path.join(root, "..", "outside.md"))).toBe(false);
+    expect(isInsideAbsolute(root, path.join(root, "..outside", "notes.md"))).toBe(true);
+  });
+
   test("roots a link at the destination when no ancestor is .factory", async () => {
     await mkdir(path.join(destination, "assets"), { recursive: true });
     await writeFile(path.join(destination, "assets", "notes.md"), "notes\n");

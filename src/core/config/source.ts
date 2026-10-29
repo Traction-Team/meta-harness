@@ -2,35 +2,25 @@ import { parseSource } from "../sources/parse.js";
 
 export type SourceKind = "npm" | "git" | "unversioned";
 
-const GIT_SOURCE = /^(?:github:|git\+|git@|ssh:\/\/|https?:\/\/|file:\/\/)/i;
-const PATH_SOURCE = /^(?:\.{1,2}[\\/]|\/|~[\\/]|\\\\|[A-Za-z]:[\\/])/;
-
-function classifyLegacy(value: string): SourceKind {
-  if (GIT_SOURCE.test(value)) return "git";
-  if (PATH_SOURCE.test(value)) return "unversioned";
-  return "npm";
-}
-
+/**
+ * The same answer `parseSource` gives, so a config entry cannot be validated as
+ * one kind and then imported as another. Supported sources are the sharing
+ * spec's table: npm names, `github:` and `git+...` Git URLs, HTTPS tarballs, and
+ * local paths. A string that is not one of those is rejected, not guessed at.
+ */
 export function classifySource(source: string): SourceKind {
   const value = source.trim();
   if (value === "") return "npm";
 
-  try {
-    const spec = parseSource(value, { cwd: process.cwd() });
-    switch (spec.kind) {
-      case "npm":
-        return "npm";
-      case "git":
-        return "git";
-      case "path":
-        return "unversioned";
-      case "https":
-        return /\.git(?:[#?].*)?$/i.test(value) ? "git" : "unversioned";
-    }
-  } catch {
-    if (/^file:/i.test(value)) return "unversioned";
-    return classifyLegacy(value);
+  const spec = parseSource(value, { cwd: process.cwd() });
+  switch (spec.kind) {
+    case "npm":
+      return "npm";
+    case "git":
+      return "git";
+    case "path":
+      return "unversioned";
+    case "https":
+      return "unversioned";
   }
-
-  return classifyLegacy(value);
 }

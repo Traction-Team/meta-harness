@@ -7,7 +7,12 @@ import { fileURLToPath } from "node:url";
 import * as tar from "tar";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { ExitCode } from "../../../src/errors.js";
-import { fetchFab, resolve } from "../../../src/core/sources/index.js";
+import {
+  fetchFab,
+  MAX_HTTPS_REDIRECTS,
+  redirectTarget,
+  resolve,
+} from "../../../src/core/sources/index.js";
 import type { HttpsSourceSpec } from "../../../src/core/sources/index.js";
 import { pathExists } from "../../../src/util/fs.js";
 
@@ -120,6 +125,16 @@ describe("https tarball sources", { timeout: 60_000 }, () => {
     expect(await pathExists(path.join(fetched.factoryDir, "factory.yaml"))).toBe(true);
   });
 
+  test("records the source without a signed query", async () => {
+    const resolved = await resolve({
+      kind: "https",
+      url: `${base}/root.tgz?X-Amz-Signature=secret`,
+    });
+    const fetched = await fetchFab(resolved);
+
+    expect(fetched.upstream.source).toBe(`${base}/root.tgz`);
+  });
+
   test("fetches a tarball with .factory under a single top-level directory", async () => {
     const fetched = await fetchFab(await resolve(specFor("/wrapped.tgz")));
 
@@ -166,6 +181,46 @@ describe("https tarball sources", { timeout: 60_000 }, () => {
     const fetched = await fetchFab(resolved, { idleTimeoutMs: 500, timeoutMs: 500 });
 
     expect(await pathExists(path.join(fetched.factoryDir, "AGENTS.md"))).toBe(true);
+  });
+
+  test("refuses a redirect from https to plain http", async () => {
+    const resolved = await resolve({ kind: "https", url: "https://example.com/fab.tgz" });
+    const redirecting = (async () =>
+      new Response(null, {
+        status: 302,
+        headers: { location: "http://example.com/fab.tgz" },
+      })) as typeof fetch;
+
+    await expect(fetchFab(resolved, { fetch: redirecting })).rejects.toMatchObject({
+      exitCode: ExitCode.FetchFailed,
+      code: "fetch-failed",
+    });
+  });
+
+  test("allows an https redirect that stays on https", async () => {
+    expect(redirectTarget("https://example.com/a.tgz", "/b.tgz")).toBe(
+      "https://example.com/b.tgz",
+    );
+    expect(redirectTarget("https://example.com/a.tgz", "https://cdn.example/b.tgz")).toBe(
+      "https://cdn.example/b.tgz",
+    );
+    // The local test server is http, so an http source may stay on http.
+    expect(redirectTarget("http://127.0.0.1/a.tgz", "/b.tgz")).toBe(
+      "http://127.0.0.1/b.tgz",
+    );
+  });
+
+  test("stops after the redirect limit", async () => {
+    const resolved = await resolve({ kind: "https", url: "https://example.com/fab.tgz" });
+    const looping = (async () =>
+      new Response(null, {
+        status: 302,
+        headers: { location: "https://example.com/fab.tgz" },
+      })) as typeof fetch;
+
+    await expect(fetchFab(resolved, { fetch: looping })).rejects.toThrow(
+      `more than ${MAX_HTTPS_REDIRECTS} redirects`,
+    );
   });
 
   test("never caches an https source", async () => {

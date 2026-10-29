@@ -271,6 +271,72 @@ function finalPath(entryPath: string, strip: number): string {
   return path.posix.normalize(stripEntryPath(entryPath, strip));
 }
 
+/**
+ * Reject an archive that would overwrite earlier content or turn a directory
+ * into a file or link. Extraction must never have to delete a path to make
+ * room: `..notes.md` is a harmless file name, but `.factory/dir` as both a
+ * directory and a link is not.
+ */
+function pathCollisionProblems(
+  entries: ArchiveEntry[],
+  strip: number,
+  linkDirectories: Set<string>,
+): Problem[] {
+  const problems: Problem[] = [];
+  const categories = new Map<string, "directory" | "file" | "link">();
+  const directories = new Set<string>();
+
+  for (const entry of entries) {
+    if (!COUNTED_TYPES.has(entry.type)) continue;
+    if (unsafePathReason(entry.path) !== undefined) continue;
+    if (factoryCollisionReason(entry.path) !== undefined) continue;
+
+    const entryPath = finalPath(cleanEntryPath(entry.path), strip);
+    if (entryPath === "" || entryPath === ".") continue;
+    // A symlink and everything below it is rejected by the filter with its own
+    // message; do not report the same entries as a directory collision here.
+    if (linkDirectories.has(entryPath) || writtenThroughLink(entryPath, linkDirectories)) continue;
+
+    const category = DIRECTORY_TYPES.has(entry.type)
+      ? "directory"
+      : LINK_TYPES.has(entry.type)
+        ? "link"
+        : "file";
+    const previous = categories.get(entryPath);
+    if (previous !== undefined && !(previous === "directory" && category === "directory")) {
+      problems.push({
+        level: "error",
+        file: entry.path,
+        message: `duplicate archive entry "${entryPath}" would replace earlier content`,
+      });
+      continue;
+    }
+    if (previous === undefined) categories.set(entryPath, category);
+
+    let parent = path.posix.dirname(entryPath);
+    while (parent !== "." && parent !== "/" && parent !== "") {
+      directories.add(parent);
+      const next = path.posix.dirname(parent);
+      if (next === parent) break;
+      parent = next;
+    }
+    if (category === "directory") directories.add(entryPath);
+  }
+
+  for (const [entryPath, category] of categories) {
+    if (category === "directory") continue;
+    if (directories.has(entryPath)) {
+      problems.push({
+        level: "error",
+        file: entryPath,
+        message: "an entry whose path is an existing directory is not allowed",
+      });
+    }
+  }
+
+  return problems;
+}
+
 function symlinkDirectories(entries: ArchiveEntry[], strip: number): Set<string> {
   const directories = new Set<string>();
   for (const entry of entries) {
@@ -329,14 +395,14 @@ async function createSymbolicLink(
 ): Promise<void> {
   const target = linkPath(destination, task.path);
   await mkdir(path.dirname(target), { recursive: true });
-  await rm(target, { recursive: true, force: true });
   await symlink(task.target, target, type);
 }
 
 async function createHardLink(destination: string, task: LinkTask): Promise<void> {
   const target = linkPath(destination, task.path);
   await mkdir(path.dirname(target), { recursive: true });
-  await rm(target, { recursive: true, force: true });
+  // Never remove whatever is already at the path: a directory here holds files
+  // that earlier entries extracted. A collision is rejected before extraction.
   await link(linkPath(destination, task.target), target);
 }
 
@@ -485,6 +551,15 @@ export async function extractTarball(
     (entry) => prefix === undefined || cleanEntryPath(entry.path).startsWith(prefix),
   );
   const linkDirectories = symlinkDirectories(relevant, strip);
+
+  const collisions = pathCollisionProblems(relevant, strip, linkDirectories);
+  if (collisions.length > 0) {
+    throw new MetafabError("The archive is not a safe fab", {
+      exitCode: ExitCode.InvalidFab,
+      code: "invalid-fab",
+      problems: collisions,
+    });
+  }
 
   await mkdir(destination, { recursive: true });
 

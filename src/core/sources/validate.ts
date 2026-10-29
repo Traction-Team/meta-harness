@@ -77,6 +77,18 @@ async function detectFormat(root: string, sourceLabel: string, packageJson: unkn
   return 1;
 }
 
+/**
+ * Remove the files that never travel in a fab payload. This mutates `root`, so
+ * it is for the temporary or cache copy that a fetcher owns. `validateFab`
+ * never changes the tree it reads: a caller can validate a repository by
+ * mistake and keep it intact.
+ */
+export async function dropPayloadFiles(root: string): Promise<void> {
+  const factoryDir = path.join(path.resolve(root), ".factory");
+  await rm(path.join(factoryDir, "metafab.yaml"), { force: true });
+  await rm(path.join(factoryDir, "README.md"), { force: true });
+}
+
 export async function validateFab(root: string, options: ValidateFabOptions): Promise<ValidatedFab> {
   const sourceLabel = options.sourceLabel;
   const absoluteRoot = path.resolve(root);
@@ -95,9 +107,6 @@ export async function validateFab(root: string, options: ValidateFabOptions): Pr
   }
 
   await detectFormat(absoluteRoot, sourceLabel, options.packageJson);
-
-  await rm(path.join(factoryDir, "metafab.yaml"), { force: true });
-  await rm(path.join(factoryDir, "README.md"), { force: true });
 
   const factory = await loadFactory(absoluteRoot);
   const problems = factory.problems.map((problem) => ({

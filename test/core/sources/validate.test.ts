@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { ExitCode, MetafabError } from "../../../src/errors.js";
-import { validateFab } from "../../../src/core/sources/index.js";
+import { dropPayloadFiles, validateFab } from "../../../src/core/sources/index.js";
 import { pathExists } from "../../../src/util/fs.js";
 
 const FIXTURES = fileURLToPath(new URL("../../fixtures/fabs/", import.meta.url));
@@ -23,7 +23,7 @@ describe("validateFab", () => {
     expect(result.factoryDir).toBe(path.join(path.resolve(FIXTURES, "valid-fab"), ".factory"));
   });
 
-  test("drops metafab.yaml and README.md from the payload", async () => {
+  test("validates without changing the tree", async () => {
     const base = await tempDir();
     try {
       const root = path.join(base, "fab");
@@ -34,8 +34,26 @@ describe("validateFab", () => {
       const result = await validateFab(root, { sourceLabel: "file:./fab" });
 
       expect(result.format).toBe(1);
+      expect(await pathExists(path.join(root, ".factory", "metafab.yaml"))).toBe(true);
+      expect(await pathExists(path.join(root, ".factory", "README.md"))).toBe(true);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("dropPayloadFiles removes metafab.yaml and README.md from a copy", async () => {
+    const base = await tempDir();
+    try {
+      const root = path.join(base, "fab");
+      await cp(path.join(FIXTURES, "valid-fab"), root, { recursive: true });
+      await writeFile(path.join(root, ".factory", "metafab.yaml"), "upstream:\n  source: ./other\n");
+      await writeFile(path.join(root, ".factory", "README.md"), "project factory readme");
+
+      await dropPayloadFiles(root);
+
       expect(await pathExists(path.join(root, ".factory", "metafab.yaml"))).toBe(false);
       expect(await pathExists(path.join(root, ".factory", "README.md"))).toBe(false);
+      expect(await pathExists(path.join(root, ".factory", "AGENTS.md"))).toBe(true);
     } finally {
       await rm(base, { recursive: true, force: true });
     }

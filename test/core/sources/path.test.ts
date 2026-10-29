@@ -130,6 +130,18 @@ describe("local path sources", () => {
     throw new Error("expected the fetch to fail");
   });
 
+  test("allows a link to a name that only begins with two dots", async () => {
+    const factory = path.join(sourceParent, ".factory");
+    await writeFile(path.join(factory, "..notes.md"), "notes\n");
+    await symlink("..notes.md", path.join(factory, "notes-link.md"));
+
+    const fetched = await fetchSource(sourceParent);
+
+    expect(await readFile(path.join(fetched.factoryDir, "notes-link.md"), "utf8")).toBe(
+      "notes\n",
+    );
+  });
+
   test("allows a hard link inside the factory", async () => {
     const factory = path.join(sourceParent, ".factory");
     await writeFile(path.join(factory, "hard-a.md"), "shared\n");

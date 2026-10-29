@@ -38,6 +38,26 @@ describe("parseSource", () => {
       url: "https://example.com/fab-acme-1.0.0.tgz",
     });
 
+    // A plain https URL is an HTTPS tarball even when it ends in `.git`; only
+    // `git+https://` selects Git.
+    expect(parseSource("https://example.com/fab-acme.git", { cwd: CWD })).toEqual({
+      kind: "https",
+      url: "https://example.com/fab-acme.git",
+    });
+
+    expect(parseSource("ssh://git@example.com/fab-acme.git", { cwd: CWD })).toEqual({
+      kind: "git",
+      url: "ssh://git@example.com/fab-acme.git",
+      source: "ssh://git@example.com/fab-acme.git",
+    });
+
+    expect(parseSource("git@example.com:fab-acme.git#v1.0.0", { cwd: CWD })).toEqual({
+      kind: "git",
+      url: "ssh://git@example.com/fab-acme.git",
+      source: "git@example.com:fab-acme.git",
+      ref: { type: "name", name: "v1.0.0" },
+    });
+
     expect(parseSource("../platform/.factory", { cwd: CWD })).toEqual({
       kind: "path",
       path: path.resolve("/work/platform/.factory"),

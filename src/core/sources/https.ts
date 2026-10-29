@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
 import { extractTarball } from "./extract.js";
-import { redact } from "./redact.js";
+import { redact, stripSourceCredentials } from "./redact.js";
 import type { FetchedFab, Resolved } from "./types.js";
-import { validateFab } from "./validate.js";
+import { dropPayloadFiles, validateFab } from "./validate.js";
 
 // The compressed download cap is deliberately larger than the 64 MiB extracted
 // total (MAX_FAB_TOTAL_SIZE), so a fab at that total is rejected for its size,
@@ -13,6 +13,7 @@ import { validateFab } from "./validate.js";
 export const MAX_TARBALL_SIZE = 80 * 1024 * 1024;
 export const DEFAULT_HTTPS_TIMEOUT_MS = 60_000;
 export const DEFAULT_HTTPS_IDLE_TIMEOUT_MS = 60_000;
+export const MAX_HTTPS_REDIRECTS = 5;
 
 export interface HttpsOptions {
   fetch?: typeof fetch;
@@ -41,6 +42,33 @@ function fetchError(message: string, cause?: unknown): MetafabError {
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * The URL a redirect points at, or an error when following it would leave
+ * HTTPS. The tests use a local HTTP server, so an HTTP source may redirect to
+ * HTTP; a production HTTPS source may never fall back to a plain connection.
+ */
+export function redirectTarget(current: string, location: string): string {
+  let next: URL;
+  let from: URL;
+  try {
+    from = new URL(current);
+    next = new URL(location, current);
+  } catch {
+    throw fetchError(`Cannot download ${current}: the redirect location is not a valid URL`);
+  }
+  if (next.protocol !== "http:" && next.protocol !== "https:") {
+    throw fetchError(
+      `Cannot download ${current}: a redirect to ${next.protocol} is not allowed`,
+    );
+  }
+  if (from.protocol === "https:" && next.protocol !== "https:") {
+    throw fetchError(
+      `Cannot download ${current}: a redirect from https to ${next.protocol}//${next.host} is not allowed`,
+    );
+  }
+  return next.toString();
 }
 
 async function readBody(
@@ -110,13 +138,30 @@ export async function fetchHttps(
 
   let response: Response;
   let data: Buffer;
+  let currentUrl = url;
+  let redirects = 0;
   timer = setTimeout(() => controller.abort(), responseTimeoutMs);
   try {
-    try {
-      response = await fetchFn(url, { signal: controller.signal, redirect: "follow" });
-    } catch (error) {
-      if (controller.signal.aborted) throw error;
-      throw fetchError(`Cannot download ${url}: ${describe(error)}`, error);
+    for (;;) {
+      try {
+        response = await fetchFn(currentUrl, { signal: controller.signal, redirect: "manual" });
+      } catch (error) {
+        if (controller.signal.aborted) throw error;
+        throw fetchError(`Cannot download ${url}: ${describe(error)}`, error);
+      }
+
+      if (response.status < 300 || response.status >= 400) break;
+
+      const location = response.headers.get("location");
+      if (location === null) {
+        throw fetchError(`Cannot download ${url}: the redirect has no Location header`);
+      }
+      if (redirects >= MAX_HTTPS_REDIRECTS) {
+        throw fetchError(`Cannot download ${url}: more than ${MAX_HTTPS_REDIRECTS} redirects`);
+      }
+      await response.body?.cancel().catch(() => undefined);
+      currentUrl = redirectTarget(currentUrl, location);
+      redirects += 1;
     }
 
     clearTimer();
@@ -160,6 +205,7 @@ export async function fetchHttps(
     const tarball = path.join(staging, "fab.tgz");
     await writeFile(tarball, data);
     await extractTarball(tarball, destination, { flattenSingleDirectory: true });
+    await dropPayloadFiles(destination);
     await validateFab(destination, { sourceLabel: url });
   } catch (error) {
     await rm(destination, { recursive: true, force: true });
@@ -170,7 +216,7 @@ export async function fetchHttps(
 
   return {
     factoryDir: path.join(destination, ".factory"),
-    upstream: { kind: "unversioned", source: url },
+    upstream: { kind: "unversioned", source: stripSourceCredentials(url) },
     versioned: false,
   };
 }

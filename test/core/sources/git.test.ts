@@ -1,4 +1,6 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
@@ -288,8 +290,9 @@ describe("git sources", { timeout: 60_000 }, () => {
     const mirror = cacheLayout(cache).gitMirror(fixture.repo);
     const marker = path.join(mirror, "mirror-marker");
     await writeFile(marker, "old");
-    const missing = path.join(fixture.root, "gone.git");
-    await runGitIn(mirror, ["remote", "set-url", "origin", missing]);
+    // A malformed ref makes the fetch fail while the mirror is still a usable
+    // bare repository, so the replacement clone has to succeed and swap in.
+    await writeFile(path.join(mirror, "refs", "heads", "broken"), "not-a-sha\n");
 
     const second = await resolveGit(spec);
 
@@ -308,6 +311,46 @@ describe("git sources", { timeout: 60_000 }, () => {
       exitCode: ExitCode.FetchFailed,
       code: "fetch-failed",
     });
+  });
+
+  test("drops credentials from the recorded source and the mirror config", async () => {
+    await runGitIn(fixture.repo, ["update-server-info"]);
+    const server = createServer(async (request, response) => {
+      const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+      try {
+        const body = await readFile(path.join(fixture.root, pathname));
+        const text = pathname.endsWith("/info/refs") || pathname.endsWith("/HEAD");
+        response.writeHead(200, { "content-type": text ? "text/plain" : "application/octet-stream" });
+        response.end(body);
+      } catch {
+        response.writeHead(404);
+        response.end("not found");
+      }
+    });
+    await new Promise<void>((resolveListening) => server.listen(0, "127.0.0.1", resolveListening));
+    const { port } = server.address() as AddressInfo;
+    const clean = `http://127.0.0.1:${port}/repo.git`;
+    const authed = `http://oauth2:glpat-secret@127.0.0.1:${port}/repo.git`;
+
+    try {
+      const spec: GitSourceSpec = {
+        kind: "git",
+        url: authed,
+        source: "git+https://oauth2:glpat-secret@example.com/fab.git?token=signed",
+      };
+      const resolved = await resolveGit(spec);
+      const fetched = await fetchFab(resolved, options());
+
+      expect(fetched.upstream.source).toBe("git+https://example.com/fab.git");
+      expect(JSON.stringify(fetched.upstream)).not.toContain("glpat-secret");
+
+      const mirror = cacheLayout(cache).gitMirror(clean);
+      expect(cacheLayout(cache).gitMirror(authed)).toBe(mirror);
+      expect(await runGitIn(mirror, ["config", "--get", "remote.origin.url"])).toBe(clean);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    }
   });
 
   test("redacts credentials in Git errors", async () => {

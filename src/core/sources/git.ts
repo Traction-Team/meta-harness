@@ -14,9 +14,9 @@ import { cacheLayout, cacheRoot, fabKey, getOrCreate } from "./cache.js";
 import type { CacheLayout } from "./cache.js";
 import { withEnv } from "./env.js";
 import { extractTarball } from "./extract.js";
-import { redact } from "./redact.js";
+import { redact, stripSourceCredentials } from "./redact.js";
 import type { FetchedFab, GitRef, GitSourceSpec, Resolved } from "./types.js";
-import { validateFab } from "./validate.js";
+import { dropPayloadFiles, validateFab } from "./validate.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -177,9 +177,18 @@ async function cloneMirror(
 ): Promise<void> {
   await mkdir(path.dirname(mirror), { recursive: true });
   try {
+    // Clone with the URL as given: it may carry a token that the server
+    // requires. The origin is rewritten straight away so no credential is
+    // left in the mirror's config, and later fetches pass the URL on the
+    // command line instead.
     await runGit(
       ["clone", "--mirror", "--", url, mirror],
       `Cannot clone Git source ${url}`,
+      options,
+    );
+    await runGit(
+      ["-C", mirror, "remote", "set-url", "origin", stripSourceCredentials(url)],
+      `Cannot record Git source ${stripSourceCredentials(url)}`,
       options,
     );
   } catch (error) {
@@ -221,7 +230,12 @@ async function ensureMirror(url: string, layout: CacheLayout, options: GitOption
 
   if (await pathExists(mirror)) {
     if (await isUsableMirror(mirror, options)) {
-      const fetched = await tryGit(["-C", mirror, "fetch", "--prune", "--tags"], options);
+      // Fetch from the URL given on this call, not the one in the mirror's
+      // config: that stored URL has no credentials, and this one may.
+      const fetched = await tryGit(
+        ["-C", mirror, "fetch", "--prune", "--tags", "--", url, "+refs/*:refs/*"],
+        options,
+      );
       if (fetched.ok) return mirror;
       return replaceMirror(url, mirror, options);
     }
@@ -422,7 +436,7 @@ async function exportFactory(
 function upstreamEntry(source: ResolvedGit): UpstreamEntry {
   return {
     kind: "git",
-    source: source.spec.source,
+    source: stripSourceCredentials(source.spec.source),
     ...(source.requested === undefined ? {} : { requested: source.requested }),
     ...(source.version === undefined ? {} : { version: source.version }),
     commit: source.commit,
@@ -453,18 +467,20 @@ export async function fetchGit(
   options: GitOptions = {},
 ): Promise<FetchedFab> {
   const layout = cacheLayout(options.cache ?? cacheRoot());
-  const key = fabKey(source.spec.source, source.commit);
+  const key = fabKey(stripSourceCredentials(source.spec.source), source.commit);
   const fabDir = layout.fabDir(key);
   const sourceLabel = `${source.spec.source}#${source.commit.slice(0, 7)}`;
 
   await getOrCreate(fabDir, {
     validate: async () => {
+      await dropPayloadFiles(fabDir);
       await validateFab(fabDir, { sourceLabel });
       return fabDir;
     },
     create: async () => {
       const mirror = await ensureMirror(source.spec.url, layout, options);
       await exportFactory(mirror, source.commit, fabDir, sourceLabel, options);
+      await dropPayloadFiles(fabDir);
       await validateFab(fabDir, { sourceLabel });
     },
   });

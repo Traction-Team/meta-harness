@@ -4,10 +4,11 @@ import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import { copyFileWithMode } from "../../util/fs.js";
+import { isInsideAbsolute } from "./containment.js";
 import { MAX_FAB_ENTRIES, MAX_FAB_FILE_SIZE, MAX_FAB_TOTAL_SIZE } from "./extract.js";
-import { redact } from "./redact.js";
+import { redact, stripSourceCredentials } from "./redact.js";
 import type { FetchedFab, Resolved } from "./types.js";
-import { validateFab } from "./validate.js";
+import { dropPayloadFiles, validateFab } from "./validate.js";
 
 export type ResolvedPath = Extract<Resolved, { kind: "path" }>;
 
@@ -66,11 +67,6 @@ export async function locateFactoryDir(specPath: string): Promise<string> {
   }
 
   return candidate;
-}
-
-function insideOrEqual(root: string, target: string): boolean {
-  const relative = path.relative(root, target);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 async function targetExists(target: string): Promise<boolean> {
@@ -176,7 +172,7 @@ async function verifyLinks(
       });
       continue;
     }
-    if (!insideOrEqual(root, resolved)) {
+    if (!isInsideAbsolute(root, resolved)) {
       problems.push({
         level: "error",
         file: problemFile(sourceLabel, link.path),
@@ -236,7 +232,7 @@ async function copyFactory(
         if (!countEntry(relativePath)) return;
         const target = await readlink(absolute);
         const resolved = path.resolve(path.dirname(absolute), target);
-        if (path.isAbsolute(target) || !insideOrEqual(factoryRoot, resolved)) {
+        if (path.isAbsolute(target) || !isInsideAbsolute(factoryRoot, resolved)) {
           problems.push({
             level: "error",
             file: problemFile(sourceLabel, relativePath),
@@ -314,6 +310,7 @@ export async function fetchPath(
 
   try {
     await copyFactory(factoryDir, destination, sourceLabel, options);
+    await dropPayloadFiles(destination);
     await validateFab(destination, { sourceLabel });
   } catch (error) {
     await rm(destination, { recursive: true, force: true });
@@ -322,7 +319,7 @@ export async function fetchPath(
 
   return {
     factoryDir: path.join(destination, ".factory"),
-    upstream: { kind: "unversioned", source: sourceLabel },
+    upstream: { kind: "unversioned", source: stripSourceCredentials(sourceLabel) },
     versioned: false,
   };
 }

@@ -37,6 +37,10 @@ describe("cacheLayout", () => {
     expect(mirror).toBe(path.join("/cache", "git", path.basename(mirror)));
     expect(path.basename(mirror)).toMatch(/^[a-f0-9]{64}$/);
     expect(layout.gitMirror("https://github.com/seasb/fab-mark4.git")).toBe(mirror);
+    // The same repository reached with a token or a signed query is one mirror.
+    expect(
+      layout.gitMirror("https://oauth2:glpat-xxx@github.com/seasb/fab-mark4.git?token=signed"),
+    ).toBe(mirror);
     expect(layout.fabDir("@seasb-fab-mark4-1.2.0")).toBe(
       path.join("/cache", "fabs", "@seasb-fab-mark4-1.2.0"),
     );

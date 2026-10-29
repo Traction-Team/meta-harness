@@ -33,5 +33,10 @@ export async function containmentRootAbsolute(
 
 export function isInsideAbsolute(root: string, target: string): boolean {
   const relative = path.relative(root, target);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  if (relative === "") return true;
+  if (path.isAbsolute(relative)) return false;
+  if (relative === "..") return false;
+  // A name may start with two dots (`.factory/..notes.md`); only a `..`
+  // segment, whole or followed by a separator, leaves the root.
+  return !(relative.startsWith(`..${path.sep}`) || relative.startsWith("../"));
 }

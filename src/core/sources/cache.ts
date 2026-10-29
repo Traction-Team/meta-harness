@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { pathExists } from "../../util/fs.js";
+import { stripSourceCredentials } from "./redact.js";
 
 export interface CacheLayout {
   root: string;
@@ -41,7 +42,9 @@ export function cacheLayout(root: string = cacheRoot()): CacheLayout {
       return path.join(root, "npm", ...name.split("/"), `${version}.tgz`);
     },
     gitMirror(url: string): string {
-      const hash = createHash("sha256").update(url).digest("hex");
+      // Key on the URL without credentials so a new token reuses the mirror
+      // instead of cloning the same repository again.
+      const hash = createHash("sha256").update(stripSourceCredentials(url)).digest("hex");
       return path.join(root, "git", hash);
     },
     fabDir(key: string): string {

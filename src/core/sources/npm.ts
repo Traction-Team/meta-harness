@@ -16,7 +16,7 @@ import { MAX_TARBALL_SIZE } from "./https.js";
 import { npmInvocation } from "./npm-cli.js";
 import { redact } from "./redact.js";
 import type { FetchedFab, NpmSourceSpec, Resolved } from "./types.js";
-import { validateFab } from "./validate.js";
+import { dropPayloadFiles, validateFab } from "./validate.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -291,6 +291,7 @@ function checkNpmFormat(packageJson: Record<string, unknown>, sourceLabel: strin
 async function validateExtractedFab(root: string, sourceLabel: string): Promise<void> {
   const packageJson = await readPackageJson(root, sourceLabel);
   checkNpmFormat(packageJson, sourceLabel);
+  await dropPayloadFiles(root);
   await validateFab(root, { sourceLabel, packageJson });
 }
 

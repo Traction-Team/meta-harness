@@ -338,6 +338,48 @@ describe("extractTarball", () => {
     }
   });
 
+  test("rejects a hard link whose path is an existing directory", async () => {
+    const base = await tempDir();
+    try {
+      const archive = path.join(base, "evil.tar");
+      await makeRawTar(archive, [
+        { path: ".factory/keep.md", type: "File", body: "keep\n" },
+        { path: ".factory/dir/notes.md", type: "File", body: "notes\n" },
+        { path: ".factory/dir", type: "Link", linkpath: ".factory/keep.md" },
+      ]);
+
+      const destination = path.join(base, "out");
+      const failure = await expectInvalid(archive, destination);
+
+      expect(
+        failure.problems?.some((problem) => problem.message.includes("existing directory")),
+      ).toBe(true);
+      // Nothing was extracted, so the files under the directory were not lost.
+      expect(await pathExists(path.join(destination, ".factory", "dir", "notes.md"))).toBe(false);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a duplicate entry path instead of replacing earlier content", async () => {
+    const base = await tempDir();
+    try {
+      const archive = path.join(base, "evil.tar");
+      await makeRawTar(archive, [
+        { path: ".factory/a.md", type: "File", body: "first\n" },
+        { path: ".factory/a.md", type: "File", body: "second\n" },
+      ]);
+
+      const failure = await expectInvalid(archive, path.join(base, "out"));
+
+      expect(
+        failure.problems?.some((problem) => problem.message.includes("duplicate archive entry")),
+      ).toBe(true);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
   test("rejects a hard link whose target does not exist", async () => {
     const base = await tempDir();
     try {
