@@ -6,11 +6,28 @@ import type { RequiredValue } from "../input.js";
 import { parseFrontmatter } from "../util/frontmatter.js";
 import { equalIgnoringEOL } from "../util/text.js";
 import { isOwned, textContent } from "./build/skill.js";
-import { getSkillNameProblems } from "./edit/names.js";
-import type { Factory } from "./factory/types.js";
+import {
+  rule1RequiredFields,
+  rule2NameMatchesDirectory,
+  rule3NoNestedSkills,
+  rule5NameFormat,
+  rule6SkillGrammar,
+  rule10ReservedPrefix,
+} from "./factory/validate.js";
+import type { Factory, Skill } from "./factory/types.js";
 
 /** Repository-relative directory that receives adopted skills. */
 export const FACTORY_SKILLS_DIRECTORY = ".factory/skills";
+
+const FACTORY_DIRECTORY = ".factory";
+
+/**
+ * Skill names that `build` installs from the package itself. Adoption must not
+ * move a repository skill onto one of these names: the built-in copy would
+ * shadow or overwrite the moved skill. Keep in sync with the built-in skills
+ * compiled in `src/core/build/plan.ts`.
+ */
+export const BUILTIN_SKILL_NAMES: readonly string[] = ["metafab"];
 
 /** The consent question from the specification. */
 export const ADOPTION_QUESTION =
@@ -125,6 +142,142 @@ function unownedDirectory(relativePath: string, directory: string): Problem {
   };
 }
 
+function isInside(root: string, target: string): boolean {
+  const relative = path.relative(root, target);
+  return (
+    relative === "" ||
+    (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
+  );
+}
+
+/**
+ * A factory skill stub for a candidate skill, at the path it will occupy after
+ * the move, so the factory's own rules validate it exactly as `build` will.
+ */
+function candidateSkill(
+  name: string,
+  frontmatter: Record<string, unknown>,
+  frontmatterLines: { start: number; end: number },
+): Skill {
+  return {
+    name,
+    relDir: `skills/${name}`,
+    group: "skills",
+    isWorkflow: false,
+    frontmatter,
+    frontmatterLines,
+  };
+}
+
+/** The factory validation rules that apply to one skill. */
+function candidateSkillProblems(
+  name: string,
+  frontmatter: Record<string, unknown>,
+  frontmatterLines: { start: number; end: number },
+): Problem[] {
+  const skill = candidateSkill(name, frontmatter, frontmatterLines);
+  const problems = [...rule1RequiredFields(skill), ...rule6SkillGrammar(skill)];
+
+  const declared = frontmatter.name;
+  if (typeof declared === "string" && declared !== "") {
+    problems.push(
+      ...rule2NameMatchesDirectory(skill),
+      ...rule5NameFormat(skill),
+      ...rule10ReservedPrefix(skill),
+    );
+  }
+
+  return problems;
+}
+
+async function symlinkProblem(
+  root: string,
+  from: string,
+  to: string,
+  relative: string,
+  linkPath: string,
+): Promise<Problem | undefined> {
+  const link = absolute(root, linkPath);
+  let target: string;
+  try {
+    target = await readlink(link);
+  } catch {
+    return unreadable(linkPath);
+  }
+
+  const factoryDir = absolute(root, FACTORY_DIRECTORY);
+  const destinationRoot = absolute(root, to);
+  const resolved = path.resolve(path.dirname(absolute(root, `${to}/${relative}`)), target);
+
+  if (!isInside(factoryDir, resolved)) {
+    return {
+      level: "error",
+      file: linkPath,
+      message: `Symlink ${linkPath} points outside .factory/`,
+      fix: "Replace it with a regular file inside .factory/, or remove the symlink",
+    };
+  }
+
+  if (isInside(destinationRoot, resolved)) {
+    // The target moves with the skill, so it still lives at the source path.
+    const inner = path.relative(destinationRoot, resolved);
+    if ((await lstatIfExists(absolute(root, `${from}/${inner}`))) !== undefined) return undefined;
+  } else if ((await lstatIfExists(resolved)) !== undefined) {
+    return undefined;
+  }
+
+  return {
+    level: "error",
+    file: linkPath,
+    message: `Symlink ${linkPath} is broken`,
+    fix: "Replace it with a regular file inside .factory/, or remove the symlink",
+  };
+}
+
+async function checkSkillTree(
+  root: string,
+  name: string,
+  from: string,
+  directory: string,
+): Promise<Problem | undefined> {
+  const to = `${FACTORY_SKILLS_DIRECTORY}/${name}`;
+  const pending = [""];
+
+  while (pending.length > 0) {
+    const relative = pending.shift()!;
+    const current = relative === "" ? from : `${from}/${relative}`;
+
+    let entries;
+    try {
+      entries = await readdir(absolute(root, current), { withFileTypes: true });
+    } catch {
+      return unreadable(current);
+    }
+    entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+
+    for (const entry of entries) {
+      const child = relative === "" ? entry.name : `${relative}/${entry.name}`;
+      const childPath = `${from}/${child}`;
+
+      if (entry.isSymbolicLink()) {
+        const problem = await symlinkProblem(root, from, to, child, childPath);
+        if (problem !== undefined) return problem;
+        continue;
+      }
+
+      if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+
+      const nestedSkill = await lstatIfExists(absolute(root, `${childPath}/SKILL.md`));
+      if (nestedSkill !== undefined && nestedSkill.isFile()) {
+        return rule3NoNestedSkills(`${childPath}/SKILL.md`, 1, childPath, from)[0];
+      }
+      pending.push(child);
+    }
+  }
+
+  return undefined;
+}
+
 async function checkSkill(
   root: string,
   name: string,
@@ -168,11 +321,14 @@ async function checkSkill(
     };
   }
 
-  const nameProblems = getSkillNameProblems(name, name);
-  const nameProblem = nameProblems[0];
-  if (nameProblem !== undefined) return { ...nameProblem, file: skillFile };
+  const problems = candidateSkillProblems(name, parsed.value, {
+    start: parsed.startLine,
+    end: parsed.endLine,
+  });
+  const problem = problems[0];
+  if (problem !== undefined) return { ...problem, file: skillFile };
 
-  return undefined;
+  return checkSkillTree(root, name, from, directory);
 }
 
 async function scanDestination(
@@ -211,6 +367,11 @@ async function scanDestination(
       continue;
     }
     if (await isOwned(absolute(root, from))) continue;
+
+    if (BUILTIN_SKILL_NAMES.includes(entry.name)) {
+      blockers.push(builtinClash(entry.name, from));
+      continue;
+    }
 
     const blocker = await checkSkill(root, entry.name, from, directory);
     if (blocker !== undefined) blockers.push(blocker);
@@ -294,6 +455,15 @@ function factoryClash(name: string, from: string): Problem {
   };
 }
 
+function builtinClash(name: string, from: string): Problem {
+  return {
+    level: "error",
+    file: from,
+    message: `Skill "${name}" clashes with the built-in "${name}" skill that metafab build installs`,
+    fix: "Rename the skill, or remove it from the repository",
+  };
+}
+
 function incomingClash(name: string, from: string): Problem {
   return {
     level: "error",
@@ -310,6 +480,50 @@ function sortProblems(problems: Problem[]): Problem[] {
     return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
   });
 }
+
+/**
+ * Problems with the directories that will receive moves. A symlinked directory
+ * would move the skill outside the repository, so adoption refuses it.
+ */
+async function destinationProblems(root: string): Promise<Problem[]> {
+  const problems: Problem[] = [];
+
+  for (const directory of [FACTORY_DIRECTORY, FACTORY_SKILLS_DIRECTORY]) {
+    const info = await lstatIfExists(absolute(root, directory));
+    if (info === undefined) continue;
+    if (info.isSymbolicLink() || !info.isDirectory()) {
+      problems.push({
+        level: "error",
+        file: directory,
+        message: info.isSymbolicLink()
+          ? `${directory} is a symbolic link, not a directory`
+          : `${directory} is a file, not a directory`,
+        fix: "Replace it with a real directory, then run metafab init again",
+      });
+    }
+  }
+
+  return problems;
+}
+
+/** The error for a plan whose blockers stopped adoption, shared by every caller. */
+export function adoptionBlockedError(plan: AdoptionPlan): MetafabError {
+  const count = plan.blockers.length;
+  return new MetafabError(
+    `Adoption is blocked by ${count} ${count === 1 ? "entry" : "entries"}.`,
+    {
+      exitCode: ExitCode.NotOwned,
+      code: "adoption-blocked",
+      problems: [...plan.blockers],
+    },
+  );
+}
+
+/** Throws exit 5 when the plan has blockers, so no caller plans around them. */
+export function assertAdoptionAllowed(plan: AdoptionPlan): void {
+  if (plan.blockers.length > 0) throw adoptionBlockedError(plan);
+}
+
 
 /**
  * Plans the move of repository skills that Metafab does not own from the selected
@@ -382,6 +596,8 @@ export async function planAdoption(
     plan.moves.push({ name, from: sources, to: `${FACTORY_SKILLS_DIRECTORY}/${name}` });
   }
 
+  if (plan.moves.length > 0) plan.blockers.push(...(await destinationProblems(absoluteRoot)));
+
   plan.blockers = sortProblems(plan.blockers);
   return plan;
 }
@@ -402,15 +618,15 @@ async function moveDirectory(root: string, source: string, target: string): Prom
  * A plan with blockers is never applied.
  */
 export async function applyAdoption(plan: AdoptionPlan): Promise<void> {
-  if (plan.blockers.length > 0) {
-    throw new MetafabError(
-      `Adoption is blocked by ${plan.blockers.length} ${plan.blockers.length === 1 ? "entry" : "entries"}.`,
-      {
-        exitCode: ExitCode.NotOwned,
-        code: "adoption-blocked",
-        problems: [...plan.blockers],
-      },
-    );
+  assertAdoptionAllowed(plan);
+
+  const unsafe = await destinationProblems(plan.root);
+  if (unsafe.length > 0) {
+    throw new MetafabError("Adoption cannot write into the factory directory.", {
+      exitCode: ExitCode.NotOwned,
+      code: "adoption-blocked",
+      problems: unsafe,
+    });
   }
 
   for (const move of plan.moves) {

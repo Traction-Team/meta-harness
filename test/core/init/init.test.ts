@@ -1,4 +1,4 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, symlink } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, describe, expect, test } from "vitest";
@@ -246,6 +246,25 @@ describe("metafab init", () => {
     expect(payload.updated).toEqual([]);
     expect(payload.gitattributes).toEqual([]);
     expect(payload.changed).toEqual([]);
+    expect(payload.declined).toBe(false);
+  });
+
+  test("reports a declined adoption as declined in JSON", async () => {
+    const repo = await gitRepo({
+      ".claude/skills/release/SKILL.md": skill("release"),
+    });
+
+    const result = await runCli(["init", "--agents", "claude", "--json"], {
+      cwd: repo.root,
+      tty: true,
+      stdin: Readable.from(["n\n"]),
+    });
+
+    expect(result.code).toBe(0);
+    const payload = parseJson(result);
+    expect(payload.declined).toBe(true);
+    expect(payload.moved).toEqual([]);
+    expect(await pathExists(repo.path(".factory"))).toBe(false);
   });
 
   test("keeps an existing factory and adds only missing entries", async () => {
@@ -261,5 +280,111 @@ describe("metafab init", () => {
     );
     expect(await pathExists(repo.path(".factory", "AGENTS.md"))).toBe(true);
     expect(await pathExists(repo.path(".factory", "metafab.yaml"))).toBe(true);
+  });
+
+  test("blocks a skill whose frontmatter name differs from its directory before moving it", async () => {
+    const repo = await gitRepo({
+      ".claude/skills/wrong-name/SKILL.md":
+        "---\nname: bar\ndescription: Use bar when the task needs it.\n---\n\n# bar\n",
+    });
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["init", "--agents", "claude", "--adopt"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stderr).toContain(
+      'Skill name "bar" does not match its directory "wrong-name"',
+    );
+    expect(await snapshot(repo.root)).toEqual(before);
+    expect(await pathExists(repo.path(".factory"))).toBe(false);
+    expect(await pathExists(repo.path(".claude", "skills", "wrong-name", "SKILL.md"))).toBe(true);
+  });
+
+  test("blocks a skill without a description before moving it", async () => {
+    const repo = await gitRepo({
+      ".claude/skills/release/SKILL.md": "---\nname: release\n---\n\n# release\n",
+    });
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["init", "--agents", "claude", "--adopt"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stderr).toContain('SKILL.md is missing a "description" field');
+    expect(await snapshot(repo.root)).toEqual(before);
+    expect(await pathExists(repo.path(".factory"))).toBe(false);
+  });
+
+  test("blocks a skill with a symlink outside .factory before moving it", async () => {
+    const repo = await gitRepo({
+      ".claude/skills/release/SKILL.md": skill("release"),
+      "README.md": "# Repository\n",
+    });
+    await symlink("../../../README.md", repo.path(".claude", "skills", "release", "link"));
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["init", "--agents", "claude", "--adopt"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stderr).toContain("points outside .factory/");
+    expect(await snapshot(repo.root)).toEqual(before);
+    expect(await pathExists(repo.path(".factory"))).toBe(false);
+    expect(await pathExists(repo.path(".claude", "skills", "release", "SKILL.md"))).toBe(true);
+  });
+
+  test("refuses a symlinked .claude before creating anything", async () => {
+    const repo = await gitRepo({
+      "shared/skills/release/SKILL.md": skill("release"),
+    });
+    await symlink("shared", repo.path(".claude"), "dir");
+
+    const result = await runCli(["init", "--agents", "claude", "--adopt"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stderr).toContain(".claude is a symbolic link, not a directory");
+    expect(await pathExists(repo.path(".factory"))).toBe(false);
+    expect(await pathExists(repo.path(".gitattributes"))).toBe(false);
+    expect(await pathExists(repo.path("shared", "skills", "release", "SKILL.md"))).toBe(true);
+  });
+
+  test("reports a .factory file as a problem instead of crashing", async () => {
+    const repo = await gitRepo({ ".factory": "not a directory\n" });
+
+    const result = await runCli(["init", "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain(".factory is a file, not a directory");
+    expect(result.stderr).not.toContain("ENOTDIR");
+    expect(result.stderr).not.toMatch(/\n\s+at /u);
+    expect(await readFile(repo.path(".factory"), "utf8")).toBe("not a directory\n");
+  });
+
+  test("reports an unreadable metafab.yaml as a problem instead of crashing", async () => {
+    const repo = await gitRepo({
+      ".factory/factory.yaml": "format: 1\nname: demo\n",
+      ".factory/metafab.yaml/keep.txt": "",
+    });
+
+    const result = await runCli(["init", "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Cannot read file .factory/metafab.yaml");
+    expect(result.stderr).not.toMatch(/\n\s+at /u);
+  });
+
+  test("refuses a symlinked .factory/skills and moves nothing", async () => {
+    const repo = await gitRepo({
+      ".factory/factory.yaml": "format: 1\nname: demo\n",
+      ".claude/skills/release/SKILL.md": skill("release"),
+    });
+    await mkdir(repo.path("outside"), { recursive: true });
+    await symlink("../outside", repo.path(".factory", "skills"), "dir");
+
+    const result = await runCli(["init", "--agents", "claude", "--adopt"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stderr).toContain(".factory/skills is a symbolic link, not a directory");
+    expect(await pathExists(repo.path("outside", "release"))).toBe(false);
+    expect(await pathExists(repo.path(".claude", "skills", "release", "SKILL.md"))).toBe(true);
+    expect(await pathExists(repo.path(".gitattributes"))).toBe(false);
   });
 });

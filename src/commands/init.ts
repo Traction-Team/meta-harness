@@ -30,6 +30,7 @@ export const initCommand: CommandDefinition = {
       moved: report.moved,
       changed: report.changed,
       problems: report.problems,
+      declined: report.declined,
     };
 
     if (context.options.json !== true) result.summary = describeInit(report);

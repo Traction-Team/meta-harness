@@ -1,4 +1,4 @@
-import { chmod, readFile, readdir, stat } from "node:fs/promises";
+import { chmod, mkdir, readFile, readdir, stat, symlink } from "node:fs/promises";
 import { afterEach, describe, expect, test } from "vitest";
 import {
   ADOPTION_DESCRIPTION,
@@ -205,6 +205,115 @@ describe("planAdoption", () => {
     );
   });
 
+  test("blocks a frontmatter name that differs from the directory name", async () => {
+    const repo = await repoWith({
+      ".claude/skills/wrong-name/SKILL.md":
+        "---\nname: bar\ndescription: Use bar when the task needs it.\n---\n\n# bar\n",
+    });
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.moves).toEqual([]);
+    expect(plan.blockers).toHaveLength(1);
+    expect(plan.blockers[0]!.file).toBe(".claude/skills/wrong-name/SKILL.md");
+    expect(plan.blockers[0]!.message).toBe(
+      'Skill name "bar" does not match its directory "wrong-name"',
+    );
+  });
+
+  test("blocks a SKILL.md without a description", async () => {
+    const repo = await repoWith({
+      ".claude/skills/release/SKILL.md": "---\nname: release\n---\n\n# release\n",
+    });
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.moves).toEqual([]);
+    expect(plan.blockers).toHaveLength(1);
+    expect(plan.blockers[0]!.file).toBe(".claude/skills/release/SKILL.md");
+    expect(plan.blockers[0]!.message).toBe('SKILL.md is missing a "description" field');
+  });
+
+  test("blocks a nested skill directory", async () => {
+    const repo = await repoWith({
+      ".claude/skills/release/SKILL.md": skill("release"),
+      ".claude/skills/release/nested/SKILL.md": skill("nested"),
+    });
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.moves).toEqual([]);
+    expect(plan.blockers).toHaveLength(1);
+    expect(plan.blockers[0]!.message).toBe(
+      'Nested skill directory: ".claude/skills/release/nested"',
+    );
+  });
+
+  test("blocks a symlink that points outside .factory", async () => {
+    const repo = await repoWith({
+      ".claude/skills/release/SKILL.md": skill("release"),
+      "README.md": "# Repository\n",
+    });
+    await symlink("../../../README.md", repo.path(".claude/skills/release/link"));
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.moves).toEqual([]);
+    expect(plan.blockers).toHaveLength(1);
+    expect(plan.blockers[0]!.file).toBe(".claude/skills/release/link");
+    expect(plan.blockers[0]!.message).toBe(
+      "Symlink .claude/skills/release/link points outside .factory/",
+    );
+  });
+
+  test("blocks a broken symlink that would remain broken after the move", async () => {
+    const repo = await repoWith({ ".claude/skills/release/SKILL.md": skill("release") });
+    await symlink("../../README.md", repo.path(".claude/skills/release/link"));
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.moves).toEqual([]);
+    expect(plan.blockers[0]!.message).toBe("Symlink .claude/skills/release/link is broken");
+  });
+
+  test("accepts a symlink that stays inside the moved skill", async () => {
+    const repo = await repoWith({
+      ".claude/skills/release/SKILL.md": skill("release"),
+      ".claude/skills/release/notes.md": "notes\n",
+    });
+    await symlink("notes.md", repo.path(".claude/skills/release/link"));
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.blockers).toEqual([]);
+    expect(plan.moves.map((move) => move.name)).toEqual(["release"]);
+  });
+
+  test("blocks a skill whose name is a built-in skill name", async () => {
+    const repo = await repoWith({ ".claude/skills/metafab/SKILL.md": skill("metafab") });
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.moves).toEqual([]);
+    expect(plan.blockers).toHaveLength(1);
+    expect(plan.blockers[0]!.file).toBe(".claude/skills/metafab");
+    expect(plan.blockers[0]!.message).toBe(
+      'Skill "metafab" clashes with the built-in "metafab" skill that metafab build installs',
+    );
+  });
+
+  test("blocks a symlinked .factory/skills destination", async () => {
+    const repo = await repoWith({ ".claude/skills/release/SKILL.md": skill("release") });
+    await mkdir(repo.path(".factory"), { recursive: true });
+    await mkdir(repo.path("outside"), { recursive: true });
+    await symlink("../outside", repo.path(".factory/skills"), "dir");
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.blockers[0]!.file).toBe(".factory/skills");
+    expect(plan.blockers[0]!.message).toBe(".factory/skills is a symbolic link, not a directory");
+  });
+
   test("blocks a destination that is a file", async () => {
     const repo = await repoWith({ ".claude/skills": "not a directory\n" });
 
@@ -292,6 +401,32 @@ describe("applyAdoption", () => {
 
     expect(await pathExists(repo.path(".claude/skills/release/SKILL.md"))).toBe(true);
     expect(await pathExists(repo.path(".factory/skills"))).toBe(false);
+  });
+
+  test("refuses to write through a symlinked .factory/skills", async () => {
+    const repo = await repoWith({ ".claude/skills/release/SKILL.md": skill("release") });
+    await mkdir(repo.path(".factory"), { recursive: true });
+    await mkdir(repo.path("outside"), { recursive: true });
+    await symlink("../outside", repo.path(".factory/skills"), "dir");
+
+    const plan: AdoptionPlan = {
+      root: repo.root,
+      moves: [
+        {
+          name: "release",
+          from: [".claude/skills/release"],
+          to: ".factory/skills/release",
+        },
+      ],
+      blockers: [],
+    };
+
+    await expect(applyAdoption(plan)).rejects.toThrow(
+      "Adoption cannot write into the factory directory.",
+    );
+
+    expect(await readdir(repo.path("outside"))).toEqual([]);
+    expect(await pathExists(repo.path(".claude/skills/release/SKILL.md"))).toBe(true);
   });
 });
 
