@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Stand-in for `metafab build` until plan 04 lands. Installs the factory into this worktree:
+ * Stand-in for `metafab build` until plan 1.004 lands. Installs the factory into this worktree:
  *
  *   node .factory/scripts/link.mjs
  *

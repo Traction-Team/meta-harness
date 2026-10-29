@@ -26,7 +26,7 @@ export const PLAN_KINDS = ['feature', 'bug', 'chore'];
 /** A plan's title is its PR title: a Conventional Commit with no scope. */
 export const PR_TITLE = /^(feat|fix|refactor|docs|chore|test|ci|build): \S/;
 
-/** Where skills are linked. Stand-in for `metafab build` until plan 04 lands. */
+/** Where skills are linked. Stand-in for `metafab build` until plan 1.004 lands. */
 export const TARGET_DIRS = ['.claude/skills', '.agents/skills'];
 
 export function git(args, opts = {}) {

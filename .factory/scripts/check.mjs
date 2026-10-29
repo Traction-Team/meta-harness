@@ -79,6 +79,17 @@ for (const rel of listPlans(source)) {
   const plan = loadPlan(source, rel);
   if (plan) plans.set(rel, plan);
 }
+const planNumbers = new Map();
+for (const rel of plans.keys()) {
+  const name = rel.split('/').pop();
+  const match = /^([1-9]\d*\.\d{3})-[a-z0-9]+(-[a-z0-9]+)*\.md$/.exec(name);
+  if (!match) {
+    err(rel, 'plan files are named <round>.<NNN>-<slug>.md, such as 1.014-publish-dry-run.md');
+    continue;
+  }
+  if (planNumbers.has(match[1])) err(rel, `plan number ${match[1]} is also used by ${planNumbers.get(match[1])}`);
+  else planNumbers.set(match[1], rel);
+}
 for (const plan of plans.values()) {
   if (!plan.hasFrontmatter) continue;
   const { data } = plan;
