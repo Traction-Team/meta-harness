@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
 import { mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -18,7 +19,33 @@ import { validateFab } from "./validate.js";
 
 const execFileAsync = promisify(execFile);
 
-const GIT_CONFIG_ARGS = ["-c", "core.hooksPath=/dev/null"];
+let hooksDirectory: string | undefined;
+
+/**
+ * Git runs `core.hooksPath` hooks from a repository it clones, and a fab
+ * repository's hooks are code from the fab, so they must never run.
+ * `core.hooksPath=/dev/null` is the usual shorthand, but it only works because
+ * of a Git special case; an empty directory is a real directory on every
+ * platform, so no hook can be found there.
+ */
+function disabledHooksConfig(): string {
+  if (hooksDirectory === undefined) {
+    const directory = mkdtempSync(path.join(tmpdir(), "metafab-hooks-"));
+    hooksDirectory = directory;
+    process.once("exit", () => {
+      try {
+        rmSync(directory, { recursive: true, force: true });
+      } catch {
+        // best effort: the temporary directory is empty
+      }
+    });
+  }
+  return `core.hooksPath=${hooksDirectory}`;
+}
+
+function gitConfigArgs(): string[] {
+  return ["-c", disabledHooksConfig()];
+}
 
 export interface GitOptions {
   env?: NodeJS.ProcessEnv;
@@ -102,7 +129,7 @@ function fetchError(message: string, cause?: unknown): MetafabError {
 
 async function runGit(args: string[], context: string, options: GitOptions): Promise<string> {
   try {
-    const { stdout } = await execFileAsync("git", [...GIT_CONFIG_ARGS, ...args], gitOptions(options));
+    const { stdout } = await execFileAsync("git", [...gitConfigArgs(), ...args], gitOptions(options));
     return stdout;
   } catch (error) {
     throw fetchError(`${context}: ${gitMessage(error as GitFailure)}`, error);
@@ -111,7 +138,7 @@ async function runGit(args: string[], context: string, options: GitOptions): Pro
 
 async function tryGit(args: string[], options: GitOptions): Promise<GitResult> {
   try {
-    const { stdout, stderr } = await execFileAsync("git", [...GIT_CONFIG_ARGS, ...args], gitOptions(options));
+    const { stdout, stderr } = await execFileAsync("git", [...gitConfigArgs(), ...args], gitOptions(options));
     return { ok: true, stdout, stderr };
   } catch (error) {
     const failure = error as GitFailure;
