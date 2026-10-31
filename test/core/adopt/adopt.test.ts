@@ -480,7 +480,10 @@ describe("applyAdoption", () => {
     expect(await readFile(repo.path(".factory/skills/release/reference/notes.md"), "utf8")).toBe(
       "notes\n",
     );
-    expect((await stat(repo.path(".factory/skills/release/scripts/run.sh"))).mode & 0o111).not.toBe(0);
+    if (process.platform !== "win32") {
+      const moved = await stat(repo.path(".factory/skills/release/scripts/run.sh"));
+      expect(moved.mode & 0o111).not.toBe(0);
+    }
     expect(await readdir(repo.path(".factory/skills"))).toEqual(["release"]);
   });
 
