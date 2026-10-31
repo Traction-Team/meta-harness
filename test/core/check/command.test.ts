@@ -195,6 +195,97 @@ describe("check command", () => {
   });
 
   test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "an unreadable metafab.yaml is one Cannot read problem, not a crash",
+    async () => {
+      const repo = await checkRepo();
+      await build(repo.root);
+      const configFile = repo.path(".factory", "metafab.yaml");
+      await chmod(configFile, 0o000);
+
+      try {
+        const human = await runCli(["check"], { cwd: repo.root, tty: false });
+
+        expect(human.code).toBe(ExitCode.Failed);
+        expect(human.stderr).toContain(
+          ".factory/metafab.yaml:1: error: Cannot read .factory/metafab.yaml",
+        );
+        expect(human.stderr).toContain("  fix: Check its permissions");
+        expect(human.stderr).not.toContain("    at ");
+        expect(human.stderr.match(/Cannot read /g)).toHaveLength(1);
+
+        const result = await runCli(["check", "--json"], { cwd: repo.root, tty: false });
+
+        expect(result.code).toBe(ExitCode.Failed);
+        expect(result.stderr).toBe("");
+        const json = JSON.parse(result.stdout) as {
+          ok: boolean;
+          command: string;
+          exitCode: number;
+          problems: { level: string; file: string; line: number; message: string; fix?: string }[];
+        };
+        expect(Object.keys(json).sort()).toEqual(["command", "exitCode", "ok", "problems"]);
+        expect(json.ok).toBe(false);
+        expect(json.command).toBe("check");
+        expect(json.exitCode).toBe(ExitCode.Failed);
+        expect(json.problems.filter((problem) => problem.message.startsWith("Cannot read "))).toEqual([
+          {
+            level: "error",
+            file: ".factory/metafab.yaml",
+            line: 1,
+            message: "Cannot read .factory/metafab.yaml",
+            fix: "Check its permissions",
+          },
+        ]);
+      } finally {
+        await chmod(configFile, 0o644);
+      }
+    },
+  );
+
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "an unreadable .factory directory is one Cannot read problem, not a crash",
+    async () => {
+      const repo = await checkRepo();
+      await build(repo.root);
+      const factoryDir = repo.path(".factory");
+      await chmod(factoryDir, 0o000);
+
+      try {
+        const result = await runCli(["check", "--json"], { cwd: repo.root, tty: false });
+
+        expect(result.code).toBe(ExitCode.Failed);
+        expect(result.stderr).toBe("");
+        const json = JSON.parse(result.stdout) as {
+          ok: boolean;
+          command: string;
+          exitCode: number;
+          problems: { level: string; file: string; line: number; message: string; fix?: string }[];
+        };
+        expect(json.ok).toBe(false);
+        expect(json.command).toBe("check");
+        expect(json.exitCode).toBe(ExitCode.Failed);
+        expect(json.problems.filter((problem) => problem.message.startsWith("Cannot read "))).toEqual([
+          {
+            level: "error",
+            file: ".factory",
+            line: 1,
+            message: "Cannot read directory .factory",
+            fix: "Check its permissions or restore the directory",
+          },
+        ]);
+
+        const human = await runCli(["check"], { cwd: repo.root, tty: false });
+
+        expect(human.code).toBe(ExitCode.Failed);
+        expect(human.stderr).toContain(".factory:1: error: Cannot read directory .factory");
+        expect(human.stderr).not.toContain("    at ");
+      } finally {
+        await chmod(factoryDir, 0o755);
+      }
+    },
+  );
+
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
     "lists an unreadable installed path in problems with --json",
     async () => {
       const repo = await checkRepo();

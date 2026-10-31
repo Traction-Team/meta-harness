@@ -27,6 +27,24 @@ function isReadError(problem: Problem): boolean {
   return problem.message.startsWith("Cannot read ");
 }
 
+function isBelow(parent: string, child: string): boolean {
+  return child.startsWith(`${parent.replace(/\/+$/, "")}/`);
+}
+
+/**
+ * One read error per path is the contract. An unreadable directory also makes
+ * every path below it unreadable, so its problem explains the rest: keep it
+ * and drop the problems it covers.
+ */
+function coveredByReadError(problem: Problem, problems: readonly Problem[]): boolean {
+  if (!isReadError(problem)) return false;
+  return problems.some(
+    (existing) =>
+      isReadError(existing) &&
+      (existing.file === problem.file || isBelow(existing.file, problem.file)),
+  );
+}
+
 /**
  * Validates the factory source, its configuration and the installed output.
  *
@@ -46,13 +64,9 @@ export async function runCheck(root: string, cliVersion: string): Promise<Proble
     const key = problemKey(next);
     if (seen.has(key)) return;
     // The factory loader words its read errors as "Cannot read file <path>" or
-    // "Cannot read directory <path>". One read error per path is the contract.
-    if (
-      isReadError(next) &&
-      problems.some((existing) => existing.file === next.file && isReadError(existing))
-    ) {
-      return;
-    }
+    // "Cannot read directory <path>". One read error per path is the contract,
+    // and a directory that cannot be read covers the paths inside it.
+    if (coveredByReadError(next, problems)) return;
     seen.add(key);
     problems.push(next);
   };

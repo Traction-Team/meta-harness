@@ -218,6 +218,46 @@ describe("build command", () => {
     },
   );
 
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "reports an unreadable metafab.yaml as one problem, not a crash",
+    async () => {
+      const repo = await buildRepo();
+      const configFile = repo.path(".factory", "metafab.yaml");
+      await chmod(configFile, 0o000);
+
+      try {
+        const result = await runCli(["build", "--json"], { cwd: repo.root, tty: false });
+
+        expect(result.code).toBe(ExitCode.Failed);
+        expect(result.stderr).toBe("");
+        const json = JSON.parse(result.stdout) as {
+          ok: boolean;
+          command: string;
+          exitCode: number;
+          changed: unknown[];
+          problems: { level: string; file: string; line: number; message: string; fix?: string }[];
+        };
+        expect(json.ok).toBe(false);
+        expect(json.command).toBe("build");
+        expect(json.exitCode).toBe(ExitCode.Failed);
+        expect(json.changed).toEqual([]);
+        expect(json.problems).toEqual([
+          {
+            level: "error",
+            file: ".factory/metafab.yaml",
+            line: 1,
+            message: "Cannot read .factory/metafab.yaml",
+            fix: "Check its permissions",
+          },
+        ]);
+        expect(await pathExists(repo.path(".agents"))).toBe(false);
+        expect(await pathExists(repo.path("AGENTS.md"))).toBe(false);
+      } finally {
+        await chmod(configFile, 0o644);
+      }
+    },
+  );
+
   test("failure JSON always includes an empty changed list", async () => {
     const invalid = await buildRepo({ ".factory/metafab.yaml": "agents: [nope]\n" });
     const conflict = await buildRepo({
