@@ -7,6 +7,15 @@ import type { Factory, PipelineEntry, Skill } from "./types.js";
 
 export const KNOWN_FACTORY_FIELDS = ["format", "name", "description", "pipeline"] as const;
 export const RESERVED_PIPELINE_OPTIONS = ["stage", "find", "where"] as const;
+export const RESERVED_CONTAINERS = [
+  "workflows",
+  "skills",
+  "templates",
+  "scripts",
+  "scorers",
+  "rules",
+  "runtimes",
+] as const;
 
 const MAX_SKILL_NAME_LENGTH = 64;
 const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -296,6 +305,22 @@ export function rule10ReservedPrefix(skill: Skill): Problem[] {
       line: nameLine(skill),
       message: `Skill name "${name}" uses the reserved "metafab" prefix`,
       fix: 'Rename the skill so the name does not start with "metafab"',
+    },
+  ];
+}
+
+const RESERVED_SKILL_PATH = /^\.factory\/([^/]+)\/SKILL\.md$/;
+
+export function rule11ReservedContainer(file: string): Problem[] {
+  const dir = RESERVED_SKILL_PATH.exec(file)?.[1] ?? file;
+
+  return [
+    {
+      level: "error",
+      file,
+      line: 1,
+      message: `${dir} is a reserved directory and cannot be a skill`,
+      fix: `Move the SKILL.md into .factory/${dir}/<name>/`,
     },
   ];
 }

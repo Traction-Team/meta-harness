@@ -81,4 +81,119 @@ describe("parseYaml", () => {
 
     expect(result.lineOf(result.document.get("name", true))).toBe(3);
   });
+
+  test("resolves an alias whose anchor comes before it", () => {
+    const result = parsed(parseYaml("base: &b one\nname: *b\n"));
+
+    expect(result.value).toEqual({ base: "one", name: "one" });
+  });
+
+  test("rejects an alias with no anchor on the alias line", () => {
+    const result = rejected(parseYaml("name: *missing\n"));
+
+    expect(result.problems).toEqual([
+      {
+        message: "Alias *missing has no anchor",
+        line: 1,
+        fix: "Remove the alias or define its anchor before it",
+      },
+    ]);
+  });
+
+  test("offsets an unresolved alias to the real line", () => {
+    const result = rejected(parseYaml("name: demo\ndescription: *missing\n", { lineOffset: 3 }));
+
+    expect(result.problems).toEqual([
+      {
+        message: "Alias *missing has no anchor",
+        line: 5,
+        fix: "Remove the alias or define its anchor before it",
+      },
+    ]);
+  });
+
+  test("allows an anchor aliased up to the alias limit", () => {
+    const result = parsed(parseYaml(aliasedPipeline(99)));
+
+    expect(result.value.pipeline).toHaveLength(100);
+  });
+
+  test("rejects an anchor aliased past the limit on the alias that crosses it", () => {
+    const result = rejected(parseYaml(aliasedPipeline(120)));
+
+    expect(result.problems).toEqual([
+      {
+        message: "Alias *gate is aliased too many times",
+        line: 102,
+        fix: "Use the anchor fewer times or write the values out",
+      },
+    ]);
+  });
+
+  test("reports a document whose aliases expand too far without a stack", () => {
+    const result = rejected(parseYaml(expandingAliases(5)));
+
+    expect(result.problems).toEqual([
+      {
+        message: "Alias *b is aliased too many times",
+        line: 3,
+        fix: "Use the anchor fewer times or write the values out",
+      },
+    ]);
+  });
+
+  test("reports a nested expansion quickly and on the alias that crosses the limit", () => {
+    const started = Date.now();
+    const result = rejected(parseYaml(expandingAliases(7)));
+
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(result.problems).toEqual([
+      {
+        message: "Alias *b is aliased too many times",
+        line: 3,
+        fix: "Use the anchor fewer times or write the values out",
+      },
+    ]);
+  });
+
+  test("reports an alias that refers to its own anchor", () => {
+    const result = rejected(parseYaml("tags: &t [*t]\n"));
+
+    expect(result.problems).toEqual([
+      {
+        message: "Alias *t refers to itself",
+        line: 1,
+        fix: "Remove the alias or write the values out",
+      },
+    ]);
+  });
+
+  test("reports an alias that reaches its anchor through another anchor", () => {
+    const result = rejected(parseYaml("outer: &outer\n  inner: &inner\n    again: *outer\n"));
+
+    expect(result.problems).toEqual([
+      {
+        message: "Alias *outer refers to itself",
+        line: 3,
+        fix: "Remove the alias or write the values out",
+      },
+    ]);
+  });
 });
+
+/** `pipeline:` with one anchored options mapping and `uses` aliases to it. */
+function aliasedPipeline(uses: number): string {
+  const aliases = Array.from({ length: uses }, (_, index) => `  - workflow-${index}: *gate`);
+  return ["pipeline:", "  - review-slice: &gate { stop: Wait for approval }", ...aliases].join("\n");
+}
+
+/** Ten aliases per level, which multiplies the expansion each level reaches. */
+function expandingAliases(depth: number): string {
+  const ten = (source: string): string => Array.from({ length: 10 }, () => `*${source}`).join(", ");
+  const names = ["a", "b", "c", "d", "e", "f", "g"];
+  const lines = ["a: &a [one, two, three, four, five, six, seven, eight, nine, ten]"];
+  for (let level = 1; level < depth; level += 1) {
+    lines.push(`${names[level]}: &${names[level]} [${ten(names[level - 1]!)}]`);
+  }
+  return lines.join("\n");
+}

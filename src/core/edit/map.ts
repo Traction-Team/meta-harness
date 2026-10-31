@@ -72,19 +72,28 @@ function pipelineLines(data: MapData): string[] {
   });
 }
 
+const TOP_LEVEL_GROUP = "(top level)";
+
 function skillLines(data: MapData): string[] {
   const groups = new Map<string, string[]>();
+  const topLevel: string[] = [];
   for (const skill of data.skills) {
     if (skill.group === "workflows") continue;
+    if (skill.path.split("/").length === 2) {
+      topLevel.push(skill.name);
+      continue;
+    }
     const names = groups.get(skill.group) ?? [];
     names.push(skill.name);
     groups.set(skill.group, names);
   }
+  if (topLevel.length > 0) groups.set(TOP_LEVEL_GROUP, topLevel);
 
-  const width = Math.max(...[...groups.keys()].map((group) => `${group}/`.length), 0);
+  const label = (group: string): string => (group === TOP_LEVEL_GROUP ? group : `${group}/`);
+  const width = Math.max(...[...groups.keys()].map((group) => label(group).length), 0);
   const lines: string[] = [];
   for (const [group, names] of groups) {
-    lines.push(`  ${`${group}/`.padEnd(width + 3)}${names.join(", ")}`);
+    lines.push(`  ${label(group).padEnd(width + 3)}${names.join(", ")}`);
   }
   return lines;
 }

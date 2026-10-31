@@ -192,7 +192,7 @@ export async function removeWorkflow(root: string, workflow: string): Promise<Re
   const factory = await loadFactory(root);
   const text = await readFactoryYamlText(factory.dir);
 
-  if (text === undefined) {
+  if (text === undefined || !hasDocumentContent(text)) {
     const message = `The pipeline does not contain "${workflow}".`;
     throw pipelineError("pipeline-entry-missing", message, [
       problem(FACTORY_FILE, message, `Add it with metafab pipeline add ${workflow}`),

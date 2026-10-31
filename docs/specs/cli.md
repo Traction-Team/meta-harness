@@ -108,6 +108,8 @@ Run `metafab init` again to adopt a skill added directly to a managed destinatio
 
 To rename a skill, move its directory and change `name` in its `SKILL.md`; for a workflow in the pipeline, also change its entry in `factory.yaml`. `metafab check` reports any of these left out.
 
+`pipeline remove` refuses an entry whose `factory.yaml` anchor another entry aliases: it exits with code 1, changes nothing, and the suggested fix is `Remove the alias to <anchor> first`.
+
 The path places the skill. For example, `metafab create workflows/review-slice` creates a workflow, and `metafab create review/security` creates a skill in the `review` group.
 
 `create` requires a non-empty description. It uses `--description` when present, asks for the description when standard input is a terminal, and exits with code 2 without changing files when neither source is available. The generated file contains `name` and `description` frontmatter, followed by a heading made from the skill name and an empty body.

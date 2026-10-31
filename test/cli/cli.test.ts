@@ -198,7 +198,12 @@ describe("NeedsInput", () => {
   test("exits 2 and renders every required value in JSON mode", async () => {
     const result = await runCli(["create", "--json"], { cwd: repo.root, tty: false, commands: [needsInput] });
     expect(result.code).toBe(ExitCode.NeedsInput);
-    expect(JSON.parse(result.stdout)).toEqual({ ok: false, command: "create", required });
+    expect(JSON.parse(result.stdout)).toEqual({
+      ok: false,
+      command: "create",
+      exitCode: ExitCode.NeedsInput,
+      required,
+    });
   });
 
   test("exits 2 and lists every required value in human mode", async () => {
@@ -257,11 +262,11 @@ describe("unexpected errors", () => {
     },
   };
 
-  test("renders { ok: false, error } in JSON mode and exits 1", async () => {
+  test("renders { ok: false, exitCode, error } in JSON mode and exits 1", async () => {
     const result = await runCli(["check", "--json"], { cwd: repo.root, tty: false, commands: [broken] });
     expect(result.code).toBe(ExitCode.Failed);
     expect(result.stderr).toBe("");
-    expect(JSON.parse(result.stdout)).toEqual({ ok: false, error: "boom" });
+    expect(JSON.parse(result.stdout)).toEqual({ ok: false, exitCode: ExitCode.Failed, error: "boom" });
   });
 
   test("prints the stack in human mode and exits 1", async () => {
