@@ -129,11 +129,11 @@ export const publishCommand: CommandDefinition = {
           files: prepared.files,
           size: prepared.size,
           targets,
+          problems: warnings,
         };
         if (context.options.json !== true) {
           result.summary = summary(publish.version, prepared.files, prepared.size, targets, publish);
         }
-        if (warnings.length > 0) result.problems = warnings;
         return result;
       }
 
@@ -153,6 +153,7 @@ export const publishCommand: CommandDefinition = {
         files: prepared.files,
         size: prepared.size,
         targets: report.targets,
+        problems: warnings,
       };
       if (context.options.json !== true) {
         result.summary = summary(
@@ -163,7 +164,6 @@ export const publishCommand: CommandDefinition = {
           publish,
         );
       }
-      if (warnings.length > 0) result.problems = warnings;
       return result;
     } finally {
       await prepared.cleanup();

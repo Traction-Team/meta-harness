@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Problem } from "../../../src/errors.js";
 import { runCli } from "../../helpers/runCli.js";
@@ -160,8 +161,57 @@ describe("metafab publish", () => {
     expect(json.files).toContain("README.md");
     expect(json.files).not.toContain("package.json");
     expect(json.size).toBeGreaterThan(0);
+    expect(json.problems).toEqual([]);
     expect(json).not.toHaveProperty("summary");
     expect(result.stderr).toBe("");
+  });
+
+  it("refuses a fab that breaks the fab rules before the dry-run report", async () => {
+    const repo = track(
+      await makePublishRepo({
+        files: { ".factory/scripts/big.bin": new Uint8Array(1024 * 1024 + 1) },
+      }),
+    );
+    await build(repo);
+
+    const result = await runCli(["publish", "--dry-run", "--json"], { cwd: repo.root });
+    const json = parsed(result.stdout);
+
+    expect(result.code).toBe(1);
+    expect(json.ok).toBe(false);
+    expect(json.files).toBeUndefined();
+    expect(json.problems?.map((problem) => problem.file)).toContain(".factory/scripts/big.bin");
+  });
+
+  it("includes problems on a failed publish", async () => {
+    const bare = track(await makeBareFabRepo());
+    const repo = track(
+      await makePublishRepo({ publish: gitPublishSection(fileUrl(bare.repo), "1.2.0") }),
+    );
+    await build(repo);
+    const identity = trackEnv(await noIdentityEnv());
+    const first = await withProcessEnv(identity, () =>
+      runCli(["publish", "--json"], { cwd: repo.root }),
+    );
+    expect(first.code).toBe(0);
+
+    await writeFile(
+      repo.path(".factory", "metafab.yaml"),
+      ["metafab-skill: false", gitPublishSection(fileUrl(bare.repo), "1.3.0", undefined, "missing")].join(
+        "\n",
+      ),
+    );
+    const failedRun = await withProcessEnv(identity, () =>
+      runCli(["publish", "--json"], { cwd: repo.root }),
+    );
+    const json = parsed(failedRun.stdout);
+
+    expect(failedRun.code).toBe(1);
+    expect(json.ok).toBe(false);
+    expect(json.problems).toEqual([]);
+    expect(json.targets).toEqual([
+      { target: "git", status: "failed", detail: expect.stringContaining("missing") },
+    ]);
   });
 
   it("prints the fab files, size and targets as human output", async () => {
