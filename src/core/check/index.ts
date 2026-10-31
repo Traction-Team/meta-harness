@@ -1,5 +1,6 @@
 import type { Problem } from "../../errors.js";
 import { planBuild } from "../build/plan.js";
+import { dedupeReadErrors } from "../build/skill.js";
 import { loadConfig } from "../config/load.js";
 import { loadFactory } from "../factory/load.js";
 import { compareBuildOutput } from "./drift.js";
@@ -23,28 +24,6 @@ function problemKey(problem: Problem): string {
   ].join("\u0000");
 }
 
-function isReadError(problem: Problem): boolean {
-  return problem.message.startsWith("Cannot read ");
-}
-
-function isBelow(parent: string, child: string): boolean {
-  return child.startsWith(`${parent.replace(/\/+$/, "")}/`);
-}
-
-/**
- * One read error per path is the contract. An unreadable directory also makes
- * every path below it unreadable, so its problem explains the rest: keep it
- * and drop the problems it covers.
- */
-function coveredByReadError(problem: Problem, problems: readonly Problem[]): boolean {
-  if (!isReadError(problem)) return false;
-  return problems.some(
-    (existing) =>
-      isReadError(existing) &&
-      (existing.file === problem.file || isBelow(existing.file, problem.file)),
-  );
-}
-
 /**
  * Validates the factory source, its configuration and the installed output.
  *
@@ -57,18 +36,14 @@ export async function runCheck(root: string, cliVersion: string): Promise<Proble
   const factory = await loadFactory(root);
   const config = await loadConfig(factory.dir);
 
-  const problems: Problem[] = [];
+  const collected: Problem[] = [];
   const seen = new Set<string>();
   const add = (problem: Problem): void => {
     const next = withLine(problem);
     const key = problemKey(next);
     if (seen.has(key)) return;
-    // The factory loader words its read errors as "Cannot read file <path>" or
-    // "Cannot read directory <path>". One read error per path is the contract,
-    // and a directory that cannot be read covers the paths inside it.
-    if (coveredByReadError(next, problems)) return;
     seen.add(key);
-    problems.push(next);
+    collected.push(next);
   };
 
   for (const problem of factory.problems) add(problem);
@@ -77,10 +52,17 @@ export async function runCheck(root: string, cliVersion: string): Promise<Proble
   const plan = await planBuild(factory, config, cliVersion);
   for (const problem of plan.errors) add(problem);
 
-  const plannerHasErrors = problems.some((problem) => problem.level === "error");
+  // The factory loader words its read errors as "Cannot read file <path>" or
+  // "Cannot read directory <path>". One read error per path is the contract,
+  // and a directory that cannot be read covers the paths inside it.
+  const plannerHasErrors = dedupeReadErrors(collected).some(
+    (problem) => problem.level === "error",
+  );
 
   for (const problem of await scanConflictMarkers(root)) add(problem);
   for (const problem of await scanUpstreamFiles(root)) add(problem);
+
+  const problems = dedupeReadErrors(collected);
 
   if (plannerHasErrors) {
     problems.push({
