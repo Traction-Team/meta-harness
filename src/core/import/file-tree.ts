@@ -20,7 +20,7 @@ export interface FileEntry {
 /** A snapshot of a factory directory: relative POSIX path to entry. */
 export type FileTree = Readonly<Record<string, FileEntry>>;
 
-const LINK_HASH_PREFIX = "\0metafab-link\0";
+export const LINK_HASH_PREFIX = "\0metafab-link\0";
 
 function hashOf(data: Uint8Array | string): string {
   return createHash("sha256").update(data).digest("hex");
@@ -85,6 +85,34 @@ export async function snapshotTree(dir: string): Promise<FileTree> {
 /** Snapshot the active factory, `.factory/` under `root`. */
 export async function snapshotFactory(root: string): Promise<FileTree> {
   return snapshotTree(path.join(path.resolve(root), ".factory"));
+}
+
+/**
+ * Every directory under `dir`, as POSIX paths relative to it, symbolic links
+ * not followed.
+ *
+ * A snapshot keeps no directories, so this is how a preflight finds a local
+ * directory that an incoming file or link would delete, empty or not.
+ */
+export async function snapshotDirectories(dir: string): Promise<string[]> {
+  const root = path.resolve(dir);
+  const directories: string[] = [];
+
+  async function walk(directory: string, prefix: string): Promise<void> {
+    const children = await readdir(directory, { withFileTypes: true });
+    children.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+
+    for (const child of children) {
+      // A symbolic link is not a directory here: the snapshot treats it as a link.
+      if (!child.isDirectory()) continue;
+      const relativePath = prefix === "" ? child.name : `${prefix}/${child.name}`;
+      directories.push(relativePath);
+      await walk(path.join(directory, child.name), relativePath);
+    }
+  }
+
+  await walk(root, "");
+  return directories;
 }
 
 /** A file tree with no entries: the state of a repository before its first import. */

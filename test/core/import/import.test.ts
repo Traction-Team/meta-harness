@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readdir, readFile, readlink, rm, stat, symlink } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, readlink, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -462,10 +462,22 @@ describe("preflight before writing", () => {
     const result = await runCli(["import", fab.root, "--agents", "claude"], { cwd: repo.root });
 
     expect(result.code).toBe(5);
-    expect(result.stderr).toContain(".factory/notes-link.md/keep.txt");
+    expect(result.stderr).toContain("would replace .factory/notes-link.md with a different kind of entry");
     expect(result.stderr).toContain(".factory/notes-file.md");
     expect(await snapshot(repo.root)).toEqual(before);
     expect(await readFile(repo.path(".factory", "notes-link.md", "keep.txt"), "utf8")).toBe("keep\n");
+  });
+
+  test("an incoming file over an empty local directory is a conflict", async () => {
+    const repo = await repoWith();
+    await mkdir(repo.path(".factory", "templates", "empty"), { recursive: true });
+    const fab = await makeFab({ ...fabFiles(), ".factory/templates/empty": "fab file\n" });
+
+    const result = await runCli(["import", fab.root, "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stderr).toContain("would replace .factory/templates/empty with a different kind of entry");
+    expect((await stat(repo.path(".factory", "templates", "empty"))).isDirectory()).toBe(true);
   });
 
   test("a case-only path clash is a conflict, even with identical content", async () => {

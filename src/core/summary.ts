@@ -69,7 +69,15 @@ const INDENT = 2;
 const PATH_GAP = 8;
 
 function isExecutable(entry: FileEntry | undefined): boolean {
-  return entry !== undefined && (entry.mode & 0o111) !== 0;
+  // A link is never executable: its mode belongs to the host, not to the fab,
+  // and differs between them (0755 on macOS, 0777 on Linux).
+  return entry !== undefined && entry.link === undefined && (entry.mode & 0o111) !== 0;
+}
+
+/** True when two entries differ in permission bits that matter. */
+function modeDiffers(previous: FileEntry, next: FileEntry): boolean {
+  if (previous.link !== undefined || next.link !== undefined) return false;
+  return previous.mode !== next.mode;
 }
 
 function baseName(relativePath: string): string {
@@ -179,7 +187,7 @@ function changesOf(before: FileTree, after: FileTree): Change[] {
       changes.push({ path: relativePath, status: "A", after: next! });
     } else if (next === undefined) {
       changes.push({ path: relativePath, status: "D", before: previous });
-    } else if (previous.hash !== next.hash || previous.mode !== next.mode) {
+    } else if (previous.hash !== next.hash || modeDiffers(previous, next)) {
       changes.push({ path: relativePath, status: "M", before: previous, after: next });
     }
   }

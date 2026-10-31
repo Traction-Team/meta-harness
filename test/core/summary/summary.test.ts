@@ -350,6 +350,31 @@ describe("summarise", () => {
     expectRow(lines(summary), "A new-link.md", "-> new.md");
     expectRow(lines(summary), "D old-link.md", "-> old.md");
     expectRow(lines(summary), "M notes-link.md", "-> other-notes.md");
+    expect(groupOf(summary, "new-link.md")).toBe("other");
+    expect(groupOf(summary, "old-link.md")).toBe("other");
+  });
+
+  test("groups a symbolic link by its path, never by the executable bit", () => {
+    const before = makeTree({ "skills/demo/SKILL.md": textFile(skillFile("demo")) });
+    const after = makeTree({
+      ...before,
+      // macOS reports 0755 and Linux 0777 for every link.
+      "skills/demo/notes-link.md": linkFile("../other/notes.md", 0o755),
+      "skills/demo/run": linkFile("../../scripts/run.sh", 0o777),
+      "notes-link.md": linkFile("notes.md", 0o755),
+    });
+
+    const summary = summarise(before, after, CONTEXT);
+
+    expect(groupOf(summary, "skills/demo/notes-link.md")).toBe("skills");
+    expect(groupOf(summary, "skills/demo/run")).toBe("code");
+    expect(groupOf(summary, "notes-link.md")).toBe("other");
+    expect(entryAt(summary, "skills/demo/notes-link.md")).toMatchObject({
+      status: "A",
+      link: "../other/notes.md",
+    });
+    expect(entryAt(summary, "skills/demo/notes-link.md")?.executable).toBeUndefined();
+    expect(lines(summary).some((line) => line.includes("new, executable"))).toBe(false);
   });
 
   test("renders notes before the footer and the footer last", () => {

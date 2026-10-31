@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { Problem } from "../../errors.js";
-import { snapshotTree } from "./file-tree.js";
+import { snapshotDirectories, snapshotTree } from "./file-tree.js";
 import type { FileEntry, FileTree } from "./file-tree.js";
 import type { AdoptionMove } from "../adopt.js";
 
@@ -8,6 +8,16 @@ import type { AdoptionMove } from "../adopt.js";
 export interface LocalFile {
   entry: FileEntry;
   file: string;
+}
+
+/**
+ * The local paths an import would write over, keyed by the factory-relative
+ * path the incoming fab uses for them.
+ */
+export interface LocalPaths {
+  files: Map<string, LocalFile>;
+  /** Every existing local directory, empty ones included: `key` to local path. */
+  directories: Map<string, string>;
 }
 
 /**
@@ -74,65 +84,92 @@ function addTree(
   }
 }
 
+function addDirectories(
+  directories: Map<string, string>,
+  relativePaths: readonly string[],
+  prefix: string,
+  sourceDirectory: string,
+): void {
+  for (const relativePath of relativePaths) {
+    const key = prefix === "" ? relativePath : `${prefix}/${relativePath}`;
+    if (directories.has(key)) continue;
+    directories.set(key, `${sourceDirectory}/${relativePath}`);
+  }
+}
+
 /**
- * The local files an import could replace: the factory, plus the files of each
- * skill adoption will move into it. Keys are factory-relative paths, so a
+ * The local paths an import could write over: the factory, plus the files of
+ * each skill adoption will move into it. Keys are factory-relative paths, so a
  * planned move of `release` maps `.claude/skills/release/SKILL.md` to
  * `skills/release/SKILL.md`, where the incoming fab writes.
+ *
+ * Directories are listed too, empty ones included: a snapshot has none, so
+ * without this an incoming file could quietly delete one.
  */
 export async function localFilesForImport(
   root: string,
   factoryDir: string,
   moves: readonly AdoptionMove[],
   hasFactory: boolean,
-): Promise<Map<string, LocalFile>> {
-  const files = new Map<string, LocalFile>();
+): Promise<LocalPaths> {
+  const paths: LocalPaths = { files: new Map(), directories: new Map() };
 
-  if (hasFactory) addTree(files, await snapshotTree(factoryDir), "", ".factory");
+  if (hasFactory) {
+    addTree(paths.files, await snapshotTree(factoryDir), "", ".factory");
+    addDirectories(paths.directories, await snapshotDirectories(factoryDir), "", ".factory");
+  }
 
   for (const move of moves) {
     const primary = move.from[0];
     if (primary === undefined) continue;
     let tree: FileTree;
+    let directories: string[];
     try {
-      tree = await snapshotTree(absolute(root, primary));
+      [tree, directories] = await Promise.all([
+        snapshotTree(absolute(root, primary)),
+        snapshotDirectories(absolute(root, primary)),
+      ]);
     } catch {
       continue;
     }
-    addTree(files, tree, `skills/${move.name}`, primary);
+    addTree(paths.files, tree, `skills/${move.name}`, primary);
+    addDirectories(paths.directories, directories, `skills/${move.name}`, primary);
   }
 
-  return files;
+  return paths;
 }
 
-function indexOf(local: ReadonlyMap<string, LocalFile>): LocalIndex {
+function indexOf(local: LocalPaths): LocalIndex {
   const files = new Map<string, { key: string; local: LocalFile }>();
   const directories = new Map<string, string>();
 
-  for (const [key, localFile] of local) {
+  for (const [key, file] of local.directories) {
+    const folded = key.toLowerCase();
+    if (!directories.has(folded)) directories.set(folded, file);
+  }
+
+  for (const [key, localFile] of local.files) {
     const folded = key.toLowerCase();
     if (!files.has(folded)) files.set(folded, { key, local: localFile });
-    const parts = key.split("/");
-    for (let index = 1; index < parts.length; index += 1) {
-      const directory = parts.slice(0, index).join("/").toLowerCase();
-      if (!directories.has(directory)) directories.set(directory, key);
-    }
   }
 
   return { files, directories };
 }
 
 /**
- * Every incoming path that would replace a local file with different content,
- * compared without line-ending changes counting as a difference, and without
- * case: a path that differs only in case still lands on the same entry on a
- * case-insensitive filesystem. A path that would replace a file with a
- * directory, a directory with a file, or a link with a file, is a conflict too,
- * so the copy can never fail on it or delete local content.
+ * Every incoming path that would replace or remove local content: a file, link
+ * or directory whose content differs, or a local path that differs only in
+ * case. Content is compared without line-ending changes counting as a
+ * difference, and without case: a path that differs only in case still lands on
+ * the same entry on a case-insensitive filesystem. An incoming file or link at
+ * the path of an existing local directory is a conflict too, empty directories
+ * included, because the copy would delete it. A path that would replace a file
+ * with a directory, a directory with a file, or a link with a file, is a
+ * conflict, so the copy can never fail on it or delete local content.
  */
 export async function findImportConflicts(
   incomingDir: string,
-  local: ReadonlyMap<string, LocalFile>,
+  local: LocalPaths,
 ): Promise<Problem[]> {
   const incoming = await snapshotTree(incomingDir);
   const index = indexOf(local);
@@ -169,10 +206,7 @@ export async function findImportConflicts(
     }
 
     const asDirectory = index.directories.get(folded);
-    if (asDirectory !== undefined) {
-      const below = local.get(asDirectory);
-      if (below !== undefined) report(blocked(below.file));
-    }
+    if (asDirectory !== undefined) report(blocked(asDirectory));
   }
 
   return problems;
