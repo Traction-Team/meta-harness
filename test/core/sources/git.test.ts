@@ -91,6 +91,12 @@ describe("git sources", { timeout: 60_000 }, () => {
     expect(await pathExists(cacheLayout(cache).gitMirror(fixture.repo))).toBe(true);
   });
 
+  test("has no cleanup hook because the factory stays in the cache", async () => {
+    const fetched = await fetchFab(await resolveGit(gitSpec(fixture.repo)), options());
+
+    expect(fetched.cleanup).toBeUndefined();
+  });
+
   test("resolves a semver range through the parsed github form", async () => {
     const parsed = parseSource("github:seasb/fab-mark4#semver:^1.0.0", {
       cwd: process.cwd(),

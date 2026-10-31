@@ -157,6 +157,12 @@ describe("npm sources", { timeout: 60_000 }, () => {
     expect(await pathExists(path.join(cache, "npm", "fab-range", "1.2.0.tgz"))).toBe(true);
   });
 
+  test("has no cleanup hook because the factory stays in the cache", async () => {
+    const fetched = await fetchSource("fab-range@^1.0.0");
+
+    expect(fetched.cleanup).toBeUndefined();
+  });
+
   test("resolves a source without a range to the latest dist-tag", async () => {
     const resolved = await resolveSource("fab-range");
 

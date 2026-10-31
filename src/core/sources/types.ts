@@ -40,6 +40,12 @@ export interface FetchedFab {
   upstream: UpstreamEntry;
   deprecated?: string;
   versioned: boolean;
+  /**
+   * Removes the temporary directory a fetch created. Only fetches that copy a
+   * fab into a `mkdtemp` directory set it: Git and npm return cache paths, which
+   * stay. Best effort and never throws, so it cannot hide the caller's error.
+   */
+  cleanup?: () => Promise<void>;
 }
 
 export interface ValidateFabOptions {

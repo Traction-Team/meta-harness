@@ -45,6 +45,21 @@ function describe(error: unknown): string {
 }
 
 /**
+ * The cleanup hook for a fetch that copied a fab into a temporary directory.
+ * Best effort: a failed removal never throws, so it cannot hide the caller's
+ * own error or result.
+ */
+function tempCleanup(directory: string): () => Promise<void> {
+  return async () => {
+    try {
+      await rm(directory, { recursive: true, force: true });
+    } catch {
+      // Nothing to report: the directory is temporary either way.
+    }
+  };
+}
+
+/**
  * The URL a redirect points at, or an error when following it would leave
  * HTTPS. The tests use a local HTTP server, so an HTTP source may redirect to
  * HTTP; a production HTTPS source may never fall back to a plain connection.
@@ -218,5 +233,6 @@ export async function fetchHttps(
     factoryDir: path.join(destination, ".factory"),
     upstream: { kind: "unversioned", source: stripSourceCredentials(url) },
     versioned: false,
+    cleanup: tempCleanup(destination),
   };
 }
