@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ExitCode, MetafabError } from "../../../src/errors.js";
 import { prepareFab, publishFab, verifyGitIndex } from "../../../src/core/publish/index.js";
+import { addFailure } from "../../../src/core/publish/git-target.js";
 import type { PublishConfig } from "../../../src/core/config/types.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
 import { loadRepo, makePublishRepo } from "./fixtures.js";
@@ -369,5 +370,111 @@ describe("the Git target", () => {
         message: "Git stored different bytes for notes.md",
       }),
     ]);
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "publishes a fab file whose name contains a newline",
+    async () => {
+      const bare = track(await makeBareFabRepo());
+      const odd = ".factory/skills/git/odd\nname.md";
+
+      const result = await publish(bare.repo, VERSION, { [odd]: "# odd name\n" });
+
+      expect(result.targets.map((target) => target.status)).toEqual(["published"]);
+      // `ls-tree` without `-z` would quote the name, so ask for NUL separators.
+      const tree = await runGitIn(process.cwd(), [
+        "--git-dir",
+        bare.repo,
+        "ls-tree",
+        "-r",
+        "-z",
+        "--name-only",
+        "v1.2.0",
+      ]);
+      expect(tree.split("\0").filter((file) => file !== "")).toContain(odd);
+      expect(await showFile(bare.repo, "v1.2.0", odd)).toBe("# odd name");
+    },
+  );
+
+  it("publishes when init.templateDir has no info directory", async () => {
+    const bare = track(await makeBareFabRepo());
+    // A template directory without `info/` is what leaves `.git/info` out of
+    // the clone, so the attributes file cannot be written without creating it.
+    const template = track(await makeRepo());
+    const env = {
+      ...trackEnv(await noIdentityEnv()),
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "init.templateDir",
+      GIT_CONFIG_VALUE_0: template.root,
+    };
+
+    const fixture = await prepare(bare.repo, VERSION, {
+      ".factory/AGENTS.md": "# Agents\r\n\r\nCRLF.\r\n",
+    });
+    const result = await publishFab(fixture.prepared, fixture.publish, {
+      env,
+      stderr: () => undefined,
+    });
+
+    expect(result.targets.map((target) => target.status)).toEqual(["published"]);
+    expect(await showFile(bare.repo, "v1.2.0", ".factory/AGENTS.md")).toBe(
+      "# Agents\r\n\r\nCRLF.",
+    );
+  });
+
+  it("keeps the failed target detail short when it names many paths", async () => {
+    const bare = track(await makeBareFabRepo());
+    const fixture = await prepare(bare.repo, VERSION);
+    await mkdir(path.join(fixture.prepared.root, ".factory", "skills", "git", ".git"));
+    for (let index = 0; index < 5; index += 1) {
+      await writeFile(
+        path.join(
+          fixture.prepared.root,
+          ".factory",
+          "skills",
+          "git",
+          ".git",
+          `extra-${index}.md`,
+        ),
+        "# not staged\n",
+      );
+    }
+    const env = trackEnv(await noIdentityEnv());
+
+    const result = await publishFab(fixture.prepared, fixture.publish, {
+      env,
+      stderr: () => undefined,
+    });
+    const detail = result.targets[0]?.detail as string;
+
+    expect(result.problems).toHaveLength(5);
+    expect(detail).toContain("(5 paths: ");
+    expect(detail).toContain(".factory/skills/git/.git/extra-2.md");
+    expect(detail).toContain("and 2 more");
+    expect(detail).not.toContain("extra-3.md");
+  });
+});
+
+describe("addFailure", () => {
+  it("reports a path Git's verify_path rejects as a fab-rule failure", () => {
+    const failure = addFailure(
+      "error: invalid path '.factory/templates/.g\\342\\200\\214it/config'\nfatal: adding files failed",
+      "Cannot stage the fab",
+    );
+
+    expect(failure.exitCode).toBe(ExitCode.InvalidFab);
+    expect(failure.code).toBe("publish-git-invalid-path");
+    expect(failure.message).toBe("Git cannot store .factory/templates/.g\u200cit/config in a fab.");
+    expect(failure.problems).toEqual([
+      expect.objectContaining({ file: ".factory/templates/.g\u200cit/config" }),
+    ]);
+  });
+
+  it("keeps an ordinary Git failure", () => {
+    const failure = addFailure("fatal: not a git repository", "Cannot stage the fab");
+
+    expect(failure.exitCode).toBe(ExitCode.FetchFailed);
+    expect(failure.code).toBe("publish-git-failed");
+    expect(failure.message).toBe("Cannot stage the fab: fatal: not a git repository");
   });
 });

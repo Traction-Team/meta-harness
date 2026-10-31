@@ -40,12 +40,21 @@ function skippedDetail(target: PublishTargetName, version: string): string {
     : `v${version} is already in the fab repository with identical content.`;
 }
 
+/** How many of a failure's paths its target detail names; the problems carry all. */
+const DETAIL_PATHS = 3;
+
 function failureDetail(error: unknown): string {
   const message =
     error instanceof Error && error.message.trim() !== "" ? error.message.trim() : String(error);
   if (!(error instanceof MetafabError)) return message;
   const files = [...new Set((error.problems ?? []).map((problem) => problem.file))];
-  return files.length === 0 ? message : `${message} (${files.join(", ")})`;
+  if (files.length === 0) return message;
+  if (files.length === 1) return `${message} (${files[0] as string})`;
+  // A failed list may name thousands of paths; the reported problems carry
+  // every one, so the detail only counts them and shows the first few.
+  const shown = files.slice(0, DETAIL_PATHS).join(", ");
+  const more = files.length > DETAIL_PATHS ? ` and ${files.length - DETAIL_PATHS} more` : "";
+  return `${message} (${files.length} paths: ${shown}${more})`;
 }
 
 /**

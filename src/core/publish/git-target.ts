@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
@@ -164,6 +164,71 @@ function gitFailureError(context: string): (detail: string) => MetafabError {
 }
 
 /**
+ * Git quotes a path it prints the way C would, with an octal escape for every
+ * byte it cannot show; a rejected `.git` name with a formatting character in it
+ * arrives that way.
+ */
+function unquoteGitPath(quoted: string): string {
+  if (!quoted.includes("\\")) return quoted;
+
+  const simple: Record<string, string> = {
+    a: "\x07",
+    b: "\b",
+    f: "\f",
+    n: "\n",
+    r: "\r",
+    t: "\t",
+    v: "\v",
+    "\\": "\\",
+    '"': '"',
+  };
+  const bytes: number[] = [];
+
+  for (let index = 0; index < quoted.length; index += 1) {
+    const character = quoted[index] as string;
+    if (character !== "\\") {
+      bytes.push(...Buffer.from(character, "utf8"));
+      continue;
+    }
+    const octal = /^[0-7]{3}/.exec(quoted.slice(index + 1));
+    if (octal !== null) {
+      bytes.push(Number.parseInt(octal[0], 8));
+      index += 3;
+      continue;
+    }
+    const escaped = quoted[index + 1] ?? "";
+    bytes.push(...Buffer.from(simple[escaped] ?? escaped, "utf8"));
+    index += 1;
+  }
+
+  return Buffer.from(bytes).toString("utf8");
+}
+
+/**
+ * `git add` fails a path its `verify_path` rejects even when staging let the
+ * name through: a `.git` spelling the filesystem folds, for instance. That is a
+ * fab-rule rejection (exit 4) that names the path, not a Git failure.
+ */
+export function addFailure(message: string, context: string): MetafabError {
+  const invalid =
+    /(?:error|fatal): invalid path (?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")/.exec(message);
+  if (invalid === null) return gitFailureError(context)(message);
+
+  const file = unquoteGitPath(invalid[1] ?? invalid[2] ?? "");
+  const problem: Problem = {
+    level: "error",
+    file,
+    message: `Git cannot store ${file} in a fab`,
+    fix: "Rename the path or add it to publish.exclude",
+  };
+  return new MetafabError(`Git cannot store ${file} in a fab.`, {
+    exitCode: ExitCode.InvalidFab,
+    code: "publish-git-invalid-path",
+    problems: [problem],
+  });
+}
+
+/**
  * Stages the whole working tree with Git's ignore rules off. A fab may ship a
  * `.gitignore` of its own, and the user's global exclude file must not decide
  * what a published fab carries, so the tree Git commits is the staged fab.
@@ -173,13 +238,8 @@ async function addFabFiles(
   context: GitContext,
   failure: string,
 ): Promise<void> {
-  await runGit(
-    ["add", "-A", "--force"],
-    repo,
-    context,
-    ["-c", verbatimConfig()],
-    gitFailureError(failure),
-  );
+  const result = await tryGit(["add", "-A", "--force"], repo, context, ["-c", verbatimConfig()]);
+  if (!result.ok) throw addFailure(gitMessage(result), failure);
 }
 
 /** `publish.git` is required for the Git target; a missing URL is a config error. */
@@ -210,8 +270,11 @@ async function cloneFab(url: string, parent: string, context: GitContext): Promi
     [],
     gitFailureError(`Cannot clone fab repository ${stripSourceCredentials(url)}`),
   );
-  // Before the branch is checked out and before anything is added, so both the
-  // publish and the identical-content comparison store the staged bytes.
+  // The clone has already checked its branch out, and the attributes apply to
+  // every checkout and add that follows, so the publish and the
+  // identical-content comparison both store the staged bytes. An `init.templateDir`
+  // without `info/` leaves the directory out, so create it first.
+  await mkdir(path.join(repo, ".git", "info"), { recursive: true });
   writeFileSync(path.join(repo, ".git", "info", "attributes"), VERBATIM_ATTRIBUTES);
   return repo;
 }
@@ -327,23 +390,50 @@ async function stagedBlobs(
   expected: readonly string[],
   context: GitContext,
 ): Promise<Map<string, string>> {
-  const output = await runGit(
-    ["hash-object", "--no-filters", "--stdin-paths"],
-    repo,
-    context,
-    [],
-    gitFailureError("Cannot compare the staged fab with the Git index"),
-    expected.map((file) => `${path.join(root, ...file.split("/"))}\n`).join(""),
-  );
-  const hashes = output.split("\n").filter((hash) => hash !== "");
+  const failure = gitFailureError("Cannot compare the staged fab with the Git index");
+  const batch: Array<{ file: string; absolute: string }> = [];
+  const single: Array<{ file: string; absolute: string }> = [];
 
-  if (hashes.length !== expected.length) {
-    throw gitFailureError("Cannot compare the staged fab with the Git index")(
-      "git hash-object returned a different number of ids than the staged files",
-    );
+  for (const file of expected) {
+    const absolute = path.join(root, ...file.split("/"));
+    // `--stdin-paths` reads one path per line, so a name that contains a line
+    // break would be read as two paths. Those files are hashed one at a time,
+    // so Git still computes the id in the repository's own object format.
+    (absolute.includes("\n") || absolute.includes("\r") ? single : batch).push({ file, absolute });
   }
 
-  return new Map(expected.map((file, index) => [file, hashes[index] as string]));
+  const blobs = new Map<string, string>();
+
+  if (batch.length > 0) {
+    const output = await runGit(
+      ["hash-object", "--no-filters", "--stdin-paths"],
+      repo,
+      context,
+      [],
+      failure,
+      batch.map((entry) => `${entry.absolute}\n`).join(""),
+    );
+    const hashes = output.split("\n").filter((hash) => hash !== "");
+
+    if (hashes.length !== batch.length) {
+      throw failure("git hash-object returned a different number of ids than the staged files");
+    }
+
+    batch.forEach((entry, index) => blobs.set(entry.file, hashes[index] as string));
+  }
+
+  for (const entry of single) {
+    const output = await runGit(
+      ["hash-object", "--no-filters", "--", entry.absolute],
+      repo,
+      context,
+      [],
+      failure,
+    );
+    blobs.set(entry.file, output.trim());
+  }
+
+  return blobs;
 }
 
 /**

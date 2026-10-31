@@ -426,6 +426,31 @@ describe("stageFab", () => {
     },
   );
 
+  test.skipIf(process.platform === "win32")(
+    "refuses the .git names HFS+ and NTFS fold into .git",
+    async () => {
+      // A zero-width non-joiner is not part of the name on HFS+, and NTFS drops
+      // everything from a `:` stream suffix; Git reads both as `.git`.
+      for (const name of [".g\u200cit", ".git\u200c", ".git:$DATA"]) {
+        const target = await repo({
+          files: { [`.factory/templates/repo/${name}/config`]: "[core]\n" },
+        });
+        const { factory } = await loadRepo(target);
+
+        const error = (await stageFab(factory, { targets: ["git"] }).catch(
+          (failure: unknown) => failure,
+        )) as MetafabError;
+
+        expect(error, name).toBeInstanceOf(MetafabError);
+        expect(error.code, name).toBe("publish-invalid-fab");
+        expect(error.exitCode, name).toBe(4);
+        expect(error.problems?.map((problem) => problem.file), name).toContain(
+          `.factory/templates/repo/${name}`,
+        );
+      }
+    },
+  );
+
   test("an npm-only publish leaves out every case of .git with a warning", async () => {
     for (const name of [".git", ".GIT"]) {
       const target = await repo({
