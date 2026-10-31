@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Problem } from "../../../src/errors.js";
 import { runCli } from "../../helpers/runCli.js";
@@ -134,6 +134,63 @@ describe("metafab publish", () => {
     expect(json.files).toContain(".factory/factory.yaml");
     expect(json.files).not.toContain(".factory/metafab.yaml");
     expect(await listRemoteRefs(bare.repo)).toEqual([]);
+  });
+
+  it("reports a path npm never packs as a warning without failing", async () => {
+    const bare = track(await makeBareFabRepo());
+    const repo = track(
+      await makePublishRepo({
+        publish: bothPublishSection("@seasb/fab-warn", fileUrl(bare.repo), "1.2.0"),
+        files: { ".factory/skills/git/.gitignore": "*.log\n" },
+      }),
+    );
+    await build(repo);
+
+    const result = await runCli(["publish", "--dry-run", "--json"], { cwd: repo.root });
+    const json = parsed(result.stdout);
+
+    expect(result.code).toBe(0);
+    expect(json.ok).toBe(true);
+    expect(json.files).not.toContain(".factory/skills/git/.gitignore");
+    expect(json.problems).toEqual([
+      expect.objectContaining({
+        level: "warning",
+        file: ".factory/skills/git/.gitignore",
+        message: expect.stringContaining("npm never packs"),
+      }),
+    ]);
+
+    const human = await runCli(["publish", "--dry-run"], { cwd: repo.root });
+
+    expect(human.code).toBe(0);
+    expect(human.stderr).toContain(".factory/skills/git/.gitignore:1: warning:");
+  });
+
+  it("never prints a credential from publish.git", async () => {
+    const repo = track(
+      await makePublishRepo({
+        publish: [
+          "publish:",
+          "  git: https://x-access-token:ghp_topsecret@github.com/acme/fab.git",
+          "  version: 1.2.0",
+          "",
+        ].join("\n"),
+      }),
+    );
+    await rm(repo.path(".factory", "README.md"));
+    await build(repo);
+
+    const human = await runCli(["publish", "--dry-run"], { cwd: repo.root });
+
+    expect(human.code).toBe(0);
+    expect(human.stdout).toContain("git (https://github.com/acme/fab.git)");
+    expect(`${human.stdout}\n${human.stderr}`).not.toContain("ghp_topsecret");
+    expect(`${human.stdout}\n${human.stderr}`).not.toContain("x-access-token");
+
+    const json = parsed((await runCli(["publish", "--dry-run", "--json"], { cwd: repo.root })).stdout);
+
+    expect(JSON.stringify(json)).not.toContain("ghp_topsecret");
+    expect(JSON.stringify(json)).not.toContain("x-access-token");
   });
 
   it("emits the publish report as JSON", async () => {

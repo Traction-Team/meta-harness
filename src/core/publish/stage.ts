@@ -16,9 +16,9 @@ const ALWAYS_EXCLUDED = new Set(["metafab.yaml", "README.md"]);
 
 /**
  * Names npm never packs, even when `files` names the directory they are in:
- * `npm-packlist` applies these rules at every depth. Staging drops them for
- * every target, so the npm tarball and the Git fab carry the same files and the
- * reported list is exact.
+ * `npm-packlist` applies these rules at every depth. They are left out only
+ * when npm is a target, so a two-target publish carries the same files on both
+ * and a Git-only publish keeps them; each path left out is reported.
  */
 const NPM_IGNORED_NAMES = new Set([
   ".DS_Store",
@@ -72,6 +72,21 @@ function fabProblem(relativePath: string, message: string, fix: string): Problem
 }
 
 /**
+ * npm cannot publish a name it never packs, so staging leaves the path out of
+ * the fab instead of failing, and says so: the person asked for the fab, not
+ * for that file to disappear.
+ */
+function npmIgnoredProblem(relativePath: string): Problem {
+  return {
+    level: "warning",
+    file: `.factory/${relativePath}`,
+    line: 1,
+    message: `npm never packs .factory/${relativePath}, so it is left out of the fab`,
+    fix: "Rename the path or remove it from .factory/; the name cannot be published",
+  };
+}
+
+/**
  * A workflow that `publish.exclude` removes while the pipeline still names it
  * leaves a fab whose `factory.yaml` points at nothing, so staging stops before
  * it copies a file.
@@ -104,6 +119,7 @@ function excludedWorkflowProblems(
 /** What the staged copy has seen so far: the fab rules import enforces. */
 interface CopyState {
   problems: Problem[];
+  warnings: Problem[];
   entries: number;
   totalSize: number;
   stopped: boolean;
@@ -154,6 +170,8 @@ function fileAllowed(state: CopyState, relativePath: string, size: number): bool
 
 interface CopyContext {
   isExcluded: (relativePath: string) => boolean;
+  /** Whether the names npm never packs are left out, as an npm publish needs. */
+  npmFilter: boolean;
   destinationFactory: string;
   /** The real `.factory/` the links must stay inside. */
   rootReal: string;
@@ -277,7 +295,10 @@ async function walkFactory(
     // factory root leaves the fab too, and `.factory/README.md` may point
     // outside `.factory/` because it is read as the fab README, never copied.
     if (ALWAYS_EXCLUDED.has(relativePath)) continue;
-    if (npmIgnores(name, path.basename(prefix))) continue;
+    if (context.npmFilter && npmIgnores(name, path.basename(prefix))) {
+      context.state.warnings.push(npmIgnoredProblem(relativePath));
+      continue;
+    }
 
     const info = await lstat(absolute).catch(() => undefined);
     if (info === undefined) {
@@ -319,7 +340,8 @@ async function walkFactory(
 /**
  * Copies `.factory/` into a temporary directory for publishing, keeping file
  * modes, without `metafab.yaml`, without `.factory/README.md`, without every
- * `publish.exclude` glob and without the names `npm pack` never carries.
+ * `publish.exclude` glob and, when npm is a target, without the names `npm pack`
+ * never carries (each one is reported as a warning).
  *
  * The copy follows the fab rules `import` applies, so a fab that would be
  * rejected on the way back in is never published: 1 MB per file, 64 MiB and
@@ -328,6 +350,7 @@ async function walkFactory(
  */
 export async function stageFab(factory: Factory, options: StageOptions = {}): Promise<StagedFab> {
   const isExcluded = exclusionMatcher(options.exclude ?? []);
+  const npmFilter = (options.targets ?? []).includes("npm");
 
   const problems = excludedWorkflowProblems(factory, isExcluded);
   if (problems.length > 0) {
@@ -356,11 +379,17 @@ export async function stageFab(factory: Factory, options: StageOptions = {}): Pr
       );
     }
 
-    const state: CopyState = { problems: [], entries: 0, totalSize: 0, stopped: false };
+    const state: CopyState = {
+      problems: [],
+      warnings: [],
+      entries: 0,
+      totalSize: 0,
+      stopped: false,
+    };
     await walkFactory(
       factory.dir,
       "",
-      { isExcluded, destinationFactory: factoryDir, rootReal, state },
+      { isExcluded, npmFilter, destinationFactory: factoryDir, rootReal, state },
       new Set([rootReal]),
     );
 
@@ -395,6 +424,7 @@ export async function stageFab(factory: Factory, options: StageOptions = {}): Pr
       root,
       factoryDir,
       factory: staged,
+      warnings: state.warnings,
       cleanup: () => rm(root, { recursive: true, force: true }),
     };
   } catch (error) {

@@ -84,12 +84,15 @@ export function requirePublishConfig(config: Config): ValidPublishConfig {
  * Builds the complete fab in a temporary directory: the staged `.factory/`,
  * the README at the root and, for the npm target, `package.json`. It publishes
  * nothing, so `--dry-run` and the real run report from the same data.
+ *
+ * `files` and `size` describe what the npm package holds when npm is a target
+ * (`package.json` included) and what the Git fab holds otherwise.
  */
 export async function prepareFab(factory: Factory, config: Config): Promise<PreparedFab> {
   const publish = requirePublishConfig(config);
   const targets = publishTargets(publish);
 
-  const staged = await stageFab(factory, { exclude: publish.exclude });
+  const staged = await stageFab(factory, { exclude: publish.exclude, targets });
 
   try {
     const readme = await resolveReadme(factory.root, factory, publish, staged.factory);

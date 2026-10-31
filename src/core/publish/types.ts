@@ -1,3 +1,4 @@
+import type { Problem } from "../../errors.js";
 import type { Factory } from "../factory/index.js";
 
 /** A configured `publish` target: an npm package or a Git fab repository. */
@@ -20,6 +21,8 @@ export interface StagedFab {
   factoryDir: string;
   /** The staged factory, which is what the fab publishes. */
   factory: Factory;
+  /** Paths staging left out that the person did not ask it to, as warnings. */
+  warnings: Problem[];
   cleanup(): Promise<void>;
 }
 
@@ -29,6 +32,11 @@ export interface PreparedFab extends StagedFab, PublishReport {}
 export interface StageOptions {
   /** `publish.exclude` globs, relative to `.factory/`. */
   exclude?: readonly string[];
+  /**
+   * The targets being published. The names npm never packs are left out only
+   * when npm is one of them, so a Git-only fab keeps those files.
+   */
+  targets?: readonly PublishTargetName[];
 }
 
 /** How one target ended: published now, already published with the same content, or failed. */

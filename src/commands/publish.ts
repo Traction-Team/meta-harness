@@ -113,6 +113,7 @@ export const publishCommand: CommandDefinition = {
 
     const warnings: Problem[] = checked.filter((problem) => problem.level === "warning");
     const prepared = await prepareFab(factory, config);
+    warnings.push(...prepared.warnings);
 
     try {
       if (context.options["dry-run"] === true) {

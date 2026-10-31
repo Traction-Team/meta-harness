@@ -80,6 +80,26 @@ describe("prepareFab", () => {
     expect(fab.files).toContain("package.json");
   });
 
+  test("a Git-only publish keeps the names npm never packs", async () => {
+    const target = await makePublishRepo({
+      publish: [
+        "publish:",
+        "  git: git@github.com:acme/fab-demo.git",
+        "  version: 1.2.0",
+        "",
+      ].join("\n"),
+      files: { ".factory/skills/git/.gitignore": "*.log\n" },
+    });
+    repos.push(target);
+    const { factory, config } = await loadRepo(target);
+
+    const fab = await prepareFab(factory, config);
+    prepared.push(fab);
+
+    expect(fab.files).toContain(".factory/skills/git/.gitignore");
+    expect(fab.warnings).toEqual([]);
+  });
+
   test("the generated README lists only the staged skills", async () => {
     const target = await makePublishRepo({
       publish: [

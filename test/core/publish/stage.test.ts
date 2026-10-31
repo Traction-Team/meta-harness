@@ -3,7 +3,7 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { MetafabError } from "../../../src/errors.js";
 import { exclusionMatcher, prepareFab, stageFab } from "../../../src/core/publish/index.js";
-import type { StagedFab } from "../../../src/core/publish/index.js";
+import type { PublishTargetName, StagedFab } from "../../../src/core/publish/index.js";
 import { listFiles } from "../../../src/util/fs.js";
 import { loadRepo, makePublishRepo } from "./fixtures.js";
 import type { PublishRepoOptions } from "./fixtures.js";
@@ -26,10 +26,11 @@ async function repo(options: PublishRepoOptions = {}): Promise<TempRepo> {
 async function stage(
   options: PublishRepoOptions = {},
   exclude: string[] = [],
+  targets: PublishTargetName[] = [],
 ): Promise<{ target: TempRepo; fab: StagedFab; files: string[] }> {
   const target = await repo(options);
   const { factory } = await loadRepo(target);
-  const fab = await stageFab(factory, { exclude });
+  const fab = await stageFab(factory, { exclude, targets });
   staged.push(fab);
   return { target, fab, files: await listFiles(fab.root) };
 }
@@ -91,6 +92,58 @@ describe("stageFab", () => {
     expect(files).not.toContain(".factory/skills/git/SKILL.md");
     expect(files).not.toContain(".factory/skills/git/.notes");
     expect(files).not.toContain(".factory/workflows/extra/SKILL.md");
+  });
+
+  test("a Git-only publish keeps the names npm never packs", async () => {
+    const { fab, files } = await stage(
+      { files: { ".factory/skills/git/.gitignore": "*.log\n" } },
+      [],
+      ["git"],
+    );
+
+    expect(files).toContain(".factory/skills/git/.gitignore");
+    expect(fab.warnings).toEqual([]);
+  });
+
+  test("an npm publish leaves out the names npm never packs and warns for each", async () => {
+    const { fab, files } = await stage(
+      {
+        files: {
+          ".factory/skills/git/.gitignore": "*.log\n",
+          ".factory/skills/git/.npmrc": "//registry.example/\n",
+          ".factory/templates/repo/.git/config": "[core]\n",
+        },
+      },
+      [],
+      ["npm", "git"],
+    );
+
+    expect(files).not.toContain(".factory/skills/git/.gitignore");
+    expect(files).not.toContain(".factory/skills/git/.npmrc");
+    expect(files).not.toContain(".factory/templates/repo/.git/config");
+    expect(fab.warnings).toEqual([
+      {
+        level: "warning",
+        file: ".factory/skills/git/.gitignore",
+        line: 1,
+        message: "npm never packs .factory/skills/git/.gitignore, so it is left out of the fab",
+        fix: "Rename the path or remove it from .factory/; the name cannot be published",
+      },
+      {
+        level: "warning",
+        file: ".factory/skills/git/.npmrc",
+        line: 1,
+        message: "npm never packs .factory/skills/git/.npmrc, so it is left out of the fab",
+        fix: "Rename the path or remove it from .factory/; the name cannot be published",
+      },
+      {
+        level: "warning",
+        file: ".factory/templates/repo/.git",
+        line: 1,
+        message: "npm never packs .factory/templates/repo/.git, so it is left out of the fab",
+        fix: "Rename the path or remove it from .factory/; the name cannot be published",
+      },
+    ]);
   });
 
   test("fails when an excluded workflow is still in the pipeline", async () => {
