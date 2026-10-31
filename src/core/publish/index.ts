@@ -4,3 +4,7 @@ export * from "./stage.js";
 export * from "./readme.js";
 export * from "./package-json.js";
 export * from "./prepare.js";
+export * from "./provenance.js";
+export * from "./npm-target.js";
+export * from "./git-target.js";
+export * from "./publish.js";
