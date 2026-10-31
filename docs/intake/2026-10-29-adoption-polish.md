@@ -20,3 +20,5 @@ Four small follow-ups from the last review of PR #10. None loses data; they refu
 - `src/core/adopt.ts:292`: problems taken from `compileSkill` keep build's wording ("points outside .factory/", fix "inside .factory/") because the skill directory is passed as `factoryDir`.
 - `src/core/init/run.ts:112`: every `loadConfig` failure, including `EIO` or an internal error, is reported as "Cannot read file .factory/metafab.yaml / Check its permissions". Map the filesystem codes and let other errors through.
 - `src/core/adopt.ts`: `BUILTIN_SKILL_NAMES` repeats the built-in skill list from `src/core/build/plan.ts`, which was outside the plan's `owns`. Export the list from build and import it.
+- `src/core/init/run.ts:113`: `init` spots an unreadable `metafab.yaml` by matching the problem text that `src/core/config/load.ts` builds. Rewording that message disables the guard. Export an `isUnreadableConfig()` predicate from `load.ts` instead.
+- `src/core/init/run.ts:259`: an unreadable `.factory/factory.yaml` is not refused early. `init` creates `.factory/AGENTS.md` and `.gitattributes` and only then fails in the build, so the failed run leaves new files behind.
