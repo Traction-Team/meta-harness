@@ -16,7 +16,7 @@ import {
 import type { AdoptionMove } from "../adopt.js";
 import { applyBuild, planBuild } from "../build/index.js";
 import type { BuildChange } from "../build/index.js";
-import { CONFIG_FILENAME, parseConfig } from "../config/parse.js";
+import { CONFIG_FILE, CONFIG_FILENAME, parseConfig } from "../config/parse.js";
 import { destinations } from "../config/destinations.js";
 import { loadConfig } from "../config/load.js";
 import { TARGETS } from "../config/types.js";
@@ -105,14 +105,32 @@ async function assertFactoryDirectoryUsable(factoryDir: string): Promise<void> {
   );
 }
 
+/**
+ * True when `loadConfig` reported that the configuration exists but cannot be
+ * read. `loadConfig` answers such a failure with a problem instead of throwing,
+ * so `init` has to refuse before it treats the file as missing and writes it.
+ */
+function unreadableConfig(config: Config): boolean {
+  return config.problems.some(
+    (problem) =>
+      problem.level === "error" &&
+      problem.file === CONFIG_FILE &&
+      problem.message === `Cannot read ${CONFIG_FILE}`,
+  );
+}
+
 /** Loads `metafab.yaml`, turning any failure to read it into a problem list. */
 async function readConfig(factoryDir: string): Promise<Config> {
-  try {
-    return await loadConfig(factoryDir);
-  } catch {
-    const file = `.factory/${CONFIG_FILENAME}`;
-    throw unreadableFactory(file, `Cannot read file ${file}`, "Check its permissions or restore the file");
+  const config = await loadConfig(factoryDir);
+  if (unreadableConfig(config)) {
+    throw unreadableFactory(
+      CONFIG_FILE,
+      `Cannot read file ${CONFIG_FILE}`,
+      "Check its permissions or restore the file",
+    );
   }
+
+  return config;
 }
 
 function isAdoptionSource(file: string, moves: readonly AdoptionMove[]): boolean {
