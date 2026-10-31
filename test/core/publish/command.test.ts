@@ -177,8 +177,8 @@ describe("metafab publish", () => {
     const result = await runCli(["publish", "--dry-run", "--json"], { cwd: repo.root });
     const json = parsed(result.stdout);
 
-    expect(result.code).toBe(1);
-    expect(json.ok).toBe(false);
+    expect(result.code).toBe(4);
+    expect(json).toMatchObject({ ok: false, command: "publish", exitCode: 4 });
     expect(json.files).toBeUndefined();
     expect(json.problems?.map((problem) => problem.file)).toContain(".factory/scripts/big.bin");
   });

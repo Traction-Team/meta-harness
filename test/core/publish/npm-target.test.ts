@@ -114,6 +114,21 @@ async function packPublished(name: string, version: string): Promise<string[]> {
   return listFiles(extracted);
 }
 
+/** The paths `npm pack` would put in the tarball of `root`, without publishing. */
+async function npmPackPaths(root: string): Promise<string[]> {
+  const npm = await npmInvocation({ env: registry.env });
+  const { stdout } = await execFileAsync(
+    npm.command,
+    [...npm.args, "pack", root, "--dry-run", "--json", "--ignore-scripts"],
+    { env: registry.env, encoding: "utf8", maxBuffer: 32 * 1024 * 1024, windowsHide: true },
+  );
+  const parsed = JSON.parse(stdout) as Array<{ files?: Array<{ path?: unknown }> }>;
+  return (parsed[0]?.files ?? [])
+    .map((file) => file.path)
+    .filter((file): file is string => typeof file === "string")
+    .sort();
+}
+
 describe("the npm target", () => {
   it("publishes the fab and skips it when the registry has identical content", async () => {
     const name = "@seasb/fab-publish-once";
@@ -161,6 +176,31 @@ describe("the npm target", () => {
     ).rejects.toMatchObject({ code: "publish-version-exists" });
 
     expect(await publishedIntegrity(name, "1.2.0")).toBe(integrity);
+  });
+
+  it("stages exactly the files npm packs, so both targets carry the same fab", async () => {
+    const fixture = await prepare(npmPublishSection("@seasb/fab-packed", "1.2.0"), {
+      ".factory/.DS_Store": "ignored by npm\n",
+      ".factory/.git/config": "[core]\n",
+      ".factory/.gitignore": "ignored by npm\n",
+      ".factory/.lock-wscript": "ignored by npm\n",
+      ".factory/.npmignore": "ignored by npm\n",
+      ".factory/.npmrc": "registry=https://example.invalid/\n",
+      ".factory/AGENTS.md.vendor.orig": "ignored by npm\n",
+      ".factory/CVS/entries": "ignored by npm\n",
+      ".factory/archived-packages/old.md": "ignored by npm\n",
+      ".factory/build/config.gypi": "ignored by npm\n",
+      ".factory/npm-debug.log": "ignored by npm\n",
+      ".factory/skills/git/._SKILL.md": "ignored by npm\n",
+      ".factory/skills/git/.wafpickle-9": "ignored by npm\n",
+      ".factory/skills/git/notes.swp": "kept: npm only ignores .*.swp\n",
+      ".factory/skills/git/.notes.swp": "ignored by npm\n",
+      // npm applies these at the package root only, which is the fab root.
+      ".factory/node_modules/dep/index.js": "kept by npm\n",
+      ".factory/package-lock.json": "kept by npm\n",
+    });
+
+    expect(await npmPackPaths(fixture.prepared.root)).toEqual(fixture.prepared.files);
   });
 
   it("publishes to both targets and keeps package.json out of the Git fab", async () => {

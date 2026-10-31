@@ -14,9 +14,48 @@ import type { StageOptions, StagedFab } from "./types.js";
 /** Files the fab format forbids inside `.factory/`; see Sharing: Fab layout. */
 const ALWAYS_EXCLUDED = new Set(["metafab.yaml", "README.md"]);
 
-function stagingError(message: string, code: string, problems: Problem[]): MetafabError {
+/**
+ * Names npm never packs, even when `files` names the directory they are in:
+ * `npm-packlist` applies these rules at every depth. Staging drops them for
+ * every target, so the npm tarball and the Git fab carry the same files and the
+ * reported list is exact.
+ */
+const NPM_IGNORED_NAMES = new Set([
+  ".DS_Store",
+  ".gitignore",
+  ".lock-wscript",
+  ".npmignore",
+  ".npmrc",
+  "npm-debug.log",
+]);
+
+/** Directories npm ignores with everything below them. */
+const NPM_IGNORED_DIRECTORIES = new Set([".git", ".hg", ".svn", "archived-packages", "CVS"]);
+
+/**
+ * Whether `npm pack` would leave `name` out. The patterns are npm's defaults,
+ * matched the way its per-directory walk matches them. `npm-packlist` also
+ * ignores `node_modules`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`
+ * and `bun.lockb`, but only at the package root; staging writes nothing there
+ * except `README.md` and `package.json`, so those rules never apply to a fab.
+ */
+function npmIgnores(name: string, parent: string): boolean {
+  if (NPM_IGNORED_NAMES.has(name) || NPM_IGNORED_DIRECTORIES.has(name)) return true;
+  if (name.startsWith("._") || name.startsWith(".wafpickle-")) return true;
+  if (name.startsWith(".") && name.endsWith(".swp")) return true;
+  if (name.endsWith(".orig")) return true;
+  // `/build/config.gypi` is anchored to each directory, as npm's walkers are.
+  return parent === "build" && name === "config.gypi";
+}
+
+function stagingError(
+  message: string,
+  code: string,
+  problems: Problem[],
+  exitCode: ExitCode = ExitCode.Failed,
+): MetafabError {
   return new MetafabError(message, {
-    exitCode: ExitCode.Failed,
+    exitCode,
     code,
     problems,
   });
@@ -234,6 +273,11 @@ async function walkFactory(
     const absolute = path.join(directory, name);
     const relativePath = prefix === "" ? name : `${prefix}/${name}`;
     if (context.isExcluded(relativePath)) continue;
+    // Both rules come before the link branch: a link named `README.md` at the
+    // factory root leaves the fab too, and `.factory/README.md` may point
+    // outside `.factory/` because it is read as the fab README, never copied.
+    if (ALWAYS_EXCLUDED.has(relativePath)) continue;
+    if (npmIgnores(name, path.basename(prefix))) continue;
 
     const info = await lstat(absolute).catch(() => undefined);
     if (info === undefined) {
@@ -256,7 +300,6 @@ async function walkFactory(
     }
 
     if (info.isFile()) {
-      if (ALWAYS_EXCLUDED.has(relativePath)) continue;
       if (!countEntry(context.state, relativePath)) return;
       if (!fileAllowed(context.state, relativePath, info.size)) return;
       await copyFileWithMode(absolute, destinationFor(context, relativePath));
@@ -275,8 +318,8 @@ async function walkFactory(
 
 /**
  * Copies `.factory/` into a temporary directory for publishing, keeping file
- * modes, without `metafab.yaml`, without `.factory/README.md` and without every
- * `publish.exclude` glob.
+ * modes, without `metafab.yaml`, without `.factory/README.md`, without every
+ * `publish.exclude` glob and without the names `npm pack` never carries.
  *
  * The copy follows the fab rules `import` applies, so a fab that would be
  * rejected on the way back in is never published: 1 MB per file, 64 MiB and
@@ -303,9 +346,14 @@ export async function stageFab(factory: Factory, options: StageOptions = {}): Pr
 
     const rootReal = await realpath(factory.dir).catch(() => undefined);
     if (rootReal === undefined) {
-      throw stagingError("Cannot read the factory directory.", "publish-invalid-fab", [
-        fabProblem("", "Cannot resolve the .factory directory", "Restore the .factory directory"),
-      ]);
+      throw stagingError(
+        "Cannot read the factory directory.",
+        "publish-invalid-fab",
+        [
+          fabProblem("", "Cannot resolve the .factory directory", "Restore the .factory directory"),
+        ],
+        ExitCode.InvalidFab,
+      );
     }
 
     const state: CopyState = { problems: [], entries: 0, totalSize: 0, stopped: false };
@@ -333,7 +381,14 @@ export async function stageFab(factory: Factory, options: StageOptions = {}): Pr
       (problem) => problem.level === "error",
     );
     if (errors.length > 0) {
-      throw stagingError("The fab does not follow the fab rules.", "publish-invalid-fab", errors);
+      // A staged fab that breaks the fab rules is an invalid fab, as import
+      // reports it (exit 4), not a validation failure of the repository.
+      throw stagingError(
+        "The fab does not follow the fab rules.",
+        "publish-invalid-fab",
+        errors,
+        ExitCode.InvalidFab,
+      );
     }
 
     return {

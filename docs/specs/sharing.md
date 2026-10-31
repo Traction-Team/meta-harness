@@ -91,7 +91,7 @@ A fab does not need a hand-maintained repository. Publish it from the project re
 | npm | `publish.name` | An npm package |
 | Git | `publish.git` | A commit and version tag in a fab repository |
 
-Configure one target or both. One `publish` releases the same files and version to each.
+Configure one target or both. One `publish` releases the same files and version to each: the staged fab leaves out the names `npm pack` always ignores, so the npm tarball and the Git fab hold identical files, and the printed file list and total size are exact for both.
 
 Example configuration:
 
@@ -115,8 +115,8 @@ The command performs these steps:
 
 1. Run `metafab check` and stop if validation fails.
 2. Create a temporary fab directory.
-3. Copy `.factory/` into it, keeping file modes, without `metafab.yaml`, without `.factory/README.md`, and without configured paths. A link inside `.factory/` is copied as the content of its target, the same decision `build` makes. A broken link, or one that points outside `.factory/`, stops the publish and names the path.
-4. Validate the staged `.factory/` against the [fab requirements](#fab-layout) and the factory rules again. Stop and list the problems when an exclude emptied `.factory/`, left a file above the fab size limit, or broke a reference.
+3. Copy `.factory/` into it, keeping file modes, without `metafab.yaml`, without `.factory/README.md`, without configured paths, and without names `npm pack` never carries, so both targets carry the same files. These are `.DS_Store`, `.gitignore`, `.npmignore`, `.npmrc`, `npm-debug.log`, `._*`, `.*.swp`, `*.orig`, `.lock-wscript`, `.wafpickle-*`, `build/config.gypi`, and every `.git`, `.svn`, `.hg`, `CVS` and `archived-packages` directory. A link inside `.factory/` is copied as the content of its target, the same decision `build` makes; a link named `README.md` or `metafab.yaml` at the factory root is left out like a file of that name. A broken link, or one that points outside `.factory/`, stops the publish and names the path. `.factory/README.md` may be a link that points outside `.factory/` because it is read as the fab README and never copied.
+4. Validate the staged `.factory/` against the [fab requirements](#fab-layout) and the factory rules again. Stop with exit code 4 and list the problems when an exclude emptied `.factory/`, left a file above the fab size limit, or broke a reference.
 5. Add the README at the fab root, from `publish.readme`. See [Configuration](configuration.md#publish). A generated README describes the staged fab, so an excluded skill is not listed.
 6. For the npm target, build `package.json` from `publish` settings.
 7. Print the fab files, total size, and targets.

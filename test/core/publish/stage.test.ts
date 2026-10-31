@@ -1,8 +1,8 @@
-import { lstat, mkdir, readFile, stat, symlink } from "node:fs/promises";
+import { lstat, mkdir, readFile, rm, stat, symlink } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { MetafabError } from "../../../src/errors.js";
-import { exclusionMatcher, stageFab } from "../../../src/core/publish/index.js";
+import { exclusionMatcher, prepareFab, stageFab } from "../../../src/core/publish/index.js";
 import type { StagedFab } from "../../../src/core/publish/index.js";
 import { listFiles } from "../../../src/util/fs.js";
 import { loadRepo, makePublishRepo } from "./fixtures.js";
@@ -69,7 +69,7 @@ describe("stageFab", () => {
     expect(files).toContain(".factory/AGENTS.md");
   });
 
-  test("keeps file modes", async () => {
+  test.skipIf(process.platform === "win32")("keeps file modes", async () => {
     const { fab } = await stage();
 
     const info = await stat(fab.factoryDir + "/scripts/release.sh");
@@ -103,6 +103,7 @@ describe("stageFab", () => {
 
     expect(error).toBeInstanceOf(MetafabError);
     expect(error.code).toBe("publish-excluded-workflow");
+    expect(error.exitCode).toBe(1);
     expect(error.problems).toEqual([
       {
         level: "error",
@@ -133,6 +134,7 @@ describe("stageFab", () => {
 
     expect(error).toBeInstanceOf(MetafabError);
     expect(error.code).toBe("publish-invalid-fab");
+    expect(error.exitCode).toBe(4);
     expect(error.problems?.map((problem) => problem.file)).toContain(".factory");
   });
 
@@ -160,8 +162,36 @@ describe("stageFab", () => {
 
     expect(error).toBeInstanceOf(MetafabError);
     expect(error.code).toBe("publish-invalid-fab");
+    expect(error.exitCode).toBe(4);
     expect(error.problems?.map((problem) => problem.file)).toContain(".factory/scripts/big.bin");
     expect(error.problems?.[0]?.message).toContain("1048576");
+  });
+
+  test("never stages a link named README.md at the factory root", async () => {
+    const target = await repo();
+    await rm(target.path(".factory", "README.md"));
+    await symlink(path.join("skills", "git", "SKILL.md"), target.path(".factory", "README.md"));
+
+    const { factory } = await loadRepo(target);
+    const fab = await stageFab(factory);
+    staged.push(fab);
+    const files = await listFiles(fab.root);
+
+    expect(files).not.toContain(".factory/README.md");
+    expect(files).toContain(".factory/skills/git/SKILL.md");
+  });
+
+  test("reads a README link that points outside .factory/ as the fab README", async () => {
+    const target = await repo({ files: { "fab-readme.md": "# Fab readme\n" } });
+    await rm(target.path(".factory", "README.md"));
+    await symlink(path.join("..", "fab-readme.md"), target.path(".factory", "README.md"));
+
+    const { factory, config } = await loadRepo(target);
+    const fab = await prepareFab(factory, config);
+    staged.push(fab);
+
+    expect(await listFiles(fab.root)).not.toContain(".factory/README.md");
+    expect(await readFile(path.join(fab.root, "README.md"), "utf8")).toBe("# Fab readme\n");
   });
 
   test("copies a link inside .factory/ as its target's content", async () => {
@@ -185,7 +215,7 @@ describe("stageFab", () => {
   test("copies a directory link inside .factory/ as its target's content", async () => {
     const target = await repo();
     await mkdir(target.path(".factory", "templates"), { recursive: true });
-    await symlink(path.join("..", "scripts"), target.path(".factory", "templates", "scripts"));
+    await symlink(path.join("..", "scripts"), target.path(".factory", "templates", "scripts"), "dir");
 
     const { factory } = await loadRepo(target);
     const fab = await stageFab(factory);
@@ -206,6 +236,7 @@ describe("stageFab", () => {
 
     expect(error).toBeInstanceOf(MetafabError);
     expect(error.code).toBe("publish-invalid-fab");
+    expect(error.exitCode).toBe(4);
     expect(error.problems?.map((problem) => problem.file)).toContain(
       ".factory/skills/git/outside.md",
     );
