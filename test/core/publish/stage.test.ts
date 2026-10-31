@@ -488,6 +488,31 @@ describe("stageFab", () => {
     );
   });
 
+  test.skipIf(process.platform === "win32")(
+    "an npm-only publish refuses the .git names HFS+ and NTFS fold into .git",
+    async () => {
+      // npm's own rule drops only the case spellings of `.git` itself, so a
+      // name it would pack that Git still reads as `.git` stops the publish.
+      for (const name of [".g\u200cit", ".git:$DATA"]) {
+        const target = await repo({
+          files: { [`.factory/templates/repo/${name}/config`]: "[core]\n" },
+        });
+        const { factory } = await loadRepo(target);
+
+        const error = (await stageFab(factory, { targets: ["npm"] }).catch(
+          (failure: unknown) => failure,
+        )) as MetafabError;
+
+        expect(error, name).toBeInstanceOf(MetafabError);
+        expect(error.code, name).toBe("publish-invalid-fab");
+        expect(error.exitCode, name).toBe(4);
+        expect(error.problems?.map((problem) => problem.file), name).toContain(
+          `.factory/templates/repo/${name}`,
+        );
+      }
+    },
+  );
+
   test("a publish to both targets refuses a .git path instead of warning", async () => {
     const target = await repo({
       files: { ".factory/templates/repo/.git/config": "[core]\n" },
