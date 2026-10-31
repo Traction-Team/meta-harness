@@ -73,4 +73,24 @@ describe("resolveReadme", () => {
       "npx @seasb/metafab import git@github.com:acme/fab-demo.git",
     );
   });
+
+  test("strips credentials from the generated import command", async () => {
+    const target = await repo({
+      publish: [
+        "publish:",
+        "  git: https://x-access-token:ghp_secretvalue@github.com/acme/fab-demo.git",
+        "  version: 1.2.0",
+        "",
+      ].join("\n"),
+    });
+    await rm(target.path(".factory", "README.md"));
+
+    const readme = await resolve(target);
+
+    expect(readme).not.toContain("ghp_secretvalue");
+    expect(readme).not.toContain("x-access-token");
+    expect(readme).toContain(
+      "npx @seasb/metafab import https://github.com/acme/fab-demo.git",
+    );
+  });
 });

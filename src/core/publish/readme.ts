@@ -3,6 +3,7 @@ import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { PublishConfig } from "../config/types.js";
 import type { Factory, Skill } from "../factory/index.js";
+import { stripSourceCredentials } from "../sources/redact.js";
 
 const IMPORT_COMMAND = "npx @seasb/metafab import";
 
@@ -47,9 +48,14 @@ function skillLine(skill: Skill): string {
   return summary === undefined ? `- \`${skill.name}\`` : `- \`${skill.name}\` — ${summary}`;
 }
 
-/** The source an importer names: the npm package when there is one, else the Git URL. */
+/**
+ * The source an importer names: the npm package when there is one, else the Git
+ * URL without credentials. The README is published, so a token in `publish.git`
+ * must never reach it.
+ */
 export function publishSource(publish: PublishConfig): string | undefined {
-  return publish.name ?? publish.git;
+  if (publish.name !== undefined) return publish.name;
+  return publish.git === undefined ? undefined : stripSourceCredentials(publish.git);
 }
 
 /**
