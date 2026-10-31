@@ -32,7 +32,7 @@ describe("buildPackageJson", () => {
     const target = await repo();
     const { factory, config } = await loadRepo(target);
 
-    const packageJson = buildPackageJson(factory, config.publish ?? {});
+    const packageJson = buildPackageJson(factory, config.publish ?? {}, {});
 
     expect(packageJson).toEqual({
       name: "@seasb/fab-demo",
@@ -58,10 +58,62 @@ describe("buildPackageJson", () => {
     });
     const { factory, config } = await loadRepo(target);
 
-    const packageJson = buildPackageJson(factory, config.publish ?? {});
+    const packageJson = buildPackageJson(factory, config.publish ?? {}, {});
 
     expect(packageJson.description).toBe("The published description.");
     expect(packageJson.license).toBe("MIT");
+  });
+
+  test("names the GitHub repository when provenance is available", async () => {
+    const target = await repo();
+    const { factory, config } = await loadRepo(target);
+
+    const packageJson = buildPackageJson(factory, config.publish ?? {}, {
+      GITHUB_ACTIONS: "true",
+      ACTIONS_ID_TOKEN_REQUEST_URL: "https://token.example/",
+      GITHUB_SERVER_URL: "https://github.example.com/",
+      GITHUB_REPOSITORY: "acme/fab-demo",
+    });
+
+    expect(packageJson.repository).toBe("https://github.example.com/acme/fab-demo");
+  });
+
+  test("defaults the GitHub server when the environment omits it", async () => {
+    const target = await repo();
+    const { factory, config } = await loadRepo(target);
+
+    const packageJson = buildPackageJson(factory, config.publish ?? {}, {
+      GITHUB_ACTIONS: "true",
+      ACTIONS_ID_TOKEN_REQUEST_URL: "https://token.example/",
+      GITHUB_REPOSITORY: "acme/fab-demo",
+    });
+
+    expect(packageJson.repository).toBe("https://github.com/acme/fab-demo");
+  });
+
+  test("names the GitLab project when provenance is available", async () => {
+    const target = await repo();
+    const { factory, config } = await loadRepo(target);
+
+    const packageJson = buildPackageJson(factory, config.publish ?? {}, {
+      GITLAB_CI: "true",
+      SIGSTORE_ID_TOKEN: "token",
+      CI_PROJECT_URL: "https://gitlab.com/acme/fab-demo",
+    });
+
+    expect(packageJson.repository).toBe("https://gitlab.com/acme/fab-demo");
+  });
+
+  test("writes no repository when CI cannot attest provenance", async () => {
+    const target = await repo();
+    const { factory, config } = await loadRepo(target);
+
+    const packageJson = buildPackageJson(factory, config.publish ?? {}, {
+      GITHUB_ACTIONS: "true",
+      GITHUB_REPOSITORY: "acme/fab-demo",
+    });
+
+    expect("repository" in packageJson).toBe(false);
   });
 
   test("refuses the npm target without a name", async () => {
