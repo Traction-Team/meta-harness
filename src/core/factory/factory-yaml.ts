@@ -1,8 +1,8 @@
-import { isMap, isScalar, isSeq } from "yaml";
-import type { Pair } from "yaml";
+import { isAlias, isMap, isScalar, isSeq } from "yaml";
+import type { Document, Pair } from "yaml";
 import type { Problem } from "../../errors.js";
 import { isSingleLine } from "../../util/text.js";
-import { parseYaml } from "../../util/yaml.js";
+import { aliasProblems, parseYaml } from "../../util/yaml.js";
 import type { YamlDocument } from "../../util/yaml.js";
 import type { FactoryYaml, PipelineEntry } from "./types.js";
 import {
@@ -24,6 +24,31 @@ export interface FactoryYamlParseResult {
 
 type Field = { value: unknown; line: number; node: unknown };
 
+function resolveNode(node: unknown, doc: Document): unknown {
+  return isAlias(node) ? node.resolve(doc) : node;
+}
+
+function lineAtOffset(text: string, offset: number): number {
+  let line = 1;
+  for (let index = 0; index < offset && index < text.length; index += 1) {
+    if (text.charCodeAt(index) === 10) line += 1;
+  }
+  return line;
+}
+
+/**
+ * Problems for aliases in a `factory.yaml`: an alias such as `*missing` that
+ * names no anchor before it, and a document that aliases one anchor too often
+ * to convert safely.
+ */
+export function factoryAliasProblems(document: Document, text: string, file: string): Problem[] {
+  return aliasProblems(document, (offset) => lineAtOffset(text, offset)).map((problem) => ({
+    level: "error" as const,
+    file,
+    ...problem,
+  }));
+}
+
 function scalarString(node: unknown): string | undefined {
   return isScalar(node) && typeof node.value === "string" ? node.value : undefined;
 }
@@ -33,12 +58,13 @@ function isKnownField(key: string): boolean {
 }
 
 function parsePipelineEntry(
-  item: unknown,
+  itemNode: unknown,
   parsed: Extract<ReturnType<typeof parseYaml>, { ok: true }>,
   file: string,
   problems: Problem[],
 ): PipelineEntry | undefined {
-  const line = parsed.lineOf(item);
+  const line = parsed.lineOf(itemNode);
+  const item = resolveNode(itemNode, parsed.document);
 
   if (isScalar(item)) {
     const workflow = scalarString(item);
@@ -102,7 +128,7 @@ function parsePipelineEntry(
   }
 
   let stop: string | undefined;
-  const options = pair.value;
+  const options = resolveNode(pair.value, parsed.document);
   if (!isMap(options)) {
     problems.push({
       level: "error",
@@ -129,7 +155,7 @@ function parsePipelineEntry(
     }
 
     if (key === "stop") {
-      const value = option.value;
+      const value = resolveNode(option.value, parsed.document);
       if (!isScalar(value) || typeof value.value !== "string" || value.value === "") {
         problems.push({
           level: "error",
@@ -201,7 +227,7 @@ export function parseFactoryYaml(text: string, file: string): FactoryYamlParseRe
     return {
       value: parsedDocument.value[name],
       line: parsedDocument.lineOf(pair.key),
-      node: pair.value,
+      node: resolveNode(pair.value, parsedDocument.document),
     };
   };
 
@@ -238,7 +264,8 @@ export function parseFactoryYaml(text: string, file: string): FactoryYamlParseRe
 
   const pipeline: PipelineEntry[] = [];
   if (pipelineField !== undefined) {
-    if (!isSeq(pipelineField.node)) {
+    const pipelineNode = resolveNode(pipelineField.node, parsed.document);
+    if (!isSeq(pipelineNode)) {
       problems.push({
         level: "error",
         file,
@@ -247,7 +274,7 @@ export function parseFactoryYaml(text: string, file: string): FactoryYamlParseRe
         fix: "Write each workflow on its own - entry",
       });
     } else {
-      for (const item of pipelineField.node.items) {
+      for (const item of pipelineNode.items) {
         const entry = parsePipelineEntry(item, parsed, file, problems);
         if (entry !== undefined) pipeline.push(entry);
       }

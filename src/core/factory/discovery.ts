@@ -4,11 +4,13 @@ import type { Problem } from "../../errors.js";
 import { parseFrontmatter } from "../../util/frontmatter.js";
 import type { Skill } from "./types.js";
 import { setSkillLines } from "./lines.js";
-import { rule3NoNestedSkills, ruleTopLevelSkill } from "./validate.js";
+import { RESERVED_CONTAINERS, rule11ReservedContainer, rule3NoNestedSkills, ruleTopLevelSkill } from "./validate.js";
 
 export interface DiscoveryResult {
   skills: Skill[];
   problems: Problem[];
+  /** relDirs of directories and SKILL.md files discovery could not read or parse. */
+  skipped: string[];
 }
 
 function factoryPath(relDir: string): string {
@@ -48,6 +50,7 @@ async function loadSkill(
   dir: string,
   relDir: string,
   problems: Problem[],
+  skipped: string[],
 ): Promise<Skill | undefined> {
   const file = `${factoryPath(relDir)}/SKILL.md`;
   let source: string;
@@ -55,6 +58,7 @@ async function loadSkill(
     source = await readFile(path.join(dir, "SKILL.md"), "utf8");
   } catch (error) {
     if (isAbsentError(error)) return undefined;
+    skipped.push(relDir);
     problems.push({
       level: "error",
       file,
@@ -67,6 +71,7 @@ async function loadSkill(
   const parsed = parseFrontmatter(source);
 
   if (!parsed.ok) {
+    skipped.push(relDir);
     for (const problem of parsed.problems) {
       problems.push({ level: "error", file, ...problem });
     }
@@ -97,7 +102,7 @@ async function loadSkill(
 }
 
 export async function discoverSkills(root: string): Promise<DiscoveryResult> {
-  const result: DiscoveryResult = { skills: [], problems: [] };
+  const result: DiscoveryResult = { skills: [], problems: [], skipped: [] };
   const factoryDir = path.join(root, ".factory");
 
   async function walk(dir: string, relDir: string, parentSkill: string | undefined): Promise<void> {
@@ -106,6 +111,7 @@ export async function discoverSkills(root: string): Promise<DiscoveryResult> {
       entries = await readdir(dir, { withFileTypes: true });
     } catch (error) {
       if (isAbsentError(error)) return;
+      result.skipped.push(relDir);
       const file = factoryPath(relDir);
       result.problems.push({
         level: "error",
@@ -119,10 +125,16 @@ export async function discoverSkills(root: string): Promise<DiscoveryResult> {
     entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
 
     const hasSkill = entries.some((entry) => entry.name === "SKILL.md" && entry.isFile());
+    const isReservedContainer =
+      relDir !== "" &&
+      !relDir.includes("/") &&
+      (RESERVED_CONTAINERS as readonly string[]).includes(relDir);
 
     if (hasSkill) {
       if (relDir === "") {
         result.problems.push(...ruleTopLevelSkill(".factory/SKILL.md"));
+      } else if (isReservedContainer) {
+        result.problems.push(...rule11ReservedContainer(`${factoryPath(relDir)}/SKILL.md`));
       } else if (parentSkill !== undefined) {
         result.problems.push(
           ...rule3NoNestedSkills(
@@ -134,7 +146,7 @@ export async function discoverSkills(root: string): Promise<DiscoveryResult> {
         );
         return;
       } else {
-        const skill = await loadSkill(dir, relDir, result.problems);
+        const skill = await loadSkill(dir, relDir, result.problems, result.skipped);
         if (skill !== undefined) result.skills.push(skill);
       }
     }
@@ -142,7 +154,7 @@ export async function discoverSkills(root: string): Promise<DiscoveryResult> {
     for (const entry of entries) {
       if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
       const childRelDir = relDir === "" ? entry.name : `${relDir}/${entry.name}`;
-      const childParentSkill = hasSkill && relDir !== "" ? relDir : parentSkill;
+      const childParentSkill = hasSkill && relDir !== "" && !isReservedContainer ? relDir : parentSkill;
       await walk(path.join(dir, entry.name), childRelDir, childParentSkill);
     }
   }

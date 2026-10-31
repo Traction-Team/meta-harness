@@ -20,6 +20,23 @@ pipeline:
   - z
 `;
 
+const ALIASED = `format: 1
+name: mark4
+pipeline:
+  - review-slice: &gate { stop: Wait for approval }
+  - finish-slice: *gate
+`;
+
+/** One anchor inside another, aliased 60 times: only the expansion crosses the limit. */
+const NESTED_EXPANSION = [
+  "format: 1",
+  "name: mark4",
+  "pipeline:",
+  "  - gate: &g { stop: Wait for approval }",
+  "  - wrapped: &w { stop: *g }",
+  ...Array.from({ length: 60 }, (_, index) => `  - e${index}: *w`),
+].join("\n");
+
 describe("factory.yaml editor", () => {
   test("inserts an entry after a named entry, keeping comments", () => {
     const text = addPipelineEntryText(SOURCE, "x", {
@@ -161,5 +178,104 @@ pipeline:
   - file-work
   - triage-ideas: { stop: The product lead picks the next item }
 `);
+  });
+});
+
+describe("factory.yaml editor with YAML aliases", () => {
+  test("lists aliased entries by their workflow name", () => {
+    expect(pipelineEntryNames(parseFactoryYamlDocument(ALIASED))).toEqual([
+      "review-slice",
+      "finish-slice",
+    ]);
+  });
+
+  test("inserts after an aliased entry and keeps the anchor", () => {
+    const text = addPipelineEntryText(ALIASED, "x", { after: "finish-slice" });
+
+    expect(text).toContain("&gate");
+    expect(text).toContain("*gate");
+    expect(text.indexOf("- x")).toBeGreaterThan(text.indexOf("finish-slice"));
+    expect(pipelineEntryNames(parseFactoryYamlDocument(text))).toEqual([
+      "review-slice",
+      "finish-slice",
+      "x",
+    ]);
+  });
+
+  test("removes an aliased entry and keeps the anchor", () => {
+    const text = removePipelineEntryText(ALIASED, "finish-slice");
+
+    expect(text).toContain("&gate");
+    expect(text).not.toContain("*gate");
+    expect(pipelineEntryNames(parseFactoryYamlDocument(text))).toEqual(["review-slice"]);
+  });
+
+  test("refuses to remove an entry whose anchor another entry aliases", () => {
+    try {
+      removePipelineEntryText(ALIASED, "review-slice");
+      throw new Error("expected the remove to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      expect((error as MetafabError).code).toBe("pipeline-entry-anchored");
+      expect((error as MetafabError).problems?.[0]).toMatchObject({
+        file: ".factory/factory.yaml",
+        message: 'Pipeline entry "review-slice" holds the anchor "gate", which another entry aliases',
+        fix: "Remove the alias to gate first",
+      });
+    }
+  });
+
+  test("refuses an unresolved alias before changing anything", () => {
+    try {
+      parseFactoryYamlDocument("format: 1\nname: mark4\npipeline:\n  - review-slice: *missing\n");
+      throw new Error("expected the parse to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      expect((error as MetafabError).code).toBe("factory-yaml-invalid");
+      expect((error as MetafabError).problems?.[0]).toMatchObject({
+        file: ".factory/factory.yaml",
+        line: 4,
+        message: "Alias *missing has no anchor",
+      });
+    }
+  });
+
+  test("refuses an alias that refers to itself before changing anything", () => {
+    const source = "format: 1\nname: mark4\ntags: &t [*t]\npipeline:\n  - review-slice\n";
+    try {
+      parseFactoryYamlDocument(source);
+      throw new Error("expected the parse to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      expect((error as MetafabError).code).toBe("factory-yaml-invalid");
+      expect((error as MetafabError).problems?.[0]).toMatchObject({
+        file: ".factory/factory.yaml",
+        line: 3,
+        message: "Alias *t refers to itself",
+        fix: "Remove the alias or write the values out",
+      });
+    }
+    expect(() => addPipelineEntryText(source, "finish-slice")).toThrowError(MetafabError);
+    expect(() => removePipelineEntryText(source, "review-slice")).toThrowError(MetafabError);
+  });
+
+  test("refuses a nested expansion that crosses the alias limit", () => {
+    try {
+      parseFactoryYamlDocument(NESTED_EXPANSION);
+      throw new Error("expected the parse to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      expect((error as MetafabError).code).toBe("factory-yaml-invalid");
+      expect((error as MetafabError).problems?.[0]).toMatchObject({
+        file: ".factory/factory.yaml",
+        line: 55,
+        message: "Alias *w is aliased too many times",
+      });
+    }
+  });
+
+  test("add and remove refuse a nested expansion before changing anything", () => {
+    expect(() => addPipelineEntryText(NESTED_EXPANSION, "finish-slice")).toThrowError(MetafabError);
+    expect(() => removePipelineEntryText(NESTED_EXPANSION, "e0")).toThrowError(MetafabError);
   });
 });

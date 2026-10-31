@@ -57,4 +57,19 @@ describe("factory fixtures", () => {
 
     expect(factory.skills.map((skill) => skill.relDir)).toEqual(["workflows/build-slice"]);
   });
+
+  test("a SKILL.md in a reserved container is rule 11 and its skills still load", async () => {
+    const factory = await loadFactory(path.join(FIXTURES, "invalid-rule-11-reserved-container"));
+
+    expect(factory.problems.map((problem) => problem.file)).toEqual([
+      ".factory/scorers/SKILL.md",
+      ".factory/workflows/SKILL.md",
+    ]);
+    expect(factory.skills.map((skill) => skill.relDir)).toEqual([
+      "scorers/score-slice",
+      "workflows/review-slice",
+    ]);
+    expect(factory.skills.find((skill) => skill.name === "review-slice")?.isWorkflow).toBe(true);
+    expect(factory.skills.find((skill) => skill.name === "score-slice")?.isWorkflow).toBe(false);
+  });
 });
