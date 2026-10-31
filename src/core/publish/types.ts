@@ -1,3 +1,5 @@
+import type { Factory } from "../factory/index.js";
+
 /** A configured `publish` target: an npm package or a Git fab repository. */
 export type PublishTargetName = "npm" | "git";
 
@@ -16,6 +18,8 @@ export interface StagedFab {
   root: string;
   /** `<root>/.factory`, the factory the fab carries. */
   factoryDir: string;
+  /** The staged factory, which is what the fab publishes. */
+  factory: Factory;
   cleanup(): Promise<void>;
 }
 

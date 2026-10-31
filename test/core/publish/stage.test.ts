@@ -1,4 +1,5 @@
-import { stat } from "node:fs/promises";
+import { lstat, mkdir, readFile, stat, symlink } from "node:fs/promises";
+import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { MetafabError } from "../../../src/errors.js";
 import { exclusionMatcher, stageFab } from "../../../src/core/publish/index.js";
@@ -118,5 +119,110 @@ describe("stageFab", () => {
 
     expect(files).not.toContain(".factory/workflows/extra/SKILL.md");
     expect(files).toContain(".factory/workflows/plan/SKILL.md");
+  });
+
+  test("fails when publish.exclude would leave .factory/ empty", async () => {
+    const target = await repo({
+      files: { ".factory/factory.yaml": "format: 1\nname: demo\n" },
+    });
+    const { factory } = await loadRepo(target);
+
+    const error = (await stageFab(factory, { exclude: ["*"] }).catch(
+      (failure: unknown) => failure,
+    )) as MetafabError;
+
+    expect(error).toBeInstanceOf(MetafabError);
+    expect(error.code).toBe("publish-invalid-fab");
+    expect(error.problems?.map((problem) => problem.file)).toContain(".factory");
+  });
+
+  test("refuses publish.exclude that names every pipeline workflow", async () => {
+    const target = await repo();
+    const { factory } = await loadRepo(target);
+
+    const error = (await stageFab(factory, { exclude: ["*"] }).catch(
+      (failure: unknown) => failure,
+    )) as MetafabError;
+
+    expect(error.code).toBe("publish-excluded-workflow");
+    expect(error.problems?.map((problem) => problem.message)).toContain(
+      'Pipeline names excluded workflow "plan"',
+    );
+  });
+
+  test("fails on a file larger than a fab allows, naming it", async () => {
+    const target = await repo({
+      files: { ".factory/scripts/big.bin": new Uint8Array(1024 * 1024 + 1) },
+    });
+    const { factory } = await loadRepo(target);
+
+    const error = (await stageFab(factory).catch((failure: unknown) => failure)) as MetafabError;
+
+    expect(error).toBeInstanceOf(MetafabError);
+    expect(error.code).toBe("publish-invalid-fab");
+    expect(error.problems?.map((problem) => problem.file)).toContain(".factory/scripts/big.bin");
+    expect(error.problems?.[0]?.message).toContain("1048576");
+  });
+
+  test("copies a link inside .factory/ as its target's content", async () => {
+    const target = await repo();
+    await symlink(
+      path.join("..", "..", "AGENTS.md"),
+      target.path(".factory", "skills", "git", "AGENTS.md"),
+    );
+
+    const { factory } = await loadRepo(target);
+    const fab = await stageFab(factory);
+    staged.push(fab);
+    const files = await listFiles(fab.root);
+    const copied = path.join(fab.factoryDir, "skills", "git", "AGENTS.md");
+
+    expect(files).toContain(".factory/skills/git/AGENTS.md");
+    expect((await lstat(copied)).isSymbolicLink()).toBe(false);
+    expect(await readFile(copied, "utf8")).toBe("# Agents\n");
+  });
+
+  test("copies a directory link inside .factory/ as its target's content", async () => {
+    const target = await repo();
+    await mkdir(target.path(".factory", "templates"), { recursive: true });
+    await symlink(path.join("..", "scripts"), target.path(".factory", "templates", "scripts"));
+
+    const { factory } = await loadRepo(target);
+    const fab = await stageFab(factory);
+    staged.push(fab);
+
+    expect(await listFiles(fab.root)).toContain(".factory/templates/scripts/release.sh");
+  });
+
+  test("fails on a link that points outside .factory/, naming it", async () => {
+    const target = await repo({ files: { "outside.md": "# Outside\n" } });
+    await symlink(
+      path.join("..", "..", "..", "outside.md"),
+      target.path(".factory", "skills", "git", "outside.md"),
+    );
+    const { factory } = await loadRepo(target);
+
+    const error = (await stageFab(factory).catch((failure: unknown) => failure)) as MetafabError;
+
+    expect(error).toBeInstanceOf(MetafabError);
+    expect(error.code).toBe("publish-invalid-fab");
+    expect(error.problems?.map((problem) => problem.file)).toContain(
+      ".factory/skills/git/outside.md",
+    );
+    expect(error.problems?.[0]?.message).toContain("points outside .factory/");
+  });
+
+  test("fails on a broken link, naming it", async () => {
+    const target = await repo();
+    await symlink(
+      path.join("missing.md"),
+      target.path(".factory", "skills", "git", "missing.md"),
+    );
+    const { factory } = await loadRepo(target);
+
+    const error = (await stageFab(factory).catch((failure: unknown) => failure)) as MetafabError;
+
+    expect(error.code).toBe("publish-invalid-fab");
+    expect(error.problems?.[0]?.message).toContain("Symlink .factory/skills/git/missing.md is broken");
   });
 });
