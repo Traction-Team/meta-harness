@@ -540,6 +540,28 @@ export function assertAdoptionAllowed(plan: AdoptionPlan): void {
 
 
 /**
+ * Every name an existing factory skill answers to: its directory name and the
+ * `name` in its frontmatter. Validation compares the frontmatter names, so a
+ * skill whose directory and declared name disagree blocks a candidate that
+ * matches either one. Skills that discovery dropped — an unparseable SKILL.md
+ * never reaches this list — contribute nothing and cannot crash planning.
+ */
+function factorySkillNames(factory: AdoptionFactory): Set<string> {
+  const names = new Set<string>();
+
+  for (const skill of factory?.skills ?? []) {
+    if (typeof skill.name === "string" && skill.name !== "") names.add(skill.name);
+
+    const frontmatter: unknown = skill.frontmatter;
+    if (typeof frontmatter !== "object" || frontmatter === null) continue;
+    const declared = (frontmatter as Record<string, unknown>).name;
+    if (typeof declared === "string" && declared !== "") names.add(declared);
+  }
+
+  return names;
+}
+
+/**
  * Plans the move of repository skills that Metafab does not own from the selected
  * destinations into `.factory/skills/`. It reads only; `applyAdoption` writes.
  *
@@ -568,7 +590,7 @@ export async function planAdoption(
     else list.push(candidate);
   }
 
-  const factoryNames = new Set((factory?.skills ?? []).map((skill) => skill.name));
+  const factoryNames = factorySkillNames(factory);
   const incomingNames = new Set(incoming);
 
   for (const name of [...byName.keys()].sort()) {

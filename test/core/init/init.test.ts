@@ -216,6 +216,22 @@ describe("metafab init", () => {
     expect(await pathExists(repo.path(".factory"))).toBe(false);
   });
 
+  test("a factory skill's declared name blocks adoption with exit 5 and writes nothing", async () => {
+    const repo = await gitRepo({
+      ".factory/skills/alpha/SKILL.md": skill("beta"),
+      ".claude/skills/beta/SKILL.md": skill("beta"),
+    });
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["init", "--agents", "claude", "--adopt"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stdout).toBe("Adoption is blocked by 1 entry.\n");
+    expect(result.stderr).toContain('Skill "beta" already exists in .factory/');
+    expect(await snapshot(repo.root)).toEqual(before);
+    expect(await pathExists(repo.path(".factory", "skills", "beta"))).toBe(false);
+  });
+
   test("adopts a skill added directly to a managed destination later", async () => {
     const repo = await gitRepo();
     await runCli(["init", "--agents", "claude"], { cwd: repo.root });

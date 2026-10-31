@@ -8,7 +8,7 @@ import {
   describeAdoption,
   planAdoption,
 } from "../../../src/core/adopt.js";
-import type { AdoptionPlan } from "../../../src/core/adopt.js";
+import type { AdoptionFactory, AdoptionPlan } from "../../../src/core/adopt.js";
 import { loadFactory } from "../../../src/core/factory/load.js";
 import { pathExists } from "../../../src/util/fs.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
@@ -158,6 +158,46 @@ describe("planAdoption", () => {
 
     expect(plan.moves).toEqual([]);
     expect(plan.blockers[0]!.message).toBe('Skill "release" already exists in .factory/');
+  });
+
+  test("blocks a name declared by an existing factory skill under another directory", async () => {
+    const repo = await repoWith({
+      ".factory/skills/alpha/SKILL.md": skill("beta"),
+      ".claude/skills/beta/SKILL.md": skill("beta"),
+    });
+    const factory = await loadFactory(repo.root);
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, factory);
+
+    expect(plan.moves).toEqual([]);
+    expect(plan.blockers).toHaveLength(1);
+    expect(plan.blockers[0]!.file).toBe(".claude/skills/beta");
+    expect(plan.blockers[0]!.message).toBe('Skill "beta" already exists in .factory/');
+  });
+
+  test("plans beside a factory skill whose SKILL.md cannot be parsed", async () => {
+    const repo = await repoWith({
+      ".factory/skills/broken/SKILL.md": "# Broken\n",
+      ".claude/skills/release/SKILL.md": skill("release"),
+    });
+    const factory = await loadFactory(repo.root);
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, factory);
+
+    expect(plan.blockers).toEqual([]);
+    expect(plan.moves.map((move) => move.name)).toEqual(["release"]);
+  });
+
+  test("plans beside a factory skill without readable frontmatter", async () => {
+    const repo = await repoWith({ ".claude/skills/release/SKILL.md": skill("release") });
+    const factory = {
+      skills: [{ name: "alpha", frontmatter: undefined }],
+    } as unknown as AdoptionFactory;
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, factory);
+
+    expect(plan.blockers).toEqual([]);
+    expect(plan.moves.map((move) => move.name)).toEqual(["release"]);
   });
 
   test("blocks a name that already exists in the incoming fab", async () => {
