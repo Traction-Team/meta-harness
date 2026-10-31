@@ -27,7 +27,7 @@ A team can create, edit, build, and check a factory in one repository.
 - [x] [1.002 Factory model and validation](plans/1.002-factory-model.md): load `.factory/`, YAML and frontmatter grammar, validation rules
 - [x] [1.003 Configuration](plans/1.003-configuration.md): `metafab.yaml` loading, validation, comment-preserving writes
 - [x] [1.004 Build](plans/1.004-build.md): compiled skills, ownership, `AGENTS.md` / `CLAUDE.md` / `.gitignore` blocks, built-in skill
-- [ ] [1.005 Check](plans/1.005-check.md): source, config, and installed-output validation
+- [x] [1.005 Check](plans/1.005-check.md): source, config, and installed-output validation
 - [x] [1.006 Init and adoption](plans/1.006-init-and-adoption.md): `init`, `.gitattributes`, moving existing skills into `.factory/`
 - [x] [1.007 Authoring and inspection](plans/1.007-authoring-commands.md): `create`, `pipeline add/remove`, `map`
 - [x] [1.013 Factory edge cases](plans/1.013-factory-edge-cases.md): `factory.yaml` aliases, reserved containers, `create` and `map` fixes

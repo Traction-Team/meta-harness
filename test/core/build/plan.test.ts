@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, test } from "vitest";
-import { applyBuild, planBuild } from "../../../src/core/build/index.js";
+import { applyBuild, fileMatches, planBuild } from "../../../src/core/build/index.js";
 import type { BuildPlan } from "../../../src/core/build/index.js";
 import { loadConfig } from "../../../src/core/config/load.js";
 import { loadFactory } from "../../../src/core/factory/index.js";
@@ -1175,4 +1175,195 @@ describe("marker blocks", () => {
     expect(plan.warnings[0]?.file).toBe("AGENTS.md");
     expect(plan.warnings[0]?.message).toContain("limit is 300");
   });
+});
+
+const unreadableSkip = process.platform === "win32" || process.getuid?.() === 0;
+
+describe("unreadable installed paths", () => {
+  test.skipIf(unreadableSkip)(
+    "reports one Cannot read .agents error when only claude is selected",
+    async () => {
+      const repo = await makeBuildRepo({
+        ".factory/skills/demo/SKILL.md":
+          "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+        ".factory/metafab.yaml": "agents: [claude]\nmetafab-skill: false\n",
+      });
+      const locked = repo.path(".agents");
+      await mkdir(locked, { recursive: true });
+      await chmod(locked, 0o000);
+
+      try {
+        const { plan, report } = await build(repo.root);
+
+        expect(plan.conflicts).toEqual([]);
+        expect(plan.errors).toHaveLength(1);
+        expect(plan.errors[0]).toEqual({
+          level: "error",
+          file: ".agents",
+          line: 1,
+          message: "Cannot read .agents",
+          fix: "Check its permissions",
+        });
+        expect(report.changed).toEqual([]);
+      } finally {
+        await chmod(locked, 0o755);
+      }
+    },
+  );
+
+  test.skipIf(unreadableSkip)(
+    "reports one Cannot read .agents/skills error, not a stack trace",
+    async () => {
+      const repo = await makeBuildRepo({
+        ".factory/skills/demo/SKILL.md":
+          "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+        ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+      });
+      const locked = repo.path(".agents", "skills");
+      await mkdir(locked, { recursive: true });
+      await chmod(locked, 0o000);
+
+      try {
+        const { plan, report } = await build(repo.root);
+
+        expect(plan.conflicts).toEqual([]);
+        expect(plan.errors).toHaveLength(1);
+        expect(plan.errors[0]).toEqual({
+          level: "error",
+          file: ".agents/skills",
+          line: 1,
+          message: "Cannot read .agents/skills",
+          fix: "Check its permissions",
+        });
+        expect(report.changed).toEqual([]);
+      } finally {
+        await chmod(locked, 0o755);
+      }
+    },
+  );
+
+  test.skipIf(unreadableSkip)(
+    "reports one Cannot read .agents/skills/demo error and removes nothing",
+    async () => {
+      const repo = await makeBuildRepo({
+        ".factory/skills/demo/SKILL.md":
+          "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+        ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+      });
+      await build(repo.root);
+      const locked = repo.path(".agents", "skills", "demo");
+      await chmod(locked, 0o000);
+
+      try {
+        const { plan, report } = await build(repo.root);
+
+        expect(plan.conflicts).toEqual([]);
+        expect(plan.errors).toHaveLength(1);
+        expect(plan.errors[0]).toEqual({
+          level: "error",
+          file: ".agents/skills/demo",
+          line: 1,
+          message: "Cannot read .agents/skills/demo",
+          fix: "Check its permissions",
+        });
+        expect(plan.removals).toEqual([]);
+        expect(report.changed).toEqual([]);
+        expect(await pathExists(locked)).toBe(true);
+      } finally {
+        await chmod(locked, 0o755);
+      }
+    },
+  );
+
+  test.skipIf(unreadableSkip)(
+    "does not remove an owned directory in a deselected destination it cannot read",
+    async () => {
+      const repo = await makeBuildRepo({
+        ".factory/skills/demo/SKILL.md":
+          "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+        ".factory/metafab.yaml": "agents: [claude, codex]\nmetafab-skill: false\n",
+      });
+      await build(repo.root);
+      await setConfig(repo, "agents: [claude]\nmetafab-skill: false\n");
+      const locked = repo.path(".agents", "skills", "demo");
+      await chmod(locked, 0o000);
+
+      try {
+        const { plan, report } = await build(repo.root);
+
+        expect(plan.conflicts).toEqual([]);
+        expect(plan.errors).toHaveLength(1);
+        expect(plan.errors[0]?.file).toBe(".agents/skills/demo");
+        expect(plan.errors[0]?.message).toBe("Cannot read .agents/skills/demo");
+        expect(plan.removals).not.toContain(".agents/skills/demo");
+        expect(report.changed).toEqual([]);
+        expect(await pathExists(locked)).toBe(true);
+      } finally {
+        await chmod(locked, 0o755);
+      }
+    },
+  );
+});
+
+describe("installed file modes", () => {
+  const repoFiles = {
+    ".factory/skills/demo/SKILL.md":
+      "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n",
+    ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+  };
+  const installedPath = ".agents/skills/demo/SKILL.md";
+
+  test.skipIf(process.platform === "win32")(
+    "corrects an installed 0666 file and fileMatches reports the installed mode",
+    async () => {
+      const repo = await makeBuildRepo(repoFiles);
+      await build(repo.root);
+      const installed = repo.path(".agents", "skills", "demo", "SKILL.md");
+      const content = await readFile(installed);
+      await chmod(installed, 0o666);
+
+      const match = await fileMatches(repo.root, {
+        path: installedPath,
+        content,
+        mode: 0o644,
+      });
+      expect(match).toEqual({
+        exists: true,
+        contentSame: true,
+        modeSame: false,
+        mode: 0o666,
+        same: false,
+      });
+
+      const { plan, report } = await build(repo.root);
+
+      expect(plan.errors).toEqual([]);
+      expect(plan.conflicts).toEqual([]);
+      expect(report.changed).toContainEqual({ path: installedPath, action: "updated" });
+      expect((await stat(installed)).mode & 0o777).toBe(0o644);
+
+      const second = await build(repo.root);
+      expect(second.report.changed).toEqual([]);
+    },
+  );
+
+  test.skipIf(process.platform === "win32")(
+    "corrects a read-only installed 0444 file",
+    async () => {
+      const repo = await makeBuildRepo(repoFiles);
+      await build(repo.root);
+      const installed = repo.path(".agents", "skills", "demo", "SKILL.md");
+      await chmod(installed, 0o444);
+
+      const { plan, report } = await build(repo.root);
+
+      expect(plan.errors).toEqual([]);
+      expect(plan.conflicts).toEqual([]);
+      expect(report.changed).toContainEqual({ path: installedPath, action: "updated" });
+      expect((await stat(installed)).mode & 0o777).toBe(0o644);
+
+      const second = await build(repo.root);
+      expect(second.report.changed).toEqual([]);
+    },
+  );
 });

@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { applyBuild, planBuild } from "../core/build/index.js";
 import type { BuildChange } from "../core/build/index.js";
+import { dedupeReadErrors } from "../core/build/skill.js";
 import { loadConfig } from "../core/config/load.js";
 import { findFactory } from "../core/discovery.js";
 import { loadFactory } from "../core/factory/index.js";
@@ -48,7 +49,7 @@ export const buildCommand: CommandDefinition = {
     const factory = await loadFactory(location.root);
     const config = await loadConfig(factory.dir);
 
-    const loadedProblems = [...factory.problems, ...config.problems];
+    const loadedProblems = dedupeReadErrors([...factory.problems, ...config.problems]);
     if (loadedProblems.some((problem) => problem.level === "error")) {
       return failed(ExitCode.Failed, loadedProblems);
     }
@@ -58,10 +59,13 @@ export const buildCommand: CommandDefinition = {
     const warnings = [...loadedWarnings, ...plan.warnings];
 
     if (plan.conflicts.length > 0) {
-      return failed(ExitCode.NotOwned, [...plan.conflicts, ...plan.errors, ...warnings]);
+      return failed(
+        ExitCode.NotOwned,
+        dedupeReadErrors([...plan.conflicts, ...plan.errors, ...warnings]),
+      );
     }
     if (plan.errors.length > 0) {
-      return failed(ExitCode.Failed, [...plan.errors, ...warnings]);
+      return failed(ExitCode.Failed, dedupeReadErrors([...plan.errors, ...warnings]));
     }
 
     const report = await applyBuild(plan);
