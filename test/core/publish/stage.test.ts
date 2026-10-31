@@ -26,7 +26,7 @@ async function repo(options: PublishRepoOptions = {}): Promise<TempRepo> {
 async function stage(
   options: PublishRepoOptions = {},
   exclude: string[] = [],
-  targets: PublishTargetName[] = [],
+  targets: PublishTargetName[] = ["npm", "git"],
 ): Promise<{ target: TempRepo; fab: StagedFab; files: string[] }> {
   const target = await repo(options);
   const { factory } = await loadRepo(target);
@@ -115,7 +115,7 @@ describe("stageFab", () => {
         },
       },
       [],
-      ["npm", "git"],
+      ["npm"],
     );
 
     expect(files).not.toContain(".factory/skills/git/.gitignore");
@@ -384,16 +384,99 @@ describe("stageFab", () => {
     );
   });
 
-  test("an npm publish drops a .git path with a warning, even with Git as a target", async () => {
-    const { fab, files } = await stage(
-      { files: { ".factory/templates/repo/.git/config": "[core]\n" } },
-      [],
-      ["npm", "git"],
-    );
+  test("refuses every name Git reads as .git when Git is a target", async () => {
+    for (const name of [".GIT", "git~1", "GIT~1"]) {
+      const target = await repo({
+        files: { [`.factory/templates/repo/${name}/config`]: "[core]\n" },
+      });
+      const { factory } = await loadRepo(target);
 
-    expect(files).not.toContain(".factory/templates/repo/.git/config");
-    expect(fab.warnings.map((warning) => warning.file)).toEqual([
+      const error = (await stageFab(factory, { targets: ["npm", "git"] }).catch(
+        (failure: unknown) => failure,
+      )) as MetafabError;
+
+      expect(error, name).toBeInstanceOf(MetafabError);
+      expect(error.code, name).toBe("publish-invalid-fab");
+      expect(error.exitCode, name).toBe(4);
+      expect(error.problems?.map((problem) => problem.file), name).toContain(
+        `.factory/templates/repo/${name}`,
+      );
+    }
+  });
+
+  test.skipIf(process.platform === "win32")(
+    "refuses a .git name with the trailing spaces and dots NTFS and HFS ignore",
+    async () => {
+      for (const name of [".git.", ".git "]) {
+        const target = await repo({
+          files: { [`.factory/templates/repo/${name}/config`]: "[core]\n" },
+        });
+        const { factory } = await loadRepo(target);
+
+        const error = (await stageFab(factory, { targets: ["git"] }).catch(
+          (failure: unknown) => failure,
+        )) as MetafabError;
+
+        expect(error, name).toBeInstanceOf(MetafabError);
+        expect(error.exitCode, name).toBe(4);
+        expect(error.problems?.map((problem) => problem.file), name).toContain(
+          `.factory/templates/repo/${name}`,
+        );
+      }
+    },
+  );
+
+  test("an npm-only publish leaves out every case of .git with a warning", async () => {
+    for (const name of [".git", ".GIT"]) {
+      const target = await repo({
+        files: { [`.factory/templates/repo/${name}/config`]: "[core]\n" },
+      });
+      const { factory } = await loadRepo(target);
+
+      const fab = await stageFab(factory, { targets: ["npm"] });
+      staged.push(fab);
+
+      expect(await listFiles(fab.root), name).not.toContain(
+        `.factory/templates/repo/${name}/config`,
+      );
+      expect(fab.warnings.map((warning) => warning.file), name).toEqual([
+        `.factory/templates/repo/${name}`,
+      ]);
+    }
+  });
+
+  test("an npm-only publish refuses a name Git reads as .git that npm would pack", async () => {
+    const target = await repo({
+      files: { ".factory/templates/repo/git~1/config": "[core]\n" },
+    });
+    const { factory } = await loadRepo(target);
+
+    const error = (await stageFab(factory, { targets: ["npm"] }).catch(
+      (failure: unknown) => failure,
+    )) as MetafabError;
+
+    expect(error).toBeInstanceOf(MetafabError);
+    expect(error.code).toBe("publish-invalid-fab");
+    expect(error.exitCode).toBe(4);
+    expect(error.problems?.map((problem) => problem.file)).toContain(
+      ".factory/templates/repo/git~1",
+    );
+  });
+
+  test("a publish to both targets refuses a .git path instead of warning", async () => {
+    const target = await repo({
+      files: { ".factory/templates/repo/.git/config": "[core]\n" },
+    });
+    const { factory } = await loadRepo(target);
+
+    const error = (await stageFab(factory, { targets: ["npm", "git"] }).catch(
+      (failure: unknown) => failure,
+    )) as MetafabError;
+
+    expect(error).toBeInstanceOf(MetafabError);
+    expect(error.exitCode).toBe(4);
+    expect(error.problems?.map((problem) => problem.file)).toContain(
       ".factory/templates/repo/.git",
-    ]);
+    );
   });
 });

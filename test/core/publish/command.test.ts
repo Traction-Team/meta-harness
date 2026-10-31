@@ -265,10 +265,39 @@ describe("metafab publish", () => {
 
     expect(failedRun.code).toBe(1);
     expect(json.ok).toBe(false);
-    expect(json.problems).toEqual([]);
+    expect(json.problems).toEqual([
+      {
+        level: "error",
+        file: ".factory/metafab.yaml",
+        message: 'The fab repository has no branch "missing".',
+        fix: 'Set publish.branch to an existing branch, or create "missing" in the fab repository',
+      },
+    ]);
     expect(json.targets).toEqual([
       { target: "git", status: "failed", detail: expect.stringContaining("missing") },
     ]);
+  });
+
+  it("refuses a .git name Git cannot carry, naming it, with exit code 4", async () => {
+    const bare = track(await makeBareFabRepo());
+    const repo = track(
+      await makePublishRepo({
+        publish: gitPublishSection(fileUrl(bare.repo), "1.2.0"),
+        files: { ".factory/templates/repo/.GIT/config": "[core]\n" },
+      }),
+    );
+    await build(repo);
+
+    const result = await runCli(["publish", "--json"], { cwd: repo.root });
+    const json = parsed(result.stdout);
+
+    expect(result.code).toBe(4);
+    expect(json).toMatchObject({ ok: false, command: "publish", exitCode: 4 });
+    expect(json.problems?.map((problem) => problem.file)).toContain(
+      ".factory/templates/repo/.GIT",
+    );
+    expect(json.targets).toBeUndefined();
+    expect(await listRemoteRefs(bare.repo)).toEqual([]);
   });
 
   it("prints the fab files, size and targets as human output", async () => {

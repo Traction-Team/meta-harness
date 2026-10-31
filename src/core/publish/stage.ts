@@ -34,6 +34,27 @@ const NPM_IGNORED_NAMES = new Set([
 const NPM_IGNORED_DIRECTORIES = new Set([".git", ".hg", ".svn", "archived-packages", "CVS"]);
 
 /**
+ * Names Git reads as `.git`, so a fab repository cannot store them, matched the
+ * way Git's own `verify_path` matches: case-insensitively, after the trailing
+ * spaces and periods NTFS and HFS ignore, and including the 8.3 short name a
+ * Windows filesystem reports for `.git`.
+ */
+function isDotGitName(name: string): boolean {
+  const semantic = name.replace(/[ .]+$/, "").toLowerCase();
+  return semantic === ".git" || semantic === "git~1";
+}
+
+/**
+ * The `.git` name `npm pack` already leaves out. npm matches its ignore rules
+ * without regard to case, so `.git`, `.GIT` and `.Git` all never reach the
+ * tarball. The spellings NTFS and HFS fold to `.git`, and the 8.3 short name,
+ * do reach it.
+ */
+function npmDropsDotGit(name: string): boolean {
+  return name.toLowerCase() === ".git";
+}
+
+/**
  * Whether `npm pack` would leave `name` out. The patterns are npm's defaults,
  * matched the way its per-directory walk matches them. `npm-packlist` also
  * ignores `node_modules`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`
@@ -174,10 +195,10 @@ interface CopyContext {
   /** Whether the names npm never packs are left out, as an npm publish needs. */
   npmFilter: boolean;
   /**
-   * A Git-only publish, which must carry every file: Git cannot store a path
-   * with a `.git` component, so staging refuses one instead of losing it.
+   * A publish to the Git target, which must carry every file: Git cannot store
+   * a path with a `.git` component, so staging refuses one instead of losing it.
    */
-  gitOnly: boolean;
+  gitTarget: boolean;
   destinationFactory: string;
   /** The real `.factory/` the links must stay inside. */
   rootReal: string;
@@ -323,15 +344,19 @@ async function walkFactory(
     // factory root leaves the fab too, and `.factory/README.md` may point
     // outside `.factory/` because it is read as the fab README, never copied.
     if (ALWAYS_EXCLUDED.has(relativePath)) continue;
+    const npmDropped =
+      context.npmFilter && (npmIgnores(name, path.basename(prefix)) || npmDropsDotGit(name));
     // Git reads a directory named `.git` as another repository and never adds
-    // the files below it. An npm publish drops the name with a warning instead,
-    // so only a Git-only fab, which has to carry everything, refuses it.
-    if (context.gitOnly && name === ".git") {
+    // the files below it. A publish to the Git target refuses such a path by
+    // name. An npm-only publish keeps npm's own rule where npm drops the name;
+    // every spelling npm would pack but Git would read as `.git` is refused
+    // too, so a fab never carries one.
+    if (isDotGitName(name) && !(npmDropped && !context.gitTarget)) {
       context.state.problems.push(
         fabProblem(
           relativePath,
           `Git cannot store .factory/${relativePath} in a fab`,
-          "Rename the path, add it to publish.exclude, or publish to npm only",
+          "Rename the path or add it to publish.exclude",
         ),
       );
       continue;
@@ -350,7 +375,7 @@ async function walkFactory(
       // stops the publish even when its name is one npm never packs.
       const link = await resolveLink(absolute, relativePath, context);
       if (link === undefined) continue;
-      if (context.npmFilter && npmIgnores(name, path.basename(prefix))) {
+      if (npmDropped) {
         context.state.warnings.push(npmIgnoredProblem(relativePath));
         continue;
       }
@@ -359,7 +384,7 @@ async function walkFactory(
       continue;
     }
 
-    if (context.npmFilter && npmIgnores(name, path.basename(prefix))) {
+    if (npmDropped) {
       context.state.warnings.push(npmIgnoredProblem(relativePath));
       continue;
     }
@@ -398,14 +423,16 @@ async function walkFactory(
  * 10 000 entries in total, and no link that leaves `.factory/`. The staged
  * factory is then validated again, because an exclude can break a reference.
  *
- * A link is checked even when npm would leave its name out, and a Git-only fab
- * refuses a path with a `.git` component, which Git cannot store.
+ * A link is checked even when npm would leave its name out, and a publish to the
+ * Git target refuses a path Git reads as `.git`, which a fab repository cannot
+ * store. Without `targets`, both rules apply, so a caller cannot stage a fab
+ * that only one target could carry by accident.
  */
 export async function stageFab(factory: Factory, options: StageOptions = {}): Promise<StagedFab> {
   const isExcluded = exclusionMatcher(options.exclude ?? []);
-  const targets = options.targets ?? [];
+  const targets = options.targets ?? ["npm", "git"];
   const npmFilter = targets.includes("npm");
-  const gitOnly = !npmFilter && targets.includes("git");
+  const gitTarget = targets.includes("git");
 
   const problems = excludedWorkflowProblems(factory, isExcluded);
   if (problems.length > 0) {
@@ -444,7 +471,7 @@ export async function stageFab(factory: Factory, options: StageOptions = {}): Pr
     await walkFactory(
       factory.dir,
       "",
-      { isExcluded, npmFilter, gitOnly, destinationFactory: factoryDir, rootReal, state },
+      { isExcluded, npmFilter, gitTarget, destinationFactory: factoryDir, rootReal, state },
       new Set([rootReal]),
     );
 

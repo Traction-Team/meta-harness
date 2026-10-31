@@ -1,3 +1,4 @@
+import { ExitCode } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import type { Factory } from "../factory/index.js";
 
@@ -34,8 +35,9 @@ export interface StageOptions {
   exclude?: readonly string[];
   /**
    * The targets being published. The names npm never packs are left out only
-   * when npm is one of them, so a Git-only fab keeps those files. A Git-only
-   * fab also refuses a path with a `.git` component, which Git cannot store.
+   * when npm is one of them, so a Git-only fab keeps those files. A publish to
+   * the Git target also refuses a path Git reads as `.git`, which a fab
+   * repository cannot store. Defaults to both targets, the safest pair of rules.
    */
   targets?: readonly PublishTargetName[];
 }
@@ -54,6 +56,10 @@ export interface PublishResult {
   version: string;
   /** One entry per configured target, in `PreparedFab.targets` order. */
   targets: PublishTargetResult[];
+  /** Problems the failed target reported by name, such as the paths Git lost. */
+  problems?: Problem[];
+  /** The exit code the failed target asked for, which the command reports. */
+  exitCode?: ExitCode;
 }
 
 export interface PublishOptions {

@@ -1,4 +1,5 @@
 import { ExitCode, MetafabError } from "../../errors.js";
+import type { Problem } from "../../errors.js";
 import type { PublishConfig } from "../config/types.js";
 import { gitVersionState, publishGitFab } from "./git-target.js";
 import { npmVersionState, publishNpmFab } from "./npm-target.js";
@@ -40,8 +41,11 @@ function skippedDetail(target: PublishTargetName, version: string): string {
 }
 
 function failureDetail(error: unknown): string {
-  if (error instanceof Error && error.message.trim() !== "") return error.message.trim();
-  return String(error);
+  const message =
+    error instanceof Error && error.message.trim() !== "" ? error.message.trim() : String(error);
+  if (!(error instanceof MetafabError)) return message;
+  const files = [...new Set((error.problems ?? []).map((problem) => problem.file))];
+  return files.length === 0 ? message : `${message} (${files.join(", ")})`;
 }
 
 /**
@@ -50,7 +54,9 @@ function failureDetail(error: unknown): string {
  * The version preflight runs for every target before anything is published: a
  * version that exists with different content refuses the whole publish, while a
  * version that exists with identical content is skipped. A target failure is
- * reported in its result and the remaining targets are not attempted.
+ * reported in its result and the remaining targets are not attempted; a failure
+ * that names problems, or asks for an exit code other than 1, carries both back
+ * so the command reports them.
  */
 export async function publishFab(
   prepared: PreparedFab,
@@ -87,6 +93,8 @@ export async function publishFab(
 
   const results = new Map<PublishTargetName, PublishTargetResult>();
   let failed: PublishTargetName | undefined;
+  const problems: Problem[] = [];
+  let exitCode: ExitCode | undefined;
 
   for (const target of targets) {
     if (existing.get(target) === "identical") {
@@ -112,6 +120,12 @@ export async function publishFab(
       // Head protection is a refusal the command must report with its own exit
       // code, and it happens before this target changes anything.
       if (error instanceof MetafabError && error.exitCode === ExitCode.NotOwned) throw error;
+      // A target that names its problems, such as the files Git lost, keeps
+      // them: the command reports them and exits with the target's code.
+      if (error instanceof MetafabError) {
+        problems.push(...(error.problems ?? []));
+        exitCode = error.exitCode;
+      }
       results.set(target, { target, status: "failed", detail: failureDetail(error) });
       failed = target;
     }
@@ -122,5 +136,7 @@ export async function publishFab(
     targets: prepared.targets.map(
       (target) => results.get(target) as PublishTargetResult,
     ),
+    ...(problems.length === 0 ? {} : { problems }),
+    ...(exitCode === undefined ? {} : { exitCode }),
   };
 }

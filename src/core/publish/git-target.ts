@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import { copyTree, listFiles } from "../../util/fs.js";
@@ -11,8 +10,6 @@ import type { PublishConfig } from "../config/types.js";
 import { withEnv } from "../sources/env.js";
 import { redact, stripSourceCredentials } from "../sources/redact.js";
 import type { PublishOptions } from "./types.js";
-
-const execFileAsync = promisify(execFile);
 
 /** The tag message prefix that marks a tag `publish` created itself. */
 const TAG_MESSAGE = "metafab publish";
@@ -22,8 +19,16 @@ const FALLBACK_EMAIL = "metafab@example.com";
 /** npm-only files: a Git fab repository carries no `package.json`. */
 const NPM_ONLY_FILES = new Set(["package.json"]);
 
+/**
+ * A fab must reach the fab repository byte for byte. Git would otherwise apply
+ * the fab's own `.gitattributes`, or the user's `core.autocrlf`: a `text` or
+ * `eol` rule converts line endings, `filter=lfs` replaces the content, and
+ * `ident` expands `$Id$`. Every clone publish uses turns those attributes off
+ * for every path before anything is checked out or added.
+ */
+const VERBATIM_ATTRIBUTES = "* -text -eol -filter -ident -working-tree-encoding\n";
+
 let hooksDirectory: string | undefined;
-let emptyExcludesFile: string | undefined;
 
 /**
  * Git runs `core.hooksPath` hooks from the user's configuration, and a hook is
@@ -48,24 +53,11 @@ function hooksConfig(): string {
 /**
  * A fab may ship its own `.gitignore`, and the user's global exclude file is
  * theirs, not the fab's. Both would silently keep a staged file out of the
- * commit, so publishing stages with the ignore rules off: an empty exclude file
- * replaces the global one, and the `git add` calls pass `--force`.
+ * commit, so publishing stages with `git add --force`, which adds a path the
+ * ignore rules match. `core.autocrlf=false` keeps line endings as staged.
  */
-function excludesConfig(): string {
-  if (emptyExcludesFile === undefined) {
-    const directory = mkdtempSync(path.join(tmpdir(), "metafab-publish-excludes-"));
-    const file = path.join(directory, "excludes");
-    writeFileSync(file, "");
-    emptyExcludesFile = file;
-    process.once("exit", () => {
-      try {
-        rmSync(directory, { recursive: true, force: true });
-      } catch {
-        // best effort: only an empty exclude file lives there
-      }
-    });
-  }
-  return `core.excludesFile=${emptyExcludesFile}`;
+function verbatimConfig(): string {
+  return "core.autocrlf=false";
 }
 
 interface GitFailure {
@@ -119,9 +111,10 @@ async function tryGit(
   cwd: string,
   context: GitContext,
   config: string[] = [],
+  input?: string,
 ): Promise<GitResult> {
-  try {
-    const { stdout, stderr } = await execFileAsync(
+  return new Promise((resolve) => {
+    const child = execFile(
       "git",
       ["-c", hooksConfig(), ...config, ...args],
       {
@@ -131,17 +124,26 @@ async function tryGit(
         maxBuffer: 64 * 1024 * 1024,
         windowsHide: true,
       },
+      (error, stdout, stderr) => {
+        if (error === null) {
+          resolve({ ok: true, stdout: stdout ?? "", stderr: stderr ?? "" });
+          return;
+        }
+        const failure = error as GitFailure & { code?: unknown };
+        resolve({
+          ok: false,
+          ...(typeof failure.code === "number" ? { status: failure.code } : {}),
+          stdout: stdout ?? failure.stdout ?? "",
+          stderr: stderr ?? failure.stderr ?? failure.message ?? "",
+        });
+      },
     );
-    return { ok: true, stdout, stderr };
-  } catch (error) {
-    const failure = error as GitFailure & { code?: unknown };
-    return {
-      ok: false,
-      ...(typeof failure.code === "number" ? { status: failure.code } : {}),
-      stdout: failure.stdout ?? "",
-      stderr: failure.stderr ?? failure.message ?? "",
-    };
-  }
+    if (input !== undefined) {
+      // A Git call that dies before it reads its input must not crash publish.
+      child.stdin?.on("error", () => undefined);
+      child.stdin?.end(input);
+    }
+  });
 }
 
 async function runGit(
@@ -150,8 +152,9 @@ async function runGit(
   context: GitContext,
   argvConfig: string[],
   failure: (detail: string) => MetafabError,
+  input?: string,
 ): Promise<string> {
-  const result = await tryGit(args, cwd, context, argvConfig);
+  const result = await tryGit(args, cwd, context, argvConfig, input);
   if (!result.ok) throw failure(gitMessage(result));
   return result.stdout;
 }
@@ -174,7 +177,7 @@ async function addFabFiles(
     ["add", "-A", "--force"],
     repo,
     context,
-    ["-c", excludesConfig()],
+    ["-c", verbatimConfig()],
     gitFailureError(failure),
   );
 }
@@ -207,6 +210,9 @@ async function cloneFab(url: string, parent: string, context: GitContext): Promi
     [],
     gitFailureError(`Cannot clone fab repository ${stripSourceCredentials(url)}`),
   );
+  // Before the branch is checked out and before anything is added, so both the
+  // publish and the identical-content comparison store the staged bytes.
+  writeFileSync(path.join(repo, ".git", "info", "attributes"), VERBATIM_ATTRIBUTES);
   return repo;
 }
 
@@ -225,9 +231,9 @@ async function tagExistsRemotely(url: string, tag: string, context: GitContext):
 /**
  * The tag's tree and the staged fab are compared by Git itself: the tag is
  * checked out, the staged fab replaces the tracked files, and Git decides
- * whether anything changed. Line endings (`core.autocrlf`), filters and modes
- * therefore count exactly as Git stores them, so a round trip through a clone
- * is not a difference.
+ * whether anything changed. The clone stores bytes verbatim (see
+ * `VERBATIM_ATTRIBUTES`), so line endings, filters and modes count exactly as
+ * Git stores them, and a round trip through a clone is not a difference.
  */
 async function tagTreeMatches(
   repo: string,
@@ -261,13 +267,23 @@ async function tagTreeMatches(
   throw gitFailureError(`Cannot compare tag ${tag} with the staged fab`)(gitMessage(differences));
 }
 
-function filesLostError(missing: readonly string[], extra: readonly string[]): MetafabError {
+function filesLostError(
+  missing: readonly string[],
+  extra: readonly string[],
+  changed: readonly string[] = [],
+): MetafabError {
   const problems: Problem[] = [
     ...missing.map((file) => ({
       level: "error" as const,
       file,
       message: `Git did not stage ${file}`,
       fix: "Rename the path or add it to publish.exclude; Git cannot store it in a fab",
+    })),
+    ...changed.map((file) => ({
+      level: "error" as const,
+      file,
+      message: `Git stored different bytes for ${file}`,
+      fix: "Report this at https://github.com/seasb/metafab/issues",
     })),
     ...extra.map((file) => ({
       level: "error" as const,
@@ -276,19 +292,67 @@ function filesLostError(missing: readonly string[], extra: readonly string[]): M
       fix: "Report this at https://github.com/seasb/metafab/issues",
     })),
   ];
+  const message =
+    missing.length === 0 && extra.length === 0
+      ? "The Git fab would store different bytes than the staged fab."
+      : "The Git fab would not carry every staged file.";
 
-  return new MetafabError("The Git fab would not carry every staged file.", {
+  return new MetafabError(message, {
     exitCode: ExitCode.InvalidFab,
     code: "publish-git-files-lost",
     problems,
   });
 }
 
+/** The blob id and path of every index entry, as `git ls-files -s -z` reports them. */
+function indexBlobs(listed: string): Map<string, string> {
+  const entries = new Map<string, string>();
+
+  for (const record of listed.split("\0")) {
+    if (record === "") continue;
+    const tab = record.indexOf("\t");
+    if (tab < 0) continue;
+    const [mode, blob] = record.slice(0, tab).split(" ");
+    if (mode === undefined || blob === undefined || blob === "") continue;
+    entries.set(record.slice(tab + 1), blob);
+  }
+
+  return entries;
+}
+
+/** The blob id Git would store for each staged file, with no filter applied. */
+async function stagedBlobs(
+  repo: string,
+  root: string,
+  expected: readonly string[],
+  context: GitContext,
+): Promise<Map<string, string>> {
+  const output = await runGit(
+    ["hash-object", "--no-filters", "--stdin-paths"],
+    repo,
+    context,
+    [],
+    gitFailureError("Cannot compare the staged fab with the Git index"),
+    expected.map((file) => `${path.join(root, ...file.split("/"))}\n`).join(""),
+  );
+  const hashes = output.split("\n").filter((hash) => hash !== "");
+
+  if (hashes.length !== expected.length) {
+    throw gitFailureError("Cannot compare the staged fab with the Git index")(
+      "git hash-object returned a different number of ids than the staged files",
+    );
+  }
+
+  return new Map(expected.map((file, index) => [file, hashes[index] as string]));
+}
+
 /**
  * The safety net for the Git target: `git add --force` covers the ignore rules,
- * but Git can still keep a file out of the index or add one the fab lacks. After
- * staging, the index is compared with the staged fab, and a difference stops the
- * publish before the commit names a tree that is not the fab.
+ * and the clone stores bytes verbatim, but Git can still keep a file out of the
+ * index, store different bytes for it, or add one the fab lacks. After staging,
+ * the index is compared with the staged fab by path and blob id, and a
+ * difference stops the publish before the commit names a tree that is not the
+ * fab. The problems name every path.
  */
 export async function verifyGitIndex(
   repo: string,
@@ -297,20 +361,24 @@ export async function verifyGitIndex(
 ): Promise<void> {
   const context = gitContext(options);
   const listed = await runGit(
-    ["ls-files", "-z"],
+    ["ls-files", "-s", "-z"],
     repo,
     context,
     [],
     gitFailureError("Cannot read the fab repository files"),
   );
-  const tracked = new Set(listed.split("\0").filter((file) => file !== ""));
+  const tracked = indexBlobs(listed);
   const expected = (await listFiles(root)).filter((file) => !NPM_ONLY_FILES.has(file));
   const expectedSet = new Set(expected);
+  const blobs = await stagedBlobs(repo, root, expected, context);
   const missing = expected.filter((file) => !tracked.has(file));
-  const extra = [...tracked].filter((file) => !expectedSet.has(file)).sort();
-  if (missing.length === 0 && extra.length === 0) return;
+  const changed = expected.filter(
+    (file) => tracked.has(file) && tracked.get(file) !== blobs.get(file),
+  );
+  const extra = [...tracked.keys()].filter((file) => !expectedSet.has(file)).sort();
+  if (missing.length === 0 && changed.length === 0 && extra.length === 0) return;
 
-  throw filesLostError(missing, extra);
+  throw filesLostError(missing, extra, changed);
 }
 
 export interface GitVersionState {

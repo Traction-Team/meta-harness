@@ -144,17 +144,18 @@ export const publishCommand: CommandDefinition = {
         ...(context.io.stderr === undefined ? {} : { stderr: context.io.stderr }),
       };
       const report = await publishFab(prepared, publish, options);
-      const ok = report.targets.every((target) => target.status !== "failed");
+      const failedTarget = report.targets.find((target) => target.status === "failed");
+      const ok = failedTarget === undefined;
 
       const result: CommandResult = {
         ok,
         command: "publish",
-        exitCode: ok ? ExitCode.Ok : ExitCode.Failed,
+        exitCode: ok ? ExitCode.Ok : (report.exitCode ?? ExitCode.Failed),
         version: report.version,
         files: prepared.files,
         size: prepared.size,
         targets: report.targets,
-        problems: warnings,
+        problems: [...(report.problems ?? []), ...warnings],
       };
       if (context.options.json !== true) {
         result.summary = summary(

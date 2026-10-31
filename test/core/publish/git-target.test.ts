@@ -1,10 +1,9 @@
-import { chmod, writeFile } from "node:fs/promises";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ExitCode, MetafabError } from "../../../src/errors.js";
 import { prepareFab, publishFab, verifyGitIndex } from "../../../src/core/publish/index.js";
 import type { PublishConfig } from "../../../src/core/config/types.js";
-import { copyTree } from "../../../src/util/fs.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
 import { loadRepo, makePublishRepo } from "./fixtures.js";
 import type { RepoFiles, TempRepo } from "../../helpers/makeRepo.js";
@@ -184,13 +183,40 @@ describe("the Git target", () => {
     expect(await remoteRef(bare.repo, "refs/heads/main")).toBe(head);
   });
 
-  it("skips a version whose tag differs only by line endings Git normalises", async () => {
+  it("skips an unchanged re-publish when core.autocrlf would convert line endings", async () => {
     const bare = track(await makeBareFabRepo());
     const files = { ".factory/AGENTS.md": "# Agents\r\n\r\nCRLF.\r\n" };
     const first = await prepare(bare.repo, VERSION, files);
     const env = withAutocrlf(trackEnv(await noIdentityEnv()));
 
     await publishFab(first.prepared, first.publish, { env, stderr: () => undefined });
+
+    const again = await prepare(bare.repo, VERSION, files);
+    const result = await publishFab(again.prepared, again.publish, {
+      env,
+      stderr: () => undefined,
+    });
+
+    expect(result.targets).toEqual([
+      { target: "git", status: "skipped", detail: expect.stringContaining("identical") },
+    ]);
+  });
+
+  it("stores the staged bytes verbatim whatever a fab .gitattributes asks for", async () => {
+    const bare = track(await makeBareFabRepo());
+    const files = {
+      ".factory/.gitattributes": "*.md text eol=crlf ident\n",
+      ".factory/skills/git/notes.md": "# Notes\r\n\r\nbody $Id$\r\n",
+    };
+    const env = withAutocrlf(trackEnv(await noIdentityEnv()));
+
+    const first = await prepare(bare.repo, VERSION, files);
+    await publishFab(first.prepared, first.publish, { env, stderr: () => undefined });
+
+    // Neither the text/eol rule nor ident may change what the tag stores.
+    expect(await showFile(bare.repo, "v1.2.0", ".factory/skills/git/notes.md")).toBe(
+      "# Notes\r\n\r\nbody $Id$",
+    );
 
     const again = await prepare(bare.repo, VERSION, files);
     const result = await publishFab(again.prepared, again.publish, {
@@ -286,28 +312,62 @@ describe("the Git target", () => {
     expect(await treeFiles(bare.repo, "v1.2.0")).toContain(".factory/skills/git/debug.log");
   });
 
-  it("fails before committing when Git did not stage a fab file", async () => {
+  it("fails the Git target by name when Git did not stage a fab file", async () => {
     const bare = track(await makeBareFabRepo());
     const fixture = await prepare(bare.repo, VERSION, {
-      ".factory/skills/git/debug.log": "a log line\n",
+      ".factory/skills/git/notes.md": "# notes\n",
     });
-    const work = track(await makeRepo());
-    await runGitIn(work.root, ["init", "--quiet"]);
-    await copyTree(fixture.prepared.root, work.root);
-    // The index excludes the file, as Git's ignore rules would.
-    await writeFile(path.join(work.root, ".git", "info", "exclude"), "*.log\n");
-    await runGitIn(work.root, ["add", "-A"]);
+    // Git never adds the files under a `.git` directory. Staging refuses that
+    // name, so this reaches the safety net only when it arrives another way;
+    // the publisher must still report the path instead of pushing a tag that
+    // lacks it.
+    await mkdir(path.join(fixture.prepared.root, ".factory", "skills", "git", ".git"));
+    await writeFile(
+      path.join(fixture.prepared.root, ".factory", "skills", "git", ".git", "config"),
+      "[core]\n",
+    );
+    const env = trackEnv(await noIdentityEnv());
 
-    const failure = (await verifyGitIndex(work.root, fixture.prepared.root).catch(
+    const result = await publishFab(fixture.prepared, fixture.publish, {
+      env,
+      stderr: () => undefined,
+    });
+
+    expect(result.targets).toEqual([
+      {
+        target: "git",
+        status: "failed",
+        detail: expect.stringContaining(".factory/skills/git/.git/config"),
+      },
+    ]);
+    expect(result.exitCode).toBe(ExitCode.InvalidFab);
+    expect(result.problems?.map((problem) => problem.file)).toContain(
+      ".factory/skills/git/.git/config",
+    );
+    expect(await remoteRef(bare.repo, "refs/heads/main")).toBeUndefined();
+  });
+
+  it("names a file whose staged bytes do not match the index", async () => {
+    const repoDir = track(await makeRepo());
+    const stagedRoot = track(await makeRepo());
+    await writeFile(path.join(repoDir.root, "notes.md"), "one\n");
+    await runGitIn(repoDir.root, ["init", "--quiet"]);
+    await runGitIn(repoDir.root, ["add", "-A"]);
+    await writeFile(path.join(stagedRoot.root, "notes.md"), "two\n");
+
+    const failure = (await verifyGitIndex(repoDir.root, stagedRoot.root).catch(
       (error: unknown) => error,
     )) as MetafabError;
 
     expect(failure).toBeInstanceOf(MetafabError);
     expect(failure.code).toBe("publish-git-files-lost");
     expect(failure.exitCode).toBe(ExitCode.InvalidFab);
-    expect(failure.problems?.map((problem) => problem.file)).toEqual([
-      ".factory/skills/git/debug.log",
+    expect(failure.message).toContain("different bytes");
+    expect(failure.problems).toEqual([
+      expect.objectContaining({
+        file: "notes.md",
+        message: "Git stored different bytes for notes.md",
+      }),
     ]);
-    expect(await remoteRef(bare.repo, "refs/heads/main")).toBeUndefined();
   });
 });
