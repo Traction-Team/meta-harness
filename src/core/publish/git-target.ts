@@ -1,15 +1,14 @@
 import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
-import { compareTrees, copyTree } from "../../util/fs.js";
+import { copyTree } from "../../util/fs.js";
 import type { PublishConfig } from "../config/types.js";
 import { withEnv } from "../sources/env.js";
-import { extractTarball } from "../sources/extract.js";
 import { redact, stripSourceCredentials } from "../sources/redact.js";
 import type { PublishOptions } from "./types.js";
 
@@ -177,36 +176,45 @@ async function tagExistsRemotely(url: string, tag: string, context: GitContext):
   return output.split("\n").some((line) => line.split("\t")[1]?.trim() === ref);
 }
 
+/**
+ * The tag's tree and the staged fab are compared by Git itself: the tag is
+ * checked out, the staged fab replaces the tracked files, and Git decides
+ * whether anything changed. Line endings (`core.autocrlf`), filters and modes
+ * therefore count exactly as Git stores them, so a round trip through a clone
+ * is not a difference.
+ */
 async function tagTreeMatches(
   repo: string,
   tag: string,
   root: string,
   context: GitContext,
 ): Promise<boolean> {
-  const scratch = await mkdtemp(path.join(tmpdir(), "metafab-publish-tag-"));
-  try {
-    const archive = path.join(scratch, "tag.tar");
-    await runGit(
-      ["archive", "--format=tar", `--output=${archive}`, `refs/tags/${tag}`],
-      repo,
-      context,
-      [],
-      gitFailureError(`Cannot read tag ${tag}`),
-    );
+  await runGit(
+    ["checkout", "--quiet", "--force", "--detach", `refs/tags/${tag}`],
+    repo,
+    context,
+    [],
+    gitFailureError(`Cannot read tag ${tag}`),
+  );
+  await runGit(
+    ["rm", "-r", "-q", "-f", "--ignore-unmatch", "."],
+    repo,
+    context,
+    [],
+    gitFailureError("Cannot compare the fab repository files"),
+  );
 
-    const extracted = path.join(scratch, "tree");
-    await mkdir(extracted, { recursive: true });
-    await extractTarball(archive, extracted);
+  await copyTree(root, repo, { ignore: (relativePath) => NPM_ONLY_FILES.has(relativePath) });
+  await runGit(
+    ["add", "-A"],
+    repo,
+    context,
+    [],
+    gitFailureError("Cannot compare the fab repository files"),
+  );
 
-    const differences = await compareTrees(root, extracted, {
-      ignore: (relativePath) => NPM_ONLY_FILES.has(relativePath),
-    });
-    // Git keeps only the executable bit, so a mode difference is not a content
-    // difference between a tag and the staged fab.
-    return differences.every((difference) => difference.kind === "mode");
-  } finally {
-    await rm(scratch, { recursive: true, force: true });
-  }
+  const differences = await tryGit(["diff", "--cached", "--quiet"], repo, context);
+  return differences.ok;
 }
 
 export interface GitVersionState {

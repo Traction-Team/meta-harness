@@ -1,3 +1,4 @@
+import { chmod } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import { ExitCode } from "../../../src/errors.js";
 import { prepareFab, publishFab } from "../../../src/core/publish/index.js";
@@ -35,6 +36,16 @@ function track<T extends Cleanable>(value: T): T {
 function trackEnv(value: { env: NodeJS.ProcessEnv; cleanup(): Promise<void> }): NodeJS.ProcessEnv {
   cleanups.push(value.cleanup);
   return value.env;
+}
+
+/** Git settings that store LF and check out CRLF, as a Windows checkout does. */
+function withAutocrlf(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return {
+    ...env,
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "core.autocrlf",
+    GIT_CONFIG_VALUE_0: "true",
+  };
 }
 
 interface Fixture {
@@ -139,6 +150,42 @@ describe("the Git target", () => {
     ).rejects.toMatchObject({ code: "publish-version-exists" });
 
     expect(await remoteRef(bare.repo, "refs/heads/main")).toBe(head);
+  });
+
+  it("skips a version whose tag differs only by line endings Git normalises", async () => {
+    const bare = track(await makeBareFabRepo());
+    const files = { ".factory/AGENTS.md": "# Agents\r\n\r\nCRLF.\r\n" };
+    const first = await prepare(bare.repo, VERSION, files);
+    const env = withAutocrlf(trackEnv(await noIdentityEnv()));
+
+    await publishFab(first.prepared, first.publish, { env, stderr: () => undefined });
+
+    const again = await prepare(bare.repo, VERSION, files);
+    const result = await publishFab(again.prepared, again.publish, {
+      env,
+      stderr: () => undefined,
+    });
+
+    expect(result.targets).toEqual([
+      { target: "git", status: "skipped", detail: expect.stringContaining("identical") },
+    ]);
+  });
+
+  it("refuses a version when only a file mode changed", async () => {
+    const bare = track(await makeBareFabRepo());
+    await publish(bare.repo, VERSION);
+
+    const target = track(
+      await makePublishRepo({ publish: gitPublishSection(bare.repo, VERSION) }),
+    );
+    await chmod(target.path(".factory", "scripts", "release.sh"), 0o644);
+    const { factory, config } = await loadRepo(target);
+    const prepared = track(await prepareFab(factory, config));
+    const env = trackEnv(await noIdentityEnv());
+
+    await expect(
+      publishFab(prepared, config.publish as PublishConfig, { env, stderr: () => undefined }),
+    ).rejects.toMatchObject({ code: "publish-version-exists" });
   });
 
   it("refuses to overwrite a hand commit on the fab branch with exit code 5", async () => {
