@@ -115,20 +115,27 @@ The command performs these steps:
 
 1. Run `metafab check` and stop if validation fails.
 2. Create a temporary fab directory.
-3. Copy `.factory/` into it.
-4. Exclude `metafab.yaml`, `.factory/README.md`, and configured paths.
-5. Add the README at the fab root, from `publish.readme`. See [Configuration](configuration.md#publish).
+3. Copy `.factory/` into it, keeping file modes, without `metafab.yaml`, without `.factory/README.md`, and without configured paths. A link inside `.factory/` is copied as the content of its target, the same decision `build` makes. A broken link, or one that points outside `.factory/`, stops the publish and names the path.
+4. Validate the staged `.factory/` against the [fab requirements](#fab-layout) and the factory rules again. Stop and list the problems when an exclude emptied `.factory/`, left a file above the fab size limit, or broke a reference.
+5. Add the README at the fab root, from `publish.readme`. See [Configuration](configuration.md#publish). A generated README describes the staged fab, so an excluded skill is not listed.
 6. For the npm target, build `package.json` from `publish` settings.
 7. Print the fab files, total size, and targets.
 8. Stop without publishing when `--dry-run` is present.
 9. Publish to each target, as described below.
 
-Before it publishes to any target, Metafab confirms that the version is new on every target. It stops without publishing when any target already has the version.
+`publish` releases to the Git target first, then npm. Before it changes any target, it confirms the version is new on every target:
+
+- A target that already has the version with different content stops the whole publish. Nothing is published.
+- A target that already has the version with identical content is skipped, and the remaining targets are published.
+
+The Git target compares the tag's tree with the staged fab using Git itself, so line endings are compared as Git stores them (with `core.autocrlf`, for example) and the executable bit counts as a difference.
+
+The skip is how a half-finished release is completed. When one target succeeds and a later one fails, fix the failure and run `metafab publish` again: the target that already has these bytes is skipped and the rest is published. Nothing is overwritten. When the content has to change, bump `publish.version` and publish again.
 
 ### npm target
 
 1. Run `npm publish` in the temporary directory.
-2. Add `--provenance` when the current CI system supports npm provenance.
+2. Add `--provenance` when the current CI system supports npm provenance. The generated `package.json` then also names `repository`, taken from the same CI environment, because npm requires it to match the provenance bundle.
 3. Pass `--tag` as the npm dist-tag.
 
 Metafab uses the npm registry and credentials already configured for `npm`. It does not store registry tokens.
@@ -138,7 +145,7 @@ Metafab uses the npm registry and credentials already configured for `npm`. It d
 A fab repository holds published output only. Do not edit it directly. Its history is a list of releases.
 
 1. Clone `publish.git` into a temporary directory and check out `publish.branch`. An empty repository starts that branch.
-2. Stop when tag `v<version>` already exists.
+2. Skip the target when tag `v<version>` already carries the same content, and stop the publish when it carries different content.
 3. Stop with exit code 5 when the branch head is not a commit tagged by an earlier `publish`. This protects edits made directly in the fab repository.
 4. Replace every tracked file with the contents of the temporary fab directory.
 5. Commit with the message `Publish <version>`.

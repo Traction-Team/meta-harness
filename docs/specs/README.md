@@ -118,4 +118,4 @@ git commit -am "Update the mark4 factory to 1.3.0"
 - How do Cursor and Copilot behave when they find the same skill in `.agents/skills/` and `.claude/skills/`? Their documentation does not say. Test both. See [Duplicate skills](building.md#duplicate-skills).
 - Do teams need more than one upstream fab, such as a base fab plus a shared skill fab?
 - Do pipelines need branches, such as a bug path and a feature path?
-- Which commands must be transactional? In particular, should `build` and `import` preflight every write, and how should `publish` report and recover when one target succeeds and another fails?
+- Which commands must be transactional? In particular, should `build` and `import` preflight every write?
