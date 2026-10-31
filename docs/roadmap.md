@@ -39,7 +39,7 @@ A team can publish a factory as a fab and other teams can import and update it.
 - [x] [1.008 Sources and fetching](plans/1.008-sources.md): source parsing, npm/Git/HTTPS/path fetch, cache, fab validation
 - [ ] [1.009 Import and review summary](plans/1.009-import.md): `import`, risk-ordered summary
 - [ ] [1.010 Update, diff, detach](plans/1.010-update-diff-detach.md): three-way merge, unversioned overwrite, `diff`, `detach`
-- [ ] [1.011 Publish](plans/1.011-publish.md): staging, npm target, Git fab repository target
+- [x] [1.011 Publish](plans/1.011-publish.md): staging, npm target, Git fab repository target
 
 ## Milestone 3: Release
 
@@ -66,7 +66,6 @@ Answer these before or during the named plan. Spec-level questions are linked to
 | --- | --- | --- |
 | Summary group for templates and other files | [1.009](plans/1.009-import.md#open-questions) | Add an **Other** group |
 | Field-level frontmatter merge | [1.010](plans/1.010-update-diff-detach.md#open-questions), [spec](specs/sharing.md#open-questions) | Line merge in v1 |
-| Publish partial failure and recovery | [1.011](plans/1.011-publish.md#open-questions), [spec](specs/README.md#open-questions) | Git first, then npm; re-run skips identical published targets |
 | Duplicate skills in Cursor and Copilot | [1.012](plans/1.012-release.md), [spec](specs/README.md#open-questions) | Test during release |
 | Multiple upstream fabs; pipeline branches; trusted publishers; fleet updates | After v1 | Deferred |
 
@@ -76,6 +75,7 @@ Record answered questions here with the date and the commit that applied them.
 
 | Date | Decision | Applied in |
 | --- | --- | --- |
+| 2026-10-31 | `publish` releases Git first, then npm. A target that already has the version with identical content is skipped, so a re-run finishes a partial publish; different content refuses the whole publish. No `--provenance` flags in v1: detection only | #13 |
 | 2026-10-26 | `requested` records `^<resolved version>` for an npm source or a tagged Git source given without a range; it is omitted for a Git source with no version tags | #6 |
 | 2026-10-26 | npm fabs download with `npm pack --ignore-scripts`; an `install` script does not run (verified on npm 11 only) | #6 |
 | 2026-10-26 | Drop `metafab rename` from v1: rename a skill by hand, and `check` reports a directory/name or pipeline mismatch | #5 |
