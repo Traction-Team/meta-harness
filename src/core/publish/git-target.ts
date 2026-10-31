@@ -52,6 +52,8 @@ interface GitFailure {
 
 interface GitResult {
   ok: boolean;
+  /** The exit status; `undefined` when Git never ran or died from a signal. */
+  status?: number;
   stdout: string;
   stderr: string;
 }
@@ -108,9 +110,10 @@ async function tryGit(
     );
     return { ok: true, stdout, stderr };
   } catch (error) {
-    const failure = error as GitFailure;
+    const failure = error as GitFailure & { code?: unknown };
     return {
       ok: false,
+      ...(typeof failure.code === "number" ? { status: failure.code } : {}),
       stdout: failure.stdout ?? "",
       stderr: failure.stderr ?? failure.message ?? "",
     };
@@ -214,7 +217,11 @@ async function tagTreeMatches(
   );
 
   const differences = await tryGit(["diff", "--cached", "--quiet"], repo, context);
-  return differences.ok;
+  if (differences.ok) return true;
+  // `--quiet` exits 1 only to report differences; any other failure is a Git
+  // error, not a changed fab.
+  if (differences.status === 1) return false;
+  throw gitFailureError(`Cannot compare tag ${tag} with the staged fab`)(gitMessage(differences));
 }
 
 export interface GitVersionState {
