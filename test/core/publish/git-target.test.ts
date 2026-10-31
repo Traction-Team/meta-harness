@@ -1,6 +1,6 @@
 import { chmod } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
-import { ExitCode } from "../../../src/errors.js";
+import { ExitCode, MetafabError } from "../../../src/errors.js";
 import { prepareFab, publishFab } from "../../../src/core/publish/index.js";
 import type { PublishConfig } from "../../../src/core/config/types.js";
 import { loadRepo, makePublishRepo } from "./fixtures.js";
@@ -137,6 +137,34 @@ describe("the Git target", () => {
     expect(result.targets).toEqual([
       { target: "git", status: "skipped", detail: expect.stringContaining("identical") },
     ]);
+    expect(await remoteRef(bare.repo, "refs/heads/main")).toBe(head);
+  });
+
+  it("reports a failed git diff instead of a changed fab", async () => {
+    const bare = track(await makeBareFabRepo());
+    await publish(bare.repo, VERSION);
+    const head = await remoteRef(bare.repo, "refs/heads/main");
+
+    const fixture = await prepare(bare.repo, VERSION);
+    // Git rejects an unknown diff algorithm when it compares, so the `diff`
+    // that decides equality fails for a reason other than "different content".
+    const env = {
+      ...trackEnv(await noIdentityEnv()),
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "diff.algorithm",
+      GIT_CONFIG_VALUE_0: "metafab-test-unknown-algorithm",
+    };
+
+    const failure = (await publishFab(fixture.prepared, fixture.publish, {
+      env,
+      stderr: () => undefined,
+    }).catch((error: unknown) => error)) as MetafabError;
+
+    expect(failure).toBeInstanceOf(MetafabError);
+    expect(failure.code).toBe("publish-git-failed");
+    expect(failure.exitCode).toBe(ExitCode.FetchFailed);
+    expect(failure.message).toContain("Cannot compare tag v1.2.0 with the staged fab");
+    expect(failure.message).toContain("diff.algorithm");
     expect(await remoteRef(bare.repo, "refs/heads/main")).toBe(head);
   });
 
