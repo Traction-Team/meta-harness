@@ -500,6 +500,107 @@ describe("preflight before writing", () => {
     expect(await readFile(repo.path(".factory", "templates", "note.md"), "utf8")).toBe("local\n");
   });
 
+  test("a case-only directory clash is a conflict, even when the local directory is empty", async () => {
+    const repo = await repoWith();
+    await mkdir(repo.path(".factory", "Templates"), { recursive: true });
+    const fab = await makeFab({ ...fabFiles(), ".factory/templates/note.md": "fab\n" });
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["import", fab.root, "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stderr).toContain(".factory/Templates");
+    expect(result.stderr).toContain("differs only in case");
+    expect(await snapshot(repo.root)).toEqual(before);
+    expect(await readdir(repo.path(".factory"))).toEqual(["Templates"]);
+  });
+
+  test("a case-only directory clash keeps a non-empty local directory", async () => {
+    const repo = await repoWith({ ".factory/Templates/keep.md": "keep\n" });
+    const fab = await makeFab({ ...fabFiles(), ".factory/templates/note.md": "fab\n" });
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["import", fab.root, "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stderr).toContain(".factory/Templates");
+    expect(await snapshot(repo.root)).toEqual(before);
+    expect(await readdir(repo.path(".factory"))).toEqual(["Templates"]);
+    expect(await readdir(repo.path(".factory", "Templates"))).toEqual(["keep.md"]);
+  });
+
+  test("a nested case-only directory clash is a conflict", async () => {
+    const repo = await repoWith();
+    await mkdir(repo.path(".factory", "skills", "Demo"), { recursive: true });
+    const fab = await makeFab({ ...fabFiles(), ".factory/skills/demo/refs/x.md": "x\n" });
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["import", fab.root, "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stderr).toContain(".factory/skills/Demo");
+    expect(await snapshot(repo.root)).toEqual(before);
+    expect(await readdir(repo.path(".factory", "skills"))).toEqual(["Demo"]);
+  });
+
+  test("an incoming path under a local directory with the same spelling imports", async () => {
+    const repo = await repoWith({ ".factory/templates/keep.md": "keep\n" });
+    const fab = await makeFab({ ...fabFiles(), ".factory/templates/note.md": "fab\n" });
+
+    const result = await runCli(["import", fab.root, "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(0);
+    expect(await readFile(repo.path(".factory", "templates", "keep.md"), "utf8")).toBe("keep\n");
+    expect(await readFile(repo.path(".factory", "templates", "note.md"), "utf8")).toBe("fab\n");
+  });
+
+  test("--force imports a case-only directory clash the way it does a case-only file clash", async () => {
+    const repo = await repoWith();
+    await mkdir(repo.path(".factory", "Templates"), { recursive: true });
+    const fab = await makeFab({ ...fabFiles(), ".factory/templates/note.md": "fab\n" });
+
+    const result = await runCli(["import", fab.root, "--agents", "claude", "--force"], {
+      cwd: repo.root,
+    });
+
+    expect(result.code).toBe(0);
+    // --force copies in place like it does for a case-only file clash: the
+    // content lands once, under whichever spelling the filesystem keeps.
+    const notes = (await listFiles(repo.root)).filter(
+      (file) => file.toLowerCase() === ".factory/templates/note.md",
+    );
+    expect(notes).toHaveLength(1);
+    expect(await readFile(repo.path(...notes[0]!.split("/")), "utf8")).toBe("fab\n");
+  });
+
+  test("an incoming ancestor that is a local file is a conflict", async () => {
+    const repo = await repoWith({ ".factory/templates": "local file\n" });
+    const fab = await makeFab({ ...fabFiles(), ".factory/templates/note.md": "fab\n" });
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["import", fab.root, "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stderr).toContain("would replace .factory/templates with a different kind of entry");
+    expect(await snapshot(repo.root)).toEqual(before);
+    expect(await readFile(repo.path(".factory", "templates"), "utf8")).toBe("local file\n");
+  });
+
+  test("a case-only clash with an incoming empty directory is a conflict", async () => {
+    const repo = await repoWith();
+    await mkdir(repo.path(".factory", "Templates"), { recursive: true });
+    const fab = await makeFab(fabFiles());
+    await mkdir(fab.path(".factory", "templates"), { recursive: true });
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["import", fab.root, "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stderr).toContain(".factory/Templates");
+    expect(await snapshot(repo.root)).toEqual(before);
+    expect(await readdir(repo.path(".factory"))).toEqual(["Templates"]);
+  });
+
   test("a build conflict stops the import before any write", async () => {
     const repo = await repoWith({ "README.md": "# Repository\n" });
     await writeRepoFiles(repo.root, { "gitignore.txt": "" });

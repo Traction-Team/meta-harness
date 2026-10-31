@@ -28,7 +28,7 @@ export interface LocalPaths {
  */
 interface LocalIndex {
   files: Map<string, { key: string; local: LocalFile }>;
-  directories: Map<string, string>;
+  directories: Map<string, { key: string; local: string }>;
 }
 
 function absolute(root: string, relativePath: string): string {
@@ -141,11 +141,11 @@ export async function localFilesForImport(
 
 function indexOf(local: LocalPaths): LocalIndex {
   const files = new Map<string, { key: string; local: LocalFile }>();
-  const directories = new Map<string, string>();
+  const directories = new Map<string, { key: string; local: string }>();
 
   for (const [key, file] of local.directories) {
     const folded = key.toLowerCase();
-    if (!directories.has(folded)) directories.set(folded, file);
+    if (!directories.has(folded)) directories.set(folded, { key, local: file });
   }
 
   for (const [key, localFile] of local.files) {
@@ -166,12 +166,21 @@ function indexOf(local: LocalPaths): LocalIndex {
  * included, because the copy would delete it. A path that would replace a file
  * with a directory, a directory with a file, or a link with a file, is a
  * conflict, so the copy can never fail on it or delete local content.
+ *
+ * Every incoming path is folded against its local ancestors as well as the
+ * path itself, so a case-only clash with a local file, link or directory at any
+ * depth is refused. Without that, an incoming `templates/` would slip past a
+ * local `Templates/` on a case-insensitive filesystem and split in two on a
+ * case-sensitive one.
  */
 export async function findImportConflicts(
   incomingDir: string,
   local: LocalPaths,
 ): Promise<Problem[]> {
-  const incoming = await snapshotTree(incomingDir);
+  const [incoming, incomingDirectories] = await Promise.all([
+    snapshotTree(incomingDir),
+    snapshotDirectories(incomingDir),
+  ]);
   const index = indexOf(local);
   const problems: Problem[] = [];
   const reported = new Set<string>();
@@ -183,30 +192,63 @@ export async function findImportConflicts(
     problems.push(problem);
   }
 
-  for (const relativePath of Object.keys(incoming).sort()) {
+  /**
+   * Reports the first local entry on the path itself, or among its ancestors,
+   * that the incoming entry would replace. Case-only clashes name the local
+   * entry and the incoming path; an exact spelling that changes the kind of
+   * entry is reported as blocked.
+   */
+  function checkLocalPath(relativePath: string, incomingDirectory: boolean): void {
     const folded = relativePath.toLowerCase();
-    const existing = index.files.get(folded);
-    if (existing !== undefined) {
-      if (existing.key !== relativePath) {
-        report(differentSpelling(existing.local.file, relativePath));
-      } else if (existing.local.entry.hash !== incoming[relativePath]!.hash) {
-        report(replaced(existing.local.file));
+
+    const existingFile = index.files.get(folded);
+    if (existingFile !== undefined) {
+      if (existingFile.key !== relativePath) {
+        report(differentSpelling(existingFile.local.file, relativePath));
+      } else if (incomingDirectory) {
+        report(blocked(existingFile.local.file));
+      } else if (existingFile.local.entry.hash !== incoming[relativePath]!.hash) {
+        report(replaced(existingFile.local.file));
       }
-      continue;
+      return;
     }
 
-    let blocker: LocalFile | undefined;
     for (const prefix of ancestors(relativePath)) {
-      blocker = index.files.get(prefix.toLowerCase())?.local;
-      if (blocker !== undefined) break;
-    }
-    if (blocker !== undefined) {
-      report(blocked(blocker.file));
-      continue;
+      const foldedPrefix = prefix.toLowerCase();
+      const ancestorFile = index.files.get(foldedPrefix);
+      if (ancestorFile !== undefined) {
+        report(
+          ancestorFile.key === prefix
+            ? blocked(ancestorFile.local.file)
+            : differentSpelling(ancestorFile.local.file, relativePath),
+        );
+        return;
+      }
+
+      const ancestorDirectory = index.directories.get(foldedPrefix);
+      if (ancestorDirectory !== undefined && ancestorDirectory.key !== prefix) {
+        report(differentSpelling(ancestorDirectory.local, relativePath));
+        return;
+      }
     }
 
-    const asDirectory = index.directories.get(folded);
-    if (asDirectory !== undefined) report(blocked(asDirectory));
+    const existingDirectory = index.directories.get(folded);
+    if (existingDirectory === undefined) return;
+    if (existingDirectory.key !== relativePath) {
+      report(differentSpelling(existingDirectory.local, relativePath));
+    } else if (!incomingDirectory) {
+      report(blocked(existingDirectory.local));
+    }
+  }
+
+  for (const relativePath of Object.keys(incoming).sort()) {
+    checkLocalPath(relativePath, false);
+  }
+
+  // Directories are checked too: an incoming empty directory can clash with a
+  // local one, or replace a local file or link, just as a file can.
+  for (const relativePath of [...incomingDirectories].sort()) {
+    checkLocalPath(relativePath, true);
   }
 
   return problems;
