@@ -1,3 +1,4 @@
+import { chmod } from "node:fs/promises";
 import { afterEach, describe, expect, test } from "vitest";
 import { TARGETS, loadConfig } from "../../../src/core/config.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
@@ -44,4 +45,31 @@ describe("loadConfig", () => {
     expect(config.problems[0]?.file).toBe(".factory/metafab.yaml");
     expect(config.agents).toEqual(TARGETS);
   });
+
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "an unreadable metafab.yaml is one Cannot read problem, not a throw",
+    async () => {
+      const repo = await repoWith({ ".factory/metafab.yaml": "agents: []\n" });
+      const configFile = repo.path(".factory", "metafab.yaml");
+      await chmod(configFile, 0o000);
+
+      try {
+        const config = await loadConfig(repo.path(".factory"));
+
+        expect(config.problems).toEqual([
+          {
+            level: "error",
+            file: ".factory/metafab.yaml",
+            line: 1,
+            message: "Cannot read .factory/metafab.yaml",
+            fix: "Check its permissions",
+          },
+        ]);
+        expect(config.agents).toEqual(TARGETS);
+        expect(config.metafabSkill).toBe(true);
+      } finally {
+        await chmod(configFile, 0o644);
+      }
+    },
+  );
 });

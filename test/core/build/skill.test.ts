@@ -4,9 +4,11 @@ import { describe, expect, test } from "vitest";
 import {
   builtinComment,
   compileSkill,
+  dedupeReadErrors,
   generatedComment,
   isOwned,
 } from "../../../src/core/build/skill.js";
+import type { Problem } from "../../../src/errors.js";
 import { makeRepo, writeRepoFiles } from "../../helpers/makeRepo.js";
 
 const fixture = fileURLToPath(new URL("../../fixtures/build/skill-basic", import.meta.url));
@@ -281,5 +283,55 @@ describe("isOwned", () => {
     } finally {
       await repo.cleanup();
     }
+  });
+});
+
+describe("dedupeReadErrors", () => {
+  const directoryProblem: Problem = {
+    level: "error",
+    file: ".factory",
+    line: 1,
+    message: "Cannot read directory .factory",
+    fix: "Check its permissions or restore the directory",
+  };
+  const childProblem: Problem = {
+    level: "error",
+    file: ".factory/factory.yaml",
+    line: 1,
+    message: "Cannot read file .factory/factory.yaml",
+    fix: "Check its permissions or restore the file",
+  };
+
+  test("an unreadable directory explains the paths below it in any order", () => {
+    expect(dedupeReadErrors([directoryProblem, childProblem])).toEqual([directoryProblem]);
+    expect(dedupeReadErrors([childProblem, directoryProblem])).toEqual([directoryProblem]);
+  });
+
+  test("keeps one read error per path, even when the wording differs", () => {
+    const samePath: Problem = {
+      level: "error",
+      file: ".factory",
+      line: 1,
+      message: "Cannot read .factory",
+      fix: "Check its permissions",
+    };
+
+    expect(dedupeReadErrors([directoryProblem, samePath])).toEqual([directoryProblem]);
+    expect(dedupeReadErrors([samePath, directoryProblem])).toEqual([samePath]);
+    expect(dedupeReadErrors([childProblem, childProblem])).toEqual([childProblem]);
+  });
+
+  test("passes problems that are not read errors through unchanged", () => {
+    const warning: Problem = {
+      level: "warning",
+      file: ".factory",
+      line: 1,
+      message: "Build output not checked: fix the errors above first",
+    };
+
+    expect(dedupeReadErrors([warning, childProblem, directoryProblem])).toEqual([
+      warning,
+      directoryProblem,
+    ]);
   });
 });
