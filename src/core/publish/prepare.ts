@@ -92,7 +92,7 @@ export async function prepareFab(factory: Factory, config: Config): Promise<Prep
   const staged = await stageFab(factory, { exclude: publish.exclude });
 
   try {
-    const readme = await resolveReadme(factory.root, factory, publish);
+    const readme = await resolveReadme(factory.root, factory, publish, staged.factory);
     await writeFile(path.join(staged.root, "README.md"), readme, "utf8");
 
     if (targets.includes("npm")) {

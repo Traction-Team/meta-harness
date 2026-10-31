@@ -100,11 +100,15 @@ export function generateReadme(factory: Factory, publish: PublishConfig): string
 /**
  * The README at the fab root: `publish.readme`, else `.factory/README.md`, else
  * a generated one. `.factory/README.md` is never copied into the fab itself.
+ *
+ * The generated README describes `published`, the staged factory, so a name or
+ * description that `publish.exclude` removes is not published.
  */
 export async function resolveReadme(
   repositoryRoot: string,
   factory: Factory,
   publish: PublishConfig,
+  published: Factory = factory,
 ): Promise<string> {
   if (publish.readme !== undefined) {
     const target = path.isAbsolute(publish.readme)
@@ -117,7 +121,7 @@ export async function resolveReadme(
   try {
     return await readFile(factoryReadme, "utf8");
   } catch (error) {
-    if (isAbsentError(error)) return generateReadme(factory, publish);
+    if (isAbsentError(error)) return generateReadme(published, publish);
     throw readError(".factory/README.md", "Check its permissions");
   }
 }

@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { prepareFab } from "../../../src/core/publish/index.js";
@@ -78,6 +78,30 @@ describe("prepareFab", () => {
 
     expect(fab.targets).toEqual(["npm"]);
     expect(fab.files).toContain("package.json");
+  });
+
+  test("the generated README lists only the staged skills", async () => {
+    const target = await makePublishRepo({
+      publish: [
+        "publish:",
+        '  name: "@seasb/fab-demo"',
+        "  version: 1.2.0",
+        "  exclude:",
+        "    - skills/git",
+        "",
+      ].join("\n"),
+    });
+    repos.push(target);
+    await rm(target.path(".factory", "README.md"));
+    const { factory, config } = await loadRepo(target);
+
+    const fab = await prepareFab(factory, config);
+    prepared.push(fab);
+    const readme = await readFile(path.join(fab.root, "README.md"), "utf8");
+
+    expect(readme).toContain("- `plan` — Plan a slice. Use when starting.");
+    expect(readme).not.toContain("`git`");
+    expect(readme).not.toContain("Git conventions.");
   });
 
   test("cleanup removes the temporary fab", async () => {
