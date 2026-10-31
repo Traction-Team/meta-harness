@@ -91,7 +91,9 @@ A fab does not need a hand-maintained repository. Publish it from the project re
 | npm | `publish.name` | An npm package |
 | Git | `publish.git` | A commit and version tag in a fab repository |
 
-Configure one target or both. One `publish` releases the same files and version to each: the staged fab leaves out the names `npm pack` always ignores, so the npm tarball and the Git fab hold identical files, and the printed file list and total size are exact for both.
+Configure one target or both. Both targets carry the same staged fab in the same published version: the `.factory/` tree after `publish.exclude`, and the README at its root. The npm target also carries a generated `package.json`; the Git target never does. When npm is a target, staging also leaves out the names `npm pack` never packs (see [Steps](#steps)), and reports each path it left out, so the Git fab then carries the same files as the npm tarball apart from `package.json`. A Git-only publish keeps those files.
+
+The printed file list and total size describe the npm package when npm is a target, `package.json` included, and the Git fab when it is the only target.
 
 Example configuration:
 
@@ -115,11 +117,11 @@ The command performs these steps:
 
 1. Run `metafab check` and stop if validation fails.
 2. Create a temporary fab directory.
-3. Copy `.factory/` into it, keeping file modes, without `metafab.yaml`, without `.factory/README.md`, without configured paths, and without names `npm pack` never carries, so both targets carry the same files. These are `.DS_Store`, `.gitignore`, `.npmignore`, `.npmrc`, `npm-debug.log`, `._*`, `.*.swp`, `*.orig`, `.lock-wscript`, `.wafpickle-*`, `build/config.gypi`, and every `.git`, `.svn`, `.hg`, `CVS` and `archived-packages` directory. A link inside `.factory/` is copied as the content of its target, the same decision `build` makes; a link named `README.md` or `metafab.yaml` at the factory root is left out like a file of that name. A broken link, or one that points outside `.factory/`, stops the publish and names the path. `.factory/README.md` may be a link that points outside `.factory/` because it is read as the fab README and never copied.
+3. Copy `.factory/` into it, keeping file modes, without `metafab.yaml`, without `.factory/README.md`, and without configured paths. When npm is a target, also leave out the names `npm pack` never carries and report each path left out as a warning, so the Git fab then carries the same files as the npm tarball; a Git-only publish keeps those files. The names are `.DS_Store`, `.gitignore`, `.npmignore`, `.npmrc`, `npm-debug.log`, `._*`, `.*.swp`, `*.orig`, `.lock-wscript`, `.wafpickle-*`, `build/config.gypi`, and every `.git`, `.svn`, `.hg`, `CVS` and `archived-packages` directory. A link inside `.factory/` is copied as the content of its target, the same decision `build` makes; a link named `README.md` or `metafab.yaml` at the factory root is left out like a file of that name. A broken link, or one that points outside `.factory/`, stops the publish and names the path. `.factory/README.md` may be a link that points outside `.factory/` because it is read as the fab README and never copied.
 4. Validate the staged `.factory/` against the [fab requirements](#fab-layout) and the factory rules again. Stop with exit code 4 and list the problems when an exclude emptied `.factory/`, left a file above the fab size limit, or broke a reference.
-5. Add the README at the fab root, from `publish.readme`. See [Configuration](configuration.md#publish). A generated README describes the staged fab, so an excluded skill is not listed.
+5. Add the README at the fab root, from `publish.readme`. See [Configuration](configuration.md#publish). A generated README describes the staged fab, so an excluded skill is not listed, and it names the source without credentials: a token in `publish.git` is never written to the published README.
 6. For the npm target, build `package.json` from `publish` settings.
-7. Print the fab files, total size, and targets.
+7. Print the file list and total size of the npm package when npm is a target, `package.json` included, or of the Git fab when it is the only target, and print the targets.
 8. Stop without publishing when `--dry-run` is present.
 9. Publish to each target, as described below.
 
