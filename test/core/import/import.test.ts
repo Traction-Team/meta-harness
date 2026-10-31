@@ -56,6 +56,17 @@ function parseJson(result: RunCliResult): Record<string, unknown> {
 }
 
 /**
+ * Commit everything in a fresh repository. The identity is repository-local
+ * because a CI runner has no global one to fall back on.
+ */
+async function commitInitial(root: string): Promise<void> {
+  await runGitIn(root, ["config", "user.name", "Metafab Test"]);
+  await runGitIn(root, ["config", "user.email", "metafab@example.com"]);
+  await runGitIn(root, ["add", "-A"]);
+  await runGitIn(root, ["commit", "-qm", "initial"]);
+}
+
+/**
  * Point `TMPDIR` at a fresh directory for one call. `os.tmpdir()` reads it each
  * time, so a fetch's `mkdtemp` lands there, and any directory it forgets stays
  * behind for the assertion.
@@ -231,8 +242,7 @@ describe("metafab import", () => {
 
   test("an invalid fab leaves git status clean", async () => {
     const repo = await repoWith({ "README.md": "# Repository\n" });
-    await runGitIn(repo.root, ["add", "-A"]);
-    await runGitIn(repo.root, ["commit", "-qm", "initial"]);
+    await commitInitial(repo.root);
 
     const fab = await makeFab({
       ".factory/skills/broken/SKILL.md": "# Broken\n",
@@ -247,8 +257,7 @@ describe("metafab import", () => {
 
   test("a failing fetch leaves git status clean", async () => {
     const repo = await repoWith({ "README.md": "# Repository\n" });
-    await runGitIn(repo.root, ["add", "-A"]);
-    await runGitIn(repo.root, ["commit", "-qm", "initial"]);
+    await commitInitial(repo.root);
 
     const result = await runCli(
       ["import", path.join(repo.root, "missing-fab"), "--agents", "claude"],
@@ -605,8 +614,7 @@ describe("preflight before writing", () => {
     const repo = await repoWith({ "README.md": "# Repository\n" });
     await writeRepoFiles(repo.root, { "gitignore.txt": "" });
     await symlink("gitignore.txt", repo.path(".gitignore"));
-    await runGitIn(repo.root, ["add", "-A"]);
-    await runGitIn(repo.root, ["commit", "-qm", "initial"]);
+    await commitInitial(repo.root);
     const fab = await makeFab(fabFiles());
 
     const result = await runCli(["import", fab.root, "--agents", "claude"], { cwd: repo.root });
