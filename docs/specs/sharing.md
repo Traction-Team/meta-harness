@@ -352,12 +352,13 @@ Nothing was committed. Review the changes with git diff.
 
 The summary uses this order:
 
-1. Executable files and non-Markdown files in skill directories
+1. Files under `scripts/`, executable files, and non-Markdown files in skill directories
 2. `AGENTS.md` and `factory.yaml`
 3. Workflows
 4. Skills
-5. Preserved local edits
-6. Conflicts
+5. Other files, such as templates
+6. Preserved local edits
+7. Conflicts
 
 The summary also calls out:
 
