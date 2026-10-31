@@ -13,4 +13,4 @@ Skills already in `.claude/skills/` or `.agents/skills/` move into `.factory/ski
 
 ## Still to come
 
-[Plan 1.009](../plans/1.009-import.md) reuses the adoption module for `import`. Follow-ups are in `docs/intake/2026-10-29-adoption-frontmatter-name-clash.md` and `docs/intake/2026-10-29-adoption-polish.md`.
+[Plan 1.009](../plans/1.009-import.md) reuses the adoption module for `import`. Follow-ups are in `docs/intake/2026-10-29-adoption-polish.md`.
