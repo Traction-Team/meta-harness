@@ -446,3 +446,77 @@ describe("copying a fab", () => {
     expect(await readlink(repo.path(".factory", "notes-link.md"))).toBe("notes.md");
   });
 });
+
+describe("preflight before writing", () => {
+  test("an incoming symlink over a local file or directory is a conflict", async () => {
+    const repo = await repoWith({
+      ".factory/notes-link.md/keep.txt": "keep\n",
+      ".factory/notes-file.md": "local file\n",
+    });
+    const fab = await makeFab(fabFiles());
+    await writeRepoFiles(fab.root, { ".factory/notes.md": "notes\n" });
+    await symlink("notes.md", fab.path(".factory", "notes-link.md"));
+    await symlink("notes.md", fab.path(".factory", "notes-file.md"));
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["import", fab.root, "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stderr).toContain(".factory/notes-link.md/keep.txt");
+    expect(result.stderr).toContain(".factory/notes-file.md");
+    expect(await snapshot(repo.root)).toEqual(before);
+    expect(await readFile(repo.path(".factory", "notes-link.md", "keep.txt"), "utf8")).toBe("keep\n");
+  });
+
+  test("a case-only path clash is a conflict, even with identical content", async () => {
+    const repo = await repoWith({
+      ".factory/templates/note.md": "local\n",
+      ".factory/skills/Guide/SKILL.md": skill("guide"),
+    });
+    const fab = await makeFab({
+      ...fabFiles(),
+      ".factory/templates/Note.md": "fab\n",
+    });
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["import", fab.root, "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stderr).toContain(".factory/templates/note.md");
+    expect(result.stderr).toContain(".factory/skills/Guide/SKILL.md");
+    expect(await snapshot(repo.root)).toEqual(before);
+    expect(await readFile(repo.path(".factory", "templates", "note.md"), "utf8")).toBe("local\n");
+  });
+
+  test("a build conflict stops the import before any write", async () => {
+    const repo = await repoWith({ "README.md": "# Repository\n" });
+    await writeRepoFiles(repo.root, { "gitignore.txt": "" });
+    await symlink("gitignore.txt", repo.path(".gitignore"));
+    await runGitIn(repo.root, ["add", "-A"]);
+    await runGitIn(repo.root, ["commit", "-qm", "initial"]);
+    const fab = await makeFab(fabFiles());
+
+    const result = await runCli(["import", fab.root, "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stderr).toContain(".gitignore");
+    expect(await pathExists(repo.path(".factory"))).toBe(false);
+    expect(await runGitIn(repo.root, ["status", "--porcelain"])).toBe("");
+  });
+
+  test("a global --json before the command runs import in JSON mode", async () => {
+    const repo = await repoWith();
+    const fab = await makeFab(fabFiles());
+
+    const result = await runCli(["--json", "import", fab.root], { cwd: repo.root });
+
+    expect(result.code).toBe(0);
+    const payload = parseJson(result);
+    expect(payload.command).toBe("import");
+    expect(payload.upstream).toEqual({ kind: "unversioned", source: fab.root });
+    expect(payload.review).toBeDefined();
+    // JSON mode is non-interactive: no target prompt waited for input.
+    expect(await pathExists(repo.path(".claude", "skills", "guide", "SKILL.md"))).toBe(true);
+    expect(await pathExists(repo.path(".agents", "skills", "guide", "SKILL.md"))).toBe(true);
+  });
+});

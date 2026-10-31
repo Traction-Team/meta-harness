@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -61,6 +61,16 @@ describe("snapshotTree", () => {
     const entry = (await snapshotTree(dir))["scripts/release.sh"]!;
 
     expect(entry.mode & 0o777).toBe(0o755);
+  });
+
+  test("records symbolic links with their target", async () => {
+    const dir = await makeDir({ "notes.md": "notes\n" });
+    await symlink("notes.md", path.join(dir, "notes-link.md"));
+
+    const tree = await snapshotTree(dir);
+
+    expect(tree["notes-link.md"]).toMatchObject({ link: "notes.md", binary: false });
+    expect(tree["notes-link.md"]!.hash).not.toBe(tree["notes.md"]!.hash);
   });
 
   test("snapshots .factory/ under a repository root", async () => {

@@ -18,10 +18,10 @@ import { applyBuild, planBuild } from "../build/index.js";
 import type { BuildChange } from "../build/index.js";
 import { destinations } from "../config/destinations.js";
 import { loadConfig } from "../config/load.js";
-import { CONFIG_FILE, CONFIG_FILENAME } from "../config/parse.js";
+import { CONFIG_FILE, CONFIG_FILENAME, parseConfig } from "../config/parse.js";
 import { TARGETS } from "../config/types.js";
 import type { Config, Target, UpstreamEntry } from "../config/types.js";
-import { createConfig, setUpstream } from "../config/writers.js";
+import { createConfig, createConfigText, setUpstream } from "../config/writers.js";
 import { loadFactory } from "../factory/load.js";
 import { ensureGitattributes } from "../init/gitattributes.js";
 import { selectTargets } from "../init/targets.js";
@@ -209,6 +209,40 @@ function declinedReport(
   };
 }
 
+function isAdoptionSource(file: string, moves: readonly AdoptionMove[]): boolean {
+  return moves.some((move) => move.from.some((from) => file === from || file.startsWith(`${from}/`)));
+}
+
+/**
+ * The output conflicts `build` would refuse, checked before `import` writes
+ * anything. Validation errors that are already in the factory are left for the
+ * closing build to report. Conflict problems inside a planned move are ignored:
+ * the move removes them.
+ */
+async function preflightBuild(
+  root: string,
+  config: Config,
+  selection: "all" | Target[],
+  configExists: boolean,
+  moves: readonly AdoptionMove[],
+): Promise<void> {
+  const factory = await loadFactory(root);
+  const effective = configExists ? config : parseConfig(createConfigText({ agents: selection }));
+  const planned = await planBuild(factory, effective, cliVersion());
+  const conflicts = planned.conflicts.filter((problem) => !isAdoptionSource(problem.file, moves));
+
+  if (conflicts.length === 0) return;
+
+  throw new MetafabError(
+    "Build stopped because the repository contains output that Metafab does not own.",
+    {
+      exitCode: ExitCode.NotOwned,
+      code: "build-conflict",
+      problems: [...conflicts, ...planned.errors, ...planned.warnings],
+    },
+  );
+}
+
 /**
  * Runs `metafab import`: resolve and fetch the source, check it against the
  * repository without writing, collect adoption consent, then create the local
@@ -286,6 +320,9 @@ export async function runImport(options: ImportOptions): Promise<ImportReport> {
         summarise(emptyTree(), emptyTree(), { title: importTitle(fetched.upstream) }),
       );
     }
+
+    const configExists = hasFactory && (await pathExists(path.join(factoryDir, CONFIG_FILENAME)));
+    await preflightBuild(root, existingConfig, selection, configExists, plan.moves);
 
     const created: string[] = [];
     const updated: string[] = [];

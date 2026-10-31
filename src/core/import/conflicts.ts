@@ -10,6 +10,17 @@ export interface LocalFile {
   file: string;
 }
 
+/**
+ * Local paths indexed the way the filesystem compares them: ignoring case,
+ * with each directory mapped to a key beneath it. The entries keep the
+ * spelling and the file path of the local tree, so a problem names the local
+ * entry.
+ */
+interface LocalIndex {
+  files: Map<string, { key: string; local: LocalFile }>;
+  directories: Map<string, string>;
+}
+
 function absolute(root: string, relativePath: string): string {
   return path.join(root, ...relativePath.split("/"));
 }
@@ -38,6 +49,15 @@ function blocked(file: string): Problem {
     file,
     message: `The incoming fab would replace ${file} with a different kind of entry`,
     fix: "Move the local entry away, or run metafab import --force to replace it",
+  };
+}
+
+function differentSpelling(file: string, incoming: string): Problem {
+  return {
+    level: "error",
+    file,
+    message: `The incoming fab writes ${incoming}, which differs only in case from ${file}`,
+    fix: "Keep the local file, or run metafab import --force to replace it",
   };
 }
 
@@ -85,39 +105,73 @@ export async function localFilesForImport(
   return files;
 }
 
+function indexOf(local: ReadonlyMap<string, LocalFile>): LocalIndex {
+  const files = new Map<string, { key: string; local: LocalFile }>();
+  const directories = new Map<string, string>();
+
+  for (const [key, localFile] of local) {
+    const folded = key.toLowerCase();
+    if (!files.has(folded)) files.set(folded, { key, local: localFile });
+    const parts = key.split("/");
+    for (let index = 1; index < parts.length; index += 1) {
+      const directory = parts.slice(0, index).join("/").toLowerCase();
+      if (!directories.has(directory)) directories.set(directory, key);
+    }
+  }
+
+  return { files, directories };
+}
+
 /**
  * Every incoming path that would replace a local file with different content,
- * compared without line-ending changes counting as a difference. A path that
- * would replace a file with a directory, or a directory with a file, is a
- * conflict too, so the copy can never fail on it.
+ * compared without line-ending changes counting as a difference, and without
+ * case: a path that differs only in case still lands on the same entry on a
+ * case-insensitive filesystem. A path that would replace a file with a
+ * directory, a directory with a file, or a link with a file, is a conflict too,
+ * so the copy can never fail on it or delete local content.
  */
 export async function findImportConflicts(
   incomingDir: string,
   local: ReadonlyMap<string, LocalFile>,
 ): Promise<Problem[]> {
   const incoming = await snapshotTree(incomingDir);
+  const index = indexOf(local);
   const problems: Problem[] = [];
+  const reported = new Set<string>();
+
+  function report(problem: Problem): void {
+    const id = `${problem.file}\u0000${problem.message}`;
+    if (reported.has(id)) return;
+    reported.add(id);
+    problems.push(problem);
+  }
 
   for (const relativePath of Object.keys(incoming).sort()) {
-    const existing = local.get(relativePath);
+    const folded = relativePath.toLowerCase();
+    const existing = index.files.get(folded);
     if (existing !== undefined) {
-      if (existing.entry.hash !== incoming[relativePath]!.hash) {
-        problems.push(replaced(existing.file));
+      if (existing.key !== relativePath) {
+        report(differentSpelling(existing.local.file, relativePath));
+      } else if (existing.local.entry.hash !== incoming[relativePath]!.hash) {
+        report(replaced(existing.local.file));
       }
       continue;
     }
 
+    let blocker: LocalFile | undefined;
     for (const prefix of ancestors(relativePath)) {
-      const blocking = local.get(prefix);
-      if (blocking !== undefined) {
-        problems.push(blocked(blocking.file));
-        break;
-      }
+      blocker = index.files.get(prefix.toLowerCase())?.local;
+      if (blocker !== undefined) break;
+    }
+    if (blocker !== undefined) {
+      report(blocked(blocker.file));
+      continue;
     }
 
-    const asDirectory = [...local.keys()].find((key) => key.startsWith(`${relativePath}/`));
+    const asDirectory = index.directories.get(folded);
     if (asDirectory !== undefined) {
-      problems.push(blocked(local.get(asDirectory)!.file));
+      const below = local.get(asDirectory);
+      if (below !== undefined) report(blocked(below.file));
     }
   }
 
