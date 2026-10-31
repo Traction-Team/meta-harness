@@ -1,8 +1,11 @@
-import { chmod } from "node:fs/promises";
+import { chmod, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ExitCode, MetafabError } from "../../../src/errors.js";
-import { prepareFab, publishFab } from "../../../src/core/publish/index.js";
+import { prepareFab, publishFab, verifyGitIndex } from "../../../src/core/publish/index.js";
 import type { PublishConfig } from "../../../src/core/config/types.js";
+import { copyTree } from "../../../src/util/fs.js";
+import { makeRepo } from "../../helpers/makeRepo.js";
 import { loadRepo, makePublishRepo } from "./fixtures.js";
 import type { RepoFiles, TempRepo } from "../../helpers/makeRepo.js";
 import {
@@ -16,6 +19,7 @@ import {
   runGitIn,
   showFile,
   tagMessage,
+  treeFiles,
 } from "./git-fab-fixture.js";
 
 interface Cleanable {
@@ -243,5 +247,67 @@ describe("the Git target", () => {
 
     expect(await runGitIn(fixture.repo.root, ["status", "--porcelain"])).toBe(statusBefore);
     expect(await runGitIn(fixture.repo.root, ["rev-parse", "HEAD"])).toBe(headBefore);
+  });
+
+  it("carries the files the fab's own .gitignore matches", async () => {
+    const bare = track(await makeBareFabRepo());
+    const files = {
+      ".factory/skills/git/.gitignore": "*.log\n",
+      ".factory/skills/git/debug.log": "a log line\n",
+    };
+
+    const result = await publish(bare.repo, VERSION, files);
+    const tag = await treeFiles(bare.repo, "v1.2.0");
+
+    expect(result.targets.map((target) => target.status)).toEqual(["published"]);
+    expect(tag).toContain(".factory/skills/git/.gitignore");
+    expect(tag).toContain(".factory/skills/git/debug.log");
+  });
+
+  it("carries a file the user's global exclude file matches", async () => {
+    const bare = track(await makeBareFabRepo());
+    const identity = await noIdentityEnv();
+    cleanups.push(identity.cleanup);
+    const excludes = path.join(bare.root, "global-excludes");
+    await writeFile(excludes, "*.log\n");
+    await writeFile(
+      identity.env.GIT_CONFIG_GLOBAL as string,
+      `[core]\n\texcludesFile = ${excludes}\n`,
+    );
+
+    const fixture = await prepare(bare.repo, VERSION, {
+      ".factory/skills/git/debug.log": "a log line\n",
+    });
+    await publishFab(fixture.prepared, fixture.publish, {
+      env: identity.env,
+      stderr: () => undefined,
+    });
+
+    expect(await treeFiles(bare.repo, "v1.2.0")).toContain(".factory/skills/git/debug.log");
+  });
+
+  it("fails before committing when Git did not stage a fab file", async () => {
+    const bare = track(await makeBareFabRepo());
+    const fixture = await prepare(bare.repo, VERSION, {
+      ".factory/skills/git/debug.log": "a log line\n",
+    });
+    const work = track(await makeRepo());
+    await runGitIn(work.root, ["init", "--quiet"]);
+    await copyTree(fixture.prepared.root, work.root);
+    // The index excludes the file, as Git's ignore rules would.
+    await writeFile(path.join(work.root, ".git", "info", "exclude"), "*.log\n");
+    await runGitIn(work.root, ["add", "-A"]);
+
+    const failure = (await verifyGitIndex(work.root, fixture.prepared.root).catch(
+      (error: unknown) => error,
+    )) as MetafabError;
+
+    expect(failure).toBeInstanceOf(MetafabError);
+    expect(failure.code).toBe("publish-git-files-lost");
+    expect(failure.exitCode).toBe(ExitCode.InvalidFab);
+    expect(failure.problems?.map((problem) => problem.file)).toEqual([
+      ".factory/skills/git/debug.log",
+    ]);
+    expect(await remoteRef(bare.repo, "refs/heads/main")).toBeUndefined();
   });
 });

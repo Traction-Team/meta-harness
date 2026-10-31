@@ -1,10 +1,12 @@
 import { readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { prepareFab } from "../../../src/core/publish/index.js";
+import { prepareFab, publishFab } from "../../../src/core/publish/index.js";
 import type { PreparedFab } from "../../../src/core/publish/index.js";
+import type { PublishConfig } from "../../../src/core/config/types.js";
 import { MetafabError } from "../../../src/errors.js";
 import { loadRepo, makePublishRepo } from "./fixtures.js";
+import { fileUrl, makeBareFabRepo, noIdentityEnv, treeFiles } from "./git-fab-fixture.js";
 import type { TempRepo } from "../../helpers/makeRepo.js";
 
 const BOTH_TARGETS = [
@@ -17,10 +19,12 @@ const BOTH_TARGETS = [
 
 const repos: TempRepo[] = [];
 const prepared: PreparedFab[] = [];
+const cleanups: Array<() => Promise<void>> = [];
 
 afterEach(async () => {
   await Promise.all(prepared.splice(0).map((fab) => fab.cleanup()));
   await Promise.all(repos.splice(0).map((repo) => repo.cleanup()));
+  await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
 });
 
 async function prepare(publish?: string): Promise<{ target: TempRepo; fab: PreparedFab }> {
@@ -98,6 +102,39 @@ describe("prepareFab", () => {
 
     expect(fab.files).toContain(".factory/skills/git/.gitignore");
     expect(fab.warnings).toEqual([]);
+  });
+
+  test("a Git-only publish pushes every file, including the matches of its .gitignore", async () => {
+    const bare = await makeBareFabRepo();
+    cleanups.push(bare.cleanup);
+    const target = await makePublishRepo({
+      publish: [
+        "publish:",
+        `  git: ${JSON.stringify(fileUrl(bare.repo))}`,
+        "  version: 1.2.0",
+        "",
+      ].join("\n"),
+      files: {
+        ".factory/skills/git/.gitignore": "*.log\n",
+        ".factory/skills/git/debug.log": "a log line\n",
+        ".factory/skills/git/notes.txt": "kept\n",
+      },
+    });
+    repos.push(target);
+    const { factory, config } = await loadRepo(target);
+
+    const fab = await prepareFab(factory, config);
+    prepared.push(fab);
+    const identity = await noIdentityEnv();
+    cleanups.push(identity.cleanup);
+
+    await publishFab(fab, config.publish as PublishConfig, {
+      env: identity.env,
+      stderr: () => undefined,
+    });
+
+    expect(fab.files).toContain(".factory/skills/git/debug.log");
+    expect(await treeFiles(bare.repo, "v1.2.0")).toEqual(fab.files);
   });
 
   test("the generated README lists only the staged skills", async () => {

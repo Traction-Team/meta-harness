@@ -82,6 +82,19 @@ export async function showFile(repo: string, revision: string, file: string): Pr
   return runGitIn(process.cwd(), ["--git-dir", repo, "show", `${revision}:${file}`]);
 }
 
+/** Every path in a revision's tree, as sorted as Git stores them. */
+export async function treeFiles(repo: string, revision: string): Promise<string[]> {
+  const output = await runGitIn(process.cwd(), [
+    "--git-dir",
+    repo,
+    "ls-tree",
+    "-r",
+    "--name-only",
+    revision,
+  ]);
+  return output.split("\n").filter((line) => line !== "");
+}
+
 /** A commit made directly in the fab repository, the way a hand edit arrives. */
 export async function handCommit(
   repo: string,

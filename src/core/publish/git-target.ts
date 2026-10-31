@@ -1,12 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
-import { copyTree } from "../../util/fs.js";
+import { copyTree, listFiles } from "../../util/fs.js";
 import type { PublishConfig } from "../config/types.js";
 import { withEnv } from "../sources/env.js";
 import { redact, stripSourceCredentials } from "../sources/redact.js";
@@ -23,6 +23,7 @@ const FALLBACK_EMAIL = "metafab@example.com";
 const NPM_ONLY_FILES = new Set(["package.json"]);
 
 let hooksDirectory: string | undefined;
+let emptyExcludesFile: string | undefined;
 
 /**
  * Git runs `core.hooksPath` hooks from the user's configuration, and a hook is
@@ -42,6 +43,29 @@ function hooksConfig(): string {
     });
   }
   return `core.hooksPath=${hooksDirectory}`;
+}
+
+/**
+ * A fab may ship its own `.gitignore`, and the user's global exclude file is
+ * theirs, not the fab's. Both would silently keep a staged file out of the
+ * commit, so publishing stages with the ignore rules off: an empty exclude file
+ * replaces the global one, and the `git add` calls pass `--force`.
+ */
+function excludesConfig(): string {
+  if (emptyExcludesFile === undefined) {
+    const directory = mkdtempSync(path.join(tmpdir(), "metafab-publish-excludes-"));
+    const file = path.join(directory, "excludes");
+    writeFileSync(file, "");
+    emptyExcludesFile = file;
+    process.once("exit", () => {
+      try {
+        rmSync(directory, { recursive: true, force: true });
+      } catch {
+        // best effort: only an empty exclude file lives there
+      }
+    });
+  }
+  return `core.excludesFile=${emptyExcludesFile}`;
 }
 
 interface GitFailure {
@@ -136,6 +160,25 @@ function gitFailureError(context: string): (detail: string) => MetafabError {
   return (detail) => gitError(`${context}: ${detail}`, "publish-git-failed", ExitCode.FetchFailed);
 }
 
+/**
+ * Stages the whole working tree with Git's ignore rules off. A fab may ship a
+ * `.gitignore` of its own, and the user's global exclude file must not decide
+ * what a published fab carries, so the tree Git commits is the staged fab.
+ */
+async function addFabFiles(
+  repo: string,
+  context: GitContext,
+  failure: string,
+): Promise<void> {
+  await runGit(
+    ["add", "-A", "--force"],
+    repo,
+    context,
+    ["-c", excludesConfig()],
+    gitFailureError(failure),
+  );
+}
+
 /** `publish.git` is required for the Git target; a missing URL is a config error. */
 function gitUrl(publish: PublishConfig): string {
   if (publish.git === undefined) {
@@ -208,13 +251,7 @@ async function tagTreeMatches(
   );
 
   await copyTree(root, repo, { ignore: (relativePath) => NPM_ONLY_FILES.has(relativePath) });
-  await runGit(
-    ["add", "-A"],
-    repo,
-    context,
-    [],
-    gitFailureError("Cannot compare the fab repository files"),
-  );
+  await addFabFiles(repo, context, "Cannot compare the fab repository files");
 
   const differences = await tryGit(["diff", "--cached", "--quiet"], repo, context);
   if (differences.ok) return true;
@@ -222,6 +259,58 @@ async function tagTreeMatches(
   // error, not a changed fab.
   if (differences.status === 1) return false;
   throw gitFailureError(`Cannot compare tag ${tag} with the staged fab`)(gitMessage(differences));
+}
+
+function filesLostError(missing: readonly string[], extra: readonly string[]): MetafabError {
+  const problems: Problem[] = [
+    ...missing.map((file) => ({
+      level: "error" as const,
+      file,
+      message: `Git did not stage ${file}`,
+      fix: "Rename the path or add it to publish.exclude; Git cannot store it in a fab",
+    })),
+    ...extra.map((file) => ({
+      level: "error" as const,
+      file,
+      message: `Git staged ${file}, which the staged fab does not carry`,
+      fix: "Report this at https://github.com/seasb/metafab/issues",
+    })),
+  ];
+
+  return new MetafabError("The Git fab would not carry every staged file.", {
+    exitCode: ExitCode.InvalidFab,
+    code: "publish-git-files-lost",
+    problems,
+  });
+}
+
+/**
+ * The safety net for the Git target: `git add --force` covers the ignore rules,
+ * but Git can still keep a file out of the index or add one the fab lacks. After
+ * staging, the index is compared with the staged fab, and a difference stops the
+ * publish before the commit names a tree that is not the fab.
+ */
+export async function verifyGitIndex(
+  repo: string,
+  root: string,
+  options: PublishOptions = {},
+): Promise<void> {
+  const context = gitContext(options);
+  const listed = await runGit(
+    ["ls-files", "-z"],
+    repo,
+    context,
+    [],
+    gitFailureError("Cannot read the fab repository files"),
+  );
+  const tracked = new Set(listed.split("\0").filter((file) => file !== ""));
+  const expected = (await listFiles(root)).filter((file) => !NPM_ONLY_FILES.has(file));
+  const expectedSet = new Set(expected);
+  const missing = expected.filter((file) => !tracked.has(file));
+  const extra = [...tracked].filter((file) => !expectedSet.has(file)).sort();
+  if (missing.length === 0 && extra.length === 0) return;
+
+  throw filesLostError(missing, extra);
 }
 
 export interface GitVersionState {
@@ -433,7 +522,10 @@ export async function publishGitFab(
     }
 
     await copyTree(root, repo, { ignore: (relativePath) => NPM_ONLY_FILES.has(relativePath) });
-    await runGit(["add", "-A"], repo, context, [], gitFailureError("Cannot stage the fab"));
+    await addFabFiles(repo, context, "Cannot stage the fab");
+    // Staging and the commit must name the same tree: a file Git left out would
+    // be reported as published while the tag never carried it.
+    await verifyGitIndex(repo, root, options);
 
     const identity = await identityConfig(repo, context);
     await runGit(
