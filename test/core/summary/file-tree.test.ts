@@ -54,7 +54,7 @@ describe("snapshotTree", () => {
     expect(Buffer.from(entry.data!)).toEqual(Buffer.from(data));
   });
 
-  test("records permission bits", async () => {
+  test.skipIf(process.platform === "win32")("records permission bits", async () => {
     const dir = await makeDir({ "scripts/release.sh": "#!/bin/sh\n" });
     await chmod(path.join(dir, "scripts/release.sh"), 0o755);
 

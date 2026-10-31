@@ -451,7 +451,11 @@ describe("copying a fab", () => {
     const result = await runCli(["import", fab.root, "--agents", "claude"], { cwd: repo.root });
 
     expect(result.code).toBe(0);
-    expect((await stat(repo.path(".factory", "scripts", "run.sh"))).mode & 0o111).not.toBe(0);
+    // Windows has no executable bit: file modes are not meaningful there, so
+    // only content and links are compared.
+    if (process.platform !== "win32") {
+      expect((await stat(repo.path(".factory", "scripts", "run.sh"))).mode & 0o111).not.toBe(0);
+    }
     expect(await readlink(repo.path(".factory", "notes-link.md"))).toBe("notes.md");
   });
 });

@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -63,10 +63,16 @@ beforeAll(async () => {
       body: "new one\nnew two\nnew three",
     }),
   });
-  await chmod(path.join(afterDir, "scripts/release.sh"), 0o755);
 
   before = await snapshotTree(beforeDir);
-  after = await snapshotTree(afterDir);
+  // The spec example must render the same on every platform. Windows has no
+  // executable bit, and a written file there reports 0o666, so the mode is set
+  // on the entry in memory rather than read back from the filesystem.
+  const afterTree = await snapshotTree(afterDir);
+  after = {
+    ...afterTree,
+    "scripts/release.sh": { ...afterTree["scripts/release.sh"]!, mode: 0o755 },
+  };
 }, 60_000);
 
 afterAll(async () => {

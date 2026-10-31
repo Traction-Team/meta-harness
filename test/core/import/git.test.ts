@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import { pathExists } from "../../../src/util/fs.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
@@ -48,9 +49,13 @@ async function importFixture(): Promise<{ result: RunCliResult; repo: TempRepo }
   const root = await mkdtemp(path.join(tmpdir(), "metafab-import-git-"));
   roots.push(root);
   const gitconfig = path.join(root, "gitconfig");
+  // Git reads a backslash in a quoted config value as an escape, so a Windows
+  // path has to be written as a URL with forward slashes (Git accepts both on
+  // every platform): file:///D:/a/repo.git.
+  const repoUrl = pathToFileURL(fixture.repo).href;
   await writeFile(
     gitconfig,
-    `[url "file://${fixture.repo}"]\n\tinsteadOf = ${SOURCE_URL}\n`,
+    `[url "${repoUrl}"]\n\tinsteadOf = ${SOURCE_URL}\n`,
   );
 
   const previous = {
