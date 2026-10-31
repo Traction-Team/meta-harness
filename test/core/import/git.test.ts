@@ -4,6 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import { pathExists } from "../../../src/util/fs.js";
+import { toLF } from "../../../src/util/text.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
 import type { TempRepo } from "../../helpers/makeRepo.js";
 import { runCli } from "../../helpers/runCli.js";
@@ -93,7 +94,11 @@ describe("import from a local Git repository", () => {
     });
 
     expect(await readFile(repo.path(".factory", "factory.yaml"), "utf8")).toContain("name: sample-fab");
-    expect(await readFile(repo.path(".factory", "AGENTS.md"), "utf8")).toBe("# Agents at 1.1.0\n");
+    // A Windows runner with core.autocrlf=true checks the fab out with CRLF, and
+    // import copies it as it is: imported content is compared without line endings.
+    expect(toLF(await readFile(repo.path(".factory", "AGENTS.md"), "utf8"))).toBe(
+      "# Agents at 1.1.0\n",
+    );
     expect(await readFile(repo.path(".factory", "metafab.yaml"), "utf8")).not.toContain(
       "belongs-to-the-project",
     );
