@@ -211,7 +211,7 @@ HTTPS tarballs and local paths are **unversioned** sources. Metafab cannot downl
 ## Importing a fab
 
 ```sh
-metafab import <source> [--agents <list>] [--force]
+metafab import <source> [--agents <list>] [--force] [--adopt]
 ```
 
 The command performs these steps:

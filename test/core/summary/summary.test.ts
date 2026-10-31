@@ -6,7 +6,7 @@ import {
   summarise,
 } from "../../../src/core/summary.js";
 import type { Summary, SummaryContext, SummaryEntry } from "../../../src/core/summary.js";
-import { binaryFile, makeTree, textFile } from "./trees.js";
+import { binaryFile, linkFile, makeTree, textFile } from "./trees.js";
 
 const CONTEXT: SummaryContext = { title: "@seasb/fab-mark4 1.2.0 -> 1.3.0" };
 
@@ -72,18 +72,18 @@ describe("summarise", () => {
       "session",
       "workflows",
       "skills",
+      "other",
       "preserved",
       "conflicts",
-      "other",
     ]);
     expect(summary.groups.map((group) => group.heading)).toEqual([
       "Runs code on your machines: review first",
       "Changes every agent session",
       "Workflows",
       "Skills",
+      "Other",
       "Local edits preserved",
       "Conflicts: 1",
-      "Other",
     ]);
     expect(entryAt(summary, "workflows/plan-feature/SKILL.md")).toMatchObject({
       status: "C",
@@ -327,6 +327,29 @@ describe("summarise", () => {
       "workflows/a/SKILL.md",
       "workflows/b/SKILL.md",
     ]);
+  });
+
+  test("lists added, removed, and repointed symbolic links", () => {
+    const before = makeTree({
+      "notes-link.md": linkFile("notes.md"),
+      "old-link.md": linkFile("old.md"),
+    });
+    const after = makeTree({
+      "notes-link.md": linkFile("other-notes.md"),
+      "new-link.md": linkFile("new.md"),
+    });
+
+    const summary = summarise(before, after, CONTEXT);
+
+    expect(entryAt(summary, "new-link.md")).toMatchObject({ status: "A", link: "new.md" });
+    expect(entryAt(summary, "old-link.md")).toMatchObject({ status: "D", link: "old.md" });
+    expect(entryAt(summary, "notes-link.md")).toMatchObject({
+      status: "M",
+      link: "other-notes.md",
+    });
+    expectRow(lines(summary), "A new-link.md", "-> new.md");
+    expectRow(lines(summary), "D old-link.md", "-> old.md");
+    expectRow(lines(summary), "M notes-link.md", "-> other-notes.md");
   });
 
   test("renders notes before the footer and the footer last", () => {

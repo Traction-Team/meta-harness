@@ -15,6 +15,11 @@ export function binaryFile(data: Uint8Array, mode = 0o644): FileEntry {
   return { hash: hashOf(data), mode, binary: true, data };
 }
 
+/** An in-memory symbolic link entry, hashed the way `snapshotTree` hashes it. */
+export function linkFile(target: string, mode = 0o755): FileEntry {
+  return { hash: hashOf(`\0metafab-link\0${target}`), mode, binary: false, link: target };
+}
+
 export function makeTree(files: Record<string, FileEntry>): FileTree {
   return { ...files };
 }

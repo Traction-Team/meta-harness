@@ -35,6 +35,8 @@ export interface SummaryEntry {
   description?: string;
   /** Extra notes shown after the counts, such as `allowed-tools changed`. */
   annotations?: string[];
+  /** The target of an added, removed, or repointed symbolic link. */
+  link?: string;
 }
 
 export interface SummaryGroup {
@@ -188,6 +190,13 @@ function entryFor(change: Change): SummaryEntry {
   const { before, after } = change;
   const entry: SummaryEntry = { status: change.status, path: change.path };
 
+  const link = after?.link ?? before?.link;
+  if (link !== undefined) {
+    // A link's content is its target; there are no lines to count.
+    entry.link = link;
+    return entry;
+  }
+
   if (change.status === "A") {
     entry.added = after?.binary === true ? 0 : countLines("", after?.text ?? "").added;
     entry.removed = 0;
@@ -252,7 +261,7 @@ const HEADINGS: Record<SummaryGroupKey, string> = {
  * Compare two factory snapshots and group the changes by the risk they carry.
  *
  * The groups follow the spec order: code, every-session files, workflows,
- * skills, preserved local edits, conflicts, and other files.
+ * skills, other files, preserved local edits, and conflicts.
  */
 export function summarise(before: FileTree, after: FileTree, ctx: SummaryContext): Summary {
   const conflicts = new Set(ctx.conflicts ?? []);
@@ -330,9 +339,9 @@ export function summarise(before: FileTree, after: FileTree, ctx: SummaryContext
     "session",
     "workflows",
     "skills",
+    "other",
     "preserved",
     "conflicts",
-    "other",
   ];
   const groups: SummaryGroup[] = [];
   for (const key of order) {
@@ -357,6 +366,7 @@ export function summarise(before: FileTree, after: FileTree, ctx: SummaryContext
 function detailOf(entry: SummaryEntry): string | undefined {
   if (entry.description !== undefined) return entry.description;
   if (entry.title !== undefined) return entry.title;
+  if (entry.link !== undefined) return `-> ${entry.link}`;
   if (entry.status === undefined) return undefined;
   if (entry.executable === true && entry.status === "A") return "new, executable";
   if (entry.binary === true) return entry.status === "A" ? "new" : "binary";
