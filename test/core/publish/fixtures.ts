@@ -49,6 +49,43 @@ export async function makePublishRepo(options: PublishRepoOptions = {}): Promise
   return repo;
 }
 
+export function bothPublishSection(name: string, url: string, version: string): string {
+  return [
+    "publish:",
+    `  name: ${JSON.stringify(name)}`,
+    `  git: ${JSON.stringify(url)}`,
+    `  version: ${version}`,
+    "",
+  ].join("\n");
+}
+
+/**
+ * Runs `run` with the overlay applied to `process.env`, restoring every key the
+ * overlay touched. Commands read the process environment, so this is how a test
+ * points npm at a local registry without changing the machine.
+ */
+export async function withProcessEnv<T>(
+  overlay: NodeJS.ProcessEnv,
+  run: () => Promise<T>,
+): Promise<T> {
+  const previous = new Map<string, string | undefined>();
+
+  for (const [key, value] of Object.entries(overlay)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+
+  try {
+    return await run();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
 export async function loadRepo(repo: TempRepo): Promise<{ factory: Factory; config: Config }> {
   const factory = await loadFactory(repo.root);
   const config = await loadConfig(factory.dir);

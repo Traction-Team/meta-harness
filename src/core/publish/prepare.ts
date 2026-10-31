@@ -12,6 +12,9 @@ import type { PreparedFab, PublishTargetName } from "./types.js";
 
 const CONFIG_FILE = ".factory/metafab.yaml";
 
+/** A `publish` section that has a version and at least one target. */
+export type ValidPublishConfig = PublishConfig & { version: string };
+
 function publishProblem(message: string, fix: string): Problem {
   return {
     level: "error",
@@ -34,11 +37,11 @@ async function fabFileSize(root: string, file: string): Promise<number> {
 }
 
 /**
- * Builds the complete fab in a temporary directory: the staged `.factory/`,
- * the README at the root and, for the npm target, `package.json`. It publishes
- * nothing, so `--dry-run` and the real run report from the same data.
+ * The `publish` section a publish needs, or the problems to report instead.
+ * The command checks it before it runs anything else, and `prepareFab` uses the
+ * same function, so both report the same problems.
  */
-export async function prepareFab(factory: Factory, config: Config): Promise<PreparedFab> {
+export function requirePublishConfig(config: Config): ValidPublishConfig {
   const publish = config.publish;
   if (publish === undefined) {
     throw new MetafabError('"publish" is not configured.', {
@@ -53,8 +56,7 @@ export async function prepareFab(factory: Factory, config: Config): Promise<Prep
     });
   }
 
-  const targets = publishTargets(publish);
-  if (targets.length === 0) {
+  if (publishTargets(publish).length === 0) {
     throw new MetafabError('"publish" names no target.', {
       exitCode: ExitCode.Failed,
       code: "publish-no-target",
@@ -74,6 +76,18 @@ export async function prepareFab(factory: Factory, config: Config): Promise<Prep
       problems: [publishProblem('"publish.version" is required.', 'Add "version" to "publish"')],
     });
   }
+
+  return publish as ValidPublishConfig;
+}
+
+/**
+ * Builds the complete fab in a temporary directory: the staged `.factory/`,
+ * the README at the root and, for the npm target, `package.json`. It publishes
+ * nothing, so `--dry-run` and the real run report from the same data.
+ */
+export async function prepareFab(factory: Factory, config: Config): Promise<PreparedFab> {
+  const publish = requirePublishConfig(config);
+  const targets = publishTargets(publish);
 
   const staged = await stageFab(factory, { exclude: publish.exclude });
 

@@ -121,6 +121,11 @@ export async function noIdentityEnv(
   };
 }
 
+/** A `file://` URL for a local repository, the form `publish.git` accepts. */
+export function fileUrl(repo: string): string {
+  return `file://${repo}`;
+}
+
 export function gitPublishSection(
   url: string,
   version: string,
