@@ -108,6 +108,66 @@ describe("pipeline entries", () => {
   });
 });
 
+describe("YAML aliases", () => {
+  test("resolves a shared options mapping", () => {
+    const result = parse(
+      "format: 1\nname: mark4\npipeline:\n  - review-slice: &gate { stop: Wait for approval }\n  - finish-slice: *gate\n",
+    );
+
+    expect(result.problems).toEqual([]);
+    expect(result.yaml?.pipeline).toEqual([
+      { workflow: "review-slice", stop: "Wait for approval", line: 4 },
+      { workflow: "finish-slice", stop: "Wait for approval", line: 5 },
+    ]);
+  });
+
+  test("resolves a scalar anchor in an option value", () => {
+    const result = parse(
+      "format: 1\nname: mark4\npipeline:\n  - review-slice: { stop: &s Wait }\n  - finish-slice: { stop: *s }\n",
+    );
+
+    expect(result.problems).toEqual([]);
+    expect(result.yaml?.pipeline).toEqual([
+      { workflow: "review-slice", stop: "Wait", line: 4 },
+      { workflow: "finish-slice", stop: "Wait", line: 5 },
+    ]);
+  });
+
+  test("reports an anchored unknown field, not the aliased entry", () => {
+    const result = parse(
+      "format: 1\nname: mark4\nx-build: &build { stop: Wait }\npipeline:\n  - review-slice: *build\n",
+    );
+
+    expect(result.problems).toEqual([
+      {
+        level: "error",
+        file: FILE,
+        line: 3,
+        message: 'Unknown field "x-build" in factory.yaml',
+        fix: "Remove the field or use a known name: format, name, description, pipeline",
+      },
+    ]);
+    expect(result.problems.some((problem) => problem.message.includes("must be a workflow name"))).toBe(
+      false,
+    );
+  });
+
+  test("reports an alias with no anchor as a grammar problem", () => {
+    const result = parse("format: 1\nname: mark4\npipeline:\n  - review-slice: *missing\n");
+
+    expect(result.problems).toEqual([
+      {
+        level: "error",
+        file: FILE,
+        line: 4,
+        message: "Alias *missing has no anchor",
+        fix: "Remove the alias or define its anchor before it",
+      },
+    ]);
+    expect(result.yaml).toBeUndefined();
+  });
+});
+
 describe("format", () => {
   test.each(["1", "01", "+1", "0x1", "0o1"])("accepts the YAML 1.2 integer literal %s", (literal) => {
     const result = parse(`format: ${literal}\nname: mark4\n`);

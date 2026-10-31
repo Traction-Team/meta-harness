@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { chmod, readFile } from "node:fs/promises";
 import { Readable, PassThrough } from "node:stream";
 import { afterEach, describe, expect, test } from "vitest";
 import { loadFactory } from "../../../src/core/factory/load.js";
@@ -8,6 +8,8 @@ import type { TempRepo } from "../../helpers/makeRepo.js";
 import { runCli } from "../../helpers/runCli.js";
 
 const FACTORY_YAML = "format: 1\nname: mark4\n";
+
+const cannotTestPermissions = process.platform === "win32" || process.getuid?.() === 0;
 
 const SKILL = (name: string) =>
   `---\nname: ${name}\ndescription: Does a thing.\n---\n\n# ${name}\n`;
@@ -164,29 +166,270 @@ description: Review a slice before it merges.
   });
 
   test("fails when the path would contain an existing skill", async () => {
-    const created = await repo({ ".factory/skills/child/SKILL.md": SKILL("child") });
+    const created = await repo({ ".factory/review/child/SKILL.md": SKILL("child") });
 
     const result = await runCli(
-      ["create", "skills", "--description", "A parent."],
+      ["create", "review", "--description", "A parent."],
       { cwd: created.root, tty: false },
     );
 
     expect(result.code).toBe(1);
     expect(result.stderr).toContain('would contain the skill "child"');
-    expect(await pathExists(created.path(".factory/skills/SKILL.md"))).toBe(false);
+    expect(await pathExists(created.path(".factory/review/SKILL.md"))).toBe(false);
   });
 
   test("fails when the path would contain a skill nested below a child directory", async () => {
-    const created = await repo({ ".factory/skills/deep/child/SKILL.md": SKILL("child") });
+    const created = await repo({ ".factory/review/deep/child/SKILL.md": SKILL("child") });
 
-    const result = await runCli(["create", "skills", "--description", "A parent."], {
+    const result = await runCli(["create", "review", "--description", "A parent."], {
       cwd: created.root,
       tty: false,
     });
 
     expect(result.code).toBe(1);
     expect(result.stderr).toContain('would contain the skill "deep/child"');
-    expect(await pathExists(created.path(".factory/skills/SKILL.md"))).toBe(false);
+    expect(await pathExists(created.path(".factory/review/SKILL.md"))).toBe(false);
+  });
+
+  test("fails when the path would contain a skill in a reserved-named child directory", async () => {
+    const created = await repo({ ".factory/review/workflows/SKILL.md": SKILL("workflows") });
+
+    const result = await runCli(["create", "review", "--description", "A parent.", "--json"], {
+      cwd: created.root,
+      tty: false,
+    });
+
+    expect(result.code).toBe(1);
+    const output = JSON.parse(result.stdout) as { ok: boolean; code: string; summary: string };
+    expect(output.ok).toBe(false);
+    expect(output.code).toBe("create-contains-skill");
+    expect(output.summary).toBe('The path "review" would contain the skill "workflows".');
+    expect(await pathExists(created.path(".factory/review/SKILL.md"))).toBe(false);
+  });
+
+  test("fails when a nested reserved-named directory below the path holds a skill", async () => {
+    const created = await repo({ ".factory/workflows/x/skills/SKILL.md": SKILL("skills") });
+
+    const result = await runCli(["create", "workflows/x", "--description", "A parent.", "--json"], {
+      cwd: created.root,
+      tty: false,
+    });
+
+    expect(result.code).toBe(1);
+    const output = JSON.parse(result.stdout) as { ok: boolean; code: string; summary: string };
+    expect(output.ok).toBe(false);
+    expect(output.code).toBe("create-contains-skill");
+    expect(output.summary).toBe('The path "workflows/x" would contain the skill "skills".');
+    expect(await pathExists(created.path(".factory/workflows/x/SKILL.md"))).toBe(false);
+  });
+
+  test.each(["workflows", "skills", "rules"])("refuses the reserved path %s", async (dir) => {
+    const created = await repo();
+    const before = await listFiles(created.root);
+
+    const result = await runCli(["create", dir, "--description", "No.", "--json"], {
+      cwd: created.root,
+      tty: false,
+    });
+
+    expect(result.code).toBe(1);
+    const output = JSON.parse(result.stdout) as { ok: boolean; code: string };
+    expect(output.ok).toBe(false);
+    expect(output.code).toBe("create-reserved-path");
+    expect(await listFiles(created.root)).toEqual(before);
+  });
+
+  test("creates a workflow when the reserved container holds a SKILL.md", async () => {
+    const created = await repo({ ".factory/workflows/SKILL.md": SKILL("workflows") });
+
+    const result = await runCli(
+      ["create", "workflows/review-slice", "--description", "Review a slice."],
+      { cwd: created.root, tty: false },
+    );
+
+    expect(result.code).toBe(0);
+    expect(await pathExists(created.path(".factory/workflows/review-slice/SKILL.md"))).toBe(true);
+  });
+
+  test("fails when an unparseable skill directory holds the name", async () => {
+    const created = await repo({
+      ".factory/skills/security/SKILL.md": "---\nname: [unterminated\n---\n",
+    });
+
+    const result = await runCli(
+      ["create", "review/security", "--description", "Check security.", "--json"],
+      { cwd: created.root, tty: false },
+    );
+
+    expect(result.code).toBe(1);
+    const output = JSON.parse(result.stdout) as { ok: boolean; code: string; summary: string };
+    expect(output.ok).toBe(false);
+    expect(output.code).toBe("create-duplicate-name");
+    expect(output.summary).toBe(
+      '.factory/skills/security may hold a skill named "security", but it cannot be read',
+    );
+    expect(await pathExists(created.path(".factory/review/security/SKILL.md"))).toBe(false);
+  });
+
+  test.skipIf(cannotTestPermissions)("fails when an unreadable directory holds the name", async () => {
+    const created = await repo({ ".factory/skills/security/SKILL.md": SKILL("security") });
+    const directory = created.path(".factory", "skills", "security");
+    try {
+      await chmod(directory, 0o000);
+
+      const result = await runCli(
+        ["create", "review/security", "--description", "Check security.", "--json"],
+        { cwd: created.root, tty: false },
+      );
+
+      expect(result.code).toBe(1);
+      const output = JSON.parse(result.stdout) as { ok: boolean; code: string; summary: string };
+      expect(output.ok).toBe(false);
+      expect(output.code).toBe("create-duplicate-name");
+      expect(output.summary).toBe(
+        '.factory/skills/security may hold a skill named "security", but it cannot be read',
+      );
+      expect(await pathExists(created.path(".factory/review/security/SKILL.md"))).toBe(false);
+    } finally {
+      await chmod(directory, 0o755);
+    }
+  });
+
+  test.skipIf(cannotTestPermissions)("fails with a problem when the target directory cannot be read", async () => {
+    const created = await repo({ ".factory/skills/security/SKILL.md": SKILL("security") });
+    const directory = created.path(".factory", "skills", "security");
+    try {
+      await chmod(directory, 0o000);
+
+      const result = await runCli(
+        ["create", "skills/security", "--description", "Check security.", "--json"],
+        { cwd: created.root, tty: false },
+      );
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toBe("");
+      const output = JSON.parse(result.stdout) as { ok: boolean; code: string; summary: string };
+      expect(output.ok).toBe(false);
+      expect(output.code).toBe("create-duplicate-name");
+      expect(output.summary).toBe(
+        '.factory/skills/security may hold a skill named "security", but it cannot be read',
+      );
+    } finally {
+      await chmod(directory, 0o755);
+    }
+    expect(await pathExists(created.path(".factory/skills/security/SKILL.md"))).toBe(true);
+  });
+
+  test.skipIf(cannotTestPermissions)("fails with a problem when the path is below an unreadable directory", async () => {
+    const created = await repo({ ".factory/skills/security/SKILL.md": SKILL("security") });
+    const directory = created.path(".factory", "skills", "security");
+    try {
+      await chmod(directory, 0o000);
+
+      const result = await runCli(
+        ["create", "skills/security/deep", "--description", "Deep.", "--json"],
+        { cwd: created.root, tty: false },
+      );
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toBe("");
+      const output = JSON.parse(result.stdout) as {
+        ok: boolean;
+        code: string;
+        summary: string;
+        problems: { message: string }[];
+      };
+      expect(output.ok).toBe(false);
+      expect(output.code).toBe("create-path-unreadable");
+      expect(output.summary).toBe(".factory/skills/security cannot be read");
+      expect(output.problems[0]?.message).toBe(".factory/skills/security cannot be read");
+    } finally {
+      await chmod(directory, 0o755);
+    }
+    expect(await pathExists(created.path(".factory/skills/security/deep"))).toBe(false);
+  });
+
+  test.skipIf(cannotTestPermissions)("fails with a problem when the target holds an unreadable directory", async () => {
+    const created = await repo({ ".factory/review/notes/SKILL.md": SKILL("notes") });
+    const directory = created.path(".factory", "review", "notes");
+    try {
+      await chmod(directory, 0o000);
+
+      const result = await runCli(["create", "review", "--description", "A parent.", "--json"], {
+        cwd: created.root,
+        tty: false,
+      });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toBe("");
+      const output = JSON.parse(result.stdout) as { ok: boolean; code: string; summary: string };
+      expect(output.ok).toBe(false);
+      expect(output.code).toBe("create-path-unreadable");
+      expect(output.summary).toBe(
+        "Cannot create .factory/review/SKILL.md: .factory/review/notes cannot be read.",
+      );
+    } finally {
+      await chmod(directory, 0o755);
+    }
+
+    expect(await pathExists(created.path(".factory/review/SKILL.md"))).toBe(false);
+    // The refused path would have held a skill directory: the write the user asked for cannot
+    // be valid, so nothing is written.
+    const factory = await loadFactory(created.root);
+    expect(factory.problems).toEqual([]);
+    expect(factory.skills.map((skill) => skill.relDir)).toEqual(["review/notes"]);
+  });
+
+  test.skipIf(cannotTestPermissions)("fails with a problem when .factory cannot be read", async () => {
+    const created = await repo();
+    const directory = created.path(".factory");
+    try {
+      await chmod(directory, 0o000);
+
+      const result = await runCli(["create", "skills/x", "--description", "Ex.", "--json"], {
+        cwd: created.root,
+        tty: false,
+      });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toBe("");
+      const output = JSON.parse(result.stdout) as {
+        ok: boolean;
+        code: string;
+        summary: string;
+        problems: { message: string; file: string }[];
+      };
+      expect(output.ok).toBe(false);
+      expect(output.code).toBe("create-path-unreadable");
+      expect(output.summary).toBe(".factory cannot be read");
+      expect(output.problems[0]?.file).toBe(".factory");
+    } finally {
+      await chmod(directory, 0o755);
+    }
+    expect(await pathExists(created.path(".factory/skills/x/SKILL.md"))).toBe(false);
+  });
+
+  test.skipIf(cannotTestPermissions)("fails with a problem when the reserved container cannot be read", async () => {
+    const created = await repo({ ".factory/skills/other/SKILL.md": SKILL("other") });
+    const directory = created.path(".factory", "skills");
+    try {
+      await chmod(directory, 0o000);
+
+      const result = await runCli(["create", "skills/x", "--description", "Ex.", "--json"], {
+        cwd: created.root,
+        tty: false,
+      });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toBe("");
+      const output = JSON.parse(result.stdout) as { ok: boolean; code: string; summary: string };
+      expect(output.ok).toBe(false);
+      expect(output.code).toBe("create-path-unreadable");
+      expect(output.summary).toBe(".factory/skills cannot be read");
+    } finally {
+      await chmod(directory, 0o755);
+    }
+    expect(await pathExists(created.path(".factory/skills/x/SKILL.md"))).toBe(false);
   });
 
   test("refuses a path with a hidden segment that discovery would skip", async () => {

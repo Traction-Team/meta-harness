@@ -124,6 +124,98 @@ describe("loadFactory", () => {
     }
   });
 
+  test("reports an unresolved alias as a grammar problem", async () => {
+    const repo = await makeRepo({
+      ".factory/factory.yaml": "format: 1\nname: mark4\npipeline:\n  - review-slice: *missing\n",
+    });
+    try {
+      const factory = await loadFactory(repo.root);
+
+      expect(factory.factoryYaml).toBeUndefined();
+      expect(factory.problems).toEqual([
+        {
+          level: "error",
+          file: ".factory/factory.yaml",
+          line: 4,
+          message: "Alias *missing has no anchor",
+          fix: "Remove the alias or define its anchor before it",
+        },
+      ]);
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
+  test("reports a factory.yaml that aliases one anchor too often", async () => {
+    const aliases = Array.from({ length: 120 }, (_, index) => `  - workflow-${index}: *gate`);
+    const repo = await makeRepo({
+      ".factory/factory.yaml": [
+        "format: 1",
+        "name: mark4",
+        "pipeline:",
+        "  - review-slice: &gate { stop: Wait for approval }",
+        ...aliases,
+      ].join("\n"),
+    });
+    try {
+      const factory = await loadFactory(repo.root);
+
+      expect(factory.factoryYaml).toBeUndefined();
+      expect(factory.problems).toHaveLength(1);
+      expect(factory.problems[0]).toMatchObject({
+        level: "error",
+        file: ".factory/factory.yaml",
+        line: 104,
+        message: "Alias *gate is aliased too many times",
+        fix: "Use the anchor fewer times or write the values out",
+      });
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
+  test("reports a dangling alias in skill frontmatter and skips the skill", async () => {
+    const source = "---\nname: demo\ndescription: *missing\n---\n\n# Demo\n";
+    const repo = await makeRepo({ ".factory/skills/demo/SKILL.md": source });
+    try {
+      const factory = await loadFactory(repo.root);
+
+      expect(factory.skills).toEqual([]);
+      expect(factory.problems).toEqual([
+        {
+          level: "error",
+          file: ".factory/skills/demo/SKILL.md",
+          line: 3,
+          message: "Alias *missing has no anchor",
+          fix: "Remove the alias or define its anchor before it",
+        },
+      ]);
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
+  test("reports a self-referencing alias in skill frontmatter and skips the skill", async () => {
+    const source = "---\nname: demo\ndescription: Demo.\ntags: &t [*t]\n---\n\n# Demo\n";
+    const repo = await makeRepo({ ".factory/skills/demo/SKILL.md": source });
+    try {
+      const factory = await loadFactory(repo.root);
+
+      expect(factory.skills).toEqual([]);
+      expect(factory.problems).toEqual([
+        {
+          level: "error",
+          file: ".factory/skills/demo/SKILL.md",
+          line: 4,
+          message: "Alias *t refers to itself",
+          fix: "Remove the alias or write the values out",
+        },
+      ]);
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
   test("reports a SKILL.md directly in .factory", async () => {
     const repo = await makeRepo({ ".factory/SKILL.md": SKILL });
     try {
