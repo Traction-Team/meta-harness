@@ -171,7 +171,7 @@ describe("the Git target", () => {
     ]);
   });
 
-  it("refuses a version when only a file mode changed", async () => {
+  it.skipIf(process.platform === "win32")("refuses a version when only a file mode changed", async () => {
     const bare = track(await makeBareFabRepo());
     await publish(bare.repo, VERSION);
 
