@@ -34,7 +34,8 @@ export interface StageOptions {
   exclude?: readonly string[];
   /**
    * The targets being published. The names npm never packs are left out only
-   * when npm is one of them, so a Git-only fab keeps those files.
+   * when npm is one of them, so a Git-only fab keeps those files. A Git-only
+   * fab also refuses a path with a `.git` component, which Git cannot store.
    */
   targets?: readonly PublishTargetName[];
 }

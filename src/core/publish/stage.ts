@@ -1,4 +1,5 @@
 import { lstat, mkdir, mkdtemp, readdir, realpath, rm, stat } from "node:fs/promises";
+import type { Stats } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
@@ -172,6 +173,11 @@ interface CopyContext {
   isExcluded: (relativePath: string) => boolean;
   /** Whether the names npm never packs are left out, as an npm publish needs. */
   npmFilter: boolean;
+  /**
+   * A Git-only publish, which must carry every file: Git cannot store a path
+   * with a `.git` component, so staging refuses one instead of losing it.
+   */
+  gitOnly: boolean;
   destinationFactory: string;
   /** The real `.factory/` the links must stay inside. */
   rootReal: string;
@@ -182,17 +188,23 @@ function destinationFor(context: CopyContext, relativePath: string): string {
   return path.join(context.destinationFactory, ...relativePath.split("/"));
 }
 
+interface ResolvedLink {
+  /** The link's target, after following it. */
+  resolved: string;
+  info: Stats;
+}
+
 /**
- * A link is published as the content of its target, the same decision `build`
- * makes for a skill. A link that leaves `.factory/`, is broken, or loops stops
- * the publish by name instead of disappearing from the fab.
+ * Resolves a link, reporting by name the ways a link can leave the fab: it is
+ * broken, it points outside `.factory/`, or its target is not a file or
+ * directory. Every link is checked this way before staging decides to copy it,
+ * so a link npm would drop still cannot pass unnoticed.
  */
-async function copyLink(
+async function resolveLink(
   linkPath: string,
   relativePath: string,
   context: CopyContext,
-  ancestry: Set<string>,
-): Promise<void> {
+): Promise<ResolvedLink | undefined> {
   let resolved: string;
   try {
     resolved = await realpath(linkPath);
@@ -204,7 +216,7 @@ async function copyLink(
         "Replace it with a regular file inside .factory/, or remove the symlink",
       ),
     );
-    return;
+    return undefined;
   }
 
   if (!isInsideAbsolute(context.rootReal, resolved)) {
@@ -215,7 +227,7 @@ async function copyLink(
         "Point it inside .factory/, or remove the symlink",
       ),
     );
-    return;
+    return undefined;
   }
 
   const info = await stat(resolved).catch(() => undefined);
@@ -227,8 +239,35 @@ async function copyLink(
         "Replace it with a regular file inside .factory/",
       ),
     );
-    return;
+    return undefined;
   }
+
+  if (!info.isFile() && !info.isDirectory()) {
+    context.state.problems.push(
+      fabProblem(
+        relativePath,
+        `Symlink .factory/${relativePath} does not point to a file or directory`,
+        "Replace it with a regular file inside .factory/",
+      ),
+    );
+    return undefined;
+  }
+
+  return { resolved, info };
+}
+
+/**
+ * A link is published as the content of its target, the same decision `build`
+ * makes for a skill. A link that leaves `.factory/` or loops stops the publish
+ * by name instead of disappearing from the fab.
+ */
+async function copyLink(
+  link: ResolvedLink,
+  relativePath: string,
+  context: CopyContext,
+  ancestry: Set<string>,
+): Promise<void> {
+  const { resolved, info } = link;
 
   if (info.isDirectory()) {
     if (ancestry.has(resolved)) {
@@ -245,19 +284,8 @@ async function copyLink(
     return;
   }
 
-  if (info.isFile()) {
-    if (!fileAllowed(context.state, relativePath, info.size)) return;
-    await copyFileWithMode(resolved, destinationFor(context, relativePath));
-    return;
-  }
-
-  context.state.problems.push(
-    fabProblem(
-      relativePath,
-      `Symlink .factory/${relativePath} does not point to a file or directory`,
-      "Replace it with a regular file inside .factory/",
-    ),
-  );
+  if (!fileAllowed(context.state, relativePath, info.size)) return;
+  await copyFileWithMode(resolved, destinationFor(context, relativePath));
 }
 
 async function walkFactory(
@@ -295,8 +323,17 @@ async function walkFactory(
     // factory root leaves the fab too, and `.factory/README.md` may point
     // outside `.factory/` because it is read as the fab README, never copied.
     if (ALWAYS_EXCLUDED.has(relativePath)) continue;
-    if (context.npmFilter && npmIgnores(name, path.basename(prefix))) {
-      context.state.warnings.push(npmIgnoredProblem(relativePath));
+    // Git reads a directory named `.git` as another repository and never adds
+    // the files below it. An npm publish drops the name with a warning instead,
+    // so only a Git-only fab, which has to carry everything, refuses it.
+    if (context.gitOnly && name === ".git") {
+      context.state.problems.push(
+        fabProblem(
+          relativePath,
+          `Git cannot store .factory/${relativePath} in a fab`,
+          "Rename the path, add it to publish.exclude, or publish to npm only",
+        ),
+      );
       continue;
     }
 
@@ -309,8 +346,21 @@ async function walkFactory(
     }
 
     if (info.isSymbolicLink()) {
+      // The link is checked before the npm drop: a broken or escaping link
+      // stops the publish even when its name is one npm never packs.
+      const link = await resolveLink(absolute, relativePath, context);
+      if (link === undefined) continue;
+      if (context.npmFilter && npmIgnores(name, path.basename(prefix))) {
+        context.state.warnings.push(npmIgnoredProblem(relativePath));
+        continue;
+      }
       if (!countEntry(context.state, relativePath)) return;
-      await copyLink(absolute, relativePath, context, descendants);
+      await copyLink(link, relativePath, context, descendants);
+      continue;
+    }
+
+    if (context.npmFilter && npmIgnores(name, path.basename(prefix))) {
+      context.state.warnings.push(npmIgnoredProblem(relativePath));
       continue;
     }
 
@@ -347,10 +397,15 @@ async function walkFactory(
  * rejected on the way back in is never published: 1 MB per file, 64 MiB and
  * 10 000 entries in total, and no link that leaves `.factory/`. The staged
  * factory is then validated again, because an exclude can break a reference.
+ *
+ * A link is checked even when npm would leave its name out, and a Git-only fab
+ * refuses a path with a `.git` component, which Git cannot store.
  */
 export async function stageFab(factory: Factory, options: StageOptions = {}): Promise<StagedFab> {
   const isExcluded = exclusionMatcher(options.exclude ?? []);
-  const npmFilter = (options.targets ?? []).includes("npm");
+  const targets = options.targets ?? [];
+  const npmFilter = targets.includes("npm");
+  const gitOnly = !npmFilter && targets.includes("git");
 
   const problems = excludedWorkflowProblems(factory, isExcluded);
   if (problems.length > 0) {
@@ -389,7 +444,7 @@ export async function stageFab(factory: Factory, options: StageOptions = {}): Pr
     await walkFactory(
       factory.dir,
       "",
-      { isExcluded, npmFilter, destinationFactory: factoryDir, rootReal, state },
+      { isExcluded, npmFilter, gitOnly, destinationFactory: factoryDir, rootReal, state },
       new Set([rootReal]),
     );
 

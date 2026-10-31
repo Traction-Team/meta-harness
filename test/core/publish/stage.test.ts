@@ -309,4 +309,91 @@ describe("stageFab", () => {
     expect(error.code).toBe("publish-invalid-fab");
     expect(error.problems?.[0]?.message).toContain("Symlink .factory/skills/git/missing.md is broken");
   });
+
+  test("fails on an escaping link named .gitignore when npm is a target", async () => {
+    const target = await repo({ files: { ".gitignore": "*.log\n" } });
+    await symlink(path.join("..", "..", "..", ".gitignore"), target.path(".factory", "skills", "git", ".gitignore"));
+    const { factory } = await loadRepo(target);
+
+    const error = (await stageFab(factory, { targets: ["npm"] }).catch(
+      (failure: unknown) => failure,
+    )) as MetafabError;
+
+    expect(error).toBeInstanceOf(MetafabError);
+    expect(error.code).toBe("publish-invalid-fab");
+    expect(error.exitCode).toBe(4);
+    expect(error.problems?.map((problem) => problem.file)).toContain(
+      ".factory/skills/git/.gitignore",
+    );
+    expect(error.problems?.[0]?.message).toContain("points outside .factory/");
+  });
+
+  test("fails on a broken link named .DS_Store when npm is a target", async () => {
+    const target = await repo();
+    await symlink(
+      path.join("missing"),
+      target.path(".factory", "skills", "git", ".DS_Store"),
+    );
+    const { factory } = await loadRepo(target);
+
+    const error = (await stageFab(factory, { targets: ["npm"] }).catch(
+      (failure: unknown) => failure,
+    )) as MetafabError;
+
+    expect(error.code).toBe("publish-invalid-fab");
+    expect(error.problems?.[0]?.message).toContain(
+      "Symlink .factory/skills/git/.DS_Store is broken",
+    );
+  });
+
+  test("drops a valid link named .gitignore with a warning when npm is a target", async () => {
+    const target = await repo();
+    await symlink(
+      path.join("SKILL.md"),
+      target.path(".factory", "skills", "git", ".gitignore"),
+    );
+    const { factory } = await loadRepo(target);
+
+    const fab = await stageFab(factory, { targets: ["npm", "git"] });
+    staged.push(fab);
+
+    expect(await listFiles(fab.root)).not.toContain(".factory/skills/git/.gitignore");
+    expect(fab.warnings.map((warning) => warning.file)).toEqual([
+      ".factory/skills/git/.gitignore",
+    ]);
+  });
+
+  test("a Git-only publish refuses a path with a .git component", async () => {
+    const target = await repo({
+      files: { ".factory/templates/repo/.git/config": "[core]\n" },
+    });
+    const { factory } = await loadRepo(target);
+
+    const error = (await stageFab(factory, { targets: ["git"] }).catch(
+      (failure: unknown) => failure,
+    )) as MetafabError;
+
+    expect(error).toBeInstanceOf(MetafabError);
+    expect(error.code).toBe("publish-invalid-fab");
+    expect(error.exitCode).toBe(4);
+    expect(error.problems?.map((problem) => problem.file)).toContain(
+      ".factory/templates/repo/.git",
+    );
+    expect(error.problems?.[0]?.message).toContain(
+      "Git cannot store .factory/templates/repo/.git",
+    );
+  });
+
+  test("an npm publish drops a .git path with a warning, even with Git as a target", async () => {
+    const { fab, files } = await stage(
+      { files: { ".factory/templates/repo/.git/config": "[core]\n" } },
+      [],
+      ["npm", "git"],
+    );
+
+    expect(files).not.toContain(".factory/templates/repo/.git/config");
+    expect(fab.warnings.map((warning) => warning.file)).toEqual([
+      ".factory/templates/repo/.git",
+    ]);
+  });
 });
