@@ -286,6 +286,8 @@ export async function main(
     }
 
     if (parsed.values.json === true) json = true;
+    // A global `--json` before the command reaches the command the same way.
+    if (json && parsed.values.json !== true) parsed.values.json = true;
 
     if (parsed.values.help === true) {
       return emit(

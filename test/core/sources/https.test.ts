@@ -155,6 +155,23 @@ describe("https tarball sources", { timeout: 60_000 }, () => {
     expect(await pathExists(path.join(path.dirname(fetched.factoryDir), "README.md"))).toBe(true);
   });
 
+  test("cleanup removes the temporary fetch directory", async () => {
+    const fetched = await fetchFab(await resolve(specFor("/root.tgz")));
+    const temporary = path.dirname(fetched.factoryDir);
+    expect(await pathExists(temporary)).toBe(true);
+
+    await fetched.cleanup?.();
+
+    expect(await pathExists(temporary)).toBe(false);
+  });
+
+  test("cleanup never throws when the directory is already gone", async () => {
+    const fetched = await fetchFab(await resolve(specFor("/root.tgz")));
+    await rm(path.dirname(fetched.factoryDir), { recursive: true, force: true });
+
+    await expect(fetched.cleanup?.()).resolves.toBeUndefined();
+  });
+
   test("fails with exit 3 for an HTTP error", async () => {
     const resolved = await resolve(specFor("/missing.tgz"));
     await expect(fetchFab(resolved)).rejects.toMatchObject({

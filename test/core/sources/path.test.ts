@@ -112,6 +112,38 @@ describe("local path sources", () => {
     ).toBe("base\n");
   });
 
+  test("reports a dangling symbolic link once", async () => {
+    await symlink("missing.md", path.join(sourceParent, ".factory", "dangling.md"));
+
+    try {
+      await fetchSource(sourceParent);
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      const problems = (error as MetafabError).problems ?? [];
+      expect(problems).toHaveLength(1);
+      expect(problems[0]?.message).toContain("does not exist");
+      return;
+    }
+    throw new Error("expected the fetch to fail");
+  });
+
+  test("cleanup removes the temporary fetch directory", async () => {
+    const fetched = await fetchSource(sourceParent);
+    const temporary = path.dirname(fetched.factoryDir);
+    expect(await pathExists(temporary)).toBe(true);
+
+    await fetched.cleanup?.();
+
+    expect(await pathExists(temporary)).toBe(false);
+  });
+
+  test("cleanup never throws when the directory is already gone", async () => {
+    const fetched = await fetchSource(sourceParent);
+    await rm(path.dirname(fetched.factoryDir), { recursive: true, force: true });
+
+    await expect(fetched.cleanup?.()).resolves.toBeUndefined();
+  });
+
   test("rejects a chain of symlinks that leaves the factory with exit 4", async () => {
     const factory = path.join(sourceParent, ".factory");
     await writeFile(path.join(sourceParent, "outside"), "outside\n");

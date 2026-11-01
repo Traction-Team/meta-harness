@@ -211,7 +211,7 @@ HTTPS tarballs and local paths are **unversioned** sources. Metafab cannot downl
 ## Importing a fab
 
 ```sh
-metafab import <source> [--agents <list>] [--force]
+metafab import <source> [--agents <list>] [--force] [--adopt]
 ```
 
 The command performs these steps:
@@ -220,14 +220,15 @@ The command performs these steps:
 2. Download the source and verify its integrity when the source provides a hash.
 3. Validate the fab and its factory.
 4. Select the initial targets from `--agents` or with the same target-selection behaviour as `init`. Scan those destinations, compare existing skills with the incoming fab, report conflicts, and collect any consent required by the [existing-skill adoption](cli.md#adopt-existing-skills) rules. Complete this preflight before changing the repository.
-5. When the repository has no `.factory/`, create `.factory/metafab.yaml` and add the Metafab lines to `.gitattributes`. Do not create placeholder `factory.yaml` or `AGENTS.md` files.
-6. Move adopted skills into `.factory/skills/` as local additions and add each selected destination to the managed `.gitignore` block. A migrated skill that overlaps the incoming fab follows the normal conflict rule below.
-7. Copy the factory into `.factory/`, except `metafab.yaml` and `README.md`.
-8. Write the [upstream entry](#upstream-entry) to `metafab.yaml`.
-9. Run `metafab build`.
-10. Print a review summary.
+5. Check that the build output can be written. Stop if the repository holds a file, link or directory at a path Metafab does not own.
+6. When the repository has no `.factory/`, create `.factory/metafab.yaml` and add the Metafab lines to `.gitattributes`. Do not create placeholder `factory.yaml` or `AGENTS.md` files.
+7. Move adopted skills into `.factory/skills/` as local additions and add each selected destination to the managed `.gitignore` block. A migrated skill that overlaps the incoming fab follows the normal conflict rule below.
+8. Copy the factory into `.factory/`, except `metafab.yaml` and `README.md`.
+9. Write the [upstream entry](#upstream-entry) to `metafab.yaml`.
+10. Run `metafab build`.
+11. Print a review summary.
 
-A failure in steps 1 to 4 leaves the repository unchanged.
+A failure in steps 1 to 5 leaves the repository unchanged.
 
 Metafab never copies `metafab.yaml` from a source. A Git source that is a project repository contains one, and it belongs to that project.
 
@@ -244,7 +245,7 @@ Fab validation rejects:
 
 A factory can have only one upstream fab. If `metafab.yaml` already contains an upstream entry, use `update` or `detach`.
 
-If the incoming fab would replace a different local file, `import` stops and lists all conflicts. `--force` permits those replacements.
+`import` stops when the incoming fab would replace or remove different local content, and lists all conflicts. That is a different file, a link, a directory, or a local path that differs only in letter case. A case-only clash is refused on every filesystem, so `import` behaves the same everywhere. `--force` permits those replacements.
 
 ## Updating a fab
 
@@ -352,12 +353,13 @@ Nothing was committed. Review the changes with git diff.
 
 The summary uses this order:
 
-1. Executable files and non-Markdown files in skill directories
+1. Files under `scripts/`, executable files, and non-Markdown files in skill directories
 2. `AGENTS.md` and `factory.yaml`
 3. Workflows
 4. Skills
-5. Preserved local edits
-6. Conflicts
+5. Other files, such as templates
+6. Preserved local edits
+7. Conflicts
 
 The summary also calls out:
 
