@@ -129,7 +129,9 @@ async function npmPackPaths(root: string): Promise<string[]> {
     .sort();
 }
 
-describe("the npm target", () => {
+// A registry publish spawns npm and Git several times over; Windows is slower
+// than the 5s default.
+describe("the npm target", { timeout: 60_000 }, () => {
   it("publishes the fab and skips it when the registry has identical content", async () => {
     const name = "@seasb/fab-publish-once";
     const fixture = await prepare(npmPublishSection(name, "1.2.0"));

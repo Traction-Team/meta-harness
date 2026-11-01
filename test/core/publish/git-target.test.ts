@@ -297,9 +297,12 @@ describe("the Git target", () => {
     cleanups.push(identity.cleanup);
     const excludes = path.join(bare.root, "global-excludes");
     await writeFile(excludes, "*.log\n");
+    // Git reads a backslash in a config value as an escape, so a Windows path
+    // has to be written with forward slashes (Git accepts them on every
+    // platform).
     await writeFile(
       identity.env.GIT_CONFIG_GLOBAL as string,
-      `[core]\n\texcludesFile = ${excludes}\n`,
+      `[core]\n\texcludesFile = ${excludes.split(path.sep).join("/")}\n`,
     );
 
     const fixture = await prepare(bare.repo, VERSION, {
