@@ -406,8 +406,15 @@ async function createHardLink(destination: string, task: LinkTask): Promise<void
   await link(linkPath(destination, task.target), target);
 }
 
-async function createLinks(destination: string, tasks: LinkTask[]): Promise<Problem[]> {
+interface LinkProblems {
+  problems: Problem[];
+  /** Paths whose creation already failed, so verification does not repeat them. */
+  failed: Set<string>;
+}
+
+async function createLinks(destination: string, tasks: LinkTask[]): Promise<LinkProblems> {
   const problems: Problem[] = [];
+  const failed = new Set<string>();
   const symbolic = tasks.filter((task) => task.kind === "symbolic");
   const hard = tasks.filter((task) => task.kind === "hard");
 
@@ -428,6 +435,7 @@ async function createLinks(destination: string, tasks: LinkTask[]): Promise<Prob
         progress = true;
       } catch (error) {
         problems.push(linkProblem(task, error));
+        failed.add(task.path);
         progress = true;
       }
     }
@@ -438,6 +446,7 @@ async function createLinks(destination: string, tasks: LinkTask[]): Promise<Prob
           await createSymbolicLink(destination, task, "file");
         } catch (error) {
           problems.push(linkProblem(task, error));
+          failed.add(task.path);
         }
       }
       break;
@@ -458,6 +467,7 @@ async function createLinks(destination: string, tasks: LinkTask[]): Promise<Prob
         file: task.path,
         message: "links whose target does not exist are not allowed",
       });
+      failed.add(task.path);
       continue;
     }
     if (!isInsideAbsolute(await containmentRootAbsolute(target, destination), resolved)) {
@@ -466,16 +476,18 @@ async function createLinks(destination: string, tasks: LinkTask[]): Promise<Prob
         file: task.path,
         message: "links that point outside the extraction root are not allowed",
       });
+      failed.add(task.path);
       continue;
     }
     try {
       await createHardLink(destination, task);
     } catch (error) {
       problems.push(linkProblem(task, error));
+      failed.add(task.path);
     }
   }
 
-  return problems;
+  return { problems, failed };
 }
 
 async function verifyLinks(destination: string, tasks: LinkTask[]): Promise<Problem[]> {
@@ -700,9 +712,12 @@ export async function extractTarball(
   }
   if (failure !== undefined) throw tarballError(tarball, failure);
 
-  const linkProblems = await createLinks(destination, links);
-  const verificationProblems = await verifyLinks(destination, links);
-  const allLinkProblems = [...linkProblems, ...verificationProblems];
+  const created = await createLinks(destination, links);
+  // A link whose creation already failed keeps its creation message: the
+  // realpath check would only repeat it as "target does not exist".
+  const stillValid = links.filter((task) => !created.failed.has(task.path));
+  const verificationProblems = await verifyLinks(destination, stillValid);
+  const allLinkProblems = [...created.problems, ...verificationProblems];
   if (allLinkProblems.length > 0) {
     throw new MetafabError("The archive is not a safe fab", {
       exitCode: ExitCode.InvalidFab,

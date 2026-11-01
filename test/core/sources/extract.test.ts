@@ -418,6 +418,7 @@ describe("extractTarball", () => {
 
       const failure = await expectInvalid(archive, path.join(base, "out"));
 
+      expect(failure.problems).toHaveLength(1);
       expect(failure.problems?.some((problem) => problem.message.includes("does not exist"))).toBe(
         true,
       );

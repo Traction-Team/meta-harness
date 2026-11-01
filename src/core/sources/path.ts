@@ -42,6 +42,21 @@ function problemFile(sourceLabel: string, relativePath: string): string {
   return `${redact(sourceLabel).replace(/\/+$/, "")}/.factory/${relativePath}`;
 }
 
+/**
+ * The cleanup hook for a fetch that copied a fab into a temporary directory.
+ * Best effort: a failed removal never throws, so it cannot hide the caller's
+ * own error or result.
+ */
+function tempCleanup(directory: string): () => Promise<void> {
+  return async () => {
+    try {
+      await rm(directory, { recursive: true, force: true });
+    } catch {
+      // Nothing to report: the directory is temporary either way.
+    }
+  };
+}
+
 export async function locateFactoryDir(specPath: string): Promise<string> {
   const candidate = path.basename(specPath) === ".factory" ? specPath : path.join(specPath, ".factory");
 
@@ -97,12 +112,19 @@ async function createSymlink(
   await symlink(link.target, destination, type);
 }
 
+interface LinkProblems {
+  problems: Problem[];
+  /** Paths whose creation already failed, so verification does not repeat them. */
+  failed: Set<string>;
+}
+
 async function createLinks(
   factoryDir: string,
   sourceLabel: string,
   links: LinkTask[],
-): Promise<Problem[]> {
+): Promise<LinkProblems> {
   const problems: Problem[] = [];
+  const failed = new Set<string>();
   let pending = links;
 
   while (pending.length > 0) {
@@ -126,6 +148,7 @@ async function createLinks(
           line: 1,
           message: `links could not be created: ${error instanceof Error ? error.message : String(error)}`,
         });
+        failed.add(link.path);
         progress = true;
       }
     }
@@ -141,6 +164,7 @@ async function createLinks(
             line: 1,
             message: `links could not be created: ${error instanceof Error ? error.message : String(error)}`,
           });
+          failed.add(link.path);
         }
       }
       break;
@@ -148,7 +172,7 @@ async function createLinks(
     pending = remaining;
   }
 
-  return problems;
+  return { problems, failed };
 }
 
 async function verifyLinks(
@@ -293,8 +317,12 @@ async function copyFactory(
   await walk(sourceDir, "");
 
   if (problems.length === 0) {
-    problems.push(...(await createLinks(factoryDir, sourceLabel, links)));
-    problems.push(...(await verifyLinks(factoryDir, sourceLabel, links)));
+    const created = await createLinks(factoryDir, sourceLabel, links);
+    problems.push(...created.problems);
+    // A link whose creation already failed keeps its creation message: the
+    // realpath check would only repeat it as "target does not exist".
+    const stillValid = links.filter((link) => !created.failed.has(link.path));
+    problems.push(...(await verifyLinks(factoryDir, sourceLabel, stillValid)));
   }
 
   if (problems.length > 0) throw invalidFab(sourceLabel, problems);
@@ -321,5 +349,6 @@ export async function fetchPath(
     factoryDir: path.join(destination, ".factory"),
     upstream: { kind: "unversioned", source: stripSourceCredentials(sourceLabel) },
     versioned: false,
+    cleanup: tempCleanup(destination),
   };
 }
