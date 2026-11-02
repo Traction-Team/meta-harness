@@ -26,14 +26,14 @@ export interface MergeOptions {
   baseUnavailable?: boolean;
 }
 
-export type MergeNote = "upstream-removed" | "upstream-changed-removed";
+export type MergeNote = "upstream-removed" | "upstream-changed-removed" | "base-unavailable";
 
 /**
  * Why a conflict keeps yours and writes theirs to `<file>.upstream`: a binary
- * file that both sides changed, or a new local file that differs from the new
- * upstream file.
+ * file that both sides changed, a new local file that differs from the new
+ * upstream file, or a path only one side has while the base is unavailable.
  */
-export type SideFileReason = "binary" | "new-local";
+export type SideFileReason = "binary" | "new-local" | "base-unavailable";
 
 /**
  * One outcome of the merge table.
@@ -178,6 +178,8 @@ function mergeChanges(
 /**
  * Without a base, every difference between yours and theirs is a conflict.
  * There is nothing to compare against, so a text conflict has no base section.
+ * A path only one side has is a conflict too: without a base, a local removal
+ * and an upstream addition cannot be told apart, so neither is assumed.
  */
 function mergeWithoutBase(
   yours: MergeInput | undefined,
@@ -186,9 +188,21 @@ function mergeWithoutBase(
 ): MergeResult {
   if (yours === undefined) {
     if (theirs === undefined) return { action: "remove" };
-    return { action: "add", content: theirs.content, mode: modeOf(theirs) };
+    // Keep the path absent, as the local version had it, and hand theirs to a
+    // side file so nothing upstream is lost.
+    return {
+      action: "side-file",
+      upstream: theirs.content,
+      upstreamMode: modeOf(theirs),
+      reason: "base-unavailable",
+    };
   }
-  if (theirs === undefined) return { action: "keep", note: "upstream-removed" };
+  if (theirs === undefined) {
+    // Keep yours: without a base there is no way to tell an upstream removal
+    // from a file only the local factory has. A removal has no content, so
+    // there is nothing to write to a side file.
+    return { action: "keep", note: "base-unavailable" };
+  }
   if (sameInput(yours, theirs)) return { action: "keep" };
 
   const yoursText = textContent(yours.content);

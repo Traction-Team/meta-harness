@@ -194,6 +194,26 @@ describe("mergePath: base unavailable", () => {
     ).toEqual({ action: "keep" });
   });
 
+  test("a path only upstream has is a conflict, not an addition", () => {
+    // A local removal and an upstream addition look the same without a base, so
+    // the file stays absent and theirs goes to a side file.
+    expect(merge(undefined, undefined, text("upstream\n", 0o755), { baseUnavailable: true })).toEqual({
+      action: "side-file",
+      upstream: Buffer.from("upstream\n"),
+      upstreamMode: 0o755,
+      reason: "base-unavailable",
+    });
+  });
+
+  test("a local file only theirs lacks is a conflict that keeps yours", () => {
+    // Nothing can be written to a side file for a removal, so the conflict is
+    // reported without one.
+    expect(merge(undefined, text("mine\n"), undefined, { baseUnavailable: true })).toEqual({
+      action: "keep",
+      note: "base-unavailable",
+    });
+  });
+
   test("a binary conflict keeps yours and returns a side file", () => {
     expect(
       merge(binary([0x00, 0x01]), binary([0x00, 0x02]), binary([0x00, 0x03]), {

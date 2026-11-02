@@ -439,6 +439,34 @@ describe("versioned update", { timeout: 30_000 }, () => {
     expect(await metafabYaml(repo)).toContain("version: 1.0.0");
   });
 
+  test("reports a change upstream made exactly as the local edit as an upstream change", async () => {
+    const { repo, fab } = await importedProject();
+    await writeRepoFiles(repo.root, {
+      ".factory/templates/kept.md": "# Kept\n\nshared change\n",
+    });
+    await fab.commit({ ".factory/templates/kept.md": "# Kept\n\nshared change\n" }, "v1.1.0");
+    await fab.tag("v1.1.0");
+    await fab.push();
+
+    const note =
+      "Upstream made the same change as your local edit to templates/kept.md; the file now matches upstream.";
+    const dryRun = await withFabEnvironment(fab, () =>
+      updateFab(repo.root, ["--no-build", "--dry-run", "--json"]),
+    );
+    expect(dryRun.code).toBe(0);
+    const payload = parseJson(dryRun);
+    // The local edit is not a divergence to maintain: upstream adopted it, so it
+    // is reported as an upstream change rather than a preserved local edit.
+    expect(payload.preserved).toEqual([]);
+    expect(payload.updated).toEqual([]);
+    expect(payload.notes).toContain(note);
+
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build"]));
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(note);
+    expect(result.stdout).not.toContain("Local edits preserved");
+  });
+
   test("refuses a file that would replace a local directory", async () => {
     const { repo, fab } = await importedProject();
     await writeRepoFiles(repo.root, {
@@ -761,6 +789,78 @@ describe("upstream restructures", { timeout: 30_000 }, () => {
     expect(await readdir(repo.path(".factory"))).toContain("skills");
   });
 
+  test("merges a local edit inside a directory renamed only by case", async () => {
+    const { repo, fab } = await importedFrom({
+      ".factory/factory.yaml": CONFIG,
+      ".factory/Skills/guide/SKILL.md": SKILL_V1,
+    });
+    await writeRepoFiles(repo.root, { ".factory/Skills/guide/SKILL.md": SKILL_LOCAL });
+
+    await fab.remove([".factory/Skills"], "rename the skills directory");
+    await publish(fab, { ".factory/skills/guide/SKILL.md": SKILL_V2 });
+
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build"]));
+    expect(result.code).toBe(0);
+
+    // The case-only rename is one logical path, so the edit merges instead of
+    // refusing the update as a case-only clash, and it lands where the source
+    // now spells it.
+    const entries = await readdir(repo.path(".factory"));
+    expect(entries).toContain("skills");
+    expect(entries).not.toContain("Skills");
+    expect(toLF(await readFile(repo.path(".factory", "skills", "guide", "SKILL.md"), "utf8"))).toBe(
+      skill("First line upstream.\nMiddle line.\nLast line local."),
+    );
+  });
+
+  test("writes markers at the new spelling when a local edit overlaps a case-only rename", async () => {
+    const { repo, fab } = await importedFrom({
+      ".factory/factory.yaml": CONFIG,
+      ".factory/Skills/guide/SKILL.md": SKILL_V1,
+    });
+    await writeRepoFiles(repo.root, {
+      ".factory/Skills/guide/SKILL.md": skill("First line local.\nMiddle line.\nLast line."),
+    });
+
+    await fab.remove([".factory/Skills"], "rename the skills directory");
+    await publish(fab, { ".factory/skills/guide/SKILL.md": SKILL_V2 });
+
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build"]));
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("Conflicts: 1");
+
+    const entries = await readdir(repo.path(".factory"));
+    expect(entries).toContain("skills");
+    expect(entries).not.toContain("Skills");
+    const merged = toLF(
+      await readFile(repo.path(".factory", "skills", "guide", "SKILL.md"), "utf8"),
+    );
+    expect(merged).toContain("<<<<<<< yours");
+    expect(merged).toContain("First line local.");
+    expect(merged).toContain("First line upstream.");
+    expect(await metafabYaml(repo)).toContain("version: 1.1.0");
+  });
+
+  test("merges a local edit of a file renamed only by case", async () => {
+    const { repo, fab } = await importedFrom({
+      ".factory/factory.yaml": CONFIG,
+      ".factory/templates/notes.md": "one\ntwo\nthree\n",
+    });
+    await writeRepoFiles(repo.root, {
+      ".factory/templates/notes.md": "one\ntwo\nthree local\n",
+    });
+
+    await fab.remove([".factory/templates/notes.md"], "rename the notes");
+    await publish(fab, { ".factory/templates/Notes.md": "ONE\ntwo\nthree\n" });
+
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build"]));
+    expect(result.code).toBe(0);
+    expect(await readdir(repo.path(".factory", "templates"))).toEqual(["Notes.md"]);
+    expect(toLF(await readFile(repo.path(".factory", "templates", "Notes.md"), "utf8"))).toBe(
+      "ONE\ntwo\nthree local\n",
+    );
+  });
+
   test("still refuses a directory that keeps local content", async () => {
     const { repo, fab } = await importedFrom({
       ".factory/factory.yaml": CONFIG,
@@ -785,3 +885,79 @@ describe("upstream restructures", { timeout: 30_000 }, () => {
     expect(await metafabYaml(repo)).toContain("version: 1.0.0");
   });
 });
+
+describe("update without a base", { timeout: 30_000 }, () => {
+  const CONFIG = "format: 1\nname: sample-fab\n";
+  /** A commit the fixture repository does not have, so the base cannot be fetched. */
+  const FORGOTTEN_COMMIT = "0123456789abcdef0123456789abcdef01234567";
+
+  /** Rewrites the recorded commit, as a force push upstream would effectively do. */
+  async function forgetBase(repo: TempRepo): Promise<void> {
+    const recorded = await metafabYaml(repo);
+    await writeRepoFiles(repo.root, {
+      ".factory/metafab.yaml": recorded.replace(
+        /^(\s*)commit:.*$/m,
+        `$1commit: ${FORGOTTEN_COMMIT}`,
+      ),
+    });
+  }
+
+  test("an upstream file the local factory removed is a conflict, not an addition", async () => {
+    const { repo, fab } = await importedFrom({
+      ".factory/factory.yaml": CONFIG,
+      ".factory/scripts/deploy.sh": "#!/bin/sh\necho deploy\n",
+    });
+
+    // The user deletes the file on purpose and upstream force-pushes the
+    // recorded commit away, so there is no base to tell the deletion from an
+    // upstream addition.
+    await rm(repo.path(".factory", "scripts", "deploy.sh"));
+    await publish(fab, { ".factory/scripts/deploy.sh": "#!/bin/sh\necho deploy v2\n" });
+    await forgetBase(repo);
+
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build", "--json"]));
+    expect(result.code).toBe(1);
+    const payload = parseJson(result);
+    expect(payload.conflicts).toEqual(["scripts/deploy.sh"]);
+    expect(payload.sideFiles).toEqual(["scripts/deploy.sh"]);
+    expect(payload.built).toBe(false);
+
+    // The removed path stays absent, and upstream is kept beside it.
+    expect(await pathExists(repo.path(".factory", "scripts", "deploy.sh"))).toBe(false);
+    expect(
+      toLF(await readFile(repo.path(".factory", "scripts", "deploy.sh.upstream"), "utf8")),
+    ).toBe("#!/bin/sh\necho deploy v2\n");
+    expect(result.stdout).toContain("cannot tell a local removal from an upstream addition");
+    // The new version is recorded, as for every conflicted update.
+    expect(await metafabYaml(repo)).toContain("version: 1.1.0");
+  });
+
+  test("a local file upstream no longer has is a conflict that keeps yours", async () => {
+    const { repo, fab } = await importedFrom({
+      ".factory/factory.yaml": CONFIG,
+      ".factory/templates/kept.md": "# Kept\n",
+    });
+
+    await fab.remove([".factory/templates/kept.md"], "remove kept");
+    await fab.tag("v1.1.0");
+    await fab.push();
+    await forgetBase(repo);
+
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build", "--json"]));
+    expect(result.code).toBe(1);
+    const payload = parseJson(result);
+    expect(payload.conflicts).toEqual(["templates/kept.md"]);
+    expect(payload.sideFiles).toEqual([]);
+
+    // A removal has no content to write to a side file, so the local file is
+    // kept and the conflict is reported without one.
+    expect(toLF(await readFile(repo.path(".factory", "templates", "kept.md"), "utf8"))).toBe(
+      "# Kept\n",
+    );
+    expect(result.stdout).toContain(
+      "cannot tell your local file from an upstream removal",
+    );
+    expect(await metafabYaml(repo)).toContain("version: 1.1.0");
+  });
+});
+

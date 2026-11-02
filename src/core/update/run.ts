@@ -101,6 +101,12 @@ interface MergePlan {
   conflicts: string[];
   sideFiles: string[];
   notes: string[];
+  /**
+   * Paths upstream renamed while changing only their case. The update realigns
+   * the filesystem and the review to one spelling for them, even when the merge
+   * writes nothing, so they must reach the spelling realignment too.
+   */
+  realigned: string[];
 }
 
 /** Paths an update changed, as the review groups and the JSON report show them. */
@@ -383,7 +389,92 @@ function conflictNote(path: string, reason: SideFileReason): string {
   if (reason === "new-local") {
     return `Conflict in ${path}: the local entry differs from the new upstream file, which was written to ${path}.upstream.`;
   }
+  if (reason === "base-unavailable") {
+    return `Conflict in ${path}: the base could not be fetched, so Metafab cannot tell a local removal from an upstream addition. The path stays absent, and upstream was written to ${path}.upstream.`;
+  }
   return `Binary conflict in ${path}: upstream was written to ${path}.upstream.`;
+}
+
+/** One base path upstream renamed while changing only the case of its spelling. */
+interface CaseRename {
+  from: string;
+  to: string;
+}
+
+/**
+ * Base paths that upstream renamed by case alone: base has `from`, theirs has
+ * `to` with the same folded spelling, and neither base has `to` nor theirs has
+ * `from`. The two spellings name one logical file, so the merge compares the
+ * three sides at `to`. Without this the rename reads as a removal plus an
+ * addition, and a local edit inside the renamed path refuses the update as a
+ * case-only clash.
+ *
+ * Every other case-only pair — both spellings on one side, or several folded
+ * candidates — is left alone, so the clash preflight still refuses it.
+ */
+function caseOnlyRenames(base: FileTree, theirs: FileTree): CaseRename[] {
+  const theirsByFold = foldedPaths(theirs);
+  const renames: CaseRename[] = [];
+
+  for (const from of Object.keys(base)) {
+    if (theirs[from] !== undefined) continue;
+    const matches = theirsByFold.get(from.toLowerCase()) ?? [];
+    if (matches.length !== 1) continue;
+    const to = matches[0]!;
+    if (to === from || base[to] !== undefined) continue;
+    renames.push({ from, to });
+  }
+
+  return renames;
+}
+
+/**
+ * Renames one side's paths to the spelling upstream now uses, matching a local
+ * entry by its folded path so a file the user re-cased still merges.
+ *
+ * A path that already exists at the new spelling, or a folded group with more
+ * than one local entry, is left where it is: the merge does not guess, and the
+ * clash preflight refuses the update. Every path moved here must also reach the
+ * realignment in `runVersioned`, so the file on disk moves even when the merge
+ * keeps its content.
+ */
+function realignRenames(
+  tree: FileTree,
+  renames: readonly CaseRename[],
+): { tree: FileTree; moved: string[] } {
+  const byFold = foldedPaths(tree);
+  const realigned: Record<string, FileEntry> = { ...tree };
+  const moved: string[] = [];
+
+  for (const { from, to } of renames) {
+    const candidates = byFold.get(from.toLowerCase()) ?? [];
+    if (candidates.length !== 1) continue;
+    const current = candidates[0]!;
+    const entry = realigned[current];
+    if (entry === undefined || realigned[to] !== undefined) continue;
+    delete realigned[current];
+    realigned[to] = entry;
+    moved.push(to);
+  }
+
+  return { tree: realigned, moved };
+}
+
+/**
+ * True when yours and theirs made the same change to a path that exists in all
+ * three versions. The shared result needs no local maintenance, so it is not a
+ * preserved local edit: the file now matches upstream.
+ */
+function sameChangeAsYours(
+  base: FileEntry | undefined,
+  yours: FileEntry | undefined,
+  theirs: FileEntry | undefined,
+  baseUnavailable: boolean,
+): boolean {
+  if (baseUnavailable || base === undefined || yours === undefined || theirs === undefined) {
+    return false;
+  }
+  return !sameEntry(base, yours) && sameEntry(yours, theirs);
 }
 
 /**
@@ -401,19 +492,31 @@ export function planMerge(
   options: { baseUnavailable?: boolean } = {},
 ): MergePlan {
   const baseUnavailable = options.baseUnavailable === true;
-  const after: Record<string, FileEntry> = { ...yours };
+  // Upstream renames that change only case are one logical path per file, so
+  // the three sides are compared at the new spelling instead of reading the
+  // rename as a removal plus an addition.
+  const renames = caseOnlyRenames(base, theirs);
+  const mergedBase = renames.length === 0 ? base : realignRenames(base, renames).tree;
+  const mergedYours =
+    renames.length === 0 ? { tree: yours, moved: [] } : realignRenames(yours, renames);
+  const after: Record<string, FileEntry> = { ...mergedYours.tree };
   const writes: PlannedWrite[] = [];
   const preserved: string[] = [];
   const conflicts: string[] = [];
   const sideFiles: string[] = [];
   const notes: string[] = [];
 
-  const paths = [...new Set([...Object.keys(base), ...Object.keys(yours), ...Object.keys(theirs)])]
-    .sort();
+  const paths = [
+    ...new Set([
+      ...Object.keys(mergedBase),
+      ...Object.keys(mergedYours.tree),
+      ...Object.keys(theirs),
+    ]),
+  ].sort();
 
   for (const relativePath of paths) {
-    const baseEntry = baseUnavailable ? undefined : base[relativePath];
-    const yoursEntry = yours[relativePath];
+    const baseEntry = baseUnavailable ? undefined : mergedBase[relativePath];
+    const yoursEntry = mergedYours.tree[relativePath];
     const theirsEntry = theirs[relativePath];
     const result = mergePath(
       mergeInputOf(baseEntry),
@@ -425,9 +528,24 @@ export function planMerge(
 
     switch (result.action) {
       case "keep": {
-        if (result.note === "upstream-removed") {
+        if (result.note === "base-unavailable") {
+          // Without a base, a path upstream no longer has cannot be told apart
+          // from a local addition: keep it and report the conflict instead of
+          // calling it a preserved local edit.
+          conflicts.push(relativePath);
+          notes.push(
+            `Conflict in ${relativePath}: the base could not be fetched, so Metafab cannot tell your local file from an upstream removal. Your local version was kept.`,
+          );
+        } else if (result.note === "upstream-removed") {
           preserved.push(relativePath);
           notes.push(`Upstream removed ${relativePath}; your local version was kept.`);
+        } else if (sameChangeAsYours(baseEntry, yoursEntry, theirsEntry, baseUnavailable)) {
+          // Row 4: the local edit and the upstream change agree, so the path
+          // needs no local maintenance. Reporting it as preserved would imply
+          // an edit to keep; the note says upstream caught up instead.
+          notes.push(
+            `Upstream made the same change as your local edit to ${relativePath}; the file now matches upstream.`,
+          );
         } else if (
           !baseUnavailable &&
           yoursEntry !== undefined &&
@@ -497,6 +615,7 @@ export function planMerge(
     conflicts: [...new Set(conflicts)].sort(),
     sideFiles: sideFiles.sort(),
     notes,
+    realigned: [...new Set(mergedYours.moved)].sort(),
   };
 }
 
@@ -693,6 +812,7 @@ async function runVersioned(
       directories: [],
       removed: plan.writes.flatMap((write) => (write.kind === "remove" ? [write.path] : [])),
       renameCaseOnlyDirectories: true,
+      mergedCaseOnlyFiles: plan.realigned,
     });
     if (clashes.length > 0) throw pathClashes(clashes);
 
@@ -716,9 +836,14 @@ async function runVersioned(
     // uses them on disk and the review uses them on the planned tree. A side
     // file holds local content, so its own name stays local: only the
     // directories above it follow the source, and `targets` realigns them.
+    // A case-only rename the merge resolved moves its file even when it writes
+    // nothing, so its new spelling realigns the directory and the review too.
     const writes = plan.writes.filter((write) => write.kind !== "remove");
     const incoming = {
-      files: writes.flatMap((write) => (write.kind === "write" ? [write.path] : [])),
+      files: [
+        ...writes.flatMap((write) => (write.kind === "write" ? [write.path] : [])),
+        ...plan.realigned,
+      ],
       directories: [],
     };
     const targets = writes.map((write) =>

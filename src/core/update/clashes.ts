@@ -27,6 +27,15 @@ export interface IncomingPaths {
    * conflict there: the directory moves, and local-only files move with it.
    */
   renameCaseOnlyDirectories?: boolean;
+  /**
+   * Paths whose case variant the merge already reconciled: upstream renamed a
+   * file while changing only the case of its spelling, and the merge compared
+   * the three sides at the new spelling. The write realigns the local file
+   * rather than replacing different content, so the case-only difference is not
+   * a clash. Without this an edit inside a case-renamed path would refuse an
+   * update the merge can handle.
+   */
+  mergedCaseOnlyFiles?: readonly string[];
 }
 
 interface Indexed<T> {
@@ -145,6 +154,9 @@ export function findPathClashes(local: LocalPaths, incoming: IncomingPaths): Pro
   const files = indexOf(local.files.entries());
   const directories = indexOf(local.directories.entries());
   const removed = new Set((incoming.removed ?? []).map((relativePath) => relativePath.toLowerCase()));
+  const mergedCaseOnly = new Set(
+    (incoming.mergedCaseOnlyFiles ?? []).map((relativePath) => relativePath.toLowerCase()),
+  );
   const foldedLocalFiles = [...local.files.keys()].map((key) => key.toLowerCase());
   const problems: Problem[] = [];
   const reported = new Set<string>();
@@ -204,8 +216,13 @@ export function findPathClashes(local: LocalPaths, incoming: IncomingPaths): Pro
     if (localFiles.length === 1) {
       // An unversioned copy may replace a file that differs only in case; the
       // copy spells it the source's way. A directory landing on a local file
-      // is still a kind clash.
-      if (incoming.replaceCaseOnlyFiles !== true || incomingDirectory) {
+      // is still a kind clash. So is a file the merge did not reconcile: only a
+      // case-only rename of a base path makes the two spellings one file.
+      const mergedCaseOnlyFile = incomingDirectory !== true && mergedCaseOnly.has(folded);
+      if (
+        !mergedCaseOnlyFile &&
+        (incoming.replaceCaseOnlyFiles !== true || incomingDirectory)
+      ) {
         report(differentSpelling(localFiles[0]!.value.file, relativePath));
       }
       return;
