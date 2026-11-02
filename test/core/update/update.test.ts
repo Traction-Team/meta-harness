@@ -885,7 +885,7 @@ describe("upstream restructures", { timeout: 30_000 }, () => {
     async () => {
       const { repo, fab } = await importedFrom({
         ".factory/factory.yaml": CONFIG,
-        ".factory/skills/keep/SKILL.md": SKILL_V1,
+        ".factory/skills/guide/SKILL.md": SKILL_V1,
         ".factory/templates/gone.md": "# Gone\n",
       });
       // A sibling that folds to the same name as the directory upstream
@@ -896,7 +896,7 @@ describe("upstream restructures", { timeout: 30_000 }, () => {
         [".factory/skills", ".factory/templates/gone.md"],
         "rename the skills directory and drop the template",
       );
-      await publish(fab, { ".factory/Skills/keep/SKILL.md": SKILL_V1 });
+      await publish(fab, { ".factory/Skills/guide/SKILL.md": SKILL_V1 });
 
       const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build"]));
       expect(result.code).toBe(1);
@@ -905,7 +905,7 @@ describe("upstream restructures", { timeout: 30_000 }, () => {
       // The ambiguity is refused before the removal and the realignment, so no
       // part of the update has landed.
       expect(await pathExists(repo.path(".factory", "templates", "gone.md"))).toBe(true);
-      expect(await pathExists(repo.path(".factory", "skills", "keep", "SKILL.md"))).toBe(true);
+      expect(await pathExists(repo.path(".factory", "skills", "guide", "SKILL.md"))).toBe(true);
       expect(await pathExists(repo.path(".factory", "SKILLS", "extra.md"))).toBe(true);
       expect(await pathExists(repo.path(".factory", "Skills"))).toBe(false);
       expect(await metafabYaml(repo)).toContain("version: 1.0.0");
