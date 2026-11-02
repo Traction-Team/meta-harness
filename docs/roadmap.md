@@ -41,7 +41,7 @@ A team can publish a factory as a fab and other teams can import and update it.
 
 - [x] [1.008 Sources and fetching](plans/1.008-sources.md): source parsing, npm/Git/HTTPS/path fetch, cache, fab validation
 - [x] [1.009 Import and review summary](plans/1.009-import.md): `import`, risk-ordered summary
-- [ ] [1.010 Update, diff, detach](plans/1.010-update-diff-detach.md): three-way merge, unversioned overwrite, `diff`, `detach`
+- [x] [1.010 Update, diff, detach](plans/1.010-update-diff-detach.md): three-way merge, unversioned overwrite, `diff`, `detach`
 - [x] [1.011 Publish](plans/1.011-publish.md): staging, npm target, Git fab repository target
 
 ## Milestone 3: Release
