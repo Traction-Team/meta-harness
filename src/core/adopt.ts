@@ -1,4 +1,4 @@
-import { cp, lstat, mkdir, readdir, readFile, readlink, rename, rm } from "node:fs/promises";
+import { cp, lstat, mkdir, readdir, readFile, readlink, realpath, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../errors.js";
 import type { Problem } from "../errors.js";
@@ -88,6 +88,42 @@ async function lstatIfExists(target: string) {
     if (code === "ENOENT" || code === "ENOTDIR") return undefined;
     throw error;
   }
+}
+
+/**
+ * The real path of `target` when the path itself does not exist yet: the real
+ * path of its deepest existing ancestor, with the missing segments joined back
+ * on. The skill's new directory only exists after the move, so the loop check
+ * needs this to compare where a link really points, not just what it spells.
+ *
+ * Returns undefined when no ancestor resolves, as with a symlink loop.
+ */
+async function realPathOf(target: string): Promise<string | undefined> {
+  const missing: string[] = [];
+  let current = target;
+
+  for (;;) {
+    try {
+      return path.join(await realpath(current), ...missing.reverse());
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT" && code !== "ENOTDIR") return undefined;
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) return undefined;
+    missing.push(path.basename(current));
+    current = parent;
+  }
+}
+
+function loopProblem(linkPath: string): Problem {
+  return {
+    level: "error",
+    file: linkPath,
+    message: `Symlink ${linkPath} creates a loop after the move`,
+    fix: "Point it at a file or a directory that does not contain the skill, or remove the symlink",
+  };
 }
 
 function unreadable(relativePath: string): Problem {
@@ -199,7 +235,9 @@ function candidateSkillProblems(name: string, parsed: ParsedFrontmatter): Proble
  *
  * A target that contains the skill's new directory is refused separately: once
  * the skill is there the link points at itself or at an ancestor, which `build`
- * reports as a loop.
+ * reports as a loop. The check runs on the spelled path and on the real path,
+ * so a directory symlink inside `.factory/` or a filename that differs only in
+ * case cannot hide the same place on disk.
  */
 async function linkProblem(
   root: string,
@@ -225,13 +263,17 @@ async function linkProblem(
     };
   }
 
-  if (isInside(destinationTarget, absolute(root, to))) {
-    return {
-      level: "error",
-      file: linkPath,
-      message: `Symlink ${linkPath} creates a loop after the move`,
-      fix: "Point it at a file or a directory that does not contain the skill, or remove the symlink",
-    };
+  const destinationSkill = absolute(root, to);
+  if (isInside(destinationTarget, destinationSkill)) return loopProblem(linkPath);
+
+  // The lexical check above misses a target that reaches the skill through a
+  // directory symlink inside `.factory/`, or that differs from its name only in
+  // case on a case-insensitive filesystem. Compare real paths as well, resolved
+  // through the directories that exist before the move.
+  const realTarget = await realPathOf(destinationTarget);
+  const realSkill = await realPathOf(destinationSkill);
+  if (realTarget !== undefined && realSkill !== undefined && isInside(realTarget, realSkill)) {
+    return loopProblem(linkPath);
   }
 
   return undefined;

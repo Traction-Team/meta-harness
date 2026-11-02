@@ -132,6 +132,18 @@ async function readConfig(factoryDir: string): Promise<Config> {
 }
 
 /**
+ * The one wording for a `.factory/factory.yaml` that exists but cannot be read,
+ * shared by the `lstat` and the `readFile` failures.
+ */
+function unreadableFactoryFile(): MetafabError {
+  return unreadableFactory(
+    ".factory/factory.yaml",
+    "Cannot read .factory/factory.yaml",
+    "Check its permissions or restore the file",
+  );
+}
+
+/**
  * Refuses a `.factory/factory.yaml` that exists but cannot be read before
  * anything is written. A file that is readable but invalid is left for the
  * closing build to report.
@@ -147,21 +159,13 @@ async function assertFactoryFileReadable(factoryDir: string): Promise<void> {
     await lstat(file);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw unreadableFactory(
-      ".factory/factory.yaml",
-      "Cannot read .factory/factory.yaml",
-      "Check its permissions or restore the file",
-    );
+    throw unreadableFactoryFile();
   }
 
   try {
     await readFile(file, "utf8");
   } catch {
-    throw unreadableFactory(
-      ".factory/factory.yaml",
-      "Cannot read .factory/factory.yaml",
-      "Check its permissions or restore the file",
-    );
+    throw unreadableFactoryFile();
   }
 }
 

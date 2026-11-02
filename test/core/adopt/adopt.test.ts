@@ -417,6 +417,48 @@ describe("planAdoption", () => {
     expect(await pathExists(repo.path(".factory/skills/release"))).toBe(false);
   });
 
+  test("blocks a symlink to .factory/skills reached through a directory link there", async () => {
+    const repo = await repoWith({ ".claude/skills/release/SKILL.md": skill("release") });
+    await mkdir(repo.path(".factory/skills"), { recursive: true });
+    await symlink("skills", repo.path(".factory/alias"), "dir");
+    await symlink("../../../.factory/alias", repo.path(".claude/skills/release/skills"));
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.moves).toEqual([]);
+    expect(plan.blockers).toHaveLength(1);
+    expect(plan.blockers[0]!.file).toBe(".claude/skills/release/skills");
+    expect(plan.blockers[0]!.message).toBe(
+      "Symlink .claude/skills/release/skills creates a loop after the move",
+    );
+
+    await expect(applyAdoption(plan)).rejects.toThrow("Adoption is blocked by 1 entry.");
+
+    expect(await pathExists(repo.path(".claude/skills/release/SKILL.md"))).toBe(true);
+    expect(await pathExists(repo.path(".factory/skills/release"))).toBe(false);
+  });
+
+  test("blocks a symlink that spells .factory/skills with different case", async (ctx) => {
+    const repo = await repoWith({ ".claude/skills/release/SKILL.md": skill("release") });
+    await mkdir(repo.path(".factory/skills"), { recursive: true });
+    if (!(await pathExists(repo.path(".factory/Skills")))) {
+      // A case-sensitive filesystem resolves this to a different, absent path,
+      // so the link is not a loop there.
+      ctx.skip();
+      return;
+    }
+    await symlink("../../../.factory/Skills", repo.path(".claude/skills/release/skills"));
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.moves).toEqual([]);
+    expect(plan.blockers).toHaveLength(1);
+    expect(plan.blockers[0]!.file).toBe(".claude/skills/release/skills");
+    expect(plan.blockers[0]!.message).toBe(
+      "Symlink .claude/skills/release/skills creates a loop after the move",
+    );
+  });
+
   test.skipIf(process.platform === "win32")(
     "blocks an unreadable supporting file that build would report after the move",
     async () => {
