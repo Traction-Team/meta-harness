@@ -1,8 +1,8 @@
 import { mkdir, readdir, rename } from "node:fs/promises";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
-import type { Problem } from "../../errors.js";
 import type { FileEntry, FileTree } from "../import/file-tree.js";
+import { ambiguousSpellingProblem } from "./clashes.js";
 
 /** Factory-relative paths an update writes, in the source's spelling. */
 export interface IncomingSpelling {
@@ -40,19 +40,12 @@ function chooseName(entries: readonly string[], part: string): Choice {
 }
 
 function ambiguousSpelling(relativePath: string, candidates: readonly string[]): MetafabError {
-  const file = candidates[0] ?? relativePath;
-  const problem: Problem = {
-    level: "error",
-    file,
-    message: `The update writes ${relativePath}, but these local entries differ only in case: ${candidates.join(", ")}`,
-    fix: "Move all but one of the local entries away, then run metafab update again",
-  };
   return new MetafabError(
     "Update stopped because local paths differ only in case and the incoming path does not match one exactly.",
     {
       exitCode: ExitCode.Failed,
       code: "update-path-conflict",
-      problems: [problem],
+      problems: [ambiguousSpellingProblem(candidates, relativePath)],
     },
   );
 }

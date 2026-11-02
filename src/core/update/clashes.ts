@@ -90,7 +90,16 @@ function differentSpelling(file: string, incoming: string): Problem {
   };
 }
 
-function ambiguousSpelling(files: readonly string[], incoming: string): Problem {
+/**
+ * The problem for an incoming path that several local spellings fold to.
+ *
+ * The clash preflight and the realignment both refuse this case, so the text is
+ * built here once and both paths report it identically.
+ */
+export function ambiguousSpellingProblem(
+  files: readonly string[],
+  incoming: string,
+): Problem {
   return {
     level: "error",
     file: files[0] ?? incoming,
@@ -173,7 +182,7 @@ export function findPathClashes(local: LocalPaths, incoming: IncomingPaths): Pro
       localFiles.length + localDirectories.length > 1
     ) {
       report(
-        ambiguousSpelling(
+        ambiguousSpellingProblem(
           [
             ...localFiles.map((entry) => entry.value.file),
             ...localDirectories.map((entry) => entry.value),
@@ -189,7 +198,7 @@ export function findPathClashes(local: LocalPaths, incoming: IncomingPaths): Pro
       return;
     }
     if (localFiles.length > 1) {
-      report(ambiguousSpelling(localFiles.map((entry) => entry.value.file), relativePath));
+      report(ambiguousSpellingProblem(localFiles.map((entry) => entry.value.file), relativePath));
       return;
     }
     if (localFiles.length === 1) {
@@ -212,7 +221,7 @@ export function findPathClashes(local: LocalPaths, incoming: IncomingPaths): Pro
         return;
       }
       if (ancestorFiles.length > 1) {
-        report(ambiguousSpelling(ancestorFiles.map((entry) => entry.value.file), relativePath));
+        report(ambiguousSpellingProblem(ancestorFiles.map((entry) => entry.value.file), relativePath));
         return;
       }
       if (ancestorFiles.length === 1) {
@@ -225,7 +234,7 @@ export function findPathClashes(local: LocalPaths, incoming: IncomingPaths): Pro
       if (exactDirectory !== undefined) continue;
       if (ancestorDirectories.length > 1) {
         report(
-          ambiguousSpelling(
+          ambiguousSpellingProblem(
             ancestorDirectories.map((entry) => entry.value),
             relativePath,
           ),

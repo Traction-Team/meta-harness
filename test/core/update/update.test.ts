@@ -631,6 +631,46 @@ describe("upstream restructures", () => {
     );
   });
 
+  test("reports a preserved local file at the spelling the rename leaves on disk", async () => {
+    const { repo, fab } = await importedFrom({
+      ".factory/factory.yaml": CONFIG,
+      ".factory/Skills/guide/SKILL.md": SKILL_V1,
+    });
+    await writeRepoFiles(repo.root, { ".factory/Skills/local.md": "# Local only\n" });
+
+    await fab.remove([".factory/Skills"], "rename the skills directory");
+    await publish(fab, { ".factory/skills/guide/SKILL.md": SKILL_V2 });
+
+    // The dry run prints the tree the real run writes, so it names the
+    // preserved file at the directory's new spelling, not the one it is
+    // renamed away from.
+    const dryRun = await withFabEnvironment(fab, () =>
+      updateFab(repo.root, ["--no-build", "--dry-run"]),
+    );
+    expect(dryRun.code).toBe(0);
+    expect(dryRun.stdout).toContain("Local edits preserved");
+    expect(dryRun.stdout).toContain("  skills/local.md");
+    expect(dryRun.stdout).not.toContain("  Skills/local.md");
+
+    const dryJson = await withFabEnvironment(fab, () =>
+      updateFab(repo.root, ["--no-build", "--dry-run", "--json"]),
+    );
+    expect(dryJson.code).toBe(0);
+    expect(parseJson(dryJson).preserved).toEqual(["skills/local.md"]);
+
+    const result = await withFabEnvironment(fab, () =>
+      updateFab(repo.root, ["--no-build", "--json"]),
+    );
+    expect(result.code).toBe(0);
+    const payload = parseJson(result);
+    expect(payload.preserved).toEqual(["skills/local.md"]);
+
+    // Only the dry run's notes differ, so the reviewed groups match.
+    const groupsOf = (value: Record<string, unknown>) =>
+      (value.review as { groups: unknown }).groups;
+    expect(groupsOf(payload)).toEqual(groupsOf(parseJson(dryJson)));
+  });
+
   test("still refuses a directory that keeps local content", async () => {
     const { repo, fab } = await importedFrom({
       ".factory/factory.yaml": CONFIG,

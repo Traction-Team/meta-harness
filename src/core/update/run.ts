@@ -306,6 +306,21 @@ async function applyWrites(factoryDir: string, writes: readonly PlannedWrite[]):
   }
 }
 
+/**
+ * The path a kept local entry has after realignment.
+ *
+ * Realignment only changes the case of path components, so a preserved path
+ * that no longer exists at its old spelling moved to the single path that folds
+ * to it. Without this the summary names a directory the update just renamed
+ * away. Any other path keeps its spelling.
+ */
+function movedSpelling(after: FileTree, relativePath: string): string {
+  if (after[relativePath] !== undefined) return relativePath;
+  const folded = relativePath.toLowerCase();
+  const matches = Object.keys(after).filter((candidate) => candidate.toLowerCase() === folded);
+  return matches.length === 1 ? matches[0]! : relativePath;
+}
+
 function conflictNote(path: string, reason: SideFileReason): string {
   if (reason === "new-local") {
     return `Conflict in ${path}: the local entry differs from the new upstream file, which was written to ${path}.upstream.`;
@@ -316,9 +331,9 @@ function conflictNote(path: string, reason: SideFileReason): string {
 /**
  * Applies the merge table to every path in base, yours, or theirs.
  *
- * The returned `after` tree is the planned state of `.factory/`: it is used for
- * the review summary whether or not the planner writes the files, so a dry run
- * reports the same plan.
+ * The returned `after` tree is the planned state of `.factory/` before the
+ * spelling realignment: the caller aligns it the way the writes realign the
+ * filesystem, so the review matches the files a real run leaves behind.
  */
 export function planMerge(
   base: FileTree,
@@ -652,23 +667,29 @@ async function runVersioned(
     const built = !options.dryRun && options.noBuild !== true && plan.conflicts.length === 0;
     let changed: BuildChange[] = [];
 
+    // The paths the update writes, in the source's spelling. The realignment
+    // uses them on disk and the review uses them on the planned tree.
+    const writes = plan.writes.filter((write) => write.kind !== "remove");
+    const incoming = {
+      files: writes.map((write) =>
+        write.kind === "side-file" ? `${write.path}.upstream` : write.path,
+      ),
+      directories: [],
+    };
+
     if (options.dryRun === true) {
       notes.push("Dry run: nothing was written.");
     } else {
-      // Removals first: a write may target a path a removal frees. Then realign
-      // the spelling of every written path, so a case-only directory rename
-      // moves the local directory (and any local-only files inside it) instead
-      // of writing into the old-spelled directory and leaving the fab's record
-      // pointing at a path that does not exist on disk.
-      const removals = plan.writes.filter((write) => write.kind === "remove");
-      const writes = plan.writes.filter((write) => write.kind !== "remove");
-      await applyWrites(factoryDir, removals);
-      await alignFactorySpelling(factoryDir, {
-        files: writes.map((write) =>
-          write.kind === "side-file" ? `${write.path}.upstream` : write.path,
-        ),
-        directories: [],
-      });
+      // planMerge already orders removals before writes. The split here exists
+      // only to run the realignment between them: the removals free an old
+      // spelling, then alignFactorySpelling moves a directory renamed only in
+      // case (and any local-only files inside it), so the writes land at the
+      // source's spelling instead of recreating the old directory.
+      await applyWrites(
+        factoryDir,
+        plan.writes.filter((write) => write.kind === "remove"),
+      );
+      await alignFactorySpelling(factoryDir, incoming);
       await applyWrites(factoryDir, writes);
       // The selected upstream becomes the base of the next update, even when
       // conflict markers were written: resolving them is local work against
@@ -681,9 +702,28 @@ async function runVersioned(
       }
     }
 
-    const review = summarise(before, plan.after, {
+    // The realignment moves a local-only file that lives inside a case-only
+    // renamed directory, so the reviewed tree and the preserved paths must move
+    // with it. Mirror the writes on disk: take the written entries out of the
+    // planned tree, realign what is left, then put them back. Aligning the tree
+    // as planned would already hold both spellings and prefer the exact one the
+    // write added, leaving the local-only file at the old spelling. A dry run
+    // computes the same tree, so both report what a real run writes.
+    const written = new Set(
+      writes.filter((write) => write.kind === "write").map((write) => write.path),
+    );
+    const unaligned = Object.fromEntries(
+      Object.entries(plan.after).filter(([relativePath]) => !written.has(relativePath)),
+    );
+    const after = { ...alignTreeSpelling(unaligned, incoming) };
+    for (const write of writes) after[write.path] = plan.after[write.path]!;
+    const preserved = [
+      ...new Set(plan.preserved.map((relativePath) => movedSpelling(after, relativePath))),
+    ].sort();
+
+    const review = summarise(before, after, {
       title: titleFor(previous, selectedEntry),
-      ...(plan.preserved.length === 0 ? {} : { preserved: plan.preserved }),
+      ...(preserved.length === 0 ? {} : { preserved }),
       ...(plan.conflicts.length === 0 ? {} : { conflicts: plan.conflicts }),
       ...(notes.length === 0 ? {} : { notes }),
     });
@@ -694,7 +734,7 @@ async function runVersioned(
       upstream: theirs.upstream,
       from: recordedLabel(previous),
       to: recordedLabel(selectedEntry),
-      preserved: plan.preserved,
+      preserved,
       conflicts: plan.conflicts,
       sideFiles: plan.sideFiles,
       added: plan.added,
