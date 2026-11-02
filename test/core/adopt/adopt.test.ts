@@ -459,6 +459,86 @@ describe("planAdoption", () => {
     );
   });
 
+  test("blocks a symlink loop inside a dot directory", async () => {
+    const repo = await repoWith({ ".claude/skills/release/SKILL.md": skill("release") });
+    await mkdir(repo.path(".claude/skills/release/.hidden"), { recursive: true });
+    await symlink("../../../../.factory/skills", repo.path(".claude/skills/release/.hidden/skills"));
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.moves).toEqual([]);
+    expect(plan.blockers).toHaveLength(1);
+    expect(plan.blockers[0]!.file).toBe(".claude/skills/release/.hidden/skills");
+    expect(plan.blockers[0]!.message).toBe(
+      "Symlink .claude/skills/release/.hidden/skills creates a loop after the move",
+    );
+
+    await expect(applyAdoption(plan)).rejects.toThrow("Adoption is blocked by 1 entry.");
+
+    expect(await pathExists(repo.path(".claude/skills/release/SKILL.md"))).toBe(true);
+    expect(await pathExists(repo.path(".factory/skills"))).toBe(false);
+  });
+
+  test("blocks a symlink in a dot directory that points outside .factory/ after the move", async () => {
+    const repo = await repoWith({
+      ".claude/skills/release/SKILL.md": skill("release"),
+      "README.md": "# Repository\n",
+    });
+    await mkdir(repo.path(".claude/skills/release/.hidden"), { recursive: true });
+    await symlink("../../../../README.md", repo.path(".claude/skills/release/.hidden/link"));
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.moves).toEqual([]);
+    expect(plan.blockers).toHaveLength(1);
+    expect(plan.blockers[0]!.file).toBe(".claude/skills/release/.hidden/link");
+    expect(plan.blockers[0]!.message).toBe(
+      "Symlink .claude/skills/release/.hidden/link points outside .factory/ after the move",
+    );
+    expect(plan.blockers[0]!.fix).toBe("Point it inside .factory/, or remove the symlink");
+  });
+
+  test("accepts a symlink inside a dot directory that stays inside the moved skill", async () => {
+    const repo = await repoWith({
+      ".claude/skills/release/SKILL.md": skill("release"),
+      ".claude/skills/release/.hidden/notes.md": "hidden notes\n",
+    });
+    await symlink("notes.md", repo.path(".claude/skills/release/.hidden/link"));
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.blockers).toEqual([]);
+    await applyAdoption(plan);
+
+    expect(await readFile(repo.path(".factory/skills/release/.hidden/link"), "utf8")).toBe(
+      "hidden notes\n",
+    );
+
+    const result = await runCli(["build"], { cwd: repo.root });
+
+    expect(result.code).toBe(0);
+    expect(await readFile(repo.path(".claude/skills/release/.hidden/link"), "utf8")).toBe(
+      "hidden notes\n",
+    );
+  });
+
+  test("accepts a nested SKILL.md inside a dot directory, which build does not discover", async () => {
+    const repo = await repoWith({
+      ".claude/skills/release/SKILL.md": skill("release"),
+      ".claude/skills/release/.hidden/SKILL.md": skill("hidden"),
+    });
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.blockers).toEqual([]);
+    await applyAdoption(plan);
+
+    const result = await runCli(["build"], { cwd: repo.root });
+
+    expect(result.code).toBe(0);
+    expect(await pathExists(repo.path(".claude/skills/release/.hidden/SKILL.md"))).toBe(true);
+  });
+
   test.skipIf(process.platform === "win32")(
     "blocks an unreadable supporting file that build would report after the move",
     async () => {

@@ -283,12 +283,18 @@ async function linkProblem(
  * The first entry in the candidate tree that the move cannot carry: a symlink
  * that would leave `.factory/` or point back at the skill, or a nested skill
  * directory.
+ *
+ * `compileSkill` copies every directory it can read, dot directories included,
+ * so links inside one are judged here too: a hidden directory that loops or
+ * leaves `.factory/` fails the build after the move, whatever its name. The
+ * nested-skill rule does not apply inside a dot directory, because factory
+ * discovery skips those directories and `build` accepts the `SKILL.md` there.
  */
 async function treeProblems(root: string, from: string, to: string): Promise<Problem | undefined> {
-  const pending = [""];
+  const pending: { relative: string; hidden: boolean }[] = [{ relative: "", hidden: false }];
 
   while (pending.length > 0) {
-    const relative = pending.shift()!;
+    const { relative, hidden } = pending.shift()!;
     const current = relative === "" ? from : `${from}/${relative}`;
 
     let entries;
@@ -310,13 +316,17 @@ async function treeProblems(root: string, from: string, to: string): Promise<Pro
         continue;
       }
 
-      if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+      if (!entry.isDirectory()) continue;
 
-      const nestedSkill = await lstatIfExists(absolute(root, `${childPath}/SKILL.md`));
-      if (nestedSkill !== undefined && nestedSkill.isFile()) {
-        return rule3NoNestedSkills(`${childPath}/SKILL.md`, 1, childPath, from)[0];
+      const hiding = entry.name.startsWith(".");
+      if (!hidden && !hiding) {
+        const nestedSkill = await lstatIfExists(absolute(root, `${childPath}/SKILL.md`));
+        if (nestedSkill !== undefined && nestedSkill.isFile()) {
+          return rule3NoNestedSkills(`${childPath}/SKILL.md`, 1, childPath, from)[0];
+        }
       }
-      pending.push(child);
+
+      pending.push({ relative: child, hidden: hidden || hiding });
     }
   }
 
