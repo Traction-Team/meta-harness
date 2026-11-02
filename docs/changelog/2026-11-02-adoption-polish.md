@@ -7,7 +7,7 @@ plan: docs/plans/1.014-adoption-polish.md
 
 # Adoption accepts any skill that build accepts, and init names the real read error
 
-`metafab init --adopt` now moves a skill whose symlink points into `.factory/` (for example `notes.md -> ../../../.factory/shared/notes.md`), and the following `metafab build` installs it. A link that would point outside `.factory/`, or would contain the skill, after the move is refused with exit 5 and a message that says "after the move".
+`metafab init --adopt` now moves a skill whose symlink points into `.factory/` (for example `notes.md -> ../../../.factory/shared/notes.md`), and the following `metafab build` installs it. A link, including one inside a dot directory such as `.hidden/`, that would point outside `.factory/` or would contain the skill after the move is refused with exit 5 and a message that says "after the move".
 
 When `init` cannot read `.factory/metafab.yaml`, it now names the cause: only a permissions error says "Check its permissions"; any other read error says "Restore the file, then run metafab init again". An unreadable `.factory/factory.yaml` now stops `init` before it writes anything. Other failures in the closing build can still leave the new factory files behind, as before.
 
