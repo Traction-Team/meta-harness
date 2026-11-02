@@ -25,7 +25,7 @@ import { renderSummary, summarise } from "../summary.js";
 import type { Summary } from "../summary.js";
 import { findPathClashes } from "./clashes.js";
 import { fetchRecordedBase } from "./fetch.js";
-import { alignFactorySpelling, alignTreeSpelling } from "./spelling.js";
+import { alignFactorySpelling, alignPathSpelling, alignTreeSpelling } from "./spelling.js";
 import {
   recordedLabel,
   sameVersion,
@@ -100,10 +100,14 @@ interface MergePlan {
   preserved: string[];
   conflicts: string[];
   sideFiles: string[];
+  notes: string[];
+}
+
+/** Paths an update changed, as the review groups and the JSON report show them. */
+interface TreeChanges {
   added: string[];
   updated: string[];
   removed: string[];
-  notes: string[];
 }
 
 function cliVersion(): string {
@@ -306,6 +310,18 @@ async function applyWrites(factoryDir: string, writes: readonly PlannedWrite[]):
   }
 }
 
+/** Every path in a tree, keyed by its lowercase spelling. */
+function foldedPaths(tree: FileTree): Map<string, string[]> {
+  const folded = new Map<string, string[]>();
+  for (const relativePath of Object.keys(tree)) {
+    const key = relativePath.toLowerCase();
+    const paths = folded.get(key);
+    if (paths === undefined) folded.set(key, [relativePath]);
+    else paths.push(relativePath);
+  }
+  return folded;
+}
+
 /**
  * The path a kept local entry has after realignment.
  *
@@ -314,11 +330,53 @@ async function applyWrites(factoryDir: string, writes: readonly PlannedWrite[]):
  * to it. Without this the summary names a directory the update just renamed
  * away. Any other path keeps its spelling.
  */
-function movedSpelling(after: FileTree, relativePath: string): string {
+function movedSpelling(
+  after: FileTree,
+  folded: ReadonlyMap<string, string[]>,
+  relativePath: string,
+): string {
   if (after[relativePath] !== undefined) return relativePath;
-  const folded = relativePath.toLowerCase();
-  const matches = Object.keys(after).filter((candidate) => candidate.toLowerCase() === folded);
-  return matches.length === 1 ? matches[0]! : relativePath;
+  const matches = folded.get(relativePath.toLowerCase());
+  return matches !== undefined && matches.length === 1 ? matches[0]! : relativePath;
+}
+
+/** True when two entries describe different content or permission bits. */
+function entriesDiffer(left: FileEntry | undefined, right: FileEntry | undefined): boolean {
+  if (left === undefined || right === undefined) return left !== right;
+  if (left.hash !== right.hash) return true;
+  // A link's mode belongs to the host, not to the fab, and differs between
+  // hosts, so only a file's mode counts, as in the review summary.
+  return left.link === undefined && right.link === undefined && left.mode !== right.mode;
+}
+
+/**
+ * The files the update changed, comparing the realigned before tree with the
+ * tree it leaves behind.
+ *
+ * Both trees use the spelling the update leaves on disk, so a path renamed only
+ * by case is compared with itself: a file that still exists is never reported
+ * as removed, and its content change is reported at its new spelling. A path
+ * with conflict markers is listed under `conflicts` and is not repeated here,
+ * which keeps these lists and the review groups complementary.
+ */
+function changedPaths(before: FileTree, after: FileTree, conflicts: readonly string[]): TreeChanges {
+  const conflicted = new Set(conflicts);
+  const added: string[] = [];
+  const updated: string[] = [];
+  const removed: string[] = [];
+  const paths = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort();
+
+  for (const relativePath of paths) {
+    if (conflicted.has(relativePath)) continue;
+    const previous = before[relativePath];
+    const next = after[relativePath];
+    if (previous === undefined && next === undefined) continue;
+    if (previous === undefined) added.push(relativePath);
+    else if (next === undefined) removed.push(relativePath);
+    else if (entriesDiffer(previous, next)) updated.push(relativePath);
+  }
+
+  return { added, updated, removed };
 }
 
 function conflictNote(path: string, reason: SideFileReason): string {
@@ -348,9 +406,6 @@ export function planMerge(
   const preserved: string[] = [];
   const conflicts: string[] = [];
   const sideFiles: string[] = [];
-  const added: string[] = [];
-  const updated: string[] = [];
-  const removed: string[] = [];
   const notes: string[] = [];
 
   const paths = [...new Set([...Object.keys(base), ...Object.keys(yours), ...Object.keys(theirs)])]
@@ -385,7 +440,6 @@ export function planMerge(
       case "remove": {
         if (yoursEntry !== undefined) {
           delete after[relativePath];
-          removed.push(relativePath);
           writes.push({ kind: "remove", path: relativePath });
         }
         if (result.note === "upstream-changed-removed") {
@@ -396,7 +450,6 @@ export function planMerge(
       case "add": {
         if (theirsEntry !== undefined) {
           after[relativePath] = theirsEntry;
-          added.push(relativePath);
           writes.push({ kind: "write", path: relativePath, entry: theirsEntry });
         }
         break;
@@ -404,7 +457,6 @@ export function planMerge(
       case "take-theirs": {
         if (theirsEntry !== undefined) {
           after[relativePath] = theirsEntry;
-          updated.push(relativePath);
           writes.push({ kind: "write", path: relativePath, entry: theirsEntry });
         }
         break;
@@ -414,11 +466,7 @@ export function planMerge(
         const entry = entryFromContent(result.content, result.mode);
         after[relativePath] = entry;
         writes.push({ kind: "write", path: relativePath, entry });
-        if (result.action === "conflict") {
-          conflicts.push(relativePath);
-        } else {
-          updated.push(relativePath);
-        }
+        if (result.action === "conflict") conflicts.push(relativePath);
         break;
       }
       case "side-file": {
@@ -448,9 +496,6 @@ export function planMerge(
     preserved: [...new Set(preserved)].sort(),
     conflicts: [...new Set(conflicts)].sort(),
     sideFiles: sideFiles.sort(),
-    added: added.sort(),
-    updated: updated.sort(),
-    removed: removed.sort(),
     notes,
   };
 }
@@ -646,7 +691,7 @@ async function runVersioned(
           : [write.kind === "side-file" ? `${write.path}.upstream` : write.path],
       ),
       directories: [],
-      removed: plan.removed,
+      removed: plan.writes.flatMap((write) => (write.kind === "remove" ? [write.path] : [])),
       renameCaseOnlyDirectories: true,
     });
     if (clashes.length > 0) throw pathClashes(clashes);
@@ -668,14 +713,19 @@ async function runVersioned(
     let changed: BuildChange[] = [];
 
     // The paths the update writes, in the source's spelling. The realignment
-    // uses them on disk and the review uses them on the planned tree.
+    // uses them on disk and the review uses them on the planned tree. A side
+    // file holds local content, so its own name stays local: only the
+    // directories above it follow the source, and `targets` realigns them.
     const writes = plan.writes.filter((write) => write.kind !== "remove");
     const incoming = {
-      files: writes.map((write) =>
-        write.kind === "side-file" ? `${write.path}.upstream` : write.path,
-      ),
+      files: writes.flatMap((write) => (write.kind === "write" ? [write.path] : [])),
       directories: [],
     };
+    const targets = writes.map((write) =>
+      write.kind === "side-file"
+        ? { ...write, path: alignPathSpelling(write.path, incoming) }
+        : write,
+    );
 
     if (options.dryRun === true) {
       notes.push("Dry run: nothing was written.");
@@ -690,7 +740,7 @@ async function runVersioned(
         plan.writes.filter((write) => write.kind === "remove"),
       );
       await alignFactorySpelling(factoryDir, incoming);
-      await applyWrites(factoryDir, writes);
+      await applyWrites(factoryDir, targets);
       // The selected upstream becomes the base of the next update, even when
       // conflict markers were written: resolving them is local work against
       // this version.
@@ -704,24 +754,36 @@ async function runVersioned(
 
     // The realignment moves a local-only file that lives inside a case-only
     // renamed directory, so the reviewed tree and the preserved paths must move
-    // with it. Mirror the writes on disk: take the written entries out of the
-    // planned tree, realign what is left, then put them back. Aligning the tree
-    // as planned would already hold both spellings and prefer the exact one the
-    // write added, leaving the local-only file at the old spelling. A dry run
-    // computes the same tree, so both report what a real run writes.
-    const written = new Set(
-      writes.filter((write) => write.kind === "write").map((write) => write.path),
-    );
+    // with it. Mirror the writes on disk: take the source's entries out of the
+    // planned tree, realign what is left, then put them back at the source's
+    // spelling. Aligning the tree as planned would already hold both spellings
+    // and prefer the exact one the write added, leaving the local-only file at
+    // the old spelling. A side file is local content and is not put back: the
+    // realignment already moved it with its directory, as the write does. A dry
+    // run computes the same tree, so both report what a real run writes.
+    const written = new Map<string, FileEntry>();
+    for (const write of writes) {
+      if (write.kind !== "write") continue;
+      const entry = plan.after[write.path];
+      if (entry !== undefined) written.set(write.path, entry);
+    }
     const unaligned = Object.fromEntries(
       Object.entries(plan.after).filter(([relativePath]) => !written.has(relativePath)),
     );
-    const after = { ...alignTreeSpelling(unaligned, incoming) };
-    for (const write of writes) after[write.path] = plan.after[write.path]!;
-    const preserved = [
-      ...new Set(plan.preserved.map((relativePath) => movedSpelling(after, relativePath))),
-    ].sort();
+    const after: Record<string, FileEntry> = { ...alignTreeSpelling(unaligned, incoming) };
+    for (const [relativePath, entry] of written) after[relativePath] = entry;
 
-    const review = summarise(before, after, {
+    // The before tree realigns the same way, so the report compares the same
+    // files: a path renamed only by case is not a change, and a removal is
+    // never reported for a file the update leaves on disk.
+    const alignedBefore = alignTreeSpelling(before, incoming);
+    const folded = foldedPaths(after);
+    const preserved = [
+      ...new Set(plan.preserved.map((relativePath) => movedSpelling(after, folded, relativePath))),
+    ].sort();
+    const changes = changedPaths(alignedBefore, after, plan.conflicts);
+
+    const review = summarise(alignedBefore, after, {
       title: titleFor(previous, selectedEntry),
       ...(preserved.length === 0 ? {} : { preserved }),
       ...(plan.conflicts.length === 0 ? {} : { conflicts: plan.conflicts }),
@@ -737,9 +799,9 @@ async function runVersioned(
       preserved,
       conflicts: plan.conflicts,
       sideFiles: plan.sideFiles,
-      added: plan.added,
-      updated: plan.updated,
-      removed: plan.removed,
+      added: changes.added,
+      updated: changes.updated,
+      removed: changes.removed,
       notes,
       problems,
       built,

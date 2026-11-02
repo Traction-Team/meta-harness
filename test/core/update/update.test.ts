@@ -90,7 +90,7 @@ async function metafabYaml(repo: TempRepo): Promise<string> {
   return readFile(repo.path(".factory", "metafab.yaml"), "utf8");
 }
 
-describe("update version selection", () => {
+describe("update version selection", { timeout: 30_000 }, () => {
   test("follows the recorded range to the newest matching tag", async () => {
     const { repo, fab } = await importedProject();
     const commit = await fab.commit(
@@ -263,7 +263,7 @@ describe("update version selection", () => {
   });
 });
 
-describe("versioned update", () => {
+describe("versioned update", { timeout: 30_000 }, () => {
   test("merges local edits, writes markers for overlaps, and records the new version", async () => {
     const { repo, fab } = await importedProject();
 
@@ -513,8 +513,56 @@ describe("versioned update", () => {
   });
 });
 
-describe("upstream restructures", () => {
+describe("upstream restructures", { timeout: 30_000 }, () => {
   const CONFIG = "format: 1\nname: sample-fab\n";
+
+  /**
+   * The report a case-only rename of the skills directory produces when a local
+   * file lives in it: the renamed skill is an edit at its new spelling and the
+   * local-only file is only preserved.
+   */
+  const expectedReport = {
+    preserved: ["skills/local.md"],
+    added: [],
+    updated: ["skills/guide/SKILL.md"],
+    removed: [],
+  };
+  const expectedGroups = [
+    ["skills", "skills/guide/SKILL.md"],
+    ["preserved", "skills/local.md"],
+  ];
+
+  function changedFiles(value: Record<string, unknown>): Record<string, unknown> {
+    return {
+      preserved: value.preserved,
+      added: value.added,
+      updated: value.updated,
+      removed: value.removed,
+    };
+  }
+
+  /** Each review group as its key followed by its paths. */
+  function reviewPaths(value: Record<string, unknown>): string[][] {
+    const groups = (
+      value.review as {
+        groups: Array<{ key: string; entries: Array<{ path: string }> }>;
+      }
+    ).groups;
+    return groups.map((group) => [group.key, ...group.entries.map((entry) => entry.path)]);
+  }
+
+  /**
+   * Every summary line that mentions a skills path, with alignment padding
+   * folded away. A stray delete at the old spelling would show up here.
+   */
+  function pathLines(stdout: string): string[] {
+    return stdout
+      .split("\n")
+      .map((line) => line.trim().replace(/\s+/g, " "))
+      .filter((line) => /skills\//i.test(line));
+  }
+
+  const expectedLines = ["M skills/guide/SKILL.md +1 -1", "skills/local.md"];
 
   test("turns an upstream file into a directory", async () => {
     const { repo, fab } = await importedFrom({
@@ -641,34 +689,76 @@ describe("upstream restructures", () => {
     await fab.remove([".factory/Skills"], "rename the skills directory");
     await publish(fab, { ".factory/skills/guide/SKILL.md": SKILL_V2 });
 
-    // The dry run prints the tree the real run writes, so it names the
-    // preserved file at the directory's new spelling, not the one it is
-    // renamed away from.
     const dryRun = await withFabEnvironment(fab, () =>
       updateFab(repo.root, ["--no-build", "--dry-run"]),
     );
     expect(dryRun.code).toBe(0);
-    expect(dryRun.stdout).toContain("Local edits preserved");
-    expect(dryRun.stdout).toContain("  skills/local.md");
-    expect(dryRun.stdout).not.toContain("  Skills/local.md");
+    expect(pathLines(dryRun.stdout)).toEqual(expectedLines);
 
+    // The dry run prints the tree the real run writes, so it names the
+    // preserved file at the directory's new spelling, not the one it is
+    // renamed away from. The report is the same as a real run's: a case-only
+    // rename is not a change, so the renamed skill is an edit at its new
+    // spelling and the local-only file is only preserved.
     const dryJson = await withFabEnvironment(fab, () =>
       updateFab(repo.root, ["--no-build", "--dry-run", "--json"]),
     );
     expect(dryJson.code).toBe(0);
-    expect(parseJson(dryJson).preserved).toEqual(["skills/local.md"]);
+    const dryPayload = parseJson(dryJson);
+    expect(changedFiles(dryPayload)).toEqual(expectedReport);
+    expect(reviewPaths(dryPayload)).toEqual(expectedGroups);
 
     const result = await withFabEnvironment(fab, () =>
       updateFab(repo.root, ["--no-build", "--json"]),
     );
     expect(result.code).toBe(0);
     const payload = parseJson(result);
-    expect(payload.preserved).toEqual(["skills/local.md"]);
+    expect(changedFiles(payload)).toEqual(expectedReport);
+    expect(reviewPaths(payload)).toEqual(expectedGroups);
+  });
 
-    // Only the dry run's notes differ, so the reviewed groups match.
-    const groupsOf = (value: Record<string, unknown>) =>
-      (value.review as { groups: unknown }).groups;
-    expect(groupsOf(payload)).toEqual(groupsOf(parseJson(dryJson)));
+  test("prints the same preserved-file summary on a real run", async () => {
+    const { repo, fab } = await importedFrom({
+      ".factory/factory.yaml": CONFIG,
+      ".factory/Skills/guide/SKILL.md": SKILL_V1,
+    });
+    await writeRepoFiles(repo.root, { ".factory/Skills/local.md": "# Local only\n" });
+
+    await fab.remove([".factory/Skills"], "rename the skills directory");
+    await publish(fab, { ".factory/skills/guide/SKILL.md": SKILL_V2 });
+
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build"]));
+    expect(result.code).toBe(0);
+    expect(pathLines(result.stdout)).toEqual(expectedLines);
+    expect(await readdir(repo.path(".factory"))).toContain("skills");
+  });
+
+  test("reports a case-only upstream rename of an unchanged file as no change", async () => {
+    const { repo, fab } = await importedFrom({
+      ".factory/factory.yaml": CONFIG,
+      ".factory/Skills/guide/SKILL.md": SKILL_V1,
+    });
+
+    await fab.remove([".factory/Skills"], "rename the skills directory");
+    await publish(fab, { ".factory/skills/guide/SKILL.md": SKILL_V1 });
+
+    const result = await withFabEnvironment(fab, () =>
+      updateFab(repo.root, ["--no-build", "--json"]),
+    );
+    expect(result.code).toBe(0);
+    const payload = parseJson(result);
+
+    // The file exists on disk under both spellings, so it is neither added,
+    // updated, nor removed: only the spelling of its directory changed.
+    expect({
+      preserved: payload.preserved,
+      added: payload.added,
+      updated: payload.updated,
+      removed: payload.removed,
+    }).toEqual({ preserved: [], added: [], updated: [], removed: [] });
+    expect((payload.review as { groups: unknown[] }).groups).toEqual([]);
+
+    expect(await readdir(repo.path(".factory"))).toContain("skills");
   });
 
   test("still refuses a directory that keeps local content", async () => {

@@ -219,3 +219,19 @@ export function alignTreeSpelling(tree: FileTree, incoming: IncomingSpelling): F
   collectSpellingTree(root, "", aligned);
   return aligned;
 }
+
+/**
+ * The spelling one path has after the realignment.
+ *
+ * Components that fold to an incoming path are renamed the way the filesystem
+ * realignment renames them; a path outside the incoming paths keeps its
+ * spelling. Used for a side file, whose own name is local content but whose
+ * directories follow the source, so it lands in the realigned directory instead
+ * of recreating the old spelling.
+ */
+export function alignPathSpelling(relativePath: string, incoming: IncomingSpelling): string {
+  // Only the keys of this one-entry tree are read.
+  const entry: FileEntry = { hash: "", mode: 0, binary: false };
+  const paths = Object.keys(alignTreeSpelling({ [relativePath]: entry }, incoming));
+  return paths.length === 1 ? paths[0]! : relativePath;
+}

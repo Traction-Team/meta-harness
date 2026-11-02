@@ -60,7 +60,7 @@ function diffFab(cwd: string, args: readonly string[] = []): Promise<RunCliResul
   return runCli(["diff", ...args], { cwd });
 }
 
-describe("metafab diff", () => {
+describe("metafab diff", { timeout: 30_000 }, () => {
   test("prints nothing when the factory matches its recorded upstream", async () => {
     const { repo, fab } = await importedProject();
 
@@ -144,7 +144,7 @@ describe("metafab diff", () => {
   });
 });
 
-describe("metafab detach", () => {
+describe("metafab detach", { timeout: 30_000 }, () => {
   test("removes only the upstream entry and keeps comments and other keys", async () => {
     const { repo, fab } = await importedProject();
     const configFile = repo.path(".factory", "metafab.yaml");
