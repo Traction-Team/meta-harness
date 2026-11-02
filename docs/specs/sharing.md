@@ -271,7 +271,7 @@ For a versioned source, the update uses three versions of each file:
 The command performs these steps:
 
 1. Resolve `--to`, or select a newer version as the requested range or [Git ref](#git-refs) allows.
-2. Stop without changes when no newer version exists.
+2. When the selected version is the recorded one, do not change factory files. If `--to` names a different range or ref, the upstream entry records it even though no newer version exists, because the next update follows it, and the output says so.
 3. Download the base and new upstream versions.
 4. Merge each path into `.factory/`, except `metafab.yaml`.
 5. Update the resolved version and revision fields in the upstream entry, including when the merge has conflicts. The selected new upstream is the base for future updates after those conflicts are resolved.
