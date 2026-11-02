@@ -9,7 +9,13 @@ const FACTORY_DIR = ".factory";
 /** Bytes read first to recognise a binary file without loading all of it. */
 const BINARY_PROBE_BYTES = 8 * 1024;
 
-const utf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+/**
+ * Decodes leniently: invalid bytes become U+FFFD and a leading BOM is stripped.
+ *
+ * The marker prefixes are ASCII, so a lenient decode finds them in any
+ * ASCII-compatible encoding. A file that fails a strict decode is still text.
+ */
+const utf8 = new TextDecoder("utf-8", { fatal: false, ignoreBOM: false });
 
 interface FactoryFile {
   /** Repository-relative path with forward slashes. */
@@ -74,8 +80,9 @@ type ReadResult =
  * Reads a file as text, or reports it as binary or unreadable.
  *
  * The first 8 KiB decide whether the file is binary, so a large binary file is
- * not loaded into memory to be discarded. A NUL byte after that probe does not
- * make the file binary; invalid UTF-8 does.
+ * not loaded into memory to be discarded. The only test is a NUL byte in that
+ * probe: a file that is not valid UTF-8 is still text, decoded leniently so a
+ * marker in another ASCII-compatible encoding is found.
  */
 async function readTextFile(target: string, displayPath: string): Promise<ReadResult> {
   let handle;
@@ -92,11 +99,7 @@ async function readTextFile(target: string, displayPath: string): Promise<ReadRe
     if (head.subarray(0, bytesRead).includes(0)) return { kind: "binary" };
 
     const data = await handle.readFile();
-    try {
-      return { kind: "text", text: utf8.decode(data) };
-    } catch {
-      return { kind: "binary" };
-    }
+    return { kind: "text", text: utf8.decode(data) };
   } catch (error) {
     if (isAbsentError(error)) return { kind: "missing" };
     return { kind: "unreadable", problem: cannotReadProblem(displayPath) };
@@ -134,14 +137,15 @@ function conflictMarkerLine(lines: readonly string[]): number {
 }
 
 /**
- * Reports the first unresolved conflict marker in each text file under
- * `.factory/`. Binary files, directories Metafab ignores and unreadable paths
- * (reported once) are handled as the factory loader handles them.
+ * Reports the first unresolved conflict marker in each text file in the walk.
+ *
+ * Binary files and directories Metafab ignores are skipped. Unreadable paths
+ * are reported by the walk, once, not here.
  */
-export async function scanConflictMarkers(root: string): Promise<Problem[]> {
-  const { files, problems } = await walkFactoryFiles(root);
+async function scanConflictMarkers(walk: FactoryWalk): Promise<Problem[]> {
+  const problems: Problem[] = [];
 
-  for (const file of files) {
+  for (const file of walk.files) {
     const result = await readTextFile(file.target, file.path);
     if (result.kind === "unreadable") {
       problems.push(result.problem);
@@ -165,15 +169,12 @@ export async function scanConflictMarkers(root: string): Promise<Problem[]> {
 }
 
 /**
- * Reports every `*.upstream` file left behind by a conflicted update.
- *
- * Read errors are left to `scanConflictMarkers`, which walks the same paths.
+ * Reports every `*.upstream` file left behind by a conflicted update in the walk.
  */
-export async function scanUpstreamFiles(root: string): Promise<Problem[]> {
+function scanUpstreamFiles(walk: FactoryWalk): Problem[] {
   const problems: Problem[] = [];
-  const { files } = await walkFactoryFiles(root);
 
-  for (const file of files) {
+  for (const file of walk.files) {
     if (!path.posix.basename(file.path).endsWith(".upstream")) continue;
 
     problems.push({
@@ -186,4 +187,21 @@ export async function scanUpstreamFiles(root: string): Promise<Problem[]> {
   }
 
   return problems;
+}
+
+/**
+ * Reports every conflict marker and `.upstream` file under `.factory/`.
+ *
+ * `.factory/` is walked once and both scanners read the same file list. Walk
+ * read problems come first and once each, then the markers, then the
+ * `.upstream` files.
+ */
+export async function scanFactoryFiles(root: string): Promise<Problem[]> {
+  const walk = await walkFactoryFiles(root);
+
+  return [
+    ...walk.problems,
+    ...(await scanConflictMarkers(walk)),
+    ...scanUpstreamFiles(walk),
+  ];
 }
