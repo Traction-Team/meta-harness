@@ -135,15 +135,28 @@ async function readConfig(factoryDir: string): Promise<Config> {
  * Refuses a `.factory/factory.yaml` that exists but cannot be read before
  * anything is written. A file that is readable but invalid is left for the
  * closing build to report.
+ *
+ * The entry is found with `lstat`, not `stat`: a dangling symlink is an entry
+ * too, and reading through it would create the target outside `.factory/`
+ * instead of failing.
  */
 async function assertFactoryFileReadable(factoryDir: string): Promise<void> {
   const file = path.join(factoryDir, "factory.yaml");
-  if (!(await pathExists(file))) return;
+
+  try {
+    await lstat(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw unreadableFactory(
+      ".factory/factory.yaml",
+      "Cannot read .factory/factory.yaml",
+      "Check its permissions or restore the file",
+    );
+  }
 
   try {
     await readFile(file, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") return;
+  } catch {
     throw unreadableFactory(
       ".factory/factory.yaml",
       "Cannot read .factory/factory.yaml",

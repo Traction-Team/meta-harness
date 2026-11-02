@@ -372,6 +372,51 @@ describe("planAdoption", () => {
     expect(plan.blockers[0]!.message).toContain("creates a loop");
   });
 
+  test("blocks a symlink to .factory/, which contains the skill after the move", async () => {
+    const repo = await repoWith({
+      ".claude/skills/release/SKILL.md": skill("release"),
+      ".factory/shared/notes.md": "shared notes\n",
+    });
+    await symlink("../../../.factory", repo.path(".claude/skills/release/factory"));
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.moves).toEqual([]);
+    expect(plan.blockers).toHaveLength(1);
+    expect(plan.blockers[0]!.file).toBe(".claude/skills/release/factory");
+    expect(plan.blockers[0]!.message).toBe(
+      "Symlink .claude/skills/release/factory creates a loop after the move",
+    );
+    expect(plan.blockers[0]!.fix).toBe(
+      "Point it at a file or a directory that does not contain the skill, or remove the symlink",
+    );
+
+    await expect(applyAdoption(plan)).rejects.toThrow("Adoption is blocked by 1 entry.");
+
+    expect(await pathExists(repo.path(".claude/skills/release/SKILL.md"))).toBe(true);
+    expect(await pathExists(repo.path(".factory/skills/release"))).toBe(false);
+  });
+
+  test("blocks a symlink to .factory/skills, which contains the skill after the move", async () => {
+    const repo = await repoWith({ ".claude/skills/release/SKILL.md": skill("release") });
+    await mkdir(repo.path(".factory/skills"), { recursive: true });
+    await symlink("../../../.factory/skills", repo.path(".claude/skills/release/skills"));
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.moves).toEqual([]);
+    expect(plan.blockers).toHaveLength(1);
+    expect(plan.blockers[0]!.file).toBe(".claude/skills/release/skills");
+    expect(plan.blockers[0]!.message).toBe(
+      "Symlink .claude/skills/release/skills creates a loop after the move",
+    );
+
+    await expect(applyAdoption(plan)).rejects.toThrow("Adoption is blocked by 1 entry.");
+
+    expect(await pathExists(repo.path(".claude/skills/release/SKILL.md"))).toBe(true);
+    expect(await pathExists(repo.path(".factory/skills/release"))).toBe(false);
+  });
+
   test.skipIf(process.platform === "win32")(
     "blocks an unreadable supporting file that build would report after the move",
     async () => {

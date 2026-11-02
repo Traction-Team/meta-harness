@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, symlink } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { pathExists } from "../../../src/util/fs.js";
 import { makeRepo, writeRepoFiles } from "../../helpers/makeRepo.js";
@@ -70,6 +70,23 @@ describe("metafab init read errors", () => {
     expect(await pathExists(repo.path(".factory", "AGENTS.md"))).toBe(false);
     expect(await pathExists(repo.path(".gitattributes"))).toBe(false);
   });
+
+  test.skipIf(process.platform === "win32")(
+    "a dangling factory.yaml symlink stops init before it writes anything",
+    async () => {
+      const repo = await gitRepo({ ".factory/keep.txt": "" });
+      await symlink("../stray.yaml", repo.path(".factory", "factory.yaml"));
+
+      const result = await runCli(["init", "--agents", "claude"], { cwd: repo.root });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Cannot read .factory/factory.yaml");
+      expect(await pathExists(repo.path("stray.yaml"))).toBe(false);
+      expect(await pathExists(repo.path(".factory", "AGENTS.md"))).toBe(false);
+      expect(await pathExists(repo.path(".factory", "metafab.yaml"))).toBe(false);
+      expect(await pathExists(repo.path(".gitattributes"))).toBe(false);
+    },
+  );
 
   test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
     "an unreadable factory.yaml stops init before it writes anything",

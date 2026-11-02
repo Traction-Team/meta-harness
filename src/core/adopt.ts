@@ -191,11 +191,15 @@ function candidateSkillProblems(name: string, parsed: ParsedFrontmatter): Proble
 }
 
 /**
- * A symlink inside the skill that would not point inside `.factory/` after the
- * move. Adoption moves only the skill directory, so a link into `.factory/` is
- * still valid (and `build` accepts it), while one into the repository or
- * another destination would be left behind or change meaning, and `build`
- * would fail on it after the move.
+ * A symlink inside the skill that would not work after the move. Adoption moves
+ * only the skill directory, so a link into `.factory/` is still valid (and
+ * `build` accepts it), while one into the repository or another destination
+ * would be left behind or change meaning, and `build` would fail on it after
+ * the move.
+ *
+ * A target that contains the skill's new directory is refused separately: once
+ * the skill is there the link points at itself or at an ancestor, which `build`
+ * reports as a loop.
  */
 async function linkProblem(
   root: string,
@@ -212,19 +216,31 @@ async function linkProblem(
 
   const destinationLink = absolute(root, `${to}/${relative}`);
   const destinationTarget = path.resolve(path.dirname(destinationLink), target);
-  if (isInside(absolute(root, FACTORY_DIRECTORY), destinationTarget)) return undefined;
+  if (!isInside(absolute(root, FACTORY_DIRECTORY), destinationTarget)) {
+    return {
+      level: "error",
+      file: linkPath,
+      message: `Symlink ${linkPath} points outside .factory/ after the move`,
+      fix: "Point it inside .factory/, or remove the symlink",
+    };
+  }
 
-  return {
-    level: "error",
-    file: linkPath,
-    message: `Symlink ${linkPath} points outside .factory/ after the move`,
-    fix: "Point it inside .factory/, or remove the symlink",
-  };
+  if (isInside(destinationTarget, absolute(root, to))) {
+    return {
+      level: "error",
+      file: linkPath,
+      message: `Symlink ${linkPath} creates a loop after the move`,
+      fix: "Point it at a file or a directory that does not contain the skill, or remove the symlink",
+    };
+  }
+
+  return undefined;
 }
 
 /**
  * The first entry in the candidate tree that the move cannot carry: a symlink
- * that would leave `.factory/`, or a nested skill directory.
+ * that would leave `.factory/` or point back at the skill, or a nested skill
+ * directory.
  */
 async function treeProblems(root: string, from: string, to: string): Promise<Problem | undefined> {
   const pending = [""];
