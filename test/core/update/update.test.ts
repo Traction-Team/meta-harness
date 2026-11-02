@@ -1,6 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { pathExists } from "../../../src/util/fs.js";
@@ -8,6 +6,7 @@ import { toLF } from "../../../src/util/text.js";
 import { makeRepo, writeRepoFiles } from "../../helpers/makeRepo.js";
 import type { RepoFiles, TempRepo } from "../../helpers/makeRepo.js";
 import { runCli } from "../../helpers/runCli.js";
+import { caseInsensitiveFilesystem } from "./case-probe.js";
 import {
   createGitFab,
   importFab,
@@ -20,22 +19,7 @@ import type { GitFab } from "./git-fab.js";
 const repos: TempRepo[] = [];
 const fabs: GitFab[] = [];
 
-/**
- * True when the test filesystem keeps two names that differ only in case apart.
- * A test that needs sibling directories such as `skills/` and `SKILLS/` can only
- * run there.
- */
-function caseSensitiveFilesystem(): boolean {
-  const probe = mkdtempSync(path.join(tmpdir(), "metafab-case-probe-"));
-  try {
-    mkdirSync(path.join(probe, "case"));
-    return !existsSync(path.join(probe, "CASE"));
-  } finally {
-    rmSync(probe, { recursive: true, force: true });
-  }
-}
-
-const caseSensitive = caseSensitiveFilesystem();
+const caseInsensitive = await caseInsensitiveFilesystem();
 
 afterEach(async () => {
   await Promise.all([
@@ -880,7 +864,7 @@ describe("upstream restructures", { timeout: 30_000 }, () => {
     );
   });
 
-  test.skipIf(!caseSensitive)(
+  test.skipIf(caseInsensitive)(
     "refuses a case-only rename whose ancestor folds two local directories, before removing anything",
     async () => {
       const { repo, fab } = await importedFrom({

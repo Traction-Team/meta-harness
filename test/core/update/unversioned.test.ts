@@ -6,22 +6,12 @@ import { pathExists } from "../../../src/util/fs.js";
 import { toLF } from "../../../src/util/text.js";
 import { makeRepo, writeRepoFiles } from "../../helpers/makeRepo.js";
 import type { RepoFiles, TempRepo } from "../../helpers/makeRepo.js";
+import { caseInsensitiveFilesystem } from "./case-probe.js";
 import { parseJson, updateFab } from "./git-fab.js";
 import { runCli } from "../../helpers/runCli.js";
 import type { RunCliResult } from "../../helpers/runCli.js";
 
-/** True when the filesystem treats `probe` and `PROBE` as one name. */
-async function detectsCaseInsensitiveFs(): Promise<boolean> {
-  const dir = await mkdtemp(path.join(tmpdir(), "metafab-case-probe-"));
-  try {
-    await writeFile(path.join(dir, "probe"), "");
-    return pathExists(path.join(dir, "PROBE"));
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-}
-
-const caseInsensitiveFs = await detectsCaseInsensitiveFs();
+const caseInsensitiveFs = await caseInsensitiveFilesystem();
 
 const repos: TempRepo[] = [];
 const roots: string[] = [];
