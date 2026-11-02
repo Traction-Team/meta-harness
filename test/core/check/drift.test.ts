@@ -11,4 +11,9 @@ describe("SKILL_DIRECTORIES", () => {
       destinations([...TARGETS]).map((destination) => destination.directory),
     );
   });
+
+  // The derivation above would pass with any list; this pins the real values.
+  test("is the installed skill directories", () => {
+    expect(SKILL_DIRECTORIES).toEqual([".claude/skills", ".agents/skills"]);
+  });
 });
