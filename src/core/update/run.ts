@@ -385,12 +385,21 @@ function changedPaths(before: FileTree, after: FileTree, conflicts: readonly str
   return { added, updated, removed };
 }
 
+/**
+ * The shared sentence for a path the merge cannot place without a base.
+ * `difference` names the two cases Metafab cannot tell apart; the caller says
+ * what it did with the path.
+ */
+function withoutBase(difference: string): string {
+  return `the base is unavailable, so Metafab cannot tell ${difference}`;
+}
+
 function conflictNote(path: string, reason: SideFileReason): string {
   if (reason === "new-local") {
     return `Conflict in ${path}: the local entry differs from the new upstream file, which was written to ${path}.upstream.`;
   }
   if (reason === "base-unavailable") {
-    return `Conflict in ${path}: the base could not be fetched, so Metafab cannot tell a local removal from an upstream addition. The path stays absent, and upstream was written to ${path}.upstream.`;
+    return `Conflict in ${path}: ${withoutBase("a local removal from an upstream addition")}. The path stays absent, and upstream was written to ${path}.upstream.`;
   }
   return `Binary conflict in ${path}: upstream was written to ${path}.upstream.`;
 }
@@ -529,12 +538,13 @@ export function planMerge(
     switch (result.action) {
       case "keep": {
         if (result.note === "base-unavailable") {
-          // Without a base, a path upstream no longer has cannot be told apart
-          // from a local addition: keep it and report the conflict instead of
-          // calling it a preserved local edit.
-          conflicts.push(relativePath);
+          // Without a base, a path upstream no longer has may be a local
+          // addition rather than an upstream removal. Keeping it is the only
+          // safe outcome, but it is not a conflict: nothing is left to resolve,
+          // so it is reported like the upstream-removed row.
+          preserved.push(relativePath);
           notes.push(
-            `Conflict in ${relativePath}: the base could not be fetched, so Metafab cannot tell your local file from an upstream removal. Your local version was kept.`,
+            `${relativePath}: ${withoutBase("a local addition from an upstream removal")}; kept your file.`,
           );
         } else if (result.note === "upstream-removed") {
           preserved.push(relativePath);
@@ -804,11 +814,18 @@ async function runVersioned(
     // removes a local path and writes its replacement.
     const local = await localFilesForImport(root, factoryDir, [], true);
     const clashes = findPathClashes(local, {
-      files: plan.writes.flatMap((write) =>
-        write.kind === "remove"
-          ? []
-          : [write.kind === "side-file" ? `${write.path}.upstream` : write.path],
-      ),
+      files: [
+        ...plan.writes.flatMap((write) =>
+          write.kind === "remove"
+            ? []
+            : [write.kind === "side-file" ? `${write.path}.upstream` : write.path],
+        ),
+        // A case-only rename the merge resolved moves its file even when it
+        // writes nothing, and the realignment still walks every ancestor of the
+        // new spelling. Feed those paths to the preflight too, so a refusal
+        // happens before the removals that run ahead of the realignment.
+        ...plan.realigned,
+      ],
       directories: [],
       removed: plan.writes.flatMap((write) => (write.kind === "remove" ? [write.path] : [])),
       renameCaseOnlyDirectories: true,
@@ -821,7 +838,7 @@ async function runVersioned(
     if (baseUnavailable) {
       const label = recordedLabel(previous);
       notes.push(
-        `Upstream base ${label} could not be fetched; every difference is a conflict.`,
+        `Upstream base ${label} could not be fetched; every path both sides have with different content is a conflict.`,
       );
     }
     if (theirs.deprecated !== undefined) {

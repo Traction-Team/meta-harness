@@ -177,6 +177,59 @@ export function findPathClashes(local: LocalPaths, incoming: IncomingPaths): Pro
     return true;
   }
 
+  /**
+   * Reports the first ancestor that blocks a path, or whose spelling folds to
+   * more than one local entry. Returns true when it reported.
+   *
+   * The realignment walks every component of an incoming path, so an ambiguous
+   * ancestor refuses the update even when the path itself is accepted. Checking
+   * it here keeps the refusal ahead of any write or removal.
+   */
+  function checkAncestors(relativePath: string): boolean {
+    for (const prefix of ancestors(relativePath)) {
+      const foldedPrefix = prefix.toLowerCase();
+
+      const ancestorFiles = remaining(files.get(foldedPrefix), removed);
+      const exactAncestor = exactOf(ancestorFiles, prefix);
+      if (exactAncestor !== undefined) {
+        report(blockedByFile(exactAncestor.value.file, relativePath));
+        return true;
+      }
+      if (ancestorFiles.length > 1) {
+        report(ambiguousSpellingProblem(ancestorFiles.map((entry) => entry.value.file), relativePath));
+        return true;
+      }
+      if (ancestorFiles.length === 1) {
+        report(differentSpelling(ancestorFiles[0]!.value.file, relativePath));
+        return true;
+      }
+
+      const ancestorDirectories = directories.get(foldedPrefix) ?? [];
+      const exactDirectory = exactOf(ancestorDirectories, prefix);
+      if (exactDirectory !== undefined) continue;
+      if (ancestorDirectories.length > 1) {
+        report(
+          ambiguousSpellingProblem(
+            ancestorDirectories.map((entry) => entry.value),
+            relativePath,
+          ),
+        );
+        return true;
+      }
+      if (ancestorDirectories.length === 1) {
+        const replaceable =
+          incoming.replaceCaseOnlyFiles === true ||
+          incoming.renameCaseOnlyDirectories === true ||
+          emptied(foldedPrefix);
+        if (!replaceable) {
+          report(differentSpelling(ancestorDirectories[0]!.value, relativePath));
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   function check(relativePath: string, incomingDirectory: boolean): void {
     const folded = relativePath.toLowerCase();
 
@@ -219,56 +272,23 @@ export function findPathClashes(local: LocalPaths, incoming: IncomingPaths): Pro
       // is still a kind clash. So is a file the merge did not reconcile: only a
       // case-only rename of a base path makes the two spellings one file.
       const mergedCaseOnlyFile = incomingDirectory !== true && mergedCaseOnly.has(folded);
-      if (
-        !mergedCaseOnlyFile &&
-        (incoming.replaceCaseOnlyFiles !== true || incomingDirectory)
-      ) {
+      const replaceCaseOnlyFile =
+        incomingDirectory !== true && incoming.replaceCaseOnlyFiles === true;
+      if (!mergedCaseOnlyFile && !replaceCaseOnlyFile) {
         report(differentSpelling(localFiles[0]!.value.file, relativePath));
+        return;
       }
+      // The file's own spelling is accepted, but the realignment still walks
+      // every ancestor and refuses one whose spelling folds to more than one
+      // local entry. Check them, or a refused update would move or remove files
+      // before the realignment reports the ambiguity.
+      checkAncestors(relativePath);
       return;
     }
 
-    for (const prefix of ancestors(relativePath)) {
-      const foldedPrefix = prefix.toLowerCase();
-
-      const ancestorFiles = remaining(files.get(foldedPrefix), removed);
-      const exactAncestor = exactOf(ancestorFiles, prefix);
-      if (exactAncestor !== undefined) {
-        report(blockedByFile(exactAncestor.value.file, relativePath));
-        return;
-      }
-      if (ancestorFiles.length > 1) {
-        report(ambiguousSpellingProblem(ancestorFiles.map((entry) => entry.value.file), relativePath));
-        return;
-      }
-      if (ancestorFiles.length === 1) {
-        report(differentSpelling(ancestorFiles[0]!.value.file, relativePath));
-        return;
-      }
-
-      const ancestorDirectories = directories.get(foldedPrefix) ?? [];
-      const exactDirectory = exactOf(ancestorDirectories, prefix);
-      if (exactDirectory !== undefined) continue;
-      if (ancestorDirectories.length > 1) {
-        report(
-          ambiguousSpellingProblem(
-            ancestorDirectories.map((entry) => entry.value),
-            relativePath,
-          ),
-        );
-        return;
-      }
-      if (ancestorDirectories.length === 1) {
-        const replaceable =
-          incoming.replaceCaseOnlyFiles === true ||
-          incoming.renameCaseOnlyDirectories === true ||
-          emptied(foldedPrefix);
-        if (!replaceable) {
-          report(differentSpelling(ancestorDirectories[0]!.value, relativePath));
-          return;
-        }
-      }
-    }
+    // A path beneath a local file is blocked, and an ancestor whose spelling
+    // differs only in case is refused unless the update realigns it.
+    if (checkAncestors(relativePath)) return;
 
     if (exactLocalDirectory !== undefined) {
       if (!incomingDirectory && !emptied(folded)) {

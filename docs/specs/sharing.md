@@ -307,7 +307,7 @@ Metafab does not merge binary files line by line. For a binary conflict, it keep
 
 Metafab compares text files with CRLF line endings treated as LF. A change of line endings alone is not a change.
 
-If the base version is unavailable, Metafab treats every difference between yours and theirs as a conflict. For example, a Git base is unavailable when its commit was removed by a force push.
+If the base version is unavailable, every path where both sides have different content is a conflict. A file only upstream has is written to `<file>.upstream`, and a file only you have is kept and reported. For example, a Git base is unavailable when its commit was removed by a force push.
 
 After a conflicted update, `metafab check` fails while either condition remains:
 

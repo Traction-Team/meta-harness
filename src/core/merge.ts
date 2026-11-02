@@ -19,9 +19,10 @@ export interface MergeLabels {
 
 export interface MergeOptions {
   /**
-   * True when the recorded base could not be fetched. Every difference between
-   * yours and theirs then counts as a conflict, and a text conflict has no
-   * base section.
+   * True when the recorded base could not be fetched. Every path both sides
+   * have with different content then counts as a conflict, and a text conflict
+   * has no base section. A path only upstream has goes to a side file, and a
+   * path only you have is kept.
    */
   baseUnavailable?: boolean;
 }
@@ -31,19 +32,21 @@ export type MergeNote = "upstream-removed" | "upstream-changed-removed" | "base-
 /**
  * Why a conflict keeps yours and writes theirs to `<file>.upstream`: a binary
  * file that both sides changed, a new local file that differs from the new
- * upstream file, or a path only one side has while the base is unavailable.
+ * upstream file, or a path only upstream has while the base is unavailable.
  */
 export type SideFileReason = "binary" | "new-local" | "base-unavailable";
 
 /**
  * One outcome of the merge table.
  *
- * `keep` leaves the local file untouched. `take-theirs`, `add`, `write` and
- * `conflict` carry the content and the permission bits to write. `side-file`
- * keeps yours and writes `upstream` to `<file>.upstream`, and its reason says
- * whether that is a binary conflict or a new local file that differs from the
- * new upstream file. `remove` deletes the local path; its note reports an
- * upstream change to a file that was already removed locally.
+ * `keep` leaves the local file untouched; its note reports an upstream removal
+ * of a changed file, or that the base is unavailable. `remove` deletes the
+ * local path; its note reports an upstream change to a file that was already
+ * removed locally. `take-theirs`, `add`, `write` and `conflict` carry the
+ * content and the permission bits to write. `side-file` keeps yours and writes
+ * `upstream` to `<file>.upstream`, and its reason says whether that is a binary
+ * conflict, a new local file that differs from the new upstream file, or a path
+ * only upstream has while the base is unavailable.
  */
 export type MergeResult =
   | { action: "keep"; note?: MergeNote }
@@ -176,10 +179,13 @@ function mergeChanges(
 }
 
 /**
- * Without a base, every difference between yours and theirs is a conflict.
- * There is nothing to compare against, so a text conflict has no base section.
- * A path only one side has is a conflict too: without a base, a local removal
- * and an upstream addition cannot be told apart, so neither is assumed.
+ * Without a base, every path both sides have with different content is a
+ * conflict. There is nothing to compare against, so a text conflict has no base
+ * section. A path only upstream has goes to a side file: a local removal and an
+ * upstream addition cannot be told apart, so the path stays absent and nothing
+ * upstream is lost. A path only you have is kept and reported: a removal has no
+ * content to put in a side file, and it cannot be called an upstream removal
+ * without a base.
  */
 function mergeWithoutBase(
   yours: MergeInput | undefined,

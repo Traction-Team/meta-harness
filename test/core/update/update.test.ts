@@ -1,4 +1,6 @@
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { pathExists } from "../../../src/util/fs.js";
@@ -17,6 +19,23 @@ import type { GitFab } from "./git-fab.js";
 
 const repos: TempRepo[] = [];
 const fabs: GitFab[] = [];
+
+/**
+ * True when the test filesystem keeps two names that differ only in case apart.
+ * A test that needs sibling directories such as `skills/` and `SKILLS/` can only
+ * run there.
+ */
+function caseSensitiveFilesystem(): boolean {
+  const probe = mkdtempSync(path.join(tmpdir(), "metafab-case-probe-"));
+  try {
+    mkdirSync(path.join(probe, "case"));
+    return !existsSync(path.join(probe, "CASE"));
+  } finally {
+    rmSync(probe, { recursive: true, force: true });
+  }
+}
+
+const caseSensitive = caseSensitiveFilesystem();
 
 afterEach(async () => {
   await Promise.all([
@@ -861,6 +880,39 @@ describe("upstream restructures", { timeout: 30_000 }, () => {
     );
   });
 
+  test.skipIf(!caseSensitive)(
+    "refuses a case-only rename whose ancestor folds two local directories, before removing anything",
+    async () => {
+      const { repo, fab } = await importedFrom({
+        ".factory/factory.yaml": CONFIG,
+        ".factory/skills/keep/SKILL.md": SKILL_V1,
+        ".factory/templates/gone.md": "# Gone\n",
+      });
+      // A sibling that folds to the same name as the directory upstream
+      // renames. Only a case-sensitive filesystem can hold both.
+      await writeRepoFiles(repo.root, { ".factory/SKILLS/extra.md": "# Extra\n" });
+
+      await fab.remove(
+        [".factory/skills", ".factory/templates/gone.md"],
+        "rename the skills directory and drop the template",
+      );
+      await publish(fab, { ".factory/Skills/keep/SKILL.md": SKILL_V1 });
+
+      const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build"]));
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("differ only in case");
+
+      // The ambiguity is refused before the removal and the realignment, so no
+      // part of the update has landed.
+      expect(await pathExists(repo.path(".factory", "templates", "gone.md"))).toBe(true);
+      expect(await pathExists(repo.path(".factory", "skills", "keep", "SKILL.md"))).toBe(true);
+      expect(await pathExists(repo.path(".factory", "SKILLS", "extra.md"))).toBe(true);
+      expect(await pathExists(repo.path(".factory", "Skills"))).toBe(false);
+      expect(await metafabYaml(repo)).toContain("version: 1.0.0");
+      expect(await metafabYaml(repo)).not.toContain("version: 1.1.0");
+    },
+  );
+
   test("still refuses a directory that keeps local content", async () => {
     const { repo, fab } = await importedFrom({
       ".factory/factory.yaml": CONFIG,
@@ -932,31 +984,35 @@ describe("update without a base", { timeout: 30_000 }, () => {
     expect(await metafabYaml(repo)).toContain("version: 1.1.0");
   });
 
-  test("a local file upstream no longer has is a conflict that keeps yours", async () => {
-    const { repo, fab } = await importedFrom({
-      ".factory/factory.yaml": CONFIG,
-      ".factory/templates/kept.md": "# Kept\n",
-    });
+  test("a local file upstream no longer has is kept and reported, not a conflict", async () => {
+    const { repo, fab } = await importedProject();
 
     await fab.remove([".factory/templates/kept.md"], "remove kept");
     await fab.tag("v1.1.0");
     await fab.push();
     await forgetBase(repo);
 
-    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build", "--json"]));
-    expect(result.code).toBe(1);
+    // No --no-build: a path only the local factory has is not a conflict, so it
+    // does not block the build.
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--json"]));
+    expect(result.code).toBe(0);
     const payload = parseJson(result);
-    expect(payload.conflicts).toEqual(["templates/kept.md"]);
+    expect(payload.conflicts).toEqual([]);
     expect(payload.sideFiles).toEqual([]);
+    expect(payload.preserved).toContain("templates/kept.md");
+    expect(payload.built).toBe(true);
+    expect((payload.notes as string[]).some((note) => note.includes("kept your file"))).toBe(true);
+    const groups = (payload.review as { groups: Array<{ key: string }> }).groups;
+    expect(groups.map((group) => group.key)).not.toContain("conflicts");
 
-    // A removal has no content to write to a side file, so the local file is
-    // kept and the conflict is reported without one.
+    // A removal has no content to write to a side file, and without a base it
+    // cannot be told apart from a local addition, so the local file is kept.
     expect(toLF(await readFile(repo.path(".factory", "templates", "kept.md"), "utf8"))).toBe(
-      "# Kept\n",
+      "# Kept\n\nbase\n",
     );
-    expect(result.stdout).toContain(
-      "cannot tell your local file from an upstream removal",
-    );
+
+    const checked = await withFabEnvironment(fab, () => runCli(["check"], { cwd: repo.root }));
+    expect(checked.code).toBe(0);
     expect(await metafabYaml(repo)).toContain("version: 1.1.0");
   });
 });
