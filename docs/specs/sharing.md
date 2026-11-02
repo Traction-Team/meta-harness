@@ -91,7 +91,9 @@ A fab does not need a hand-maintained repository. Publish it from the project re
 | npm | `publish.name` | An npm package |
 | Git | `publish.git` | A commit and version tag in a fab repository |
 
-Configure one target or both. One `publish` releases the same files and version to each.
+Configure one target or both. Both targets carry the same staged fab in the same published version: the `.factory/` tree after `publish.exclude`, and the README at its root. The npm target also carries a generated `package.json`; the Git target never does. When npm is a target, staging also leaves out the names `npm pack` never packs (see [Steps](#steps)), and reports each path it left out, so the Git fab then carries the same files as the npm tarball apart from `package.json`. A Git-only publish keeps those files. A path Git reads as a `.git` directory is refused when the Git target is configured. An npm-only publish leaves out only the case spellings of `.git` itself (`.git`, `.GIT`, and so on) with a warning, because `npm pack` never carries those, and refuses every other name Git reads as `.git`: one with trailing spaces or dots, with the code points HFS+ ignores, with a `:` stream suffix, or with the 8.3 short name `git~1`, any of which npm would pack.
+
+The printed file list and total size describe the npm package when npm is a target, `package.json` included, and the Git fab when it is the only target.
 
 Example configuration:
 
@@ -115,20 +117,27 @@ The command performs these steps:
 
 1. Run `metafab check` and stop if validation fails.
 2. Create a temporary fab directory.
-3. Copy `.factory/` into it.
-4. Exclude `metafab.yaml`, `.factory/README.md`, and configured paths.
-5. Add the README at the fab root, from `publish.readme`. See [Configuration](configuration.md#publish).
+3. Copy `.factory/` into it, keeping file modes, without `metafab.yaml`, without `.factory/README.md`, and without configured paths. When npm is a target, also leave out the names `npm pack` never carries and report each path left out as a warning, so the Git fab then carries the same files as the npm tarball; a Git-only publish keeps those files. The names are `.DS_Store`, `.gitignore`, `.npmignore`, `.npmrc`, `npm-debug.log`, `._*`, `.*.swp`, `*.orig`, `.lock-wscript`, `.wafpickle-*`, `build/config.gypi`, and every `.git`, `.svn`, `.hg`, `CVS` and `archived-packages` directory. A link inside `.factory/` is copied as the content of its target, the same decision `build` makes; a link named `README.md` or `metafab.yaml` at the factory root is left out like a file of that name. A broken link, or one that points outside `.factory/`, stops the publish and names the path, even when its name is one npm would leave out. `.factory/README.md` may be a link that points outside `.factory/` because it is read as the fab README and never copied. Git cannot store a path with a `.git` component, so a publish to the Git target stops with exit code 4 and names the path. The match follows Git: case-insensitive, after the trailing spaces and dots NTFS and HFS ignore, after the code points HFS+ ignores entirely (a zero-width non-joiner, for example), after the `:` stream suffix NTFS drops, and including the 8.3 short name `git~1`. An npm-only publish leaves out only the case spellings of `.git` itself with a warning, because `npm pack` never carries them, and stops with exit code 4 on every other name Git reads as `.git` — differing only by trailing spaces or dots, by the code points HFS+ ignores, by a `:` stream suffix, or by the 8.3 short name `git~1` — because npm would pack it and Git would read it as `.git`.
+4. Validate the staged `.factory/` against the [fab requirements](#fab-layout) and the factory rules again. Stop with exit code 4 and list the problems when an exclude emptied `.factory/`, left a file above the fab size limit, or broke a reference.
+5. Add the README at the fab root, from `publish.readme`. See [Configuration](configuration.md#publish). A generated README describes the staged fab, so an excluded skill is not listed, and it names the source without credentials: a token in `publish.git` is never written to the published README.
 6. For the npm target, build `package.json` from `publish` settings.
-7. Print the fab files, total size, and targets.
+7. Print the file list and total size of the npm package when npm is a target, `package.json` included, or of the Git fab when it is the only target, and print the targets.
 8. Stop without publishing when `--dry-run` is present.
 9. Publish to each target, as described below.
 
-Before it publishes to any target, Metafab confirms that the version is new on every target. It stops without publishing when any target already has the version.
+`publish` releases to the Git target first, then npm. Before it changes any target, it confirms the version is new on every target:
+
+- A target that already has the version with different content stops the whole publish. Nothing is published.
+- A target that already has the version with identical content is skipped, and the remaining targets are published.
+
+The Git target stages and compares the tag's tree with the staged fab using Git itself, with text conversion off: the clone gets `.git/info/attributes` containing `* -text -eol -filter -ident -working-tree-encoding`, and staging passes `core.autocrlf=false`. A fab's own `.gitattributes`, a clean filter, `ident` and the user's line-ending settings therefore cannot change the published bytes. The comparison checks path and blob id, so a file Git stored differently is reported by name, and the executable bit counts as a difference.
+
+The skip is how a half-finished release is completed. When one target succeeds and a later one fails, fix the failure and run `metafab publish` again: the target that already has these bytes is skipped and the rest is published. Nothing is overwritten. When the content has to change, bump `publish.version` and publish again.
 
 ### npm target
 
 1. Run `npm publish` in the temporary directory.
-2. Add `--provenance` when the current CI system supports npm provenance.
+2. Add `--provenance` when the current CI system supports npm provenance. The generated `package.json` then also names `repository`, taken from the same CI environment, because npm requires it to match the provenance bundle.
 3. Pass `--tag` as the npm dist-tag.
 
 Metafab uses the npm registry and credentials already configured for `npm`. It does not store registry tokens.
@@ -138,9 +147,9 @@ Metafab uses the npm registry and credentials already configured for `npm`. It d
 A fab repository holds published output only. Do not edit it directly. Its history is a list of releases.
 
 1. Clone `publish.git` into a temporary directory and check out `publish.branch`. An empty repository starts that branch.
-2. Stop when tag `v<version>` already exists.
+2. Skip the target when tag `v<version>` already carries the same content, and stop the publish when it carries different content. The comparison stages the temporary fab the same way the publish does, with the ignore rules and text conversion off and blob ids compared, so a file Git's ignore rules would skip or a filter would change cannot make a lossy tag look identical.
 3. Stop with exit code 5 when the branch head is not a commit tagged by an earlier `publish`. This protects edits made directly in the fab repository.
-4. Replace every tracked file with the contents of the temporary fab directory.
+4. Replace every tracked file with the contents of the temporary fab directory. Staging bypasses Git's ignore rules (`git add --force`), so a fab's own `.gitignore` and the user's exclude file never decide what a release carries. After staging, Metafab compares the index with the temporary fab by path and blob id (`git ls-files -s` against `git hash-object --no-filters`), and fails the Git target with exit code 4, naming the paths in the reported problems, when Git did not stage a fab file, stored different bytes for it, or staged one the fab does not have. A path `git add` itself rejects is reported the same way, with exit code 4 and the path named.
 5. Commit with the message `Publish <version>`.
 6. Create an annotated tag `v<version>` on that commit.
 7. Push the branch and the tag.
