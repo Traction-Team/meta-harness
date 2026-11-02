@@ -54,7 +54,7 @@ The CLI creates files but does not provide an interactive editor. A person or ag
 
 | Command | Behaviour |
 | --- | --- |
-| `metafab init [--agents <list>] [--adopt]` | Creates missing factory files, then runs `build` |
+| `metafab init [--agents <list>] [--adopt] [--git-hooks \| --no-git-hooks]` | Creates missing factory files, then runs `build` |
 | `metafab build` | Compiles the factory for the agent tools in `metafab.yaml` and removes obsolete output owned by Metafab |
 
 `build` takes no options. Edit [`metafab.yaml`](configuration.md) to change what it writes. To remove all output, set `agents: []` and run `build`.
@@ -70,6 +70,10 @@ The CLI creates files but does not provide an interactive editor. A person or ag
 For a new `factory.yaml`, `init` writes `format: 1` and derives `name` from the directory that will contain `.factory/`. It lowercases the directory name, replaces each run of characters other than ASCII letters and digits with one hyphen, and removes leading and trailing hyphens. It uses `factory` when this produces an empty name. A new `.factory/AGENTS.md` is empty.
 
 `init` writes `agents` to a new `metafab.yaml`. It uses `--agents` when present. Otherwise it asks in a terminal, or selects `all` without one.
+
+`init` writes `git-hooks` to `metafab.yaml`, new or existing, when the key is absent. It writes `true` with `--git-hooks` and `false` with `--no-git-hooks`. Otherwise it asks in a terminal, "Run metafab build automatically after checkout, merge, and rebase?", with yes as the default. Without a terminal it leaves the key absent, so hooks stay off; this is not a required value and does not exit 2. `init` never changes a `git-hooks` value that is already set, and passing both flags is a usage error. See [Git hooks](building.md#git-hooks).
+
+When `init` creates `metafab.yaml` and the repository root has an `orca.yaml` whose text does not contain `metafab build`, it suggests adding `npx --yes @seasb/metafab build` to `scripts.setup`, so new Orca worktrees get the factory skills. It never edits `orca.yaml`. The suggestion is a line in the summary and an entry in `suggestions` in the `--json` result.
 
 `init` does not create part directories. All directories are optional, and Git does not track empty directories.
 

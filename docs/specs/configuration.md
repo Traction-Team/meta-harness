@@ -11,6 +11,7 @@ Metafab reads repository settings from `.factory/metafab.yaml`. This file is com
 ```yaml
 agents: [claude, codex]
 metafab-skill: true
+git-hooks: true
 
 publish:
   name: "@seasb/fab-mark4"
@@ -42,6 +43,7 @@ Every key is optional. A missing file is the same as an empty file.
 | --------------- | ------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `agents`        | List of targets, or `all` | Written by `init`. `all` when absent                      | Agent tools that `build` installs for. See [Target selection](building.md#target-selection)               |
 | `metafab-skill` | Boolean                   | `true`                                                    | Install the built-in `metafab` skill. See [Built-in `metafab` skill](building.md#built-in-metafab-skill) |
+| `git-hooks`     | Boolean                   | `false`. Written by `init`                                | Install Git hooks that run `metafab build` after a checkout, merge, or rebase. See [Git hooks](building.md#git-hooks) |
 | `publish`       | Map                       | None                                                      | Fab settings for `metafab publish`. Required only to publish                                            |
 | `upstream`      | Map                       | None                                                      | The fab this factory was imported from. Written by `import`, `update`, and `detach`. See [Upstream entry](sharing.md#upstream-entry) |
 
@@ -73,7 +75,7 @@ For the Git target, `publish` writes no `package.json`. The fab repository tags 
 
 Edit `metafab.yaml` directly, then run `metafab build`. No command overrides it.
 
-`init` creates `metafab.yaml` when the file does not exist. `init --agents` and `import --agents` set the initial `agents` value. After that, commands write only the `upstream` key, and they preserve the rest of the file, including comments. Do not edit `upstream` by hand.
+`init` creates `metafab.yaml` when the file does not exist. `init --agents` and `import --agents` set the initial `agents` value. `init` writes `git-hooks` when the key is absent; see [Set up a factory](cli.md#set-up-a-factory). After that, commands write only the `upstream` key, and they preserve the rest of the file, including comments. Do not edit `upstream` by hand.
 
 `publish --tag` sets the npm dist-tag. It has no file setting.
 

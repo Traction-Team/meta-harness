@@ -4,7 +4,7 @@
 
 Edit `.factory/`, then run `metafab build`. Do not edit installed copies.
 
-Installed skill directories are generated output and are ignored by Git. Root `AGENTS.md`, the optional block in `CLAUDE.md`, `.gitignore`, and `.gitattributes` are committed. After a fresh clone, run `metafab build` before opening an agent tool that should use the factory skills.
+Installed skill directories are generated output and are ignored by Git. Root `AGENTS.md`, the optional block in `CLAUDE.md`, `.gitignore`, and `.gitattributes` are committed. After a fresh clone, run `metafab build` before opening an agent tool that should use the factory skills. [Keeping installed skills current](#keeping-installed-skills-current) describes how to make later builds automatic.
 
 ## Installed output
 
@@ -29,7 +29,7 @@ Metafab never writes `.cursor/`, `.codex/`, `.opencode/`, or `.github/skills/`. 
 
 ### Duplicate skills
 
-Cursor, opencode, and Copilot read both `.agents/skills/` and `.claude/skills/`. When `claude` and any other target are selected, these tools find two copies of each skill, with the same name and content. opencode requires unique skill names across locations. Its users can set `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` to skip `.claude/skills/`. A team that uses only Claude Code, or uses no Claude Code, avoids duplicates by selecting only the targets it uses.
+Cursor, opencode, and Copilot read both `.agents/skills/` and `.claude/skills/`. When `claude` and any other target are selected, these tools find two copies of each skill, with the same name and content. opencode lists each skill once, so it needs no setting. Cursor and Copilot are verified in the release plan. A team that uses only Claude Code, or uses no Claude Code, avoids duplicates by selecting only the targets it uses.
 
 ## Target selection
 
@@ -63,6 +63,57 @@ The block contains `.claude/skills/` when `claude` is selected. It contains `.ag
 The whole selected skill destination is ignored, not one entry per generated skill. Once Metafab manages a destination, repository skills for that destination belong in `.factory/` and the installed directory is disposable. Metafab never ignores all of `.claude/` or `.agents/`.
 
 Before changing any file, `build` checks selected destinations for unowned entries directly in them. If it finds one, it stops with exit code 5 and suggests `metafab init` to adopt existing skills. This preflight also applies when a configuration change selects a destination for the first time.
+
+## Keeping installed skills current
+
+Installed skills are ignored by Git, so they are missing after a fresh clone or a new worktree, and stale after a pull, a branch switch, a merge, or a rebase that changes `.factory/`. Three mechanisms keep them current:
+
+1. **Git hooks.** With `git-hooks: true` in [`metafab.yaml`](configuration.md), `build` installs Git hooks that run `metafab build` after a branch checkout, a merge, and a rebase. Git shares one hooks directory across every worktree of a clone, so `git worktree add` builds the new worktree too. A fresh clone has no hooks until its first `metafab build`.
+2. **Worktree setup scripts.** Tools that create a worktree and then run a setup script should run `metafab build` in that script. Orca reads `scripts.setup` from a committed `orca.yaml`. `init` suggests this step when it finds `orca.yaml`.
+3. **Agents.** The `AGENTS.md` block and the [built-in `metafab` skill](#built-in-metafab-skill) tell agents to run `metafab build` after they edit `.factory/`.
+
+Metafab has no watch mode and installs no agent session hooks.
+
+### Git hooks
+
+`build` manages three hooks in the repository's shared hooks directory, `$(git rev-parse --git-common-dir)/hooks`:
+
+| Hook | Runs `metafab build` after |
+| --- | --- |
+| `post-checkout` | `git checkout` or `git switch` of a branch, and `git worktree add`. Not a file checkout |
+| `post-merge` | `git merge` and `git pull` |
+| `post-rewrite` | `git rebase`. Not `git commit --amend` |
+
+Metafab owns a hook file when it contains the line `# metafab:start`. It owns the whole file, and rewrites it when its content differs from what `build` would write, for example after a CLI upgrade. `build` follows these rules:
+
+1. With `git-hooks: true`, it creates each missing hook as a POSIX shell script with mode 0755.
+2. It never changes a hook file it does not own. It leaves the file unchanged, warns with the hook name and the line to add by hand, and still exits 0.
+3. When `core.hooksPath` is set, it creates and rewrites no hooks and warns once, with the line to add by hand. Rule 4 still removes hooks it owns in the shared hooks directory.
+4. With `git-hooks: false`, or when the key is absent, it deletes the hook files it owns and nothing else.
+5. Outside a Git repository, or when `git` is not installed, it skips hooks. With `git-hooks: true` it warns once.
+6. An owned hook that names a different factory directory is never changed or deleted, whatever `git-hooks` says. With `git-hooks: true`, `build` warns. Hooks support one factory per Git repository.
+
+Every command that runs `build`, including `init`, `import`, and `update`, applies these rules. Hooks live in `.git/`, are never committed, and are not reported by `check`.
+
+A hook runs the first `metafab` it finds: `node_modules/.bin/metafab` in the factory root, then `metafab` on `PATH`, then `npx --yes @seasb/metafab@<version>`, where `<version>` is the CLI version that wrote the hook. A hook never fails the Git command that ran it. If the build fails, it prints one line that says to run `metafab build`, and exits 0.
+
+Example `post-merge`, written by version 1.0.0 for a factory at the repository root:
+
+```sh
+#!/bin/sh
+# metafab:start
+# Generated by metafab build 1.0.0. Set git-hooks: false in .factory/metafab.yaml to remove.
+cd "$(git rev-parse --show-toplevel)/." 2>/dev/null || exit 0
+[ -d .factory ] || exit 0
+if [ -x node_modules/.bin/metafab ]; then node_modules/.bin/metafab build
+elif command -v metafab >/dev/null 2>&1; then metafab build
+else npx --yes @seasb/metafab@1.0.0 build
+fi || echo "metafab: build failed. Run metafab build." >&2
+exit 0
+# metafab:end
+```
+
+`post-checkout` also exits at once unless its third argument is `1`. `post-rewrite` exits at once unless its first argument is `rebase`.
 
 ## Compiled skills
 
@@ -187,6 +238,7 @@ The skill tells an agent how to:
 - Create workflows and skills
 - Add workflows to the pipeline
 - Run `metafab build` after an edit
+- Keep installed skills current after a clone, a pull, a branch switch, or a new worktree: Git hooks, worktree setup scripts such as `orca.yaml`, cloud agent setup steps, and the CI recipe
 - Run `metafab check` and resolve each reported problem
 - Keep factory changes in a reviewable commit or PR
 - Review upstream changes from `metafab update`

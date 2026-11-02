@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-29
+updated: 2026-11-02
 ---
 
 # Metafab v1 roadmap
@@ -31,6 +31,9 @@ A team can create, edit, build, and check a factory in one repository.
 - [x] [1.006 Init and adoption](plans/1.006-init-and-adoption.md): `init`, `.gitattributes`, moving existing skills into `.factory/`
 - [x] [1.007 Authoring and inspection](plans/1.007-authoring-commands.md): `create`, `pipeline add/remove`, `map`
 - [x] [1.013 Factory edge cases](plans/1.013-factory-edge-cases.md): `factory.yaml` aliases, reserved containers, `create` and `map` fixes
+- [ ] [1.014 Adoption and init polish](plans/1.014-adoption-polish.md): links into `.factory/`, real read errors, no partial `init`
+- [ ] [1.015 Check markers and internals](plans/1.015-check-markers-and-tidy.md): conflict markers after a BOM or in non-UTF-8 files, one walk, no drift from `build`
+- [ ] [1.016 Git hooks](plans/1.016-git-hooks.md): `git-hooks` setting, hooks rebuild after checkout, merge and rebase, `orca.yaml` suggestion, skill guidance
 
 ## Milestone 2: Sharing
 
@@ -43,6 +46,7 @@ A team can publish a factory as a fab and other teams can import and update it.
 
 ## Milestone 3: Release
 
+- [ ] [1.017 Dogfood](plans/1.017-dogfood.md): this repository builds its factory with `metafab build`; `link.mjs` retires
 - [ ] [1.012 Release v1](plans/1.012-release.md): hardening, agent tool verification, first fab, `@seasb/metafab@1.0.0`
 
 ## Order and parallel work
@@ -53,10 +57,12 @@ A team can publish a factory as a fab and other teams can import and update it.
        │         ├─ 1.013                     │
        └─ 1.003 ─┴─ 1.008 ────────────────────┘
                     1.005 + 1.008 ── 1.011
+1.014 ─┬─ 1.016 ─┬─ 1.017
+1.015 ─┘  1.009 ─┘
 all ── 1.012
 ```
 
-1.002 and 1.003 can run in parallel. 1.007 can run in parallel with 1.004 to 1.006. 1.013 needs nothing unmerged and can run beside 1.005 and 1.006. 1.008 can start once 1.002 and 1.003 are done.
+1.002 and 1.003 can run in parallel. 1.007 can run in parallel with 1.004 to 1.006. 1.013 needs nothing unmerged and can run beside 1.005 and 1.006. 1.008 can start once 1.002 and 1.003 are done. 1.014 and 1.015 need nothing unmerged and share no paths with 1.009 to 1.011, so they can run beside them. 1.017 should land between waves, because it changes how every worktree gets its skills.
 
 ## Open questions
 
@@ -77,6 +83,8 @@ Record answered questions here with the date and the commit that applied them.
 | 2026-10-31 | `publish` releases Git first, then npm. A target that already has the version with identical content is skipped, so a re-run finishes a partial publish; different content refuses the whole publish. No `--provenance` flags in v1: detection only | #13 |
 | 2026-10-31 | The review summary has an **Other** group (templates and other files) after Skills, before preserved edits and conflicts | #12 |
 | 2026-10-31 | `import` refuses, without `--force`, any incoming path that would replace a different local file, link or directory, or that differs from a local path only in letter case; it checks the build output can be written before it writes anything | #12 |
+| 2026-10-31 | Installed skills stay gitignored copies. A team keeps them current with Git hooks (`git-hooks: true`, written by `init`, applied by every `build`), worktree setup scripts (`init` suggests the `orca.yaml` step), and agent instructions. No agent session-start hooks and no `build --watch`. Hooks run local `metafab`, then `PATH`, then pinned `npx`, and never touch a hook Metafab did not write | [building](specs/building.md#keeping-installed-skills-current), [1.016](plans/1.016-git-hooks.md) |
+| 2026-10-31 | This repository dogfoods `metafab build` before v1; `link.mjs` retires | [1.017](plans/1.017-dogfood.md) |
 | 2026-10-26 | `requested` records `^<resolved version>` for an npm source or a tagged Git source given without a range; it is omitted for a Git source with no version tags | #6 |
 | 2026-10-26 | npm fabs download with `npm pack --ignore-scripts`; an `install` script does not run (verified on npm 11 only) | #6 |
 | 2026-10-26 | Drop `metafab rename` from v1: rename a skill by hand, and `check` reports a directory/name or pipeline mismatch | #5 |
