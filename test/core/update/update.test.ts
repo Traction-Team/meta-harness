@@ -5,6 +5,7 @@ import { pathExists } from "../../../src/util/fs.js";
 import { toLF } from "../../../src/util/text.js";
 import { makeRepo, writeRepoFiles } from "../../helpers/makeRepo.js";
 import type { RepoFiles, TempRepo } from "../../helpers/makeRepo.js";
+import { runCli } from "../../helpers/runCli.js";
 import {
   createGitFab,
   importFab,
@@ -571,6 +572,62 @@ describe("upstream restructures", () => {
     expect(await readdir(repo.path(".factory", "templates"))).toEqual(["Notes.md"]);
     expect(toLF(await readFile(repo.path(".factory", "templates", "Notes.md"), "utf8"))).toBe(
       "# Note\n\nnew\n",
+    );
+  });
+
+  test("follows an upstream rename that changes only the case of a directory", async () => {
+    const { repo, fab } = await importedFrom({
+      ".factory/factory.yaml": CONFIG,
+      ".factory/Skills/guide/SKILL.md": SKILL_V1,
+    });
+    await writeRepoFiles(repo.root, { ".factory/Skills/local.md": "# Local only\n" });
+
+    // Remove the directory, not just the file: on a case-insensitive filesystem
+    // the fixture would otherwise keep the old spelling on disk and commit it.
+    await fab.remove([".factory/Skills"], "rename the skills directory");
+    await publish(fab, { ".factory/skills/guide/SKILL.md": SKILL_V2 });
+
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build"]));
+    expect(result.code).toBe(0);
+
+    // readdir shows the real on-disk spelling; existsSync would lie on a
+    // case-insensitive filesystem.
+    const entries = await readdir(repo.path(".factory"));
+    expect(entries).toContain("skills");
+    expect(entries).not.toContain("Skills");
+    expect((await readdir(repo.path(".factory", "skills"))).sort()).toEqual(["guide", "local.md"]);
+    expect(toLF(await readFile(repo.path(".factory", "skills", "guide", "SKILL.md"), "utf8"))).toBe(
+      SKILL_V2,
+    );
+    expect(toLF(await readFile(repo.path(".factory", "skills", "local.md"), "utf8"))).toBe(
+      "# Local only\n",
+    );
+
+    // Only the local-only file is a difference; the renamed directory is not a
+    // phantom add/delete pair.
+    const diff = await withFabEnvironment(fab, () => runCli(["diff", "--json"], { cwd: repo.root }));
+    expect(diff.code).toBe(0);
+    const diffFiles = parseJson(diff).files as Array<{ path: string; status: string }>;
+    expect(diffFiles.map((file) => ({ path: file.path, status: file.status }))).toEqual([
+      { path: "skills/local.md", status: "added" },
+    ]);
+
+    // A follow-up update reaches the renamed files, rather than treating the old
+    // spelling as a new local file and dropping the upstream change.
+    await fab.commit(
+      { ".factory/skills/guide/SKILL.md": skill("Second upstream.") },
+      "v1.2.0",
+    );
+    await fab.tag("v1.2.0");
+    await fab.push();
+
+    const second = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build"]));
+    expect(second.code).toBe(0);
+    expect(toLF(await readFile(repo.path(".factory", "skills", "guide", "SKILL.md"), "utf8"))).toBe(
+      skill("Second upstream."),
+    );
+    expect(toLF(await readFile(repo.path(".factory", "skills", "local.md"), "utf8"))).toBe(
+      "# Local only\n",
     );
   });
 

@@ -25,7 +25,7 @@ import { renderSummary, summarise } from "../summary.js";
 import type { Summary } from "../summary.js";
 import { findPathClashes } from "./clashes.js";
 import { fetchRecordedBase } from "./fetch.js";
-import { alignFactorySpelling } from "./spelling.js";
+import { alignFactorySpelling, alignTreeSpelling } from "./spelling.js";
 import {
   recordedLabel,
   sameVersion,
@@ -632,6 +632,7 @@ async function runVersioned(
       ),
       directories: [],
       removed: plan.removed,
+      renameCaseOnlyDirectories: true,
     });
     if (clashes.length > 0) throw pathClashes(clashes);
 
@@ -654,7 +655,21 @@ async function runVersioned(
     if (options.dryRun === true) {
       notes.push("Dry run: nothing was written.");
     } else {
-      await applyWrites(factoryDir, plan.writes);
+      // Removals first: a write may target a path a removal frees. Then realign
+      // the spelling of every written path, so a case-only directory rename
+      // moves the local directory (and any local-only files inside it) instead
+      // of writing into the old-spelled directory and leaving the fab's record
+      // pointing at a path that does not exist on disk.
+      const removals = plan.writes.filter((write) => write.kind === "remove");
+      const writes = plan.writes.filter((write) => write.kind !== "remove");
+      await applyWrites(factoryDir, removals);
+      await alignFactorySpelling(factoryDir, {
+        files: writes.map((write) =>
+          write.kind === "side-file" ? `${write.path}.upstream` : write.path,
+        ),
+        directories: [],
+      });
+      await applyWrites(factoryDir, writes);
       // The selected upstream becomes the base of the next update, even when
       // conflict markers were written: resolving them is local work against
       // this version.
@@ -759,7 +774,19 @@ async function runUnversioned(
       }
     }
 
-    const after = options.dryRun === true ? { ...before, ...theirs } : await localFactoryTree(root);
+    // A dry run cannot write, so it aligns the snapshot the same way the copy
+    // will align the filesystem: a case-only replacement removes the old
+    // spelling and adds the new one, so the summary matches the real run.
+    const after =
+      options.dryRun === true
+        ? {
+            ...alignTreeSpelling(before, {
+              files: Object.keys(theirs),
+              directories: incomingDirectories,
+            }),
+            ...theirs,
+          }
+        : await localFactoryTree(root);
     const review = summarise(before, after, {
       title: `${previous.source} (unversioned)`,
       notes,

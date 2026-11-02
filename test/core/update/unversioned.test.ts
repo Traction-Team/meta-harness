@@ -10,6 +10,19 @@ import { parseJson, updateFab } from "./git-fab.js";
 import { runCli } from "../../helpers/runCli.js";
 import type { RunCliResult } from "../../helpers/runCli.js";
 
+/** True when the filesystem treats `probe` and `PROBE` as one name. */
+async function detectsCaseInsensitiveFs(): Promise<boolean> {
+  const dir = await mkdtemp(path.join(tmpdir(), "metafab-case-probe-"));
+  try {
+    await writeFile(path.join(dir, "probe"), "");
+    return pathExists(path.join(dir, "PROBE"));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+const caseInsensitiveFs = await detectsCaseInsensitiveFs();
+
 const repos: TempRepo[] = [];
 const roots: string[] = [];
 
@@ -164,8 +177,22 @@ describe("update from an unversioned source", () => {
       ".factory/skills/guide/SKILL.md": skill("source v2"),
     });
 
+    // The dry run reports both halves of a case-only replacement; before, the
+    // old spelling stayed in the predicted tree and the delete line was lost.
+    const dryRun = await updateFab(repo.root, ["--dry-run"]);
+    expect(dryRun.code).toBe(0);
+    expect(dryRun.stdout).toContain("A AGENTS.md");
+    expect(dryRun.stdout).toContain("D agents.md");
+    expect(dryRun.stdout).toContain("A skills/guide/SKILL.md");
+    expect(dryRun.stdout).toContain("D Skills/guide/SKILL.md");
+    expect(toLF(await readFile(repo.path(".factory", "agents.md"), "utf8"))).toBe("# Agents v1\n");
+
     const result = await updateFab(repo.root, ["--no-build"]);
     expect(result.code).toBe(0);
+    expect(result.stdout).toContain("A AGENTS.md");
+    expect(result.stdout).toContain("D agents.md");
+    expect(result.stdout).toContain("A skills/guide/SKILL.md");
+    expect(result.stdout).toContain("D Skills/guide/SKILL.md");
     const entries = await readdir(repo.path(".factory"));
     expect(entries).toContain("AGENTS.md");
     expect(entries).not.toContain("agents.md");
@@ -176,6 +203,49 @@ describe("update from an unversioned source", () => {
       skill("source v2"),
     );
   });
+
+  test.skipIf(caseInsensitiveFs)(
+    "keeps a local-only file that folds to the source's path",
+    async () => {
+      const { repo, root } = await imported();
+
+      await writeRepoFiles(repo.root, { ".factory/agents.md": "# Local agents\n" });
+      await writeRepoFiles(root, { ".factory/AGENTS.md": "# Agents v2\n" });
+
+      const result = await updateFab(repo.root, ["--no-build"]);
+      expect(result.code).toBe(0);
+      expect(toLF(await readFile(repo.path(".factory", "AGENTS.md"), "utf8"))).toBe("# Agents v2\n");
+      expect(toLF(await readFile(repo.path(".factory", "agents.md"), "utf8"))).toBe(
+        "# Local agents\n",
+      );
+    },
+  );
+
+  test.skipIf(caseInsensitiveFs)(
+    "refuses several local spellings that fold to one incoming path",
+    async () => {
+      const { repo, root } = await imported();
+
+      await rename(repo.path(".factory", "AGENTS.md"), repo.path(".factory", "Agents.md"));
+      await writeRepoFiles(repo.root, { ".factory/agents.md": "# Local agents\n" });
+      await writeRepoFiles(root, { ".factory/AGENTS.md": "# Agents v2\n" });
+
+      for (const args of [["--no-build"], ["--dry-run"]]) {
+        const result = await updateFab(repo.root, args);
+        expect(result.code).toBe(1);
+        expect(result.stderr).toContain("differ only in case");
+        expect(result.stderr).toContain(
+          "Move all but one of the local entries away, then run metafab update again",
+        );
+        expect(toLF(await readFile(repo.path(".factory", "Agents.md"), "utf8"))).toBe(
+          "# Agents v1\n",
+        );
+        expect(toLF(await readFile(repo.path(".factory", "agents.md"), "utf8"))).toBe(
+          "# Local agents\n",
+        );
+      }
+    },
+  );
 
   test("resolves a recorded relative source from the project root in a subdirectory", async () => {
     const fab = await sourceFab();

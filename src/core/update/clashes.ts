@@ -20,6 +20,13 @@ export interface IncomingPaths {
    * file by design, so a case-only difference is not a conflict there.
    */
   replaceCaseOnlyFiles?: boolean;
+  /**
+   * True when the update realigns a local directory whose spelling differs only
+   * in case from an incoming directory. A versioned update writes the source's
+   * spelling for every path it writes, so a case-only directory rename is not a
+   * conflict there: the directory moves, and local-only files move with it.
+   */
+  renameCaseOnlyDirectories?: boolean;
 }
 
 interface Indexed<T> {
@@ -29,15 +36,31 @@ interface Indexed<T> {
 
 /**
  * Local paths indexed the way the filesystem compares them: ignoring case, with
- * the first spelling of a folded path winning so a problem names a real entry.
+ * every spelling kept. A case-sensitive filesystem can hold two entries that
+ * fold to one name, and the update must see both rather than silently choosing
+ * one.
  */
-function indexOf<T>(entries: Iterable<[string, T]>): Map<string, Indexed<T>> {
-  const index = new Map<string, Indexed<T>>();
+function indexOf<T>(entries: Iterable<[string, T]>): Map<string, Indexed<T>[]> {
+  const index = new Map<string, Indexed<T>[]>();
   for (const [key, value] of entries) {
     const folded = key.toLowerCase();
-    if (!index.has(folded)) index.set(folded, { key, value });
+    const indexed = index.get(folded);
+    if (indexed === undefined) index.set(folded, [{ key, value }]);
+    else indexed.push({ key, value });
   }
   return index;
+}
+
+/** The candidates the plan has not removed, in their local spelling. */
+function remaining<T>(
+  candidates: readonly Indexed<T>[] | undefined,
+  removed: ReadonlySet<string>,
+): Indexed<T>[] {
+  return (candidates ?? []).filter((candidate) => !removed.has(candidate.key.toLowerCase()));
+}
+
+function exactOf<T>(candidates: readonly Indexed<T>[], relativePath: string): Indexed<T> | undefined {
+  return candidates.find((candidate) => candidate.key === relativePath);
 }
 
 function ancestors(relativePath: string): string[] {
@@ -67,6 +90,15 @@ function differentSpelling(file: string, incoming: string): Problem {
   };
 }
 
+function ambiguousSpelling(files: readonly string[], incoming: string): Problem {
+  return {
+    level: "error",
+    file: files[0] ?? incoming,
+    message: `The update writes ${incoming}, but these local entries differ only in case: ${files.join(", ")}`,
+    fix: "Move all but one of the local entries away, then run metafab update again",
+  };
+}
+
 function blockedByFile(file: string, incoming: string): Problem {
   return {
     level: "error",
@@ -80,13 +112,20 @@ function blockedByFile(file: string, incoming: string): Problem {
  * Every incoming path that would replace local content instead of merging with
  * it: a file or link landing on a local directory, a directory landing on a
  * local file, a path beneath a local file, or any path that differs only in
- * case from a local file or directory.
+ * case from a local file.
  *
  * The update writes with a remove-then-write, so without this check an incoming
  * file at the path of a local directory would delete that directory and
  * everything under it, while the merge plan still reported those files as
- * preserved. A case-only clash is refused on every filesystem, so the same fab
- * update behaves the same everywhere, as `import` does.
+ * preserved. A case-only clash is refused, so the same fab update behaves the
+ * same everywhere, as `import` does. The exception is a directory a versioned
+ * update realigns to the source's spelling: that moves the directory rather
+ * than replacing it, so local-only files inside it survive.
+ *
+ * Several local spellings can fold to one incoming path on a case-sensitive
+ * filesystem. An exact match is used; when none matches exactly there is no
+ * safe pick, so the update is refused rather than renaming one entry over
+ * another and losing local content.
  *
  * Paths the merge plan removes are not obstacles: they are deleted before any
  * write lands. A local directory counts as removed once the plan removes every
@@ -120,59 +159,109 @@ export function findPathClashes(local: LocalPaths, incoming: IncomingPaths): Pro
   function check(relativePath: string, incomingDirectory: boolean): void {
     const folded = relativePath.toLowerCase();
 
-    const localFile = files.get(folded);
-    if (localFile !== undefined) {
-      if (removed.has(folded)) return;
-      if (localFile.key !== relativePath) {
-        // An unversioned copy may replace a file that differs only in case; the
-        // copy spells it the source's way. A directory landing on a local file
-        // is still a kind clash.
-        if (incoming.replaceCaseOnlyFiles !== true || incomingDirectory) {
-          report(differentSpelling(localFile.value.file, relativePath));
-        }
-      } else if (incomingDirectory) {
-        report(replacedKind(localFile.value.file));
+    const localFiles = remaining(files.get(folded), removed);
+    const localDirectories = directories.get(folded) ?? [];
+    const exactFile = exactOf(localFiles, relativePath);
+    const exactLocalDirectory = exactOf(localDirectories, relativePath);
+
+    // On a case-sensitive filesystem a file and a directory can fold to one
+    // name. With no exact match for either there is no safe choice, so the
+    // update is refused rather than picking one and losing the other.
+    if (
+      exactFile === undefined &&
+      exactLocalDirectory === undefined &&
+      localFiles.length + localDirectories.length > 1
+    ) {
+      report(
+        ambiguousSpelling(
+          [
+            ...localFiles.map((entry) => entry.value.file),
+            ...localDirectories.map((entry) => entry.value),
+          ],
+          relativePath,
+        ),
+      );
+      return;
+    }
+
+    if (exactFile !== undefined) {
+      if (incomingDirectory) report(replacedKind(exactFile.value.file));
+      return;
+    }
+    if (localFiles.length > 1) {
+      report(ambiguousSpelling(localFiles.map((entry) => entry.value.file), relativePath));
+      return;
+    }
+    if (localFiles.length === 1) {
+      // An unversioned copy may replace a file that differs only in case; the
+      // copy spells it the source's way. A directory landing on a local file
+      // is still a kind clash.
+      if (incoming.replaceCaseOnlyFiles !== true || incomingDirectory) {
+        report(differentSpelling(localFiles[0]!.value.file, relativePath));
       }
       return;
     }
 
     for (const prefix of ancestors(relativePath)) {
       const foldedPrefix = prefix.toLowerCase();
-      const ancestorFile = files.get(foldedPrefix);
-      if (ancestorFile !== undefined) {
-        if (removed.has(foldedPrefix)) continue;
-        report(
-          ancestorFile.key === prefix
-            ? blockedByFile(ancestorFile.value.file, relativePath)
-            : differentSpelling(ancestorFile.value.file, relativePath),
-        );
+
+      const ancestorFiles = remaining(files.get(foldedPrefix), removed);
+      const exactAncestor = exactOf(ancestorFiles, prefix);
+      if (exactAncestor !== undefined) {
+        report(blockedByFile(exactAncestor.value.file, relativePath));
+        return;
+      }
+      if (ancestorFiles.length > 1) {
+        report(ambiguousSpelling(ancestorFiles.map((entry) => entry.value.file), relativePath));
+        return;
+      }
+      if (ancestorFiles.length === 1) {
+        report(differentSpelling(ancestorFiles[0]!.value.file, relativePath));
         return;
       }
 
-      const ancestorDirectory = directories.get(foldedPrefix);
-      if (ancestorDirectory !== undefined && ancestorDirectory.key !== prefix) {
+      const ancestorDirectories = directories.get(foldedPrefix) ?? [];
+      const exactDirectory = exactOf(ancestorDirectories, prefix);
+      if (exactDirectory !== undefined) continue;
+      if (ancestorDirectories.length > 1) {
+        report(
+          ambiguousSpelling(
+            ancestorDirectories.map((entry) => entry.value),
+            relativePath,
+          ),
+        );
+        return;
+      }
+      if (ancestorDirectories.length === 1) {
         const replaceable =
-          incoming.replaceCaseOnlyFiles === true || emptied(foldedPrefix);
+          incoming.replaceCaseOnlyFiles === true ||
+          incoming.renameCaseOnlyDirectories === true ||
+          emptied(foldedPrefix);
         if (!replaceable) {
-          report(differentSpelling(ancestorDirectory.value, relativePath));
+          report(differentSpelling(ancestorDirectories[0]!.value, relativePath));
           return;
         }
       }
     }
 
-    const localDirectory = directories.get(folded);
-    if (localDirectory === undefined) return;
-    if (localDirectory.key !== relativePath) {
+    if (exactLocalDirectory !== undefined) {
+      if (!incomingDirectory && !emptied(folded)) {
+        report(replacedKind(exactLocalDirectory.value));
+      }
+      return;
+    }
+    if (localDirectories.length === 1) {
       // Two directories that differ only in case can be reconciled when the
-      // source is copied over them, or when the plan empties the local one.
+      // source is copied over them, when a versioned update realigns the
+      // directory to the source's spelling, or when the plan empties the local
+      // one. A file landing on the local directory is still a kind clash.
       const replaceable =
         (incoming.replaceCaseOnlyFiles === true && incomingDirectory) ||
+        (incoming.renameCaseOnlyDirectories === true && incomingDirectory) ||
         emptied(folded);
       if (!replaceable) {
-        report(differentSpelling(localDirectory.value, relativePath));
+        report(differentSpelling(localDirectories[0]!.value, relativePath));
       }
-    } else if (!incomingDirectory && !emptied(folded)) {
-      report(replacedKind(localDirectory.value));
     }
   }
 
