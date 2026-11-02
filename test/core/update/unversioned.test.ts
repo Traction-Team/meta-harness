@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -150,6 +150,31 @@ describe("update from an unversioned source", () => {
         toLF(await readFile(repo.path(".factory", "templates", "notes", "local.md"), "utf8")),
       ).toBe("# Local note\n");
     }
+  });
+
+  test("replaces a path that differs only in case with the source's spelling", async () => {
+    const { repo, root } = await imported();
+
+    // A checkout on another filesystem can spell these paths differently. The
+    // copy replaces the files anyway, so it writes the source's spelling.
+    await rename(repo.path(".factory", "AGENTS.md"), repo.path(".factory", "agents.md"));
+    await rename(repo.path(".factory", "skills"), repo.path(".factory", "Skills"));
+    await writeRepoFiles(root, {
+      ".factory/AGENTS.md": "# Agents v2\n",
+      ".factory/skills/guide/SKILL.md": skill("source v2"),
+    });
+
+    const result = await updateFab(repo.root, ["--no-build"]);
+    expect(result.code).toBe(0);
+    const entries = await readdir(repo.path(".factory"));
+    expect(entries).toContain("AGENTS.md");
+    expect(entries).not.toContain("agents.md");
+    expect(entries).toContain("skills");
+    expect(entries).not.toContain("Skills");
+    expect(toLF(await readFile(repo.path(".factory", "AGENTS.md"), "utf8"))).toBe("# Agents v2\n");
+    expect(toLF(await readFile(repo.path(".factory", "skills", "guide", "SKILL.md"), "utf8"))).toBe(
+      skill("source v2"),
+    );
   });
 
   test("resolves a recorded relative source from the project root in a subdirectory", async () => {

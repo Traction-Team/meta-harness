@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
@@ -25,6 +25,7 @@ import { renderSummary, summarise } from "../summary.js";
 import type { Summary } from "../summary.js";
 import { findPathClashes } from "./clashes.js";
 import { fetchRecordedBase } from "./fetch.js";
+import { alignFactorySpelling } from "./spelling.js";
 import {
   recordedLabel,
   sameVersion,
@@ -70,6 +71,8 @@ export interface UpdateReport {
   to?: string;
   /** Files the unversioned flow replaces. */
   replaced: string[];
+  /** The `--to` range now recorded in the upstream entry, when no update ran. */
+  requested?: string;
   /** Local edits the merge kept. */
   preserved: string[];
   /** Paths left with conflict markers or a `.upstream` side file. */
@@ -228,26 +231,54 @@ async function lstatIfExists(target: string) {
   }
 }
 
-async function writeEntry(target: string, entry: FileEntry): Promise<void> {
+/** True when anything beneath `directory` is not itself a directory. */
+async function containsFile(directory: string): Promise<boolean> {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (!entry.isDirectory()) return true;
+    if (await containsFile(path.join(directory, entry.name))) return true;
+  }
+  return false;
+}
+
+/**
+ * Writes one planned path, replacing whatever local file or link it lands on.
+ *
+ * The clash preflight refuses a write over a directory that still holds local
+ * content, so the directory branch below is a defensive invariant: it fires
+ * only if the preflight and this write disagree, and it leaves the repository
+ * untouched rather than deleting content the summary called preserved. A
+ * directory the plan emptied is removed and replaced, which is how an upstream
+ * directory collapses into a file.
+ */
+async function writeEntry(
+  factoryDir: string,
+  relativePath: string,
+  entry: FileEntry,
+): Promise<void> {
+  const target = factoryPath(factoryDir, relativePath);
   await mkdir(path.dirname(target), { recursive: true });
   const existing = await lstatIfExists(target);
-  // The plan refuses a path where a local directory would be replaced, so this
-  // guard is a last line of defence: never delete a directory's content.
   if (existing?.isDirectory() === true) {
-    throw new MetafabError(`Refusing to replace the directory ${target} with a file`, {
-      exitCode: ExitCode.Failed,
-      code: "update-path-conflict",
-      problems: [
-        {
-          level: "error",
-          file: target,
-          message: `Refusing to replace the directory ${target} with a file`,
-          fix: "Move the local directory away, then run metafab update again",
-        },
-      ],
-    });
+    if (!(await containsFile(target))) {
+      await rm(target, { recursive: true, force: true });
+    } else {
+      const file = `.factory/${relativePath}`;
+      throw new MetafabError(`Refusing to replace the directory ${file} with a file`, {
+        exitCode: ExitCode.Failed,
+        code: "update-path-conflict",
+        problems: [
+          {
+            level: "error",
+            file,
+            message: `Refusing to replace the directory ${file} with a file`,
+            fix: "Move the local directory away, then run metafab update again",
+          },
+        ],
+      });
+    }
+  } else if (existing !== undefined) {
+    await rm(target, { force: true });
   }
-  if (existing !== undefined) await rm(target, { force: true });
 
   if (entry.link !== undefined) {
     await symlink(entry.link, target);
@@ -260,21 +291,24 @@ async function writeEntry(target: string, entry: FileEntry): Promise<void> {
 
 async function applyWrites(factoryDir: string, writes: readonly PlannedWrite[]): Promise<void> {
   for (const write of writes) {
-    const target = factoryPath(factoryDir, write.path);
     if (write.kind === "remove") {
       // A planned removal names a local file or link, never a directory.
-      await rm(target, { force: true });
+      await rm(factoryPath(factoryDir, write.path), { force: true });
     } else if (write.kind === "side-file") {
-      await writeEntry(`${target}.upstream`, entryFromContent(write.content, write.mode));
+      await writeEntry(
+        factoryDir,
+        `${write.path}.upstream`,
+        entryFromContent(write.content, write.mode),
+      );
     } else {
-      await writeEntry(target, write.entry);
+      await writeEntry(factoryDir, write.path, write.entry);
     }
   }
 }
 
 function conflictNote(path: string, reason: SideFileReason): string {
   if (reason === "new-local") {
-    return `Conflict in ${path}: your new file differs from the new upstream file, which was written to ${path}.upstream.`;
+    return `Conflict in ${path}: the local entry differs from the new upstream file, which was written to ${path}.upstream.`;
   }
   return `Binary conflict in ${path}: upstream was written to ${path}.upstream.`;
 }
@@ -389,7 +423,13 @@ export function planMerge(
 
   return {
     after,
-    writes,
+    // Removals first: a case-only rename, or a directory turned into a file,
+    // writes a path that a removal frees. The clash preflight and applyWrites
+    // both rely on the freed path being gone before the write lands.
+    writes: [
+      ...writes.filter((write) => write.kind === "remove"),
+      ...writes.filter((write) => write.kind !== "remove"),
+    ],
     preserved: [...new Set(preserved)].sort(),
     conflicts: [...new Set(conflicts)].sort(),
     sideFiles: sideFiles.sort(),
@@ -464,6 +504,16 @@ function titleFor(upstream: VersionedUpstream, selected: VersionedUpstream): str
   return `${upstream.source} ${recordedLabel(upstream)} -> ${recordedLabel(selected)}`;
 }
 
+function requestLabel(upstream: VersionedUpstream): string {
+  if (upstream.kind === "npm") return upstream.requested;
+  return upstream.requested ?? upstream.commit.slice(0, 7);
+}
+
+/** True when two upstream entries record the same request and revision. */
+function sameUpstream(left: VersionedUpstream, right: VersionedUpstream): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 /**
  * The upstream entry that records a selected version. It keeps the source as
  * recorded and writes the request the selection resolved, so a later update
@@ -519,14 +569,27 @@ async function runVersioned(
       return { ...report, status: "up-to-date", message: "Already up to date." };
     }
     // `--to` can select the installed version and still change the recorded
-    // request, so record it: the next update follows the new range.
+    // request, so record it: the next update follows the new range. Nothing
+    // else changes, and the summary says what was recorded.
     const upstream = upstreamFor(previous, selected);
-    if (options.dryRun !== true) await setUpstream(factoryDir, upstream);
+    if (sameUpstream(previous, upstream)) {
+      return { ...report, status: "up-to-date", message: "Already up to date." };
+    }
+    const range = requestLabel(upstream);
+    if (options.dryRun === true) {
+      return {
+        ...report,
+        status: "up-to-date",
+        message: `Already up to date. Dry run: would record requested range ${range}.`,
+      };
+    }
+    await setUpstream(factoryDir, upstream);
     return {
       ...report,
       status: "up-to-date",
-      message: "Already up to date.",
+      message: `Already up to date. Recorded requested range ${range}.`,
       upstream,
+      requested: range,
     };
   }
 
@@ -558,6 +621,8 @@ async function runVersioned(
     // Check before writing anything, and before a dry run reports the plan: a
     // write at a path a local directory or case variant occupies would delete
     // local content, which the summary would then wrongly call preserved.
+    // Paths the plan removes are not obstacles: a rename or a restructure
+    // removes a local path and writes its replacement.
     const local = await localFilesForImport(root, factoryDir, [], true);
     const clashes = findPathClashes(local, {
       files: plan.writes.flatMap((write) =>
@@ -566,6 +631,7 @@ async function runVersioned(
           : [write.kind === "side-file" ? `${write.path}.upstream` : write.path],
       ),
       directories: [],
+      removed: plan.removed,
     });
     if (clashes.length > 0) throw pathClashes(clashes);
 
@@ -659,7 +725,9 @@ async function runUnversioned(
 
     // The copy replaces upstream-owned paths and keeps the rest. Refuse a path
     // where it would delete a local directory or collide with a case variant,
-    // before anything is written and for a dry run too.
+    // before anything is written and for a dry run too. A file the source
+    // replaces may differ only in case: the copy writes it with the source's
+    // spelling, so the path on disk matches the fab.
     const [local, incomingDirectories] = await Promise.all([
       localFilesForImport(root, factoryDir, [], true),
       snapshotDirectories(fetched.factoryDir),
@@ -667,6 +735,7 @@ async function runUnversioned(
     const clashes = findPathClashes(local, {
       files: Object.keys(theirs),
       directories: incomingDirectories,
+      replaceCaseOnlyFiles: true,
     });
     if (clashes.length > 0) throw pathClashes(clashes);
 
@@ -678,6 +747,10 @@ async function runUnversioned(
     if (options.dryRun === true) {
       notes.push("Dry run: nothing was written.");
     } else {
+      await alignFactorySpelling(factoryDir, {
+        files: Object.keys(theirs),
+        directories: incomingDirectories,
+      });
       await copyFactoryTree(fetched.factoryDir, factoryDir);
       if (built) {
         const build = await buildFactory(root, factoryDir);

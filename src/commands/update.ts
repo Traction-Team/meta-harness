@@ -35,6 +35,7 @@ export const updateCommand: CommandDefinition = {
       from: report.from,
       to: report.to,
       replaced: report.replaced,
+      ...(report.requested === undefined ? {} : { requested: report.requested }),
       preserved: report.preserved,
       conflicts: report.conflicts,
       sideFiles: report.sideFiles,

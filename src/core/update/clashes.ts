@@ -7,6 +7,19 @@ export interface IncomingPaths {
   files: readonly string[];
   /** Directories created before a file beneath them is written. */
   directories: readonly string[];
+  /**
+   * Paths the update removes before it writes. Local content at these paths is
+   * gone by the time a write lands, so it never stands in the way: an upstream
+   * rename or a file turned into a directory removes a path and writes its
+   * replacement. Without this, a normal restructure would be refused.
+   */
+  removed?: readonly string[];
+  /**
+   * True when a source file replaces a local file that differs only in case,
+   * and the copy spells it the source's way. An unversioned update replaces the
+   * file by design, so a case-only difference is not a conflict there.
+   */
+  replaceCaseOnlyFiles?: boolean;
 }
 
 interface Indexed<T> {
@@ -74,10 +87,17 @@ function blockedByFile(file: string, incoming: string): Problem {
  * everything under it, while the merge plan still reported those files as
  * preserved. A case-only clash is refused on every filesystem, so the same fab
  * update behaves the same everywhere, as `import` does.
+ *
+ * Paths the merge plan removes are not obstacles: they are deleted before any
+ * write lands. A local directory counts as removed once the plan removes every
+ * file beneath it, which is what lets an upstream directory collapse into a
+ * file. Local content the plan keeps still blocks a write, as it must.
  */
 export function findPathClashes(local: LocalPaths, incoming: IncomingPaths): Problem[] {
   const files = indexOf(local.files.entries());
   const directories = indexOf(local.directories.entries());
+  const removed = new Set((incoming.removed ?? []).map((relativePath) => relativePath.toLowerCase()));
+  const foldedLocalFiles = [...local.files.keys()].map((key) => key.toLowerCase());
   const problems: Problem[] = [];
   const reported = new Set<string>();
 
@@ -88,13 +108,28 @@ export function findPathClashes(local: LocalPaths, incoming: IncomingPaths): Pro
     problems.push(problem);
   }
 
+  /** True when the plan removes every local file beneath `prefix`. */
+  function emptied(prefix: string): boolean {
+    const head = `${prefix}/`;
+    for (const key of foldedLocalFiles) {
+      if (key.startsWith(head) && !removed.has(key)) return false;
+    }
+    return true;
+  }
+
   function check(relativePath: string, incomingDirectory: boolean): void {
     const folded = relativePath.toLowerCase();
 
     const localFile = files.get(folded);
     if (localFile !== undefined) {
+      if (removed.has(folded)) return;
       if (localFile.key !== relativePath) {
-        report(differentSpelling(localFile.value.file, relativePath));
+        // An unversioned copy may replace a file that differs only in case; the
+        // copy spells it the source's way. A directory landing on a local file
+        // is still a kind clash.
+        if (incoming.replaceCaseOnlyFiles !== true || incomingDirectory) {
+          report(differentSpelling(localFile.value.file, relativePath));
+        }
       } else if (incomingDirectory) {
         report(replacedKind(localFile.value.file));
       }
@@ -105,6 +140,7 @@ export function findPathClashes(local: LocalPaths, incoming: IncomingPaths): Pro
       const foldedPrefix = prefix.toLowerCase();
       const ancestorFile = files.get(foldedPrefix);
       if (ancestorFile !== undefined) {
+        if (removed.has(foldedPrefix)) continue;
         report(
           ancestorFile.key === prefix
             ? blockedByFile(ancestorFile.value.file, relativePath)
@@ -115,16 +151,27 @@ export function findPathClashes(local: LocalPaths, incoming: IncomingPaths): Pro
 
       const ancestorDirectory = directories.get(foldedPrefix);
       if (ancestorDirectory !== undefined && ancestorDirectory.key !== prefix) {
-        report(differentSpelling(ancestorDirectory.value, relativePath));
-        return;
+        const replaceable =
+          incoming.replaceCaseOnlyFiles === true || emptied(foldedPrefix);
+        if (!replaceable) {
+          report(differentSpelling(ancestorDirectory.value, relativePath));
+          return;
+        }
       }
     }
 
     const localDirectory = directories.get(folded);
     if (localDirectory === undefined) return;
     if (localDirectory.key !== relativePath) {
-      report(differentSpelling(localDirectory.value, relativePath));
-    } else if (!incomingDirectory) {
+      // Two directories that differ only in case can be reconciled when the
+      // source is copied over them, or when the plan empties the local one.
+      const replaceable =
+        (incoming.replaceCaseOnlyFiles === true && incomingDirectory) ||
+        emptied(folded);
+      if (!replaceable) {
+        report(differentSpelling(localDirectory.value, relativePath));
+      }
+    } else if (!incomingDirectory && !emptied(folded)) {
       report(replacedKind(localDirectory.value));
     }
   }
