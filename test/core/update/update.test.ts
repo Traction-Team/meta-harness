@@ -1,4 +1,4 @@
-import { readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { pathExists } from "../../../src/util/fs.js";
@@ -999,5 +999,50 @@ describe("update without a base", { timeout: 30_000 }, () => {
     expect(checked.code).toBe(0);
     expect(await metafabYaml(repo)).toContain("version: 1.1.0");
   });
+
+  test.skipIf(process.platform === "win32")(
+    "a mode-only difference is kept and reported, not a conflict",
+    async () => {
+      // The local file's content still matches upstream; only its permission
+      // bits differ. Without a base there is no way to tell which side changed
+      // them, so the file is kept and the difference is a note.
+      const modeOnly = async () => {
+        const { repo, fab } = await importedProject();
+        const file = repo.path(".factory", "skills", "guide", "SKILL.md");
+        await chmod(file, 0o755);
+        // A new version that changes no file keeps the fixture free of a
+        // content conflict, so the mode-only path is the difference under test.
+        await fab.tag("v1.1.0");
+        await fab.push();
+        await forgetBase(repo);
+        return { repo, fab, file };
+      };
+
+      const json = await modeOnly();
+      const result = await withFabEnvironment(json.fab, () =>
+        updateFab(json.repo.root, ["--no-build", "--json"]),
+      );
+      expect(result.code).toBe(0);
+      const payload = parseJson(result);
+      expect(payload.conflicts).toEqual([]);
+      expect(payload.preserved).toContain("skills/guide/SKILL.md");
+      expect((payload.notes as string[]).some((note) => note.includes("permission bits"))).toBe(
+        true,
+      );
+      expect((await stat(json.file)).mode & 0o777).toBe(0o755);
+      expect(toLF(await readFile(json.file, "utf8"))).toBe(SKILL_V1);
+
+      // A second project shows the same note in the human summary, so a reader
+      // without --json still learns why the file was kept.
+      const human = await modeOnly();
+      const printed = await withFabEnvironment(human.fab, () =>
+        updateFab(human.repo.root, ["--no-build"]),
+      );
+      expect(printed.code).toBe(0);
+      expect(printed.stdout).toContain("skills/guide/SKILL.md");
+      expect(printed.stdout).toContain("permission bits");
+      expect((await stat(human.file)).mode & 0o777).toBe(0o755);
+    },
+  );
 });
 
