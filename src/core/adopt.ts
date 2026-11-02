@@ -6,6 +6,7 @@ import type { RequiredValue } from "../input.js";
 import { parseFrontmatter } from "../util/frontmatter.js";
 import type { FrontmatterResult } from "../util/frontmatter.js";
 import { equalIgnoringEOL } from "../util/text.js";
+import { BUILTIN_SKILL_NAMES } from "./build/plan.js";
 import { compileSkill, isOwned, textContent } from "./build/skill.js";
 import { setSkillLines } from "./factory/lines.js";
 import {
@@ -22,14 +23,6 @@ import type { Factory, Skill } from "./factory/types.js";
 export const FACTORY_SKILLS_DIRECTORY = ".factory/skills";
 
 const FACTORY_DIRECTORY = ".factory";
-
-/**
- * Skill names that `build` installs from the package itself. Adoption must not
- * move a repository skill onto one of these names: the built-in copy would
- * shadow or overwrite the moved skill. Keep in sync with the built-in skills
- * compiled in `src/core/build/plan.ts`.
- */
-export const BUILTIN_SKILL_NAMES: readonly string[] = ["metafab"];
 
 /** The consent question from the specification. */
 export const ADOPTION_QUESTION =
@@ -198,16 +191,16 @@ function candidateSkillProblems(name: string, parsed: ParsedFrontmatter): Proble
 }
 
 /**
- * A symlink inside the skill that would not point inside the skill after the
- * move. Adoption moves only the skill directory, so anything else — a file in
- * the repository, a directory under `.factory/`, an absolute path — would be
- * left behind or change meaning, and `build` would fail on it after the move.
+ * A symlink inside the skill that would not point inside `.factory/` after the
+ * move. Adoption moves only the skill directory, so a link into `.factory/` is
+ * still valid (and `build` accepts it), while one into the repository or
+ * another destination would be left behind or change meaning, and `build`
+ * would fail on it after the move.
  */
 async function linkProblem(
   root: string,
   relative: string,
   linkPath: string,
-  destinationRoot: string,
   to: string,
 ): Promise<Problem | undefined> {
   let target: string;
@@ -219,22 +212,21 @@ async function linkProblem(
 
   const destinationLink = absolute(root, `${to}/${relative}`);
   const destinationTarget = path.resolve(path.dirname(destinationLink), target);
-  if (isInside(destinationRoot, destinationTarget)) return undefined;
+  if (isInside(absolute(root, FACTORY_DIRECTORY), destinationTarget)) return undefined;
 
   return {
     level: "error",
     file: linkPath,
-    message: `Symlink ${linkPath} points outside the skill directory`,
-    fix: "Point it inside the skill directory, or remove the symlink",
+    message: `Symlink ${linkPath} points outside .factory/ after the move`,
+    fix: "Point it inside .factory/, or remove the symlink",
   };
 }
 
 /**
  * The first entry in the candidate tree that the move cannot carry: a symlink
- * that leaves the skill, or a nested skill directory.
+ * that would leave `.factory/`, or a nested skill directory.
  */
 async function treeProblems(root: string, from: string, to: string): Promise<Problem | undefined> {
-  const destinationRoot = absolute(root, to);
   const pending = [""];
 
   while (pending.length > 0) {
@@ -255,7 +247,7 @@ async function treeProblems(root: string, from: string, to: string): Promise<Pro
       const childPath = `${from}/${child}`;
 
       if (entry.isSymbolicLink()) {
-        const problem = await linkProblem(root, child, childPath, destinationRoot, to);
+        const problem = await linkProblem(root, child, childPath, to);
         if (problem !== undefined) return problem;
         continue;
       }
@@ -279,6 +271,10 @@ async function treeProblems(root: string, from: string, to: string): Promise<Pro
  * code: it runs on the source tree with the skill directory as the containment
  * root, because the directory moves as a unit, and a link that stays inside it
  * stays inside `.factory/skills/<name>/` too.
+ *
+ * A link whose target sits elsewhere in `.factory/` is accepted by
+ * `treeProblems` and must pass here as well, so the factory directory joins the
+ * roots a link may resolve into. Build never passes `linkRoots`.
  */
 async function checkSkillTree(
   root: string,
@@ -288,9 +284,14 @@ async function checkSkillTree(
   const relocation = await treeProblems(root, from, `${FACTORY_SKILLS_DIRECTORY}/${name}`);
   if (relocation !== undefined) return relocation;
 
+  const skillDir = absolute(root, from);
+  const factoryDirectory = absolute(root, FACTORY_DIRECTORY);
+  const factoryExists = (await lstatIfExists(factoryDirectory)) !== undefined;
   const compiled = await compileSkill(
-    { dir: absolute(root, from), name, sourcePath: from },
-    { factoryDir: absolute(root, from) },
+    { dir: skillDir, name, sourcePath: from },
+    factoryExists
+      ? { factoryDir: skillDir, linkRoots: [factoryDirectory] }
+      : { factoryDir: skillDir },
   );
   return compiled.problems[0];
 }

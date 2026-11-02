@@ -9,10 +9,12 @@ import {
   planAdoption,
 } from "../../../src/core/adopt.js";
 import type { AdoptionFactory, AdoptionPlan } from "../../../src/core/adopt.js";
+import { BUILTIN_SKILL_NAMES } from "../../../src/core/build/plan.js";
 import { loadFactory } from "../../../src/core/factory/load.js";
 import { pathExists } from "../../../src/util/fs.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
 import type { TempRepo } from "../../helpers/makeRepo.js";
+import { runCli } from "../../helpers/runCli.js";
 
 const DESTINATIONS = [".claude/skills", ".agents/skills"];
 const QUESTION = "Metafab manages installed skill directories as generated output. Move existing repository skills into `.factory/skills/` and ignore the generated copies?";
@@ -305,7 +307,7 @@ describe("planAdoption", () => {
     );
   });
 
-  test("blocks a symlink that points outside the skill directory", async () => {
+  test("blocks a symlink that points outside .factory/ after the move", async () => {
     const repo = await repoWith({
       ".claude/skills/release/SKILL.md": skill("release"),
       "README.md": "# Repository\n",
@@ -318,11 +320,12 @@ describe("planAdoption", () => {
     expect(plan.blockers).toHaveLength(1);
     expect(plan.blockers[0]!.file).toBe(".claude/skills/release/link");
     expect(plan.blockers[0]!.message).toBe(
-      "Symlink .claude/skills/release/link points outside the skill directory",
+      "Symlink .claude/skills/release/link points outside .factory/ after the move",
     );
+    expect(plan.blockers[0]!.fix).toBe("Point it inside .factory/, or remove the symlink");
   });
 
-  test("blocks a symlink that leaves the skill even when its target moves with it", async () => {
+  test("blocks a broken symlink that leaves the skill", async () => {
     const repo = await repoWith({
       ".claude/skills/release/SKILL.md": skill("release"),
       ".claude/skills/release/reference/notes.md": "notes\n",
@@ -333,7 +336,7 @@ describe("planAdoption", () => {
 
     expect(plan.moves).toEqual([]);
     expect(plan.blockers[0]!.message).toBe(
-      "Symlink .claude/skills/release/notes-link.md points outside the skill directory",
+      "Symlink .claude/skills/release/notes-link.md is broken",
     );
   });
 
@@ -353,7 +356,7 @@ describe("planAdoption", () => {
 
     expect(plan.moves).toEqual([]);
     expect(plan.blockers[0]!.message).toBe(
-      "Symlink .claude/skills/release/notes-link.md points outside the skill directory",
+      "Symlink .claude/skills/release/notes-link.md points outside .factory/",
     );
   });
 
@@ -412,6 +415,95 @@ describe("planAdoption", () => {
     expect(plan.moves.map((move) => move.name)).toEqual(["release"]);
   });
 
+  test("accepts a symlink into .factory/ and build installs the target's content", async () => {
+    const repo = await repoWith({
+      ".claude/skills/release/SKILL.md": skill("release"),
+      ".factory/shared/notes.md": "shared notes\n",
+    });
+    await symlink(
+      "../../../.factory/shared/notes.md",
+      repo.path(".claude/skills/release/notes.md"),
+    );
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.blockers).toEqual([]);
+    await applyAdoption(plan);
+
+    expect(await readFile(repo.path(".factory/skills/release/notes.md"), "utf8")).toBe(
+      "shared notes\n",
+    );
+
+    const result = await runCli(["build"], { cwd: repo.root });
+
+    expect(result.code).toBe(0);
+    expect(await readFile(repo.path(".claude/skills/release/notes.md"), "utf8")).toBe(
+      "shared notes\n",
+    );
+  });
+
+  test("accepts an internal link and a link into .factory/ in the same skill", async () => {
+    const repo = await repoWith({
+      ".claude/skills/release/SKILL.md": skill("release"),
+      ".claude/skills/release/notes.md": "notes\n",
+      ".factory/shared/notes.md": "shared notes\n",
+    });
+    await symlink("notes.md", repo.path(".claude/skills/release/internal.md"));
+    await symlink(
+      "../../../.factory/shared/notes.md",
+      repo.path(".claude/skills/release/shared.md"),
+    );
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.blockers).toEqual([]);
+    await applyAdoption(plan);
+
+    expect(await readFile(repo.path(".factory/skills/release/internal.md"), "utf8")).toBe(
+      "notes\n",
+    );
+    expect(await readFile(repo.path(".factory/skills/release/shared.md"), "utf8")).toBe(
+      "shared notes\n",
+    );
+
+    const result = await runCli(["build"], { cwd: repo.root });
+
+    expect(result.code).toBe(0);
+    expect(await readFile(repo.path(".claude/skills/release/internal.md"), "utf8")).toBe(
+      "notes\n",
+    );
+    expect(await readFile(repo.path(".claude/skills/release/shared.md"), "utf8")).toBe(
+      "shared notes\n",
+    );
+  });
+
+  test("still blocks a symlink into another destination", async () => {
+    const repo = await repoWith({
+      ".claude/skills/release/SKILL.md": skill("release"),
+      ".agents/skills/other/x.md": "x\n",
+    });
+    await symlink(
+      "../../../.agents/skills/other/x.md",
+      repo.path(".claude/skills/release/x.md"),
+    );
+
+    const plan = await planAdoption(repo.root, [".claude/skills"], undefined);
+
+    expect(plan.moves).toEqual([]);
+    expect(plan.blockers).toHaveLength(1);
+    expect(plan.blockers[0]!.file).toBe(".claude/skills/release/x.md");
+    expect(plan.blockers[0]!.message).toBe(
+      "Symlink .claude/skills/release/x.md points outside .factory/ after the move",
+    );
+    expect(plan.blockers[0]!.fix).toBe("Point it inside .factory/, or remove the symlink");
+
+    await expect(applyAdoption(plan)).rejects.toThrow("Adoption is blocked by 1 entry.");
+
+    expect(await pathExists(repo.path(".claude/skills/release/x.md"))).toBe(true);
+    expect(await pathExists(repo.path(".claude/skills/release/SKILL.md"))).toBe(true);
+    expect(await pathExists(repo.path(".factory/skills"))).toBe(false);
+  });
+
   test("blocks a skill whose name is a built-in skill name", async () => {
     const repo = await repoWith({ ".claude/skills/metafab/SKILL.md": skill("metafab") });
 
@@ -423,6 +515,10 @@ describe("planAdoption", () => {
     expect(plan.blockers[0]!.message).toBe(
       'Skill "metafab" clashes with the built-in "metafab" skill that metafab build installs',
     );
+  });
+
+  test("uses the built-in skill names that build exports", () => {
+    expect(BUILTIN_SKILL_NAMES).toEqual(["metafab"]);
   });
 
   test("blocks a symlinked .factory/skills destination", async () => {

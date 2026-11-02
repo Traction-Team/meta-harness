@@ -40,6 +40,12 @@ export interface SkillSource {
 export interface CompileSkillOptions {
   /** Absolute `.factory` directory. Symlinks must resolve inside it. */
   factoryDir: string;
+  /**
+   * Extra absolute directories a symlink may resolve into, beside `factoryDir`.
+   * Adoption passes the repository's `.factory/`, because a link there is valid
+   * after the move; `build` never passes it.
+   */
+  linkRoots?: string[];
   /** Generated comment line. Defaults to the factory skill comment. */
   comment?: string;
 }
@@ -172,6 +178,7 @@ function insertComment(
 
 interface WalkContext {
   factoryDir: string;
+  linkRoots: readonly string[];
   comment: string;
   sourcePath: string;
   files: CompiledFile[];
@@ -273,7 +280,18 @@ async function addSymlink(
     return;
   }
 
-  if (!isInside(factoryRoot, resolved)) {
+  // A listed root that cannot be resolved accepts nothing; it never turns into
+  // a read error of its own.
+  const roots = [factoryRoot];
+  for (const linkRoot of context.linkRoots) {
+    try {
+      roots.push(await realpath(linkRoot));
+    } catch {
+      // Ignore it.
+    }
+  }
+
+  if (!roots.some((root) => isInside(root, resolved))) {
     addProblem(
       context,
       problemFile(context, relative),
@@ -372,6 +390,7 @@ export async function compileSkill(
 ): Promise<CompiledSkill> {
   const context: WalkContext = {
     factoryDir: options.factoryDir,
+    linkRoots: options.linkRoots ?? [],
     comment: options.comment ?? generatedComment(source.sourcePath),
     sourcePath: source.sourcePath,
     files: [],

@@ -341,7 +341,7 @@ describe("metafab init", () => {
     const result = await runCli(["init", "--agents", "claude", "--adopt"], { cwd: repo.root });
 
     expect(result.code).toBe(5);
-    expect(result.stderr).toContain("points outside the skill directory");
+    expect(result.stderr).toContain("points outside .factory/ after the move");
     expect(await snapshot(repo.root)).toEqual(before);
     expect(await pathExists(repo.path(".factory"))).toBe(false);
     expect(await pathExists(repo.path(".claude", "skills", "release", "SKILL.md"))).toBe(true);
@@ -379,7 +379,7 @@ describe("metafab init", () => {
     const result = await runCli(["init", "--agents", "claude", "--adopt"], { cwd: repo.root });
 
     expect(result.code).toBe(5);
-    expect(result.stderr).toContain("points outside the skill directory");
+    expect(result.stderr).toContain("points outside .factory/");
     expect(await snapshot(repo.root)).toEqual(before);
     expect(await pathExists(repo.path(".claude", "skills", "release", "SKILL.md"))).toBe(true);
   });
