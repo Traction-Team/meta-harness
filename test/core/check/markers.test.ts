@@ -151,7 +151,8 @@ describe("conflict marker scanner", () => {
 
   test("finds a marker in a file that is not UTF-8", async () => {
     const target = await repo({
-      // ISO-8859-1 has no valid encoding for é, so a strict decode would fail.
+      // Byte 0xE9 is é in ISO-8859-1, and it is not valid UTF-8, so a strict
+      // UTF-8 decode would fail on the first line.
       ".factory/latin1.md": Buffer.from("café\n<<<<<<< ours\n", "latin1"),
     });
 
@@ -160,12 +161,46 @@ describe("conflict marker scanner", () => {
     expect(problems).toEqual([markerProblem(".factory/latin1.md", 2)]);
   });
 
-  test("skips a UTF-16LE file with a BOM as binary", async () => {
+  test("finds a marker in a UTF-16LE file with a BOM", async () => {
     const target = await repo({
-      ".factory/utf16.md": Buffer.concat([
+      ".factory/utf16le.md": Buffer.concat([
         Buffer.from([0xff, 0xfe]),
-        Buffer.from("<<<<<<< HEAD\nleft\n", "utf16le"),
+        Buffer.from("one\n<<<<<<< HEAD\nleft\n", "utf16le"),
       ]),
+    });
+
+    const problems = await scanFactoryFiles(target.root);
+
+    expect(problems).toEqual([markerProblem(".factory/utf16le.md", 2)]);
+  });
+
+  test("finds a marker in a UTF-16BE file with a BOM", async () => {
+    const bigEndian = Buffer.from("one\n<<<<<<< HEAD\nleft\n", "utf16le");
+    bigEndian.swap16();
+
+    const target = await repo({
+      ".factory/utf16be.md": Buffer.concat([Buffer.from([0xfe, 0xff]), bigEndian]),
+    });
+
+    const problems = await scanFactoryFiles(target.root);
+
+    expect(problems).toEqual([markerProblem(".factory/utf16be.md", 2)]);
+  });
+
+  test("passes a UTF-16LE file with a BOM and no marker", async () => {
+    const target = await repo({
+      ".factory/utf16le.md": Buffer.concat([
+        Buffer.from([0xff, 0xfe]),
+        Buffer.from("one\ntwo\n", "utf16le"),
+      ]),
+    });
+
+    expect(await scanFactoryFiles(target.root)).toEqual([]);
+  });
+
+  test("skips a UTF-16LE file without a BOM as binary", async () => {
+    const target = await repo({
+      ".factory/utf16le.md": Buffer.from("<<<<<<< HEAD\nleft\n", "utf16le"),
     });
 
     expect(await scanFactoryFiles(target.root)).toEqual([]);
