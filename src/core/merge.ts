@@ -29,13 +29,21 @@ export interface MergeOptions {
 export type MergeNote = "upstream-removed" | "upstream-changed-removed";
 
 /**
+ * Why a conflict keeps yours and writes theirs to `<file>.upstream`: a binary
+ * file that both sides changed, or a new local file that differs from the new
+ * upstream file.
+ */
+export type SideFileReason = "binary" | "new-local";
+
+/**
  * One outcome of the merge table.
  *
  * `keep` leaves the local file untouched. `take-theirs`, `add`, `write` and
  * `conflict` carry the content and the permission bits to write. `side-file`
- * keeps yours and writes `upstream` to `<file>.upstream`. `remove` deletes the
- * local path; its note reports an upstream change to a file that was already
- * removed locally.
+ * keeps yours and writes `upstream` to `<file>.upstream`, and its reason says
+ * whether that is a binary conflict or a new local file that differs from the
+ * new upstream file. `remove` deletes the local path; its note reports an
+ * upstream change to a file that was already removed locally.
  */
 export type MergeResult =
   | { action: "keep"; note?: MergeNote }
@@ -44,7 +52,12 @@ export type MergeResult =
   | { action: "add"; content: Buffer; mode: number }
   | { action: "write"; content: Buffer; mode: number }
   | { action: "conflict"; content: Buffer; mode: number }
-  | { action: "side-file"; upstream: Buffer; upstreamMode: number };
+  | {
+      action: "side-file";
+      upstream: Buffer;
+      upstreamMode: number;
+      reason: SideFileReason;
+    };
 
 const YOURS_MARKER = "<<<<<<< yours";
 const SEPARATOR = "=======";
@@ -151,7 +164,12 @@ function mergeChanges(
   const yoursText = textContent(yours.content);
   const theirsText = textContent(theirs.content);
   if (baseText === undefined || yoursText === undefined || theirsText === undefined) {
-    return { action: "side-file", upstream: theirs.content, upstreamMode: modeOf(theirs) };
+    return {
+      action: "side-file",
+      upstream: theirs.content,
+      upstreamMode: modeOf(theirs),
+      reason: "binary",
+    };
   }
 
   return mergeText(baseText, yoursText, theirsText, labels, mode);
@@ -176,7 +194,12 @@ function mergeWithoutBase(
   const yoursText = textContent(yours.content);
   const theirsText = textContent(theirs.content);
   if (yoursText === undefined || theirsText === undefined) {
-    return { action: "side-file", upstream: theirs.content, upstreamMode: modeOf(theirs) };
+    return {
+      action: "side-file",
+      upstream: theirs.content,
+      upstreamMode: modeOf(theirs),
+      reason: "binary",
+    };
   }
 
   const content =
@@ -215,7 +238,12 @@ export function mergePath(
   if (base === undefined) {
     if (theirs === undefined) return { action: "keep" };
     if (sameInput(yours, theirs)) return { action: "keep" };
-    return { action: "side-file", upstream: theirs.content, upstreamMode: modeOf(theirs) };
+    return {
+      action: "side-file",
+      upstream: theirs.content,
+      upstreamMode: modeOf(theirs),
+      reason: "new-local",
+    };
   }
 
   // Removed upstream: an unchanged local file goes; a changed one stays.

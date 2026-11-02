@@ -26,8 +26,6 @@ export interface DiffFile {
 export interface DiffOptions {
   /** Repository root that contains `.factory/`. */
   root: string;
-  /** Directory a recorded relative source resolves against; the process cwd by default. */
-  cwd?: string;
   /** Limit the comparison to this file or directory, relative to the repository or `.factory/`. */
   path?: string;
   /** Let Git prompt for credentials; the command enables it for a TTY. */
@@ -132,7 +130,6 @@ export async function runDiff(options: DiffOptions): Promise<DiffReport> {
   const upstream = config.upstream;
   if (upstream === undefined) throw noUpstream();
 
-  const cwd = options.cwd ?? process.cwd();
   const prefix = normalizePrefix(root, options.path);
   const sourceOptions: SourceOptions = {
     ...options.sourceOptions,
@@ -141,7 +138,9 @@ export async function runDiff(options: DiffOptions): Promise<DiffReport> {
 
   let base: FetchedFab | undefined;
   try {
-    base = await fetchRecordedBase(upstream, { ...sourceOptions, cwd });
+    // A recorded source is relative to the project root, so `diff` works from a
+    // subdirectory as `update` does.
+    base = await fetchRecordedBase(upstream, { ...sourceOptions, cwd: root });
     const upstreamTree: FileTree = await factoryTree(base.factoryDir);
     const localTree = await localFactoryTree(root);
 

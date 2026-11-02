@@ -108,6 +108,7 @@ describe("metafab diff", () => {
 
     const result = await withFabEnvironment(fab, () => diffFab(repo.root, ["--json"]));
     expect(result.code).toBe(0);
+    expect(parseJson(result).problems).toEqual([]);
     const files = parseJson(result).files as Array<Record<string, unknown>>;
     expect(files).toHaveLength(1);
     expect(Object.keys(files[0]!).sort()).toEqual(["patch", "path", "status"]);
@@ -181,6 +182,7 @@ describe("metafab detach", () => {
       detached: true,
       upstream: { source: "git+https://example.com/fab.git" },
     });
+    expect(parseJson(result).problems).toEqual([]);
   });
 
   test("says there is no upstream to detach", async () => {

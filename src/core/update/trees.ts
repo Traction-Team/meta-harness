@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { isBinary, toLF } from "../../util/text.js";
+import { toLF } from "../../util/text.js";
+import { textContent } from "../build/skill.js";
 import { snapshotFactory, snapshotTree } from "../import/file-tree.js";
 import type { FileEntry, FileTree } from "../import/file-tree.js";
 import { FAB_ROOT_EXCLUDES } from "../import/copy.js";
@@ -52,11 +53,12 @@ function hashOf(data: Uint8Array | string): string {
 
 /** Builds the snapshot entry for content the merge produced. */
 export function entryFromContent(content: Buffer, mode: number): FileEntry {
-  if (isBinary(content)) {
+  const text = textContent(content);
+  if (text === undefined) {
     return { hash: hashOf(content), mode: mode & 0o777, binary: true, data: content };
   }
-  const text = toLF(content.toString("utf8"));
-  return { hash: hashOf(text), mode: mode & 0o777, binary: false, text };
+  const normalised = toLF(text);
+  return { hash: hashOf(normalised), mode: mode & 0o777, binary: false, text: normalised };
 }
 
 /** True when two snapshots describe the same content, mode, and link target. */

@@ -83,6 +83,7 @@ describe("mergePath: the merge table", () => {
       action: "side-file",
       upstream: Buffer.from("theirs\n"),
       upstreamMode: 0o755,
+      reason: "new-local",
     });
   });
 
@@ -132,6 +133,7 @@ describe("mergePath: binary files", () => {
         action: "side-file",
         upstream: Buffer.from([0x00, 0x03]),
         upstreamMode: 0o755,
+        reason: "binary",
       },
     );
   });
@@ -201,6 +203,7 @@ describe("mergePath: base unavailable", () => {
       action: "side-file",
       upstream: Buffer.from([0x00, 0x03]),
       upstreamMode: 0o644,
+      reason: "binary",
     });
   });
 });

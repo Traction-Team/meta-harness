@@ -17,6 +17,7 @@ export const detachCommand: CommandDefinition = {
       exitCode: ExitCode.Ok,
       detached: report.detached,
       ...(report.upstream === undefined ? {} : { upstream: report.upstream }),
+      problems: [],
     };
 
     if (context.options.json !== true) result.summary = describeDetach(report);

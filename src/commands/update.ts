@@ -16,7 +16,6 @@ export const updateCommand: CommandDefinition = {
     const location = await findFactory(context.cwd);
     const report = await runUpdate({
       root: location.root,
-      cwd: context.cwd,
       ...(typeof context.options.to === "string" ? { to: context.options.to } : {}),
       dryRun: context.options["dry-run"] === true,
       noBuild: context.options["no-build"] === true,

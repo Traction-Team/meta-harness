@@ -11,17 +11,19 @@ import { CONFIG_FILE } from "../config/parse.js";
 import type { Config, UpstreamEntry } from "../config/types.js";
 import { setUpstream } from "../config/writers.js";
 import { loadFactory } from "../factory/load.js";
-import { emptyTree } from "../import/file-tree.js";
+import { localFilesForImport } from "../import/conflicts.js";
+import { emptyTree, snapshotDirectories } from "../import/file-tree.js";
 import type { FileEntry, FileTree } from "../import/file-tree.js";
 import { copyFactoryTree } from "../import/copy.js";
 import { mergePath } from "../merge.js";
-import type { MergeLabels } from "../merge.js";
+import type { MergeLabels, SideFileReason } from "../merge.js";
 import { fetchFab, resolve } from "../sources/index.js";
 import type { FetchedFab, SourceOptions } from "../sources/index.js";
 import { parseSource } from "../sources/parse.js";
 import type { Resolved } from "../sources/types.js";
 import { renderSummary, summarise } from "../summary.js";
 import type { Summary } from "../summary.js";
+import { findPathClashes } from "./clashes.js";
 import { fetchRecordedBase } from "./fetch.js";
 import {
   recordedLabel,
@@ -29,7 +31,7 @@ import {
   selectVersion,
   versionLabel,
 } from "./select.js";
-import type { VersionedUpstream } from "./select.js";
+import type { VersionedResolved, VersionedUpstream } from "./select.js";
 import {
   entryContent,
   entryFromContent,
@@ -43,8 +45,6 @@ import {
 export interface UpdateOptions {
   /** Repository root that contains `.factory/`. */
   root: string;
-  /** Directory a recorded relative source resolves against; the process cwd by default. */
-  cwd?: string;
   /** `--to`: a version, range, or Git ref. */
   to?: string;
   dryRun?: boolean;
@@ -155,6 +155,23 @@ function unresolvedConflicts(problems: Problem[]): MetafabError {
   });
 }
 
+/**
+ * Refuses an update whose incoming paths would replace local content rather
+ * than merge with it. The refusal happens before anything is written, for a dry
+ * run too, so the reported plan can never claim a file was preserved after it
+ * was deleted.
+ */
+function pathClashes(problems: Problem[]): MetafabError {
+  return new MetafabError(
+    "Update stopped because the incoming fab would replace local content.",
+    {
+      exitCode: ExitCode.Failed,
+      code: "update-path-conflict",
+      problems,
+    },
+  );
+}
+
 function buildConflict(result: Awaited<ReturnType<typeof planBuild>>, warnings: Problem[]): MetafabError {
   return new MetafabError(
     "Build stopped because the repository contains output that Metafab does not own.",
@@ -214,7 +231,23 @@ async function lstatIfExists(target: string) {
 async function writeEntry(target: string, entry: FileEntry): Promise<void> {
   await mkdir(path.dirname(target), { recursive: true });
   const existing = await lstatIfExists(target);
-  if (existing !== undefined) await rm(target, { recursive: true, force: true });
+  // The plan refuses a path where a local directory would be replaced, so this
+  // guard is a last line of defence: never delete a directory's content.
+  if (existing?.isDirectory() === true) {
+    throw new MetafabError(`Refusing to replace the directory ${target} with a file`, {
+      exitCode: ExitCode.Failed,
+      code: "update-path-conflict",
+      problems: [
+        {
+          level: "error",
+          file: target,
+          message: `Refusing to replace the directory ${target} with a file`,
+          fix: "Move the local directory away, then run metafab update again",
+        },
+      ],
+    });
+  }
+  if (existing !== undefined) await rm(target, { force: true });
 
   if (entry.link !== undefined) {
     await symlink(entry.link, target);
@@ -229,7 +262,8 @@ async function applyWrites(factoryDir: string, writes: readonly PlannedWrite[]):
   for (const write of writes) {
     const target = factoryPath(factoryDir, write.path);
     if (write.kind === "remove") {
-      await rm(target, { recursive: true, force: true });
+      // A planned removal names a local file or link, never a directory.
+      await rm(target, { force: true });
     } else if (write.kind === "side-file") {
       await writeEntry(`${target}.upstream`, entryFromContent(write.content, write.mode));
     } else {
@@ -238,7 +272,10 @@ async function applyWrites(factoryDir: string, writes: readonly PlannedWrite[]):
   }
 }
 
-function conflictNote(path: string): string {
+function conflictNote(path: string, reason: SideFileReason): string {
+  if (reason === "new-local") {
+    return `Conflict in ${path}: your new file differs from the new upstream file, which was written to ${path}.upstream.`;
+  }
   return `Binary conflict in ${path}: upstream was written to ${path}.upstream.`;
 }
 
@@ -338,7 +375,7 @@ export function planMerge(
       case "side-file": {
         sideFiles.push(relativePath);
         conflicts.push(relativePath);
-        notes.push(conflictNote(relativePath));
+        notes.push(conflictNote(relativePath, result.reason));
         writes.push({
           kind: "side-file",
           path: relativePath,
@@ -427,6 +464,37 @@ function titleFor(upstream: VersionedUpstream, selected: VersionedUpstream): str
   return `${upstream.source} ${recordedLabel(upstream)} -> ${recordedLabel(selected)}`;
 }
 
+/**
+ * The upstream entry that records a selected version. It keeps the source as
+ * recorded and writes the request the selection resolved, so a later update
+ * follows a new `--to` range even when it selected the version already
+ * installed.
+ */
+function upstreamFor(
+  previous: VersionedUpstream,
+  selected: VersionedResolved,
+): VersionedUpstream {
+  if (previous.kind === "npm") {
+    return selected.kind === "npm"
+      ? {
+          kind: "npm",
+          source: previous.source,
+          requested: selected.requested,
+          version: selected.version,
+        }
+      : previous;
+  }
+
+  if (selected.kind === "npm") return previous;
+  return {
+    kind: "git",
+    source: previous.source,
+    ...(selected.requested === undefined ? {} : { requested: selected.requested }),
+    ...(selected.version === undefined ? {} : { version: selected.version }),
+    commit: selected.commit,
+  };
+}
+
 async function runVersioned(
   root: string,
   factoryDir: string,
@@ -434,12 +502,11 @@ async function runVersioned(
   options: UpdateOptions,
   sourceOptions: SourceOptions,
 ): Promise<UpdateReport> {
-  const cwd = options.cwd ?? process.cwd();
   const report = baseReport(root, previous, true);
 
   const outcome = await selectVersion(previous, {
     ...sourceOptions,
-    cwd,
+    cwd: root,
     ...(options.to === undefined ? {} : { to: options.to }),
   });
   if (outcome.kind === "pinned") {
@@ -448,7 +515,19 @@ async function runVersioned(
 
   const selected = outcome.resolved;
   if (sameVersion(previous, selected)) {
-    return { ...report, status: "up-to-date", message: "Already up to date." };
+    if (options.to === undefined) {
+      return { ...report, status: "up-to-date", message: "Already up to date." };
+    }
+    // `--to` can select the installed version and still change the recorded
+    // request, so record it: the next update follows the new range.
+    const upstream = upstreamFor(previous, selected);
+    if (options.dryRun !== true) await setUpstream(factoryDir, upstream);
+    return {
+      ...report,
+      status: "up-to-date",
+      message: "Already up to date.",
+      upstream,
+    };
   }
 
   let theirs: FetchedFab | undefined;
@@ -459,7 +538,7 @@ async function runVersioned(
 
     let baseUnavailable = false;
     try {
-      base = await fetchRecordedBase(previous, { ...sourceOptions, cwd });
+      base = await fetchRecordedBase(previous, { ...sourceOptions, cwd: root });
     } catch (error) {
       if (!(error instanceof MetafabError)) throw error;
       baseUnavailable = true;
@@ -475,6 +554,20 @@ async function runVersioned(
       { base: recordedLabel(previous), upstream: recordedLabel(selectedEntry) },
       { baseUnavailable },
     );
+
+    // Check before writing anything, and before a dry run reports the plan: a
+    // write at a path a local directory or case variant occupies would delete
+    // local content, which the summary would then wrongly call preserved.
+    const local = await localFilesForImport(root, factoryDir, [], true);
+    const clashes = findPathClashes(local, {
+      files: plan.writes.flatMap((write) =>
+        write.kind === "remove"
+          ? []
+          : [write.kind === "side-file" ? `${write.path}.upstream` : write.path],
+      ),
+      directories: [],
+    });
+    if (clashes.length > 0) throw pathClashes(clashes);
 
     const notes = [...plan.notes];
     const problems: Problem[] = [];
@@ -545,10 +638,11 @@ async function runUnversioned(
   options: UpdateOptions,
   sourceOptions: SourceOptions,
 ): Promise<UpdateReport> {
-  const cwd = options.cwd ?? process.cwd();
   const report = baseReport(root, previous, false);
 
-  const spec = parseSource(previous.source, { cwd });
+  // A recorded source is relative to the project root, not to the directory the
+  // command was run from: `update` also runs from a subdirectory.
+  const spec = parseSource(previous.source, { cwd: root });
   const resolved: Resolved = await resolve(spec, sourceOptions);
 
   let fetched: FetchedFab | undefined;
@@ -562,6 +656,19 @@ async function runUnversioned(
       .sort();
     const added = replaced.filter((relativePath) => before[relativePath] === undefined);
     const updated = replaced.filter((relativePath) => before[relativePath] !== undefined);
+
+    // The copy replaces upstream-owned paths and keeps the rest. Refuse a path
+    // where it would delete a local directory or collide with a case variant,
+    // before anything is written and for a dry run too.
+    const [local, incomingDirectories] = await Promise.all([
+      localFilesForImport(root, factoryDir, [], true),
+      snapshotDirectories(fetched.factoryDir),
+    ]);
+    const clashes = findPathClashes(local, {
+      files: Object.keys(theirs),
+      directories: incomingDirectories,
+    });
+    if (clashes.length > 0) throw pathClashes(clashes);
 
     const notes = ["Replaced local edits can be restored from Git."];
     let changed: BuildChange[] = [];

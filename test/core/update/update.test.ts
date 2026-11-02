@@ -200,6 +200,31 @@ describe("update version selection", () => {
     expect(parseJson(result).status).toBe("updated");
     expect(await metafabYaml(repo)).toContain(`commit: ${commit}`);
   });
+
+  test("--to that selects the recorded version records the new request", async () => {
+    const fab = await track(await createGitFab(fabV1()));
+    await fab.tag("v1.0.0");
+    await fab.push();
+    const repo = await project();
+    const imported = await withFabEnvironment(fab, () =>
+      importFab(repo.root, "git+https://example.com/fab.git#v1.0.0"),
+    );
+    expect(imported.code).toBe(0);
+    expect(await metafabYaml(repo)).toContain("requested: v1.0.0");
+
+    const result = await withFabEnvironment(fab, () =>
+      updateFab(repo.root, ["--to", "^1.0.0", "--no-build", "--json"]),
+    );
+    expect(result.code).toBe(0);
+    expect(parseJson(result).status).toBe("up-to-date");
+    expect(await metafabYaml(repo)).toContain("requested: ^1.0.0");
+
+    const dryRun = await withFabEnvironment(fab, () =>
+      updateFab(repo.root, ["--to", "~1.0.0", "--dry-run", "--json"]),
+    );
+    expect(dryRun.code).toBe(0);
+    expect(await metafabYaml(repo)).toContain("requested: ^1.0.0");
+  });
 });
 
 describe("versioned update", () => {
@@ -338,6 +363,116 @@ describe("versioned update", () => {
     expect(parseJson(result).built).toBe(true);
     expect(toLF(await readFile(repo.path(".claude", "skills", "guide", "SKILL.md"), "utf8"))).toContain(
       "Built upstream.",
+    );
+  });
+
+  test("a new local file that differs from the new upstream file is not called binary", async () => {
+    const { repo, fab } = await importedProject();
+    await writeRepoFiles(repo.root, { ".factory/templates/local.md": "# Mine\n" });
+    await fab.commit({ ".factory/templates/local.md": "# Theirs\n" }, "v1.1.0");
+    await fab.tag("v1.1.0");
+    await fab.push();
+
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build"]));
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain(
+      "Conflict in templates/local.md: your new file differs from the new upstream file",
+    );
+    expect(result.stdout).not.toContain("Binary conflict");
+    expect(toLF(await readFile(repo.path(".factory", "templates", "local.md"), "utf8"))).toBe(
+      "# Mine\n",
+    );
+    expect(
+      toLF(await readFile(repo.path(".factory", "templates", "local.md.upstream"), "utf8")),
+    ).toBe("# Theirs\n");
+  });
+
+  test("refuses while a .upstream file remains", async () => {
+    const { repo, fab } = await importedProject();
+    await writeRepoFiles(repo.root, {
+      ".factory/templates/note.md.upstream": "# Upstream note\n",
+    });
+    await fab.commit({ ".factory/AGENTS.md": AGENTS_V2 }, "v1.1.0");
+    await fab.tag("v1.1.0");
+    await fab.push();
+
+    const refused = await withFabEnvironment(fab, () => updateFab(repo.root));
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("Unresolved .upstream conflict file");
+    expect(toLF(await readFile(repo.path(".factory", "AGENTS.md"), "utf8"))).toBe(AGENTS_V1);
+    expect(await metafabYaml(repo)).toContain("version: 1.0.0");
+  });
+
+  test("refuses a file that would replace a local directory", async () => {
+    const { repo, fab } = await importedProject();
+    await writeRepoFiles(repo.root, {
+      ".factory/templates/notes/local.md": "# Local note\n",
+    });
+    await fab.commit({ ".factory/templates/notes": "# Upstream notes file\n" }, "v1.1.0");
+    await fab.tag("v1.1.0");
+    await fab.push();
+
+    for (const args of [["--no-build"], ["--dry-run"]]) {
+      const result = await withFabEnvironment(fab, () => updateFab(repo.root, args));
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain(
+        "The update would replace .factory/templates/notes with a different kind of entry",
+      );
+      expect(result.stderr).toContain("fix: Move the local entry away, then run metafab update again");
+      expect(
+        toLF(await readFile(repo.path(".factory", "templates", "notes", "local.md"), "utf8")),
+      ).toBe("# Local note\n");
+      expect(await pathExists(repo.path(".factory", "templates", "notes", "local.md"))).toBe(true);
+      expect(await metafabYaml(repo)).toContain("version: 1.0.0");
+    }
+  });
+
+  test("refuses a path that differs only in case from a local file", async () => {
+    const { repo, fab } = await importedProject();
+    await writeRepoFiles(repo.root, { ".factory/templates/notes.md": "# Local note\n" });
+    await fab.commit({ ".factory/templates/Notes.md": "# Upstream note\n" }, "v1.1.0");
+    await fab.tag("v1.1.0");
+    await fab.push();
+
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build"]));
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      "The update writes templates/Notes.md, which differs only in case from .factory/templates/notes.md",
+    );
+    expect(toLF(await readFile(repo.path(".factory", "templates", "notes.md"), "utf8"))).toBe(
+      "# Local note\n",
+    );
+  });
+
+  test("updates a file that is not valid UTF-8 without re-encoding it", async () => {
+    const latin1 = new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x0a]);
+    const latin1Next = new Uint8Array([0x63, 0x61, 0x66, 0xe8, 0x0a]);
+    const fab = await track(
+      await createGitFab({
+        ...fabV1(),
+        ".factory/templates/latin.txt": latin1,
+      }),
+    );
+    await fab.tag("v1.0.0");
+    await fab.push();
+    const repo = await project();
+    const imported = await withFabEnvironment(fab, () => importFab(repo.root));
+    expect(imported.code).toBe(0);
+    expect(await readFile(repo.path(".factory", "templates", "latin.txt"))).toEqual(
+      Buffer.from(latin1),
+    );
+
+    // Both invalid sequences decode to the same replacement character, so a
+    // merge on decoded text would keep the old file and lose this change.
+    await fab.commit({ ".factory/templates/latin.txt": latin1Next }, "v1.1.0");
+    await fab.tag("v1.1.0");
+    await fab.push();
+
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build", "--json"]));
+    expect(result.code).toBe(0);
+    expect(parseJson(result).status).toBe("updated");
+    expect(await readFile(repo.path(".factory", "templates", "latin.txt"))).toEqual(
+      Buffer.from(latin1Next),
     );
   });
 });

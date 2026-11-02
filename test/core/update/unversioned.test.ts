@@ -132,4 +132,48 @@ describe("update from an unversioned source", () => {
       "from-source",
     );
   });
+
+  test("refuses a source file that would replace a local directory", async () => {
+    const { repo, root } = await imported();
+    await writeRepoFiles(repo.root, {
+      ".factory/templates/notes/local.md": "# Local note\n",
+    });
+    await writeRepoFiles(root, { ".factory/templates/notes": "# Source notes file\n" });
+
+    for (const args of [["--no-build"], ["--dry-run"]]) {
+      const result = await updateFab(repo.root, args);
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain(
+        "The update would replace .factory/templates/notes with a different kind of entry",
+      );
+      expect(
+        toLF(await readFile(repo.path(".factory", "templates", "notes", "local.md"), "utf8")),
+      ).toBe("# Local note\n");
+    }
+  });
+
+  test("resolves a recorded relative source from the project root in a subdirectory", async () => {
+    const fab = await sourceFab();
+    const repo = await makeRepo({}, { git: true });
+    repos.push(repo);
+
+    const relative = path.relative(repo.root, fab.source);
+    const imported = await runCli(["import", relative, "--agents", "claude", "--json"], {
+      cwd: repo.root,
+    });
+    expect(imported.code).toBe(0);
+
+    await writeRepoFiles(fab.root, { ".factory/AGENTS.md": "# Agents from root\n" });
+
+    const updated = await updateFab(repo.path(".factory"), ["--no-build"]);
+    expect(updated.code).toBe(0);
+    expect(toLF(await readFile(repo.path(".factory", "AGENTS.md"), "utf8"))).toBe(
+      "# Agents from root\n",
+    );
+
+    await writeRepoFiles(fab.root, { ".factory/AGENTS.md": "# Agents diffed from root\n" });
+    const diff = await runCli(["diff", "--json"], { cwd: repo.path(".factory") });
+    expect(diff.code).toBe(0);
+    expect(parseJson(diff).files).toHaveLength(1);
+  });
 });

@@ -11,7 +11,6 @@ export const diffCommand: CommandDefinition = {
     const location = await findFactory(context.cwd);
     const report = await runDiff({
       root: location.root,
-      cwd: context.cwd,
       ...(context.positionals[0] === undefined ? {} : { path: context.positionals[0] }),
       // A terminal may answer a Git credential prompt; JSON output never waits.
       interactive: context.io.tty === true && context.options.json !== true,
@@ -22,6 +21,7 @@ export const diffCommand: CommandDefinition = {
       command: "diff",
       exitCode: ExitCode.Ok,
       files: report.files.map(jsonFile),
+      problems: [],
     };
 
     if (context.options.json !== true) result.summary = describeDiff(report);
