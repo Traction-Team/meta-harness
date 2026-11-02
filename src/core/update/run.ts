@@ -546,6 +546,14 @@ export function planMerge(
           notes.push(
             `${relativePath}: ${withoutBase("a local addition from an upstream removal")}; kept your file.`,
           );
+        } else if (result.note === "base-unavailable-mode") {
+          // Same content, different permission bits: yours stays as it is and
+          // the difference is reported. Without a base there is no way to tell
+          // which side changed the mode, and a mode is not a conflict.
+          preserved.push(relativePath);
+          notes.push(
+            `${relativePath}: ${withoutBase("which side changed the permission bits")}; kept your permission bits.`,
+          );
         } else if (result.note === "upstream-removed") {
           preserved.push(relativePath);
           notes.push(`Upstream removed ${relativePath}; your local version was kept.`);

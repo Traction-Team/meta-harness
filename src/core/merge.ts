@@ -21,13 +21,18 @@ export interface MergeOptions {
   /**
    * True when the recorded base could not be fetched. Every path both sides
    * have with different content then counts as a conflict, and a text conflict
-   * has no base section. A path only upstream has goes to a side file, and a
-   * path only you have is kept.
+   * has no base section. A path only upstream has goes to a side file, a path
+   * only you have is kept, and so is a path whose content matches but whose
+   * permission bits differ.
    */
   baseUnavailable?: boolean;
 }
 
-export type MergeNote = "upstream-removed" | "upstream-changed-removed" | "base-unavailable";
+export type MergeNote =
+  | "upstream-removed"
+  | "upstream-changed-removed"
+  | "base-unavailable"
+  | "base-unavailable-mode";
 
 /**
  * Why a conflict keeps yours and writes theirs to `<file>.upstream`: a binary
@@ -40,7 +45,8 @@ export type SideFileReason = "binary" | "new-local" | "base-unavailable";
  * One outcome of the merge table.
  *
  * `keep` leaves the local file untouched; its note reports an upstream removal
- * of a changed file, or that the base is unavailable. `remove` deletes the
+ * of a changed file, that the base is unavailable, or that the permission bits
+ * differ from upstream while the base is unavailable. `remove` deletes the
  * local path; its note reports an upstream change to a file that was already
  * removed locally. `take-theirs`, `add`, `write` and `conflict` carry the
  * content and the permission bits to write. `side-file` keeps yours and writes
@@ -185,7 +191,9 @@ function mergeChanges(
  * upstream addition cannot be told apart, so the path stays absent and nothing
  * upstream is lost. A path only you have is kept and reported: a removal has no
  * content to put in a side file, and it cannot be called an upstream removal
- * without a base.
+ * without a base. A path whose content matches but whose permission bits differ
+ * is also kept and reported: a mode disagreement cannot be written as conflict
+ * markers, and only the content decides whether the sides conflict.
  */
 function mergeWithoutBase(
   yours: MergeInput | undefined,
@@ -209,7 +217,12 @@ function mergeWithoutBase(
     // there is nothing to write to a side file.
     return { action: "keep", note: "base-unavailable" };
   }
-  if (sameInput(yours, theirs)) return { action: "keep" };
+  if (sameContent(yours.content, theirs.content)) {
+    // Only the permission bits differ, so there is no line conflict to render
+    // and keeping yours would lose nothing.
+    if (modeOf(yours) === modeOf(theirs)) return { action: "keep" };
+    return { action: "keep", note: "base-unavailable-mode" };
+  }
 
   const yoursText = textContent(yours.content);
   const theirsText = textContent(theirs.content);

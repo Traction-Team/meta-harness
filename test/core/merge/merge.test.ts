@@ -194,6 +194,15 @@ describe("mergePath: base unavailable", () => {
     ).toEqual({ action: "keep" });
   });
 
+  test("a permission-bit-only difference keeps yours and reports it", () => {
+    // Same content, different mode: there is no line conflict to render, and a
+    // mode disagreement cannot be written as conflict markers, so yours stays
+    // as it is and the difference is reported instead.
+    expect(
+      merge(undefined, text("same\r\n", 0o755), text("same\n", 0o644), { baseUnavailable: true }),
+    ).toEqual({ action: "keep", note: "base-unavailable-mode" });
+  });
+
   test("a path only upstream has is a conflict, not an addition", () => {
     // A local removal and an upstream addition look the same without a base, so
     // the file stays absent and theirs goes to a side file.
