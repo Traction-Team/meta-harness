@@ -1,0 +1,135 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, test } from "vitest";
+import { pathExists } from "../../../src/util/fs.js";
+import { toLF } from "../../../src/util/text.js";
+import { makeRepo, writeRepoFiles } from "../../helpers/makeRepo.js";
+import type { RepoFiles, TempRepo } from "../../helpers/makeRepo.js";
+import { parseJson, updateFab } from "./git-fab.js";
+import { runCli } from "../../helpers/runCli.js";
+import type { RunCliResult } from "../../helpers/runCli.js";
+
+const repos: TempRepo[] = [];
+const roots: string[] = [];
+
+afterEach(async () => {
+  await Promise.all([
+    ...repos.splice(0).map((repo) => repo.cleanup()),
+    ...roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+  ]);
+});
+
+function skill(body: string): string {
+  return `---\nname: guide\ndescription: Use the guide when the task needs it.\n---\n\n# Guide\n\n${body}\n`;
+}
+
+const SOURCE_V1: RepoFiles = {
+  ".factory/factory.yaml": "format: 1\nname: local-fab\n",
+  ".factory/AGENTS.md": "# Agents v1\n",
+  ".factory/skills/guide/SKILL.md": skill("source v1"),
+};
+
+async function sourceFab(): Promise<{ root: string; source: string }> {
+  const root = await mkdtemp(path.join(tmpdir(), "metafab-update-path-"));
+  roots.push(root);
+  await writeRepoFiles(root, SOURCE_V1);
+  return { root, source: path.join(root, ".factory") };
+}
+
+async function imported(): Promise<{ repo: TempRepo; root: string }> {
+  const fab = await sourceFab();
+  const repo = await makeRepo({}, { git: true });
+  repos.push(repo);
+  const result = await runCli(["import", fab.source, "--agents", "claude", "--json"], {
+    cwd: repo.root,
+  });
+  expect(result.code).toBe(0);
+  return { repo, root: fab.root };
+}
+
+function parse(result: RunCliResult): Record<string, unknown> {
+  return parseJson(result);
+}
+
+describe("update from an unversioned source", () => {
+  test("replaces upstream-owned files, keeps local-only files, and builds", async () => {
+    const { repo, root } = await imported();
+
+    await writeRepoFiles(repo.root, {
+      ".factory/skills/guide/SKILL.md": skill("local edit"),
+      ".factory/templates/local.md": "# Local only\n",
+    });
+    await writeRepoFiles(root, {
+      ".factory/skills/guide/SKILL.md": skill("source v2"),
+      ".factory/templates/new.md": "# New from source\n",
+      ".factory/AGENTS.md": "# Agents v2\n",
+    });
+
+    const dryRun = await updateFab(repo.root, ["--dry-run"]);
+    expect(dryRun.code).toBe(0);
+    expect(dryRun.stdout).toContain("skills/guide/SKILL.md");
+    expect(dryRun.stdout).toContain("templates/new.md");
+    expect(dryRun.stdout).toContain("Dry run: nothing was written.");
+    expect(toLF(await readFile(repo.path(".factory", "skills", "guide", "SKILL.md"), "utf8"))).toBe(
+      skill("local edit"),
+    );
+    expect(await pathExists(repo.path(".factory", "templates", "new.md"))).toBe(false);
+
+    const result = await updateFab(repo.root, ["--json"]);
+    expect(result.code).toBe(0);
+    const payload = parse(result);
+    expect(payload.status).toBe("updated");
+    expect(payload.versioned).toBe(false);
+    expect(payload.replaced).toEqual([
+      "AGENTS.md",
+      "skills/guide/SKILL.md",
+      "templates/new.md",
+    ]);
+    expect(payload.built).toBe(true);
+
+    expect(toLF(await readFile(repo.path(".factory", "skills", "guide", "SKILL.md"), "utf8"))).toBe(
+      skill("source v2"),
+    );
+    expect(toLF(await readFile(repo.path(".factory", "AGENTS.md"), "utf8"))).toBe("# Agents v2\n");
+    expect(toLF(await readFile(repo.path(".factory", "templates", "new.md"), "utf8"))).toBe(
+      "# New from source\n",
+    );
+    expect(toLF(await readFile(repo.path(".factory", "templates", "local.md"), "utf8"))).toBe(
+      "# Local only\n",
+    );
+
+    // The build installed the source version of the skill.
+    expect(toLF(await readFile(repo.path(".claude", "skills", "guide", "SKILL.md"), "utf8"))).toContain(
+      "source v2",
+    );
+
+    const human = await updateFab(repo.root, ["--no-build"]);
+    expect(human.code).toBe(0);
+    expect(human.stdout).toContain("Replaced local edits can be restored from Git.");
+  });
+
+  test("refuses --to for an unversioned source", async () => {
+    const { repo } = await imported();
+    const result = await updateFab(repo.root, ["--to", "1.0.0"]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("--to 1.0.0 cannot select a version from an unversioned upstream");
+    expect(result.stderr).toContain("Run metafab update without --to");
+  });
+
+  test("keeps the local metafab.yaml and factory README", async () => {
+    const { repo, root } = await imported();
+    await writeFile(repo.path(".factory", "README.md"), "# Local README\n");
+    await writeRepoFiles(root, {
+      ".factory/README.md": "# Source README\n",
+      ".factory/metafab.yaml": "publish:\n  name: from-source\n",
+    });
+
+    const result = await updateFab(repo.root, ["--no-build"]);
+    expect(result.code).toBe(0);
+    expect(toLF(await readFile(repo.path(".factory", "README.md"), "utf8"))).toBe("# Local README\n");
+    expect(await readFile(repo.path(".factory", "metafab.yaml"), "utf8")).not.toContain(
+      "from-source",
+    );
+  });
+});
