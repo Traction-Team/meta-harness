@@ -139,8 +139,9 @@ function conflictMarkerLine(lines: readonly string[]): number {
 /**
  * Reports the first unresolved conflict marker in each text file in the walk.
  *
- * Binary files and directories Metafab ignores are skipped. Unreadable paths
- * are reported by the walk, once, not here.
+ * Binary files, files that vanished mid-scan and directories Metafab ignores
+ * are skipped. An unreadable directory is reported by the walk, once. A listed
+ * file that cannot be opened or read is reported here, once.
  */
 async function scanConflictMarkers(walk: FactoryWalk): Promise<Problem[]> {
   const problems: Problem[] = [];
