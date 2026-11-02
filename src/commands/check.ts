@@ -1,16 +1,10 @@
-import { createRequire } from "node:module";
 import { runCheck } from "../core/check/index.js";
 import { findFactory } from "../core/discovery.js";
 import { ExitCode } from "../errors.js";
 import type { Problem } from "../errors.js";
 import type { CommandResult } from "../output.js";
+import { cliVersion } from "../util/version.js";
 import type { CommandDefinition } from "./types.js";
-
-function cliVersion(): string {
-  const require = createRequire(import.meta.url);
-  const pkg = require("../../package.json") as { version?: unknown };
-  return typeof pkg.version === "string" ? pkg.version : "0.0.0";
-}
 
 function countProblems(problems: readonly Problem[]): { errors: number; warnings: number } {
   let errors = 0;

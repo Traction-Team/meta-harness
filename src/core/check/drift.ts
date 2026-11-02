@@ -5,13 +5,14 @@ import { fileMatches } from "../build/plan.js";
 import type { BuildPlan, BuildWrite, FileMatch } from "../build/plan.js";
 import { cannotReadProblem } from "../build/skill.js";
 import { destinations } from "../config/destinations.js";
+import { TARGETS } from "../config/types.js";
 import type { Config } from "../config/types.js";
 import type { Factory } from "../factory/types.js";
 
 const ROOT_BLOCK_FILES = new Set(["AGENTS.md", "CLAUDE.md", ".gitignore"]);
 
-/** Every skill destination the configuration can select. */
-const SKILL_DIRECTORIES = destinations(["claude", "codex"]).map(
+/** Every skill destination a target can select. */
+export const SKILL_DIRECTORIES = destinations([...TARGETS]).map(
   (destination) => destination.directory,
 );
 
