@@ -173,6 +173,44 @@ describe("compileSkill", () => {
     }
   });
 
+  test("copies a symlink into a listed link root", async () => {
+    const repo = await makeRepo({
+      ".factory/shared/target.md": "shared content\n",
+      ".claude/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: A demo skill. Use when testing symlinks.\n---\n\n# Demo\n",
+    });
+
+    try {
+      await symlink(
+        "../../../.factory/shared/target.md",
+        repo.path(".claude/skills/demo/linked.md"),
+      );
+
+      const source = {
+        dir: repo.path(".claude/skills/demo"),
+        name: "demo",
+        sourcePath: ".claude/skills/demo",
+      };
+
+      const refused = await compileSkill(source, { factoryDir: source.dir });
+
+      expect(refused.files.some((file) => file.path === "linked.md")).toBe(false);
+      expect(refused.problems).toHaveLength(1);
+      expect(refused.problems[0]!.message).toContain("outside .factory/");
+
+      const result = await compileSkill(source, {
+        factoryDir: source.dir,
+        linkRoots: [repo.path(".factory")],
+      });
+
+      expect(result.problems).toEqual([]);
+      const linked = result.files.find((file) => file.path === "linked.md");
+      expect(linked?.content.toString("utf8")).toBe("shared content\n");
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
   test("copies two directory symlinks to the same target", async () => {
     const repo = await makeRepo({
       ".factory/shared/target.md": "shared content\n",

@@ -74,6 +74,16 @@ const BUILTIN_SKILL_DIR = fileURLToPath(
   new URL("../../../resources/metafab-skill", import.meta.url),
 );
 
+/** Installed name of the skill that `build` compiles from this package. */
+const BUILTIN_SKILL_NAME = "metafab";
+
+/**
+ * Skill names that `build` installs from the package itself. Adoption must not
+ * move a repository skill onto one of these names: the built-in copy would
+ * shadow or overwrite the moved skill.
+ */
+export const BUILTIN_SKILL_NAMES: readonly string[] = [BUILTIN_SKILL_NAME];
+
 const IMPORT_AGENTS = /^@(\.\/)?AGENTS\.md\s*$/;
 
 function absolute(root: string, relativePath: string): string {
@@ -229,14 +239,14 @@ async function compileBuiltinSkill(
   if (!config.metafabSkill) return undefined;
 
   const compiled = await compileSkill(
-    { dir: BUILTIN_SKILL_DIR, name: "metafab", sourcePath: "resources/metafab-skill" },
+    { dir: BUILTIN_SKILL_DIR, name: BUILTIN_SKILL_NAME, sourcePath: "resources/metafab-skill" },
     { factoryDir: BUILTIN_SKILL_DIR, comment: builtinComment(cliVersion) },
   );
 
   if (compiled.problems.length > 0) errors.push(...compiled.problems);
 
   return {
-    name: "metafab",
+    name: BUILTIN_SKILL_NAME,
     files: compiled.files.map((file) => ({
       path: file.path,
       content: file.content,

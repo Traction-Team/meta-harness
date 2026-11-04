@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { lstat, mkdir, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
@@ -18,7 +18,7 @@ import { applyBuild, planBuild } from "../build/index.js";
 import type { BuildChange } from "../build/index.js";
 import { CONFIG_FILE, CONFIG_FILENAME, parseConfig } from "../config/parse.js";
 import { destinations } from "../config/destinations.js";
-import { loadConfig } from "../config/load.js";
+import { loadConfig, unreadableConfigCode } from "../config/load.js";
 import { TARGETS } from "../config/types.js";
 import type { Config, Target } from "../config/types.js";
 import { createConfig, createConfigText } from "../config/writers.js";
@@ -106,31 +106,67 @@ async function assertFactoryDirectoryUsable(factoryDir: string): Promise<void> {
 }
 
 /**
- * True when `loadConfig` reported that the configuration exists but cannot be
- * read. `loadConfig` answers such a failure with a problem instead of throwing,
- * so `init` has to refuse before it treats the file as missing and writes it.
+ * The fix line for an unreadable configuration file. Only a permissions error
+ * is worth telling the reader to check permissions; every other code means the
+ * file is broken, a directory, a loop, or otherwise unreadable.
  */
-function unreadableConfig(config: Config): boolean {
-  return config.problems.some(
-    (problem) =>
-      problem.level === "error" &&
-      problem.file === CONFIG_FILE &&
-      problem.message === `Cannot read ${CONFIG_FILE}`,
-  );
+function unreadableConfigFix(code: string): string {
+  return code === "EACCES" || code === "EPERM"
+    ? "Check its permissions or restore the file"
+    : "Restore the file, then run metafab init again";
 }
 
-/** Loads `metafab.yaml`, turning any failure to read it into a problem list. */
+/** Loads `metafab.yaml`, refusing a file that exists but cannot be read. */
 async function readConfig(factoryDir: string): Promise<Config> {
   const config = await loadConfig(factoryDir);
-  if (unreadableConfig(config)) {
+  const code = unreadableConfigCode(config);
+  if (code !== undefined) {
     throw unreadableFactory(
       CONFIG_FILE,
       `Cannot read file ${CONFIG_FILE}`,
-      "Check its permissions or restore the file",
+      unreadableConfigFix(code),
     );
   }
 
   return config;
+}
+
+/**
+ * The one wording for a `.factory/factory.yaml` that exists but cannot be read,
+ * shared by the `lstat` and the `readFile` failures.
+ */
+function unreadableFactoryFile(): MetafabError {
+  return unreadableFactory(
+    ".factory/factory.yaml",
+    "Cannot read .factory/factory.yaml",
+    "Check its permissions or restore the file",
+  );
+}
+
+/**
+ * Refuses a `.factory/factory.yaml` that exists but cannot be read before
+ * anything is written. A file that is readable but invalid is left for the
+ * closing build to report.
+ *
+ * The entry is found with `lstat`, not `stat`: a dangling symlink is an entry
+ * too, and reading through it would create the target outside `.factory/`
+ * instead of failing.
+ */
+async function assertFactoryFileReadable(factoryDir: string): Promise<void> {
+  const file = path.join(factoryDir, "factory.yaml");
+
+  try {
+    await lstat(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw unreadableFactoryFile();
+  }
+
+  try {
+    await readFile(file, "utf8");
+  } catch {
+    throw unreadableFactoryFile();
+  }
 }
 
 function isAdoptionSource(file: string, moves: readonly AdoptionMove[]): boolean {
@@ -257,6 +293,7 @@ export async function runInit(options: InitOptions): Promise<InitReport> {
   }
 
   await preflightBuild(root, existingConfig, selection, configExists, plan.moves);
+  await assertFactoryFileReadable(factoryDir);
 
   const created = await ensureFactoryFiles(root, factoryDir, selection);
   const updated: string[] = [];

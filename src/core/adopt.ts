@@ -1,4 +1,4 @@
-import { cp, lstat, mkdir, readdir, readFile, readlink, rename, rm } from "node:fs/promises";
+import { cp, lstat, mkdir, readdir, readFile, readlink, realpath, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../errors.js";
 import type { Problem } from "../errors.js";
@@ -6,6 +6,7 @@ import type { RequiredValue } from "../input.js";
 import { parseFrontmatter } from "../util/frontmatter.js";
 import type { FrontmatterResult } from "../util/frontmatter.js";
 import { equalIgnoringEOL } from "../util/text.js";
+import { BUILTIN_SKILL_NAMES } from "./build/plan.js";
 import { compileSkill, isOwned, textContent } from "./build/skill.js";
 import { setSkillLines } from "./factory/lines.js";
 import {
@@ -22,14 +23,6 @@ import type { Factory, Skill } from "./factory/types.js";
 export const FACTORY_SKILLS_DIRECTORY = ".factory/skills";
 
 const FACTORY_DIRECTORY = ".factory";
-
-/**
- * Skill names that `build` installs from the package itself. Adoption must not
- * move a repository skill onto one of these names: the built-in copy would
- * shadow or overwrite the moved skill. Keep in sync with the built-in skills
- * compiled in `src/core/build/plan.ts`.
- */
-export const BUILTIN_SKILL_NAMES: readonly string[] = ["metafab"];
 
 /** The consent question from the specification. */
 export const ADOPTION_QUESTION =
@@ -95,6 +88,42 @@ async function lstatIfExists(target: string) {
     if (code === "ENOENT" || code === "ENOTDIR") return undefined;
     throw error;
   }
+}
+
+/**
+ * The real path of `target` when the path itself does not exist yet: the real
+ * path of its deepest existing ancestor, with the missing segments joined back
+ * on. The skill's new directory only exists after the move, so the loop check
+ * needs this to compare where a link really points, not just what it spells.
+ *
+ * Returns undefined when no ancestor resolves, as with a symlink loop.
+ */
+async function realPathOf(target: string): Promise<string | undefined> {
+  const missing: string[] = [];
+  let current = target;
+
+  for (;;) {
+    try {
+      return path.join(await realpath(current), ...missing.reverse());
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT" && code !== "ENOTDIR") return undefined;
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) return undefined;
+    missing.push(path.basename(current));
+    current = parent;
+  }
+}
+
+function loopProblem(linkPath: string): Problem {
+  return {
+    level: "error",
+    file: linkPath,
+    message: `Symlink ${linkPath} creates a loop after the move`,
+    fix: "Point it at a file or a directory that does not contain the skill, or remove the symlink",
+  };
 }
 
 function unreadable(relativePath: string): Problem {
@@ -198,16 +227,22 @@ function candidateSkillProblems(name: string, parsed: ParsedFrontmatter): Proble
 }
 
 /**
- * A symlink inside the skill that would not point inside the skill after the
- * move. Adoption moves only the skill directory, so anything else — a file in
- * the repository, a directory under `.factory/`, an absolute path — would be
- * left behind or change meaning, and `build` would fail on it after the move.
+ * A symlink inside the skill that would not work after the move. Adoption moves
+ * only the skill directory, so a link into `.factory/` is still valid (and
+ * `build` accepts it), while one into the repository or another destination
+ * would be left behind or change meaning, and `build` would fail on it after
+ * the move.
+ *
+ * A target that contains the skill's new directory is refused separately: once
+ * the skill is there the link points at itself or at an ancestor, which `build`
+ * reports as a loop. The check runs on the spelled path and on the real path,
+ * so a directory symlink inside `.factory/` or a filename that differs only in
+ * case cannot hide the same place on disk.
  */
 async function linkProblem(
   root: string,
   relative: string,
   linkPath: string,
-  destinationRoot: string,
   to: string,
 ): Promise<Problem | undefined> {
   let target: string;
@@ -219,26 +254,47 @@ async function linkProblem(
 
   const destinationLink = absolute(root, `${to}/${relative}`);
   const destinationTarget = path.resolve(path.dirname(destinationLink), target);
-  if (isInside(destinationRoot, destinationTarget)) return undefined;
+  if (!isInside(absolute(root, FACTORY_DIRECTORY), destinationTarget)) {
+    return {
+      level: "error",
+      file: linkPath,
+      message: `Symlink ${linkPath} points outside .factory/ after the move`,
+      fix: "Point it inside .factory/, or remove the symlink",
+    };
+  }
 
-  return {
-    level: "error",
-    file: linkPath,
-    message: `Symlink ${linkPath} points outside the skill directory`,
-    fix: "Point it inside the skill directory, or remove the symlink",
-  };
+  const destinationSkill = absolute(root, to);
+  if (isInside(destinationTarget, destinationSkill)) return loopProblem(linkPath);
+
+  // The lexical check above misses a target that reaches the skill through a
+  // directory symlink inside `.factory/`, or that differs from its name only in
+  // case on a case-insensitive filesystem. Compare real paths as well, resolved
+  // through the directories that exist before the move.
+  const realTarget = await realPathOf(destinationTarget);
+  const realSkill = await realPathOf(destinationSkill);
+  if (realTarget !== undefined && realSkill !== undefined && isInside(realTarget, realSkill)) {
+    return loopProblem(linkPath);
+  }
+
+  return undefined;
 }
 
 /**
  * The first entry in the candidate tree that the move cannot carry: a symlink
- * that leaves the skill, or a nested skill directory.
+ * that would leave `.factory/` or point back at the skill, or a nested skill
+ * directory.
+ *
+ * `compileSkill` copies every directory it can read, dot directories included,
+ * so links inside one are judged here too: a hidden directory that loops or
+ * leaves `.factory/` fails the build after the move, whatever its name. The
+ * nested-skill rule does not apply inside a dot directory, because factory
+ * discovery skips those directories and `build` accepts the `SKILL.md` there.
  */
 async function treeProblems(root: string, from: string, to: string): Promise<Problem | undefined> {
-  const destinationRoot = absolute(root, to);
-  const pending = [""];
+  const pending: { relative: string; hidden: boolean }[] = [{ relative: "", hidden: false }];
 
   while (pending.length > 0) {
-    const relative = pending.shift()!;
+    const { relative, hidden } = pending.shift()!;
     const current = relative === "" ? from : `${from}/${relative}`;
 
     let entries;
@@ -255,18 +311,22 @@ async function treeProblems(root: string, from: string, to: string): Promise<Pro
       const childPath = `${from}/${child}`;
 
       if (entry.isSymbolicLink()) {
-        const problem = await linkProblem(root, child, childPath, destinationRoot, to);
+        const problem = await linkProblem(root, child, childPath, to);
         if (problem !== undefined) return problem;
         continue;
       }
 
-      if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+      if (!entry.isDirectory()) continue;
 
-      const nestedSkill = await lstatIfExists(absolute(root, `${childPath}/SKILL.md`));
-      if (nestedSkill !== undefined && nestedSkill.isFile()) {
-        return rule3NoNestedSkills(`${childPath}/SKILL.md`, 1, childPath, from)[0];
+      const hiding = entry.name.startsWith(".");
+      if (!hidden && !hiding) {
+        const nestedSkill = await lstatIfExists(absolute(root, `${childPath}/SKILL.md`));
+        if (nestedSkill !== undefined && nestedSkill.isFile()) {
+          return rule3NoNestedSkills(`${childPath}/SKILL.md`, 1, childPath, from)[0];
+        }
       }
-      pending.push(child);
+
+      pending.push({ relative: child, hidden: hidden || hiding });
     }
   }
 
@@ -279,6 +339,10 @@ async function treeProblems(root: string, from: string, to: string): Promise<Pro
  * code: it runs on the source tree with the skill directory as the containment
  * root, because the directory moves as a unit, and a link that stays inside it
  * stays inside `.factory/skills/<name>/` too.
+ *
+ * A link whose target sits elsewhere in `.factory/` is accepted by
+ * `treeProblems` and must pass here as well, so the factory directory joins the
+ * roots a link may resolve into. Build never passes `linkRoots`.
  */
 async function checkSkillTree(
   root: string,
@@ -288,9 +352,14 @@ async function checkSkillTree(
   const relocation = await treeProblems(root, from, `${FACTORY_SKILLS_DIRECTORY}/${name}`);
   if (relocation !== undefined) return relocation;
 
+  const skillDir = absolute(root, from);
+  const factoryDirectory = absolute(root, FACTORY_DIRECTORY);
+  const factoryExists = (await lstatIfExists(factoryDirectory)) !== undefined;
   const compiled = await compileSkill(
-    { dir: absolute(root, from), name, sourcePath: from },
-    { factoryDir: absolute(root, from) },
+    { dir: skillDir, name, sourcePath: from },
+    factoryExists
+      ? { factoryDir: skillDir, linkRoots: [factoryDirectory] }
+      : { factoryDir: skillDir },
   );
   return compiled.problems[0];
 }

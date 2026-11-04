@@ -341,7 +341,7 @@ describe("metafab init", () => {
     const result = await runCli(["init", "--agents", "claude", "--adopt"], { cwd: repo.root });
 
     expect(result.code).toBe(5);
-    expect(result.stderr).toContain("points outside the skill directory");
+    expect(result.stderr).toContain("points outside .factory/ after the move");
     expect(await snapshot(repo.root)).toEqual(before);
     expect(await pathExists(repo.path(".factory"))).toBe(false);
     expect(await pathExists(repo.path(".claude", "skills", "release", "SKILL.md"))).toBe(true);
@@ -363,6 +363,42 @@ describe("metafab init", () => {
     expect(await pathExists(repo.path(".claude", "skills", "release", "loop"))).toBe(true);
   });
 
+  test("blocks a symlink loop inside a dot directory before moving the skill", async () => {
+    const repo = await gitRepo({ ".claude/skills/release/SKILL.md": skill("release") });
+    await mkdir(repo.path(".claude", "skills", "release", ".hidden"), { recursive: true });
+    await symlink(
+      "../../../../.factory/skills",
+      repo.path(".claude", "skills", "release", ".hidden", "skills"),
+    );
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["init", "--agents", "claude", "--adopt"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stderr).toContain("creates a loop");
+    expect(await snapshot(repo.root)).toEqual(before);
+    expect(await pathExists(repo.path(".gitattributes"))).toBe(false);
+    expect(await pathExists(repo.path(".factory"))).toBe(false);
+    expect(await pathExists(repo.path(".claude", "skills", "release", "SKILL.md"))).toBe(true);
+  });
+
+  test("blocks a symlink that reaches .factory/skills through a directory link before moving the skill", async () => {
+    const repo = await gitRepo({ ".claude/skills/release/SKILL.md": skill("release") });
+    await mkdir(repo.path(".factory", "skills"), { recursive: true });
+    await symlink("skills", repo.path(".factory", "alias"), "dir");
+    await symlink("../../../.factory/alias", repo.path(".claude", "skills", "release", "skills"));
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["init", "--agents", "claude", "--adopt"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stderr).toContain("creates a loop after the move");
+    expect(await snapshot(repo.root)).toEqual(before);
+    expect(await pathExists(repo.path(".gitattributes"))).toBe(false);
+    expect(await pathExists(repo.path(".claude", "skills", "release", "SKILL.md"))).toBe(true);
+    expect(await pathExists(repo.path(".factory", "skills", "release"))).toBe(false);
+  });
+
   test("blocks a symlink that resolves through a symlinked directory into .factory", async () => {
     const repo = await gitRepo({
       ".claude/skills/release/SKILL.md": skill("release"),
@@ -379,7 +415,7 @@ describe("metafab init", () => {
     const result = await runCli(["init", "--agents", "claude", "--adopt"], { cwd: repo.root });
 
     expect(result.code).toBe(5);
-    expect(result.stderr).toContain("points outside the skill directory");
+    expect(result.stderr).toContain("points outside .factory/");
     expect(await snapshot(repo.root)).toEqual(before);
     expect(await pathExists(repo.path(".claude", "skills", "release", "SKILL.md"))).toBe(true);
   });
