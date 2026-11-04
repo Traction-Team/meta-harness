@@ -13,4 +13,4 @@ plan: docs/plans/1.010-update-diff-detach.md
 
 ## Still to come
 
-Follow-ups are in `docs/intake/2026-11-02-update-polish.md`.
+Follow-ups are in `docs/intake/2026-11-02-update-polish.md`, `docs/intake/2026-11-04-git-fetch-hardening.md` and `docs/intake/2026-11-04-publish-git-test-timeouts.md`.
