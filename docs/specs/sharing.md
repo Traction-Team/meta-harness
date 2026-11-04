@@ -197,6 +197,8 @@ A Git source can be a fab repository or any project repository. A project reposi
 
 Metafab fetches Git sources with Git and the user's Git credentials. It does not use npm for them because npm can run a Git package's `prepare` script.
 
+A Git fetch takes the committed blob bytes exactly. Line-ending conversion, `.gitattributes` `text`, `eol` and `filter` rules, and `export-ignore` and `export-subst` are not applied, mirroring how `publish` stores bytes verbatim, so a fab fetched on any machine is the fab that was published.
+
 ### Git refs
 
 The part after `#` selects a Git version. Version tags are `v<version>` or `<version>`, such as `v1.2.0`.
