@@ -4,10 +4,10 @@ import { dedupeReadErrors } from "../build/skill.js";
 import { loadConfig } from "../config/load.js";
 import { loadFactory } from "../factory/load.js";
 import { compareBuildOutput } from "./drift.js";
-import { scanConflictMarkers, scanUpstreamFiles } from "./markers.js";
+import { scanFactoryFiles } from "./markers.js";
 
 export { compareBuildOutput } from "./drift.js";
-export { scanConflictMarkers, scanUpstreamFiles } from "./markers.js";
+export { scanFactoryFiles } from "./markers.js";
 
 /** The report always shows a line; a problem about a path reports line 1. */
 function withLine(problem: Problem): Problem {
@@ -59,8 +59,7 @@ export async function runCheck(root: string, cliVersion: string): Promise<Proble
     (problem) => problem.level === "error",
   );
 
-  for (const problem of await scanConflictMarkers(root)) add(problem);
-  for (const problem of await scanUpstreamFiles(root)) add(problem);
+  for (const problem of await scanFactoryFiles(root)) add(problem);
 
   const problems = dedupeReadErrors(collected);
 

@@ -1,4 +1,3 @@
-import { createRequire } from "node:module";
 import { runCheck } from "../core/check/index.js";
 import { loadConfig } from "../core/config/load.js";
 import { findFactory } from "../core/discovery.js";
@@ -14,15 +13,10 @@ import { ExitCode, MetafabError } from "../errors.js";
 import type { Problem } from "../errors.js";
 import type { CommandResult } from "../output.js";
 import { normalizeProblemPath } from "../util/fs.js";
+import { cliVersion } from "../util/version.js";
 import type { CommandDefinition } from "./types.js";
 
 const DRY_RUN_DETAIL = "Dry run: nothing was published.";
-
-function cliVersion(): string {
-  const require = createRequire(import.meta.url);
-  const pkg = require("../../package.json") as { version?: unknown };
-  return typeof pkg.version === "string" ? pkg.version : "0.0.0";
-}
 
 function argumentError(message: string): MetafabError {
   return new MetafabError(message, {
