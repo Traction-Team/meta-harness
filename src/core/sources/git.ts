@@ -58,9 +58,12 @@ function gitConfigArgs(): string[] {
  * bytes `publish` wrote verbatim - so every conversion attribute is turned off
  * for the mirror before it is exported. `info/attributes` outranks the fab's
  * own `.gitattributes`, and the config handles an older cache or a Git that
- * reads the attribute files in a different order.
+ * reads the attribute files in a different order. Line ending conversion is
+ * not the only rewrite `git archive` does: `export-subst` expands `$Format$`
+ * placeholders and `export-ignore` drops files, so those two are disabled too.
  */
-const VERBATIM_ATTRIBUTES = "* -text -eol -filter -ident -working-tree-encoding\n";
+const VERBATIM_ATTRIBUTES =
+  "* -text -eol -filter -ident -working-tree-encoding -export-subst -export-ignore\n";
 
 const VERBATIM_CONFIG = [
   "-c",
@@ -71,10 +74,28 @@ const VERBATIM_CONFIG = [
   "core.safecrlf=false",
 ];
 
+/**
+ * Part of the fab cache key. A commit can export different bytes than an
+ * earlier build exported from the same commit, so a build that changes the
+ * export format carries a new segment and never reuses the old entry.
+ */
+const FAB_FETCH_FORMAT = "git-verbatim-1";
+
 async function writeVerbatimAttributes(mirror: string): Promise<void> {
   const info = path.join(mirror, "info");
+  const target = path.join(info, "attributes");
   await mkdir(info, { recursive: true });
-  await writeFile(path.join(info, "attributes"), VERBATIM_ATTRIBUTES);
+  // Concurrent fetches share the mirror. Writing in place would let one of
+  // them read a truncated file, so write a sibling and rename it over: the
+  // rename is atomic and every reader sees the old file or the new one.
+  const temporary = path.join(info, `.attributes.tmp-${randomUUID()}`);
+  try {
+    await writeFile(temporary, VERBATIM_ATTRIBUTES);
+    await rename(temporary, target);
+  } catch (error) {
+    await rm(temporary, { force: true });
+    throw error;
+  }
 }
 
 export interface GitOptions {
@@ -506,7 +527,11 @@ export async function fetchGit(
   options: GitOptions = {},
 ): Promise<FetchedFab> {
   const layout = cacheLayout(options.cache ?? cacheRoot());
-  const key = fabKey(stripSourceCredentials(source.spec.source), source.commit);
+  const key = fabKey(
+    FAB_FETCH_FORMAT,
+    stripSourceCredentials(source.spec.source),
+    source.commit,
+  );
   const fabDir = layout.fabDir(key);
   const sourceLabel = `${source.spec.source}#${source.commit.slice(0, 7)}`;
 

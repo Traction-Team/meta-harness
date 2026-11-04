@@ -8,6 +8,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { ExitCode, MetafabError } from "../../../src/errors.js";
 import {
   cacheLayout,
+  fabKey,
   fetchFab,
   parseSource,
   resolve,
@@ -442,6 +443,94 @@ describe("git sources", { timeout: 60_000 }, () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  test("fetches fab content byte for byte whatever the fab's .gitattributes say", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "metafab-git-attributes-"));
+    const work = path.join(root, "work");
+    const repo = path.join(root, "repo.git");
+    const lf = Buffer.from("plain\n", "utf8");
+    const crlf = Buffer.from("one\r\ntwo\r\n", "utf8");
+    try {
+      await runGitIn(root, ["init", "-q", "-b", "main", work]);
+      await runGitIn(work, ["config", "core.autocrlf", "false"]);
+      await runGitIn(work, ["config", "user.name", "Metafab Test"]);
+      await runGitIn(work, ["config", "user.email", "metafab@example.com"]);
+      await cp(path.join(FIXTURES, "valid-fab", ".factory"), path.join(work, ".factory"), {
+        recursive: true,
+      });
+      await writeFile(path.join(work, ".factory", "plain.md"), lf);
+      await writeFile(path.join(work, ".factory", "crlf.txt"), crlf);
+      await runGitIn(work, ["add", "-A"]);
+      await runGitIn(work, ["commit", "-qm", "line endings"]);
+      // The rules arrive after the blobs are committed, so the blobs keep the
+      // exact bytes a fab can contain; `git archive` still applies the rules
+      // when it exports the tree.
+      await writeFile(
+        path.join(work, ".factory", ".gitattributes"),
+        "*.md text eol=crlf\n*.txt text=auto eol=lf\n",
+      );
+      await runGitIn(work, ["add", "-A"]);
+      await runGitIn(work, ["commit", "-qm", "line ending rules"]);
+      await runGitIn(work, ["tag", "v1.0.0"]);
+      await runGitIn(root, ["clone", "-q", "--bare", work, repo]);
+
+      const resolved = await resolveGit(gitSpec(repo));
+      const fetched = await fetchFab(resolved, options());
+
+      expect(await readFile(path.join(fetched.factoryDir, "plain.md"))).toEqual(lf);
+      expect(await readFile(path.join(fetched.factoryDir, "crlf.txt"))).toEqual(crlf);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("fetches fab files that export-subst or export-ignore would rewrite or drop", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "metafab-git-export-"));
+    const work = path.join(root, "work");
+    const repo = path.join(root, "repo.git");
+    const stamp = Buffer.from("commit $Format:%H$\n", "utf8");
+    const kept = Buffer.from("keep me\n", "utf8");
+    try {
+      await runGitIn(root, ["init", "-q", "-b", "main", work]);
+      await runGitIn(work, ["config", "core.autocrlf", "false"]);
+      await runGitIn(work, ["config", "user.name", "Metafab Test"]);
+      await runGitIn(work, ["config", "user.email", "metafab@example.com"]);
+      await cp(path.join(FIXTURES, "valid-fab", ".factory"), path.join(work, ".factory"), {
+        recursive: true,
+      });
+      await writeFile(path.join(work, ".factory", "stamp.txt"), stamp);
+      await writeFile(path.join(work, ".factory", "skip.txt"), kept);
+      await writeFile(
+        path.join(work, ".factory", ".gitattributes"),
+        "stamp.txt export-subst\nskip.txt export-ignore\n",
+      );
+      await runGitIn(work, ["add", "-A"]);
+      await runGitIn(work, ["commit", "-qm", "export attributes"]);
+      await runGitIn(work, ["tag", "v1.0.0"]);
+      await runGitIn(root, ["clone", "-q", "--bare", work, repo]);
+
+      const resolved = await resolveGit(gitSpec(repo));
+      const fetched = await fetchFab(resolved, options());
+
+      expect(await readFile(path.join(fetched.factoryDir, "stamp.txt"))).toEqual(stamp);
+      expect(await readFile(path.join(fetched.factoryDir, "skip.txt"))).toEqual(kept);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("does not reuse a fab cached before the fetch format changed", async () => {
+    const resolved = await resolveGit(gitSpec(fixture.repo));
+    if (resolved.kind !== "git") throw new Error("expected a git source");
+    const legacy = cacheLayout(cache).fabDir(fabKey(`file://${fixture.repo}`, resolved.commit));
+    await mkdir(legacy, { recursive: true });
+    await writeFile(path.join(legacy, "from-an-older-fetch"), "stale");
+
+    const fetched = await fetchFab(resolved, options());
+
+    expect(fetched.factoryDir).not.toBe(legacy);
+    expect(await pathExists(path.join(legacy, "from-an-older-fetch"))).toBe(true);
   });
 
   test("does not run git hooks from the environment", async () => {
