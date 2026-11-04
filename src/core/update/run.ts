@@ -850,7 +850,7 @@ async function runVersioned(
     if (baseUnavailable) {
       const label = recordedLabel(previous);
       notes.push(
-        `Upstream base ${label} could not be fetched; every path both sides have with different content is a conflict.`,
+        `Recorded base ${label} no longer exists upstream, so every path where yours and theirs differ is treated as a conflict.`,
       );
     }
     if (theirs.deprecated !== undefined) {

@@ -967,6 +967,8 @@ describe("update without a base", { timeout: 30_000 }, () => {
       toLF(await readFile(repo.path(".factory", "scripts", "deploy.sh.upstream"), "utf8")),
     ).toBe("#!/bin/sh\necho deploy v2\n");
     expect(result.stdout).toContain("cannot tell a local removal from an upstream addition");
+    // The summary says why every differing path conflicted.
+    expect(result.stdout).toContain("no longer exists upstream");
     // The new version is recorded, as for every conflicted update.
     expect(await metafabYaml(repo)).toContain("version: 1.1.0");
   });
@@ -1088,7 +1090,7 @@ describe("update without a base", { timeout: 30_000 }, () => {
 
     expect(result.code).toBe(3);
     expect(result.stdout).toContain("Cannot export .factory");
-    expect(result.stdout).not.toContain("could not be fetched");
+    expect(result.stdout).not.toContain("no longer exists upstream");
 
     // The failure aborts the update before any write, so the factory and the
     // recorded upstream are untouched.
