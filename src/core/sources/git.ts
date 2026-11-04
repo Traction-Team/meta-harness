@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
-import { mkdir, mkdtemp, rename, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -46,6 +46,35 @@ function disabledHooksConfig(): string {
 
 function gitConfigArgs(): string[] {
   return ["-c", disabledHooksConfig()];
+}
+
+/**
+ * A fab must reach the project byte for byte. Git converts line endings while
+ * it exports a tree: the user's `core.autocrlf`, or a `text`/`eol` rule in the
+ * fab's own `.gitattributes`, turns LF into CRLF in `git archive` output. That
+ * would make a fetched fab depend on how the machine is set up, and it changes
+ * files that are not text at all: a file that is not valid UTF-8 still has no
+ * NUL byte, so Git converts it too. The blob Git stored is the fab - the same
+ * bytes `publish` wrote verbatim - so every conversion attribute is turned off
+ * for the mirror before it is exported. `info/attributes` outranks the fab's
+ * own `.gitattributes`, and the config handles an older cache or a Git that
+ * reads the attribute files in a different order.
+ */
+const VERBATIM_ATTRIBUTES = "* -text -eol -filter -ident -working-tree-encoding\n";
+
+const VERBATIM_CONFIG = [
+  "-c",
+  "core.autocrlf=false",
+  "-c",
+  "core.eol=lf",
+  "-c",
+  "core.safecrlf=false",
+];
+
+async function writeVerbatimAttributes(mirror: string): Promise<void> {
+  const info = path.join(mirror, "info");
+  await mkdir(info, { recursive: true });
+  await writeFile(path.join(info, "attributes"), VERBATIM_ATTRIBUTES);
 }
 
 export interface GitOptions {
@@ -419,8 +448,18 @@ async function exportFactory(
   const staging = await mkdtemp(path.join(tmpdir(), "metafab-git-"));
   try {
     const archive = path.join(staging, "factory.tar");
+    await writeVerbatimAttributes(mirror);
     await runGit(
-      ["-C", mirror, "archive", "--format=tar", `--output=${archive}`, commit, ".factory"],
+      [
+        ...VERBATIM_CONFIG,
+        "-C",
+        mirror,
+        "archive",
+        "--format=tar",
+        `--output=${archive}`,
+        commit,
+        ".factory",
+      ],
       `Cannot export .factory from ${sourceLabel}`,
       options,
     );

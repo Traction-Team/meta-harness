@@ -1,8 +1,9 @@
 import { createServer } from "node:http";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { ExitCode, MetafabError } from "../../../src/errors.js";
 import {
@@ -20,6 +21,8 @@ import {
   runGitIn,
 } from "./git-fixture.js";
 import type { GitFixture } from "./git-fixture.js";
+
+const FIXTURES = fileURLToPath(new URL("../../fixtures/fabs/", import.meta.url));
 
 let fixture: GitFixture;
 let cache: string;
@@ -397,6 +400,45 @@ describe("git sources", { timeout: 60_000 }, () => {
         exitCode: ExitCode.InvalidFab,
         code: "invalid-fab",
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("fetches fab content byte for byte whatever core.autocrlf says", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "metafab-git-eol-"));
+    const work = path.join(root, "work");
+    const repo = path.join(root, "repo.git");
+    const plain = Buffer.from("plain\n", "utf8");
+    const latin = Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]);
+    try {
+      await runGitIn(root, ["init", "-q", "-b", "main", work]);
+      // The fixture stores exactly the bytes this test expects, so the line
+      // endings the host's Git is set up to write cannot reach the commit.
+      await runGitIn(work, ["config", "core.autocrlf", "false"]);
+      await runGitIn(work, ["config", "user.name", "Metafab Test"]);
+      await runGitIn(work, ["config", "user.email", "metafab@example.com"]);
+      await cp(path.join(FIXTURES, "valid-fab", ".factory"), path.join(work, ".factory"), {
+        recursive: true,
+      });
+      await writeFile(path.join(work, ".factory", "plain.md"), plain);
+      await writeFile(path.join(work, ".factory", "latin.txt"), latin);
+      await runGitIn(work, ["add", "-A"]);
+      await runGitIn(work, ["commit", "-qm", "line endings"]);
+      await runGitIn(work, ["tag", "v1.0.0"]);
+      await runGitIn(root, ["clone", "-q", "--bare", work, repo]);
+
+      // The Windows default setup, on every platform: a fetch that goes through
+      // a checkout or `git archive` would turn each LF into CRLF.
+      const gitconfig = path.join(root, "gitconfig");
+      await writeFile(gitconfig, "[core]\n\tautocrlf = true\n");
+      const env = { ...process.env, GIT_CONFIG_GLOBAL: gitconfig, GIT_CONFIG_NOSYSTEM: "1" };
+
+      const resolved = await resolve(gitSpec(repo), { cache, env });
+      const fetched = await fetchFab(resolved, { cache, env });
+
+      expect(await readFile(path.join(fetched.factoryDir, "plain.md"))).toEqual(plain);
+      expect(await readFile(path.join(fetched.factoryDir, "latin.txt"))).toEqual(latin);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
