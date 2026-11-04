@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -77,24 +77,42 @@ const VERBATIM_CONFIG = [
 /**
  * Part of the fab cache key. A commit can export different bytes than an
  * earlier build exported from the same commit, so a build that changes the
- * export format carries a new segment and never reuses the old entry.
+ * export format carries a new segment and never reuses the old entry. The
+ * segment is derived from the attribute rules themselves, so editing them
+ * cannot leave a stale entry behind.
  */
-const FAB_FETCH_FORMAT = "git-verbatim-1";
+const FAB_FETCH_FORMAT = `git-verbatim-${createHash("sha256")
+  .update(VERBATIM_ATTRIBUTES)
+  .digest("hex")
+  .slice(0, 12)}`;
 
-async function writeVerbatimAttributes(mirror: string): Promise<void> {
+async function writeVerbatimAttributes(mirror: string, sourceLabel: string): Promise<void> {
   const info = path.join(mirror, "info");
   const target = path.join(info, "attributes");
-  await mkdir(info, { recursive: true });
+  // Every fetch through this mirror leaves the rules in place, so this is the
+  // steady state and nothing is written at all. That matters on Windows: a
+  // concurrent `git archive` can have the file open (rename fails with EPERM)
+  // and a concurrent `replaceMirror` can move the whole mirror away (the
+  // parent directory is then gone, so mkdir/write/rename fail with ENOENT).
+  const current = await readFile(target, "utf8").catch(() => undefined);
+  if (current === VERBATIM_ATTRIBUTES) return;
+
   // Concurrent fetches share the mirror. Writing in place would let one of
-  // them read a truncated file, so write a sibling and rename it over: the
-  // rename is atomic and every reader sees the old file or the new one.
+  // them read a truncated file, so write a sibling and rename it over: where
+  // the rename is atomic, a reader sees the old file or the new one, never a
+  // partial one.
   const temporary = path.join(info, `.attributes.tmp-${randomUUID()}`);
   try {
+    await mkdir(info, { recursive: true });
     await writeFile(temporary, VERBATIM_ATTRIBUTES);
     await rename(temporary, target);
   } catch (error) {
-    await rm(temporary, { force: true });
-    throw error;
+    await rm(temporary, { force: true }).catch(() => undefined);
+    const detail = error instanceof Error ? error.message : String(error);
+    throw fetchError(
+      `Cannot export .factory from ${sourceLabel} byte for byte: ${detail}`,
+      error,
+    );
   }
 }
 
@@ -469,7 +487,7 @@ async function exportFactory(
   const staging = await mkdtemp(path.join(tmpdir(), "metafab-git-"));
   try {
     const archive = path.join(staging, "factory.tar");
-    await writeVerbatimAttributes(mirror);
+    await writeVerbatimAttributes(mirror, sourceLabel);
     await runGit(
       [
         ...VERBATIM_CONFIG,

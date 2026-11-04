@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -19,6 +19,7 @@ import {
   createGitFixture,
   createUntaggedGitFixture,
   installReferenceTransactionHook,
+  isolatedGitEnvironment,
   runGitIn,
 } from "./git-fixture.js";
 import type { GitFixture } from "./git-fixture.js";
@@ -452,17 +453,20 @@ describe("git sources", { timeout: 60_000 }, () => {
     const lf = Buffer.from("plain\n", "utf8");
     const crlf = Buffer.from("one\r\ntwo\r\n", "utf8");
     try {
-      await runGitIn(root, ["init", "-q", "-b", "main", work]);
-      await runGitIn(work, ["config", "core.autocrlf", "false"]);
-      await runGitIn(work, ["config", "user.name", "Metafab Test"]);
-      await runGitIn(work, ["config", "user.email", "metafab@example.com"]);
+      // The commit happens under an empty Git configuration, so the host's
+      // global settings cannot change the stored blob bytes.
+      const env = await isolatedGitEnvironment(root);
+      await runGitIn(root, ["init", "-q", "-b", "main", work], env);
+      await runGitIn(work, ["config", "core.autocrlf", "false"], env);
+      await runGitIn(work, ["config", "user.name", "Metafab Test"], env);
+      await runGitIn(work, ["config", "user.email", "metafab@example.com"], env);
       await cp(path.join(FIXTURES, "valid-fab", ".factory"), path.join(work, ".factory"), {
         recursive: true,
       });
       await writeFile(path.join(work, ".factory", "plain.md"), lf);
       await writeFile(path.join(work, ".factory", "crlf.txt"), crlf);
-      await runGitIn(work, ["add", "-A"]);
-      await runGitIn(work, ["commit", "-qm", "line endings"]);
+      await runGitIn(work, ["add", "-A"], env);
+      await runGitIn(work, ["commit", "-qm", "line endings"], env);
       // The rules arrive after the blobs are committed, so the blobs keep the
       // exact bytes a fab can contain; `git archive` still applies the rules
       // when it exports the tree.
@@ -470,10 +474,10 @@ describe("git sources", { timeout: 60_000 }, () => {
         path.join(work, ".factory", ".gitattributes"),
         "*.md text eol=crlf\n*.txt text=auto eol=lf\n",
       );
-      await runGitIn(work, ["add", "-A"]);
-      await runGitIn(work, ["commit", "-qm", "line ending rules"]);
-      await runGitIn(work, ["tag", "v1.0.0"]);
-      await runGitIn(root, ["clone", "-q", "--bare", work, repo]);
+      await runGitIn(work, ["add", "-A"], env);
+      await runGitIn(work, ["commit", "-qm", "line ending rules"], env);
+      await runGitIn(work, ["tag", "v1.0.0"], env);
+      await runGitIn(root, ["clone", "-q", "--bare", work, repo], env);
 
       const resolved = await resolveGit(gitSpec(repo));
       const fetched = await fetchFab(resolved, options());
@@ -492,10 +496,11 @@ describe("git sources", { timeout: 60_000 }, () => {
     const stamp = Buffer.from("commit $Format:%H$\n", "utf8");
     const kept = Buffer.from("keep me\n", "utf8");
     try {
-      await runGitIn(root, ["init", "-q", "-b", "main", work]);
-      await runGitIn(work, ["config", "core.autocrlf", "false"]);
-      await runGitIn(work, ["config", "user.name", "Metafab Test"]);
-      await runGitIn(work, ["config", "user.email", "metafab@example.com"]);
+      const env = await isolatedGitEnvironment(root);
+      await runGitIn(root, ["init", "-q", "-b", "main", work], env);
+      await runGitIn(work, ["config", "core.autocrlf", "false"], env);
+      await runGitIn(work, ["config", "user.name", "Metafab Test"], env);
+      await runGitIn(work, ["config", "user.email", "metafab@example.com"], env);
       await cp(path.join(FIXTURES, "valid-fab", ".factory"), path.join(work, ".factory"), {
         recursive: true,
       });
@@ -505,10 +510,10 @@ describe("git sources", { timeout: 60_000 }, () => {
         path.join(work, ".factory", ".gitattributes"),
         "stamp.txt export-subst\nskip.txt export-ignore\n",
       );
-      await runGitIn(work, ["add", "-A"]);
-      await runGitIn(work, ["commit", "-qm", "export attributes"]);
-      await runGitIn(work, ["tag", "v1.0.0"]);
-      await runGitIn(root, ["clone", "-q", "--bare", work, repo]);
+      await runGitIn(work, ["add", "-A"], env);
+      await runGitIn(work, ["commit", "-qm", "export attributes"], env);
+      await runGitIn(work, ["tag", "v1.0.0"], env);
+      await runGitIn(root, ["clone", "-q", "--bare", work, repo], env);
 
       const resolved = await resolveGit(gitSpec(repo));
       const fetched = await fetchFab(resolved, options());
@@ -518,6 +523,40 @@ describe("git sources", { timeout: 60_000 }, () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  test("leaves the mirror attribute rules untouched when they are already in place", async () => {
+    const first = await resolve(gitSpec(fixture.repo), { ...options(), to: "v1.0.0" });
+    await fetchFab(first, options());
+
+    const attributes = path.join(
+      cacheLayout(cache).gitMirror(fixture.repo),
+      "info",
+      "attributes",
+    );
+    expect(await readFile(attributes, "utf8")).toContain("-export-ignore");
+    const before = await stat(attributes);
+
+    // A second fetch through the same mirror must not rewrite the file. On
+    // Windows a read-only or open attribute file would otherwise fail the
+    // whole fetch with EPERM.
+    const second = await resolve(gitSpec(fixture.repo), { ...options(), to: "v2.0.0" });
+    await fetchFab(second, options());
+
+    const after = await stat(attributes);
+    expect(after.mtimeMs).toBe(before.mtimeMs);
+  });
+
+  test("fails with exit 3 when the mirror cannot hold the verbatim attribute rules", async () => {
+    const resolved = await resolveGit(gitSpec(fixture.repo));
+    const mirror = cacheLayout(cache).gitMirror(fixture.repo);
+    await rm(path.join(mirror, "info"), { recursive: true, force: true });
+    await writeFile(path.join(mirror, "info"), "not a directory\n");
+
+    await expect(fetchFab(resolved, options())).rejects.toMatchObject({
+      exitCode: ExitCode.FetchFailed,
+      code: "fetch-failed",
+    });
   });
 
   test("does not reuse a fab cached before the fetch format changed", async () => {

@@ -16,13 +16,34 @@ export interface GitFixture {
   cleanup(): Promise<void>;
 }
 
-export async function runGitIn(cwd: string, args: string[]): Promise<string> {
+export async function runGitIn(
+  cwd: string,
+  args: string[],
+  env?: NodeJS.ProcessEnv,
+): Promise<string> {
   const { stdout } = await execFileAsync(
     "git",
     ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", ...args],
-    { cwd, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, windowsHide: true },
+    {
+      cwd,
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
+      windowsHide: true,
+      ...(env === undefined ? {} : { env }),
+    },
   );
   return stdout.trim();
+}
+
+/**
+ * Git configuration for a test whose fixture bytes must not depend on this
+ * machine: an empty global file and no system file, so the developer's
+ * `core.autocrlf`, attributes file, or filters cannot rewrite a commit.
+ */
+export async function isolatedGitEnvironment(root: string): Promise<NodeJS.ProcessEnv> {
+  const gitconfig = path.join(root, "gitconfig");
+  await writeFile(gitconfig, "");
+  return { ...process.env, GIT_CONFIG_GLOBAL: gitconfig, GIT_CONFIG_NOSYSTEM: "1" };
 }
 
 async function initWorkRepository(root: string): Promise<string> {
