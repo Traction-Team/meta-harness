@@ -24,7 +24,7 @@ import type { Resolved } from "../sources/types.js";
 import { renderSummary, summarise } from "../summary.js";
 import type { Summary } from "../summary.js";
 import { findPathClashes } from "./clashes.js";
-import { fetchRecordedBase } from "./fetch.js";
+import { fetchRecordedBase, recordedBaseGone } from "./fetch.js";
 import { alignFactorySpelling, alignPathSpelling, alignTreeSpelling } from "./spelling.js";
 import {
   recordedLabel,
@@ -800,7 +800,11 @@ async function runVersioned(
     try {
       base = await fetchRecordedBase(previous, { ...sourceOptions, cwd: root });
     } catch (error) {
-      if (!(error instanceof MetafabError)) throw error;
+      // Merging without a base is only correct when the base is gone: a force
+      // push removed its commit, or npm unpublished its version. Any other
+      // failure (network, credentials, cache or filesystem) must abort the
+      // update before it writes, with its own problem and exit code.
+      if (!(error instanceof MetafabError) || !recordedBaseGone(error)) throw error;
       baseUnavailable = true;
     }
 

@@ -139,7 +139,10 @@ export async function runDiff(options: DiffOptions): Promise<DiffReport> {
   let base: FetchedFab | undefined;
   try {
     // A recorded source is relative to the project root, so `diff` works from a
-    // subdirectory as `update` does.
+    // subdirectory as `update` does. Every failure propagates unchanged,
+    // including a base that no longer exists: unlike `update`, a comparison
+    // has nothing to fall back on, so the fetch's own problem and exit code
+    // reach the user.
     base = await fetchRecordedBase(upstream, { ...sourceOptions, cwd: root });
     const upstreamTree: FileTree = await factoryTree(base.factoryDir);
     const localTree = await localFactoryTree(root);

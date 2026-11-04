@@ -1,11 +1,14 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
+import { cacheLayout } from "../../../src/core/sources/cache.js";
 import { toLF } from "../../../src/util/text.js";
 import { makeRepo, writeRepoFiles } from "../../helpers/makeRepo.js";
 import type { RepoFiles, TempRepo } from "../../helpers/makeRepo.js";
 import { runCli } from "../../helpers/runCli.js";
 import type { RunCliResult } from "../../helpers/runCli.js";
 import {
+  FAB_URL,
   createGitFab,
   importFab,
   parseJson,
@@ -131,6 +134,22 @@ describe("metafab diff", { timeout: 30_000 }, () => {
     const json = await withFabEnvironment(fab, () => diffFab(repo.root, ["--json"]));
     const files = parseJson(json).files as Array<Record<string, unknown>>;
     expect(files).toEqual([{ path: "assets/logo.bin", status: "added" }]);
+  });
+
+  test("reports a fetch failure for another reason instead of comparing", async () => {
+    const { repo, fab } = await importedProject();
+    // Drop the cached fab so the recorded base has to be exported again.
+    await rm(path.join(fab.root, "cache", "fabs"), { recursive: true, force: true });
+    // A cache entry that cannot hold the verbatim attribute rules fails that
+    // export for a reason that is not a missing base.
+    const mirror = cacheLayout(path.join(fab.root, "cache")).gitMirror(FAB_URL);
+    await rm(path.join(mirror, "info"), { recursive: true, force: true });
+    await writeFile(path.join(mirror, "info"), "not a directory\n");
+
+    const result = await withFabEnvironment(fab, () => diffFab(repo.root));
+
+    expect(result.code).toBe(3);
+    expect(result.stdout).toContain("Cannot export .factory");
   });
 
   test("fails with a fix when the factory has no upstream", async () => {

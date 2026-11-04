@@ -197,7 +197,7 @@ A Git source can be a fab repository or any project repository. A project reposi
 
 Metafab fetches Git sources with Git and the user's Git credentials. It does not use npm for them because npm can run a Git package's `prepare` script.
 
-A Git fetch takes the committed blob bytes exactly. Line-ending conversion, `.gitattributes` `text`, `eol` and `filter` rules, and `export-ignore` and `export-subst` are not applied, mirroring how `publish` stores bytes verbatim, so a fab fetched on any machine is the fab that was published.
+A Git fetch takes the committed blob bytes exactly. Line-ending conversion, `.gitattributes` `text`, `eol`, `filter`, `ident` and `working-tree-encoding` rules, and `export-ignore` and `export-subst` are not applied, mirroring how `publish` stores bytes verbatim, so a fab fetched on any machine is the fab that was published.
 
 ### Git refs
 
@@ -309,7 +309,7 @@ Metafab does not merge binary files line by line. For a binary conflict, it keep
 
 Metafab compares text files with CRLF line endings treated as LF. A change of line endings alone is not a change.
 
-If the base version is unavailable, every path where both sides have different content is a conflict. A file only upstream has is written to `<file>.upstream`, and a file only you have is kept and reported. For example, a Git base is unavailable when its commit was removed by a force push.
+If the base version is unavailable, every path where both sides have different content is a conflict. A file only upstream has is written to `<file>.upstream`, and a file only you have is kept and reported. For example, a Git base is unavailable when its commit was removed by a force push, and an npm base is unavailable when its version was unpublished or removed. A base download that fails for any other reason, such as an unreachable source, rejected credentials, or a cache or filesystem problem, stops the update before it changes a file and reports that problem and its exit code.
 
 After a conflicted update, `metafab check` fails while either condition remains:
 

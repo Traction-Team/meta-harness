@@ -75,14 +75,28 @@ const VERBATIM_CONFIG = [
 ];
 
 /**
+ * Every input that decides the bytes `git archive` writes for a commit: the
+ * attribute rules, the config overrides, the archive format and the path it
+ * exports. Editing any of them changes the fab cache key, so a stale entry
+ * cannot be reused. Keeping them in one constant means a new export setting
+ * cannot be added to the command without also entering the key.
+ */
+const VERBATIM_EXPORT = [
+  VERBATIM_ATTRIBUTES,
+  ...VERBATIM_CONFIG,
+  "--format=tar",
+  ".factory",
+].join("\n");
+
+/**
  * Part of the fab cache key. A commit can export different bytes than an
  * earlier build exported from the same commit, so a build that changes the
  * export format carries a new segment and never reuses the old entry. The
- * segment is derived from the attribute rules themselves, so editing them
- * cannot leave a stale entry behind.
+ * segment is derived from the export format itself, so editing it cannot
+ * leave a stale entry behind.
  */
 const FAB_FETCH_FORMAT = `git-verbatim-${createHash("sha256")
-  .update(VERBATIM_ATTRIBUTES)
+  .update(VERBATIM_EXPORT)
   .digest("hex")
   .slice(0, 12)}`;
 
@@ -194,6 +208,21 @@ function fetchError(message: string, cause?: unknown): MetafabError {
     exitCode: ExitCode.FetchFailed,
     code: "fetch-failed",
     cause,
+  });
+}
+
+/**
+ * The repository answered, but the ref, tag or commit it names does not exist.
+ *
+ * This is the one fetch failure that means a recorded base is gone, such as a
+ * commit removed by a force push. Every other failure (an unreachable remote,
+ * a rejected credential, a cache or filesystem problem) is `fetch-failed` and
+ * must stop an update rather than be mistaken for a missing base.
+ */
+function notFoundError(message: string): MetafabError {
+  return new MetafabError(redact(message), {
+    exitCode: ExitCode.FetchFailed,
+    code: "fetch-not-found",
   });
 }
 
@@ -374,7 +403,7 @@ async function selectByRange(
   );
   const tag = candidates.find((candidate) => candidate.version === version);
   if (version === null || tag === undefined) {
-    throw fetchError(`Cannot resolve Git source ${source}: no version tag matches "${range}"`);
+    throw notFoundError(`Cannot resolve Git source ${source}: no version tag matches "${range}"`);
   }
   return { commit: tag.commit, version, requested: range };
 }
@@ -425,7 +454,7 @@ async function selectByName(
     }
   }
 
-  throw fetchError(`Cannot resolve Git source ${source}: ref "${name}" was not found`);
+  throw notFoundError(`Cannot resolve Git source ${source}: ref "${name}" was not found`);
 }
 
 async function selectRef(
@@ -449,7 +478,7 @@ async function selectRef(
 
     const head = refs.head === undefined ? undefined : refs.heads.get(refs.head);
     if (head === undefined) {
-      throw fetchError(
+      throw notFoundError(
         `Cannot resolve Git source ${spec.source}: the default branch was not found`,
       );
     }

@@ -195,7 +195,7 @@ describe("git sources", { timeout: 60_000 }, () => {
       expect(error).toBeInstanceOf(MetafabError);
       const failure = error as MetafabError;
       expect(failure.exitCode).toBe(ExitCode.FetchFailed);
-      expect(failure.code).toBe("fetch-failed");
+      expect(failure.code).toBe("fetch-not-found");
       expect(failure.message).toContain("does-not-exist");
       return;
     }
@@ -205,7 +205,7 @@ describe("git sources", { timeout: 60_000 }, () => {
   test("fails with exit 3 when no version tag matches a range", async () => {
     await expect(
       resolveGit(gitSpec(fixture.repo, { ref: { type: "range", range: "^9.0.0" } })),
-    ).rejects.toMatchObject({ exitCode: ExitCode.FetchFailed, code: "fetch-failed" });
+    ).rejects.toMatchObject({ exitCode: ExitCode.FetchFailed, code: "fetch-not-found" });
   });
 
   test("fails with exit 3 when the repository cannot be reached", async () => {

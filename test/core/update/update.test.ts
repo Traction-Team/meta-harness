@@ -1,6 +1,7 @@
 import { chmod, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
+import { cacheLayout } from "../../../src/core/sources/cache.js";
 import { pathExists } from "../../../src/util/fs.js";
 import { toLF } from "../../../src/util/text.js";
 import { makeRepo, writeRepoFiles } from "../../helpers/makeRepo.js";
@@ -8,6 +9,8 @@ import type { RepoFiles, TempRepo } from "../../helpers/makeRepo.js";
 import { runCli } from "../../helpers/runCli.js";
 import { caseInsensitiveFilesystem } from "./case-probe.js";
 import {
+  FAB_SOURCE,
+  FAB_URL,
   createGitFab,
   importFab,
   parseJson,
@@ -1044,5 +1047,54 @@ describe("update without a base", { timeout: 30_000 }, () => {
       expect((await stat(human.file)).mode & 0o777).toBe(0o755);
     },
   );
+
+  test("aborts with the fetch problem when the recorded base fails for another reason", async () => {
+    // Only v1.1.0 is in the cache, so the new upstream comes from there while
+    // the recorded v1.0.0 base is fetched and has to be exported.
+    const fab = await track(await createGitFab(fabV1()));
+    const baseCommit = await fab.head();
+    await fab.tag("v1.0.0");
+    await fab.commit({ ".factory/AGENTS.md": AGENTS_V2 }, "v1.1.0");
+    await fab.tag("v1.1.0");
+    await fab.push();
+
+    const repo = await project();
+    const imported = await withFabEnvironment(fab, () =>
+      importFab(repo.root, `${FAB_SOURCE}#v1.1.0`),
+    );
+    expect(imported.code).toBe(0);
+
+    // Record v1.0.0 as the base while the range still selects the cached
+    // v1.1.0, so the base fetch is the one that fails.
+    const recorded = await metafabYaml(repo);
+    await writeRepoFiles(repo.root, {
+      ".factory/metafab.yaml": recorded
+        .replace(/^(\s*)requested:.*$/m, "$1requested: ^1.0.0")
+        .replace(/^(\s*)version:.*$/m, "$1version: 1.0.0")
+        .replace(/^(\s*)commit:.*$/m, `$1commit: ${baseCommit}`),
+    });
+
+    // A cache entry that cannot hold the verbatim attribute rules fails the
+    // base export for a reason that is not a missing base.
+    const mirror = cacheLayout(path.join(fab.root, "cache")).gitMirror(FAB_URL);
+    await rm(path.join(mirror, "info"), { recursive: true, force: true });
+    await writeFile(path.join(mirror, "info"), "not a directory\n");
+
+    const before = {
+      agents: await readFile(repo.path(".factory", "AGENTS.md"), "utf8"),
+      yaml: await metafabYaml(repo),
+    };
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build"]));
+
+    expect(result.code).toBe(3);
+    expect(result.stdout).toContain("Cannot export .factory");
+    expect(result.stdout).not.toContain("could not be fetched");
+
+    // The failure aborts the update before any write, so the factory and the
+    // recorded upstream are untouched.
+    expect(await readFile(repo.path(".factory", "AGENTS.md"), "utf8")).toBe(before.agents);
+    expect(await metafabYaml(repo)).toBe(before.yaml);
+    expect(await pathExists(repo.path(".factory", "AGENTS.md.upstream"))).toBe(false);
+  });
 });
 
