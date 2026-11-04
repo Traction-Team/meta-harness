@@ -17,6 +17,7 @@ Small follow-ups from the reviews of PR #12. None loses data.
 ## What we know
 
 - `src/core/import/run.ts`: `cliVersion`, `unreadableFactory`, `assertFactoryDirectoryUsable`, `unreadableConfig`, `readConfig`, `selectedTargets` and a `preflightBuild` helper are copied from `src/core/init/run.ts`, which was outside the plan's `owns`. Export them from init (or a shared module) and import them.
+- Since PR #15, `cliVersion()` lives in `src/util/version.ts` and `build`, `check` and `publish` use it. `src/core/import/run.ts` and `src/cli.ts` (`packageVersion()`) still keep their own copies; `src/core/init/run.ts` moves in Plan 1.016.
 - `src/core/summary.ts:77-81`: `modeDiffers` compares every 0o777 bit, though its comment says "permission bits that matter". A permission-only change shows as `M <path>` with no detail. Compare only the executable bit, or annotate the row.
 - `test/core/summary/trees.ts`: the link fixture takes `LINK_HASH_PREFIX` from production code, so no test pins the link hash format.
 - `test/core/import/import.test.ts:471-481`: the empty-directory conflict test does not compare the repository snapshot before and after, unlike its sibling tests.

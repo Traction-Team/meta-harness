@@ -1,5 +1,6 @@
+import { chmod } from "node:fs/promises";
 import { afterEach, describe, expect, test } from "vitest";
-import { scanConflictMarkers, scanUpstreamFiles } from "../../../src/core/check/index.js";
+import { scanFactoryFiles } from "../../../src/core/check/index.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
 import type { RepoFiles, TempRepo } from "../../helpers/makeRepo.js";
 
@@ -18,6 +19,16 @@ function repo(files: RepoFiles): Promise<TempRepo> {
   return makeRepo(files).then(track);
 }
 
+function markerProblem(file: string, line: number) {
+  return {
+    level: "error",
+    file,
+    line,
+    message: "Unresolved conflict marker",
+    fix: "Resolve the conflict, then run metafab build",
+  };
+}
+
 describe("conflict marker scanner", () => {
   test.each([
     ["a plain block", "<<<<<<< HEAD\nleft\n=======\nright\n>>>>>>> branch\n", 3],
@@ -34,17 +45,9 @@ describe("conflict marker scanner", () => {
   ])("finds %s", async (_label, block, line) => {
     const target = await repo({ ".factory/notes.md": `# Notes\n\n${block}` });
 
-    const problems = await scanConflictMarkers(target.root);
+    const problems = await scanFactoryFiles(target.root);
 
-    expect(problems).toEqual([
-      {
-        level: "error",
-        file: ".factory/notes.md",
-        line,
-        message: "Unresolved conflict marker",
-        fix: "Resolve the conflict, then run metafab build",
-      },
-    ]);
+    expect(problems).toEqual([markerProblem(".factory/notes.md", line)]);
   });
 
   test("reports a lone opening, closing or base marker line", async () => {
@@ -54,7 +57,7 @@ describe("conflict marker scanner", () => {
       ".factory/base.md": "ours\n||||||| base\nbase\n",
     });
 
-    const problems = await scanConflictMarkers(target.root);
+    const problems = await scanFactoryFiles(target.root);
 
     expect(problems.map((problem) => [problem.file, problem.line])).toEqual([
       [".factory/base.md", 2],
@@ -69,7 +72,7 @@ describe("conflict marker scanner", () => {
       ".factory/notes.md": "Sub\n=======\n",
     });
 
-    expect(await scanConflictMarkers(target.root)).toEqual([]);
+    expect(await scanFactoryFiles(target.root)).toEqual([]);
   });
 
   test("reports a block whose closing marker was deleted", async () => {
@@ -77,17 +80,9 @@ describe("conflict marker scanner", () => {
       ".factory/notes.md": "<<<<<<< HEAD\nours\n=======\ntheirs\n",
     });
 
-    const problems = await scanConflictMarkers(target.root);
+    const problems = await scanFactoryFiles(target.root);
 
-    expect(problems).toEqual([
-      {
-        level: "error",
-        file: ".factory/notes.md",
-        line: 1,
-        message: "Unresolved conflict marker",
-        fix: "Resolve the conflict, then run metafab build",
-      },
-    ]);
+    expect(problems).toEqual([markerProblem(".factory/notes.md", 1)]);
   });
 
   test("reports a block whose separator gained a trailing space", async () => {
@@ -95,7 +90,7 @@ describe("conflict marker scanner", () => {
       ".factory/notes.md": "<<<<<<< HEAD\nleft\n======= \nright\n>>>>>>> branch\n",
     });
 
-    const problems = await scanConflictMarkers(target.root);
+    const problems = await scanFactoryFiles(target.root);
 
     expect(problems.map((problem) => [problem.file, problem.line])).toEqual([
       [".factory/notes.md", 1],
@@ -109,7 +104,7 @@ describe("conflict marker scanner", () => {
       ".factory/nested/b.md": "one\ntwo\n<<<<<<< HEAD\n=======\n>>>>>>> branch\n",
     });
 
-    const problems = await scanConflictMarkers(target.root);
+    const problems = await scanFactoryFiles(target.root);
 
     expect(problems.map((problem) => [problem.file, problem.line])).toEqual([
       [".factory/a.md", 2],
@@ -134,11 +129,81 @@ describe("conflict marker scanner", () => {
       ]),
     });
 
-    const problems = await scanConflictMarkers(target.root);
+    const problems = await scanFactoryFiles(target.root);
 
     expect(problems.map((problem) => [problem.file, problem.line])).toEqual([
       [".factory/late.bin", 2],
     ]);
+  });
+
+  test("finds a marker after a UTF-8 BOM on line 1", async () => {
+    const target = await repo({
+      ".factory/notes.md": Buffer.concat([
+        Buffer.from([0xef, 0xbb, 0xbf]),
+        Buffer.from("<<<<<<< HEAD\nleft\n"),
+      ]),
+    });
+
+    const problems = await scanFactoryFiles(target.root);
+
+    expect(problems).toEqual([markerProblem(".factory/notes.md", 1)]);
+  });
+
+  test("finds a marker in a file that is not UTF-8", async () => {
+    const target = await repo({
+      // Byte 0xE9 is é in ISO-8859-1, and it is not valid UTF-8, so a strict
+      // UTF-8 decode would fail on the first line.
+      ".factory/latin1.md": Buffer.from("café\n<<<<<<< ours\n", "latin1"),
+    });
+
+    const problems = await scanFactoryFiles(target.root);
+
+    expect(problems).toEqual([markerProblem(".factory/latin1.md", 2)]);
+  });
+
+  test("finds a marker in a UTF-16LE file with a BOM", async () => {
+    const target = await repo({
+      ".factory/utf16le.md": Buffer.concat([
+        Buffer.from([0xff, 0xfe]),
+        Buffer.from("one\n<<<<<<< HEAD\nleft\n", "utf16le"),
+      ]),
+    });
+
+    const problems = await scanFactoryFiles(target.root);
+
+    expect(problems).toEqual([markerProblem(".factory/utf16le.md", 2)]);
+  });
+
+  test("finds a marker in a UTF-16BE file with a BOM", async () => {
+    const bigEndian = Buffer.from("one\n<<<<<<< HEAD\nleft\n", "utf16le");
+    bigEndian.swap16();
+
+    const target = await repo({
+      ".factory/utf16be.md": Buffer.concat([Buffer.from([0xfe, 0xff]), bigEndian]),
+    });
+
+    const problems = await scanFactoryFiles(target.root);
+
+    expect(problems).toEqual([markerProblem(".factory/utf16be.md", 2)]);
+  });
+
+  test("passes a UTF-16LE file with a BOM and no marker", async () => {
+    const target = await repo({
+      ".factory/utf16le.md": Buffer.concat([
+        Buffer.from([0xff, 0xfe]),
+        Buffer.from("one\ntwo\n", "utf16le"),
+      ]),
+    });
+
+    expect(await scanFactoryFiles(target.root)).toEqual([]);
+  });
+
+  test("skips a UTF-16LE file without a BOM as binary", async () => {
+    const target = await repo({
+      ".factory/utf16le.md": Buffer.from("<<<<<<< HEAD\nleft\n", "utf16le"),
+    });
+
+    expect(await scanFactoryFiles(target.root)).toEqual([]);
   });
 
   test("CRLF does not hide a block", async () => {
@@ -146,7 +211,7 @@ describe("conflict marker scanner", () => {
       ".factory/crlf.md": "one\r\n<<<<<<< HEAD\r\n=======\r\n>>>>>>> branch\r\n",
     });
 
-    const problems = await scanConflictMarkers(target.root);
+    const problems = await scanFactoryFiles(target.root);
 
     expect(problems).toHaveLength(1);
     expect(problems[0]?.file).toBe(".factory/crlf.md");
@@ -158,7 +223,7 @@ describe("conflict marker scanner", () => {
       ".factory/notes.md": "<<<<<<<HEAD\nleft\n=======\nright\n>>>>>>>branch\n",
     });
 
-    expect(await scanConflictMarkers(target.root)).toEqual([]);
+    expect(await scanFactoryFiles(target.root)).toEqual([]);
   });
 
   test("skips directories whose name starts with '.'", async () => {
@@ -168,7 +233,7 @@ describe("conflict marker scanner", () => {
       ".factory/notes.md": "clean\n",
     });
 
-    expect(await scanConflictMarkers(target.root)).toEqual([]);
+    expect(await scanFactoryFiles(target.root)).toEqual([]);
   });
 });
 
@@ -180,7 +245,7 @@ describe(".upstream scanner", () => {
       ".factory/skills/demo/SKILL.md": "ours\n",
     });
 
-    const problems = await scanUpstreamFiles(target.root);
+    const problems = await scanFactoryFiles(target.root);
 
     expect(problems.map((problem) => problem.file)).toEqual([
       ".factory/AGENTS.md.upstream",
@@ -200,7 +265,7 @@ describe(".upstream scanner", () => {
   test("ignores other files", async () => {
     const target = await repo({ ".factory/notes.md": "upstream\n" });
 
-    expect(await scanUpstreamFiles(target.root)).toEqual([]);
+    expect(await scanFactoryFiles(target.root)).toEqual([]);
   });
 
   test("skips directories whose name starts with '.'", async () => {
@@ -209,6 +274,59 @@ describe(".upstream scanner", () => {
       ".factory/.git/COMMIT_EDITMSG": "=======\n",
     });
 
-    expect(await scanUpstreamFiles(target.root)).toEqual([]);
+    expect(await scanFactoryFiles(target.root)).toEqual([]);
   });
+});
+
+describe("single scan", () => {
+  test("reports markers before .upstream files from one walk", async () => {
+    const target = await repo({
+      ".factory/notes.md.upstream": "theirs\n",
+      ".factory/notes.md": "<<<<<<< HEAD\nleft\n",
+    });
+
+    const problems = await scanFactoryFiles(target.root);
+
+    expect(problems.map((problem) => problem.message)).toEqual([
+      "Unresolved conflict marker",
+      "Unresolved .upstream conflict file",
+    ]);
+  });
+
+  const unreadableSkip = process.platform === "win32" || process.getuid?.() === 0;
+
+  test.skipIf(unreadableSkip)(
+    "reports one Cannot read problem for an unreadable directory and still reports .upstream files",
+    async () => {
+      const target = await repo({
+        ".factory/locked/notes.md": "<<<<<<< HEAD\nleft\n",
+        ".factory/notes.md.upstream": "theirs\n",
+      });
+      const locked = target.path(".factory", "locked");
+      await chmod(locked, 0o000);
+
+      try {
+        const problems = await scanFactoryFiles(target.root);
+
+        expect(problems).toEqual([
+          {
+            level: "error",
+            file: ".factory/locked",
+            line: 1,
+            message: "Cannot read .factory/locked",
+            fix: "Check its permissions",
+          },
+          {
+            level: "error",
+            file: ".factory/notes.md.upstream",
+            line: 1,
+            message: "Unresolved .upstream conflict file",
+            fix: "Merge or delete the file, then run metafab build",
+          },
+        ]);
+      } finally {
+        await chmod(locked, 0o755);
+      }
+    },
+  );
 });
