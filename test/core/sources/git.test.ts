@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -570,6 +571,83 @@ describe("git sources", { timeout: 60_000 }, () => {
 
     expect(fetched.factoryDir).not.toBe(legacy);
     expect(await pathExists(path.join(legacy, "from-an-older-fetch"))).toBe(true);
+  });
+
+  test("fetches the same file modes whatever tar.umask says", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "metafab-git-umask-"));
+    const work = path.join(root, "work");
+    const repo = path.join(root, "repo.git");
+    const script = Buffer.from("#!/bin/sh\necho hi\n", "utf8");
+    const plain = Buffer.from("plain\n", "utf8");
+    const defaultCache = await mkdtemp(path.join(tmpdir(), "metafab-git-umask-default-"));
+    const restrictiveCache = await mkdtemp(path.join(tmpdir(), "metafab-git-umask-restrictive-"));
+    try {
+      const env = await isolatedGitEnvironment(root);
+      await runGitIn(root, ["init", "-q", "-b", "main", work], env);
+      await runGitIn(work, ["config", "core.autocrlf", "false"], env);
+      await runGitIn(work, ["config", "user.name", "Metafab Test"], env);
+      await runGitIn(work, ["config", "user.email", "metafab@example.com"], env);
+      await cp(path.join(FIXTURES, "valid-fab", ".factory"), path.join(work, ".factory"), {
+        recursive: true,
+      });
+      await writeFile(path.join(work, ".factory", "run.sh"), script);
+      await chmod(path.join(work, ".factory", "run.sh"), 0o755);
+      await writeFile(path.join(work, ".factory", "plain.md"), plain);
+      await runGitIn(work, ["add", "-A"], env);
+      await runGitIn(work, ["commit", "-qm", "file modes"], env);
+      await runGitIn(work, ["tag", "v1.0.0"], env);
+      await runGitIn(root, ["clone", "-q", "--bare", work, repo], env);
+
+      const defaults = await fetchFab(await resolveGit(gitSpec(repo)), { cache: defaultCache });
+
+      // The host's umask, applied to `git archive` through `tar.umask=0077`.
+      // Without the pinned setting every entry is recorded as 0600, so this
+      // fetch would land a fab whose modes depend on the machine.
+      const gitconfig = path.join(root, "restrictive-gitconfig");
+      await writeFile(gitconfig, "[tar]\n\tumask = 0077\n");
+      const restrictiveEnv = {
+        ...process.env,
+        GIT_CONFIG_GLOBAL: gitconfig,
+        GIT_CONFIG_NOSYSTEM: "1",
+      };
+      const resolved = await resolve(gitSpec(repo), { cache: restrictiveCache, env: restrictiveEnv });
+      const restrictive = await fetchFab(resolved, { cache: restrictiveCache, env: restrictiveEnv });
+
+      for (const relativePath of ["run.sh", "plain.md", "factory.yaml", "AGENTS.md"]) {
+        expect(
+          (await stat(path.join(restrictive.factoryDir, relativePath))).mode & 0o777,
+        ).toBe((await stat(path.join(defaults.factoryDir, relativePath))).mode & 0o777);
+      }
+      // The executable bit survives in both, as a fab's scripts need it.
+      expect((await stat(path.join(restrictive.factoryDir, "run.sh"))).mode & 0o111).not.toBe(0);
+    } finally {
+      await rm(defaultCache, { recursive: true, force: true });
+      await rm(restrictiveCache, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("does not reuse a fab cached under the attribute-only fetch format", async () => {
+    const resolved = await resolveGit(gitSpec(fixture.repo));
+    if (resolved.kind !== "git") throw new Error("expected a git source");
+    // The format segment the fetch used before the export settings entered the
+    // key: only the attribute rules were hashed.
+    const attributeOnlyFormat = `git-verbatim-${createHash("sha256")
+      .update(
+        "* -text -eol -filter -ident -working-tree-encoding -export-subst -export-ignore\n",
+      )
+      .digest("hex")
+      .slice(0, 12)}`;
+    const previous = cacheLayout(cache).fabDir(
+      fabKey(attributeOnlyFormat, `file://${fixture.repo}`, resolved.commit),
+    );
+    await mkdir(previous, { recursive: true });
+    await writeFile(path.join(previous, "from-an-older-fetch"), "stale");
+
+    const fetched = await fetchFab(resolved, options());
+
+    expect(fetched.factoryDir).not.toBe(previous);
+    expect(await pathExists(path.join(previous, "from-an-older-fetch"))).toBe(true);
   });
 
   test("does not run git hooks from the environment", async () => {

@@ -65,6 +65,13 @@ function gitConfigArgs(): string[] {
 const VERBATIM_ATTRIBUTES =
   "* -text -eol -filter -ident -working-tree-encoding -export-subst -export-ignore\n";
 
+/**
+ * The config `git archive` must run with. The line-ending settings stop the
+ * user's checkout setup from rewriting the bytes, and `tar.umask` stops the
+ * user's own setting from rewriting the modes: with `tar.umask=0077` every
+ * entry is recorded as 0600 instead of Git's default 0664. Pinning Git's
+ * default (0002) makes the exported modes the same whatever the machine says.
+ */
 const VERBATIM_CONFIG = [
   "-c",
   "core.autocrlf=false",
@@ -72,6 +79,8 @@ const VERBATIM_CONFIG = [
   "core.eol=lf",
   "-c",
   "core.safecrlf=false",
+  "-c",
+  "tar.umask=0002",
 ];
 
 /**
