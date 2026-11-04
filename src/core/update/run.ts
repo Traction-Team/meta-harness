@@ -5,7 +5,7 @@ import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import { applyBuild, planBuild } from "../build/index.js";
 import type { BuildChange } from "../build/index.js";
-import { scanConflictMarkers, scanUpstreamFiles } from "../check/index.js";
+import { scanFactoryFiles } from "../check/index.js";
 import { loadConfig } from "../config/load.js";
 import { CONFIG_FILE } from "../config/parse.js";
 import type { Config, UpstreamEntry } from "../config/types.js";
@@ -204,12 +204,14 @@ function buildFailed(result: Awaited<ReturnType<typeof planBuild>>, warnings: Pr
   });
 }
 
-/** Refuses an update while a marker or `.upstream` file from the last one remains. */
+/**
+ * Refuses an update while a marker or `.upstream` file from the last one
+ * remains. It reuses the `metafab check` scanner, so update and check can never
+ * disagree about what counts as unresolved: markers are found in any encoding
+ * the check scanner reads, and `.upstream` files are found the same way.
+ */
 async function assertResolved(root: string): Promise<void> {
-  const problems = [
-    ...(await scanConflictMarkers(root)),
-    ...(await scanUpstreamFiles(root)),
-  ];
+  const problems = await scanFactoryFiles(root);
   if (problems.length > 0) throw unresolvedConflicts(problems);
 }
 
