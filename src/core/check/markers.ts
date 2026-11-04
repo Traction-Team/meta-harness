@@ -9,7 +9,17 @@ const FACTORY_DIR = ".factory";
 /** Bytes read first to recognise a binary file without loading all of it. */
 const BINARY_PROBE_BYTES = 8 * 1024;
 
-const utf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+/**
+ * Decodes leniently: invalid bytes become U+FFFD and a leading BOM is stripped.
+ *
+ * The marker prefixes are ASCII, so a lenient decode finds them in any
+ * ASCII-compatible encoding. A file that fails a strict decode is still text.
+ */
+const utf8 = new TextDecoder("utf-8", { fatal: false, ignoreBOM: false });
+
+/** UTF-16 decoders; they strip the BOM at the start of the data. */
+const utf16le = new TextDecoder("utf-16le");
+const utf16be = new TextDecoder("utf-16be");
 
 interface FactoryFile {
   /** Repository-relative path with forward slashes. */
@@ -70,12 +80,42 @@ type ReadResult =
   | { kind: "missing" }
   | { kind: "unreadable"; problem: Problem };
 
+type Encoding = "utf-8" | "utf-16le" | "utf-16be" | "binary";
+
+/**
+ * Picks the decoder from the first bytes of the file.
+ *
+ * A byte order mark is checked before the NUL probe, because every UTF-16 file
+ * has NUL bytes. A UTF-16 file without a BOM is not detected and stays binary.
+ * UTF-32 is left binary: `TextDecoder` does not support it in Node, and its
+ * BOM starts with the UTF-16LE BOM, so it must be excluded first.
+ */
+function detectEncoding(probe: Buffer): Encoding {
+  const utf32le =
+    probe.length >= 4 &&
+    probe[0] === 0xff &&
+    probe[1] === 0xfe &&
+    probe[2] === 0x00 &&
+    probe[3] === 0x00;
+  if (utf32le) return "binary";
+
+  const utf16leBom = probe.length >= 2 && probe[0] === 0xff && probe[1] === 0xfe;
+  if (utf16leBom) return "utf-16le";
+
+  const utf16beBom = probe.length >= 2 && probe[0] === 0xfe && probe[1] === 0xff;
+  if (utf16beBom) return "utf-16be";
+
+  return probe.includes(0) ? "binary" : "utf-8";
+}
+
 /**
  * Reads a file as text, or reports it as binary or unreadable.
  *
  * The first 8 KiB decide whether the file is binary, so a large binary file is
- * not loaded into memory to be discarded. A NUL byte after that probe does not
- * make the file binary; invalid UTF-8 does.
+ * not loaded into memory to be discarded. A BOM picks UTF-16; otherwise the
+ * only test is a NUL byte in that probe. A file that is not valid UTF-8 is
+ * still text, decoded leniently so a marker in another ASCII-compatible
+ * encoding is found.
  */
 async function readTextFile(target: string, displayPath: string): Promise<ReadResult> {
   let handle;
@@ -89,14 +129,14 @@ async function readTextFile(target: string, displayPath: string): Promise<ReadRe
   try {
     const head = Buffer.alloc(BINARY_PROBE_BYTES);
     const { bytesRead } = await handle.read(head, 0, BINARY_PROBE_BYTES, 0);
-    if (head.subarray(0, bytesRead).includes(0)) return { kind: "binary" };
+    const encoding = detectEncoding(head.subarray(0, bytesRead));
+    if (encoding === "binary") return { kind: "binary" };
 
     const data = await handle.readFile();
-    try {
-      return { kind: "text", text: utf8.decode(data) };
-    } catch {
-      return { kind: "binary" };
-    }
+    if (encoding === "utf-16le") return { kind: "text", text: utf16le.decode(data) };
+    if (encoding === "utf-16be") return { kind: "text", text: utf16be.decode(data) };
+
+    return { kind: "text", text: utf8.decode(data) };
   } catch (error) {
     if (isAbsentError(error)) return { kind: "missing" };
     return { kind: "unreadable", problem: cannotReadProblem(displayPath) };
@@ -134,14 +174,16 @@ function conflictMarkerLine(lines: readonly string[]): number {
 }
 
 /**
- * Reports the first unresolved conflict marker in each text file under
- * `.factory/`. Binary files, directories Metafab ignores and unreadable paths
- * (reported once) are handled as the factory loader handles them.
+ * Reports the first unresolved conflict marker in each text file in the walk.
+ *
+ * Binary files, files that vanished mid-scan and directories Metafab ignores
+ * are skipped. An unreadable directory is reported by the walk, once. A listed
+ * file that cannot be opened or read is reported here, once.
  */
-export async function scanConflictMarkers(root: string): Promise<Problem[]> {
-  const { files, problems } = await walkFactoryFiles(root);
+async function scanConflictMarkers(walk: FactoryWalk): Promise<Problem[]> {
+  const problems: Problem[] = [];
 
-  for (const file of files) {
+  for (const file of walk.files) {
     const result = await readTextFile(file.target, file.path);
     if (result.kind === "unreadable") {
       problems.push(result.problem);
@@ -165,15 +207,12 @@ export async function scanConflictMarkers(root: string): Promise<Problem[]> {
 }
 
 /**
- * Reports every `*.upstream` file left behind by a conflicted update.
- *
- * Read errors are left to `scanConflictMarkers`, which walks the same paths.
+ * Reports every `*.upstream` file left behind by a conflicted update in the walk.
  */
-export async function scanUpstreamFiles(root: string): Promise<Problem[]> {
+function scanUpstreamFiles(walk: FactoryWalk): Problem[] {
   const problems: Problem[] = [];
-  const { files } = await walkFactoryFiles(root);
 
-  for (const file of files) {
+  for (const file of walk.files) {
     if (!path.posix.basename(file.path).endsWith(".upstream")) continue;
 
     problems.push({
@@ -186,4 +225,21 @@ export async function scanUpstreamFiles(root: string): Promise<Problem[]> {
   }
 
   return problems;
+}
+
+/**
+ * Reports every conflict marker and `.upstream` file under `.factory/`.
+ *
+ * `.factory/` is walked once and both scanners read the same file list. Walk
+ * read problems come first and once each, then the markers, then the
+ * `.upstream` files.
+ */
+export async function scanFactoryFiles(root: string): Promise<Problem[]> {
+  const walk = await walkFactoryFiles(root);
+
+  return [
+    ...walk.problems,
+    ...(await scanConflictMarkers(walk)),
+    ...scanUpstreamFiles(walk),
+  ];
 }

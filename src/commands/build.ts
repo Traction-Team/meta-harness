@@ -1,4 +1,3 @@
-import { createRequire } from "node:module";
 import { applyBuild, planBuild } from "../core/build/index.js";
 import type { BuildChange } from "../core/build/index.js";
 import { dedupeReadErrors } from "../core/build/skill.js";
@@ -8,6 +7,7 @@ import { loadFactory } from "../core/factory/index.js";
 import { ExitCode } from "../errors.js";
 import type { Problem } from "../errors.js";
 import type { CommandResult } from "../output.js";
+import { cliVersion } from "../util/version.js";
 import type { CommandDefinition } from "./types.js";
 
 const ACTION_MARK = {
@@ -15,12 +15,6 @@ const ACTION_MARK = {
   updated: "~",
   removed: "-",
 } as const;
-
-function cliVersion(): string {
-  const require = createRequire(import.meta.url);
-  const pkg = require("../../package.json") as { version?: unknown };
-  return typeof pkg.version === "string" ? pkg.version : "0.0.0";
-}
 
 function changesSummary(changed: readonly BuildChange[]): string {
   if (changed.length === 0) return "Up to date.";
