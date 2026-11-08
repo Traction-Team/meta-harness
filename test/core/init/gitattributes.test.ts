@@ -1,9 +1,11 @@
-import { readFile } from "node:fs/promises";
+import { readFile, symlink } from "node:fs/promises";
 import { afterEach, describe, expect, test } from "vitest";
+import { MetafabError } from "../../../src/errors.js";
 import {
   GITATTRIBUTES_FILE,
   GITATTRIBUTES_LINES,
   addGitattributesLines,
+  assertGitattributesWritable,
   ensureGitattributes,
 } from "../../../src/core/init/gitattributes.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
@@ -131,5 +133,61 @@ describe("ensureGitattributes", () => {
 
     expect(change.changed).toBe(false);
     expect(await readFile(repo.path(GITATTRIBUTES_FILE), "utf8")).toBe(content);
+  });
+});
+
+describe.skipIf(process.platform === "win32")("assertGitattributesWritable", () => {
+  test("refuses a dangling link with the init message, fix and code", async () => {
+    const repo = await repoWith();
+    await symlink("../outside", repo.path(GITATTRIBUTES_FILE));
+
+    try {
+      await assertGitattributesWritable(repo.root, "init");
+      throw new Error("expected a refusal");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      const refusal = error as MetafabError;
+      expect(refusal.code).toBe("factory-unreadable");
+      expect(refusal.exitCode).toBe(1);
+      expect(refusal.message).toBe(
+        ".gitattributes is a symbolic link, so metafab init will not write through it",
+      );
+      expect(refusal.problems?.[0]?.fix).toBe(
+        "Replace it with a regular file, then run metafab init again",
+      );
+    }
+  });
+
+  test("names import in the message and the fix", async () => {
+    const repo = await repoWith();
+    await symlink("../outside", repo.path(GITATTRIBUTES_FILE));
+
+    await expect(assertGitattributesWritable(repo.root, "import")).rejects.toThrow(
+      ".gitattributes is a symbolic link, so metafab import will not write through it",
+    );
+  });
+
+  test("refuses a link to a file that is missing a line", async () => {
+    const repo = await repoWith({ "shared/attrs": `${GITATTRIBUTES_LINES[0]}\n` });
+    await symlink("shared/attrs", repo.path(GITATTRIBUTES_FILE));
+
+    await expect(assertGitattributesWritable(repo.root, "init")).rejects.toThrow(
+      "will not write through it",
+    );
+    expect(await readFile(repo.path("shared", "attrs"), "utf8")).toBe(`${GITATTRIBUTES_LINES[0]}\n`);
+  });
+
+  test("leaves a link to a file that already has every line alone", async () => {
+    const content = `${GITATTRIBUTES_LINES.join("\n")}\n`;
+    const repo = await repoWith({ "shared/attrs": content });
+    await symlink("shared/attrs", repo.path(GITATTRIBUTES_FILE));
+
+    await expect(assertGitattributesWritable(repo.root, "init")).resolves.toBeUndefined();
+  });
+
+  test("leaves a regular file alone", async () => {
+    const repo = await repoWith({ [GITATTRIBUTES_FILE]: "*.png binary\n" });
+
+    await expect(assertGitattributesWritable(repo.root, "init")).resolves.toBeUndefined();
   });
 });

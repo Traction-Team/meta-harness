@@ -43,6 +43,8 @@ import {
   textContent,
 } from "./skill.js";
 import type { CompiledSkill } from "./skill.js";
+import { syncGitHooks } from "../hooks/index.js";
+import type { HookChange } from "../hooks/index.js";
 
 export interface BuildWrite {
   path: string;
@@ -52,6 +54,10 @@ export interface BuildWrite {
 
 export interface BuildPlan {
   root: string;
+  /** From `git-hooks` in `.factory/metafab.yaml`. */
+  gitHooks: boolean;
+  /** The CLI version that wrote the installed output and any Git hooks. */
+  cliVersion: string;
   writes: BuildWrite[];
   removals: string[];
   conflicts: Problem[];
@@ -66,6 +72,8 @@ export interface BuildChange {
 
 export interface BuildReport {
   changed: BuildChange[];
+  hooks: HookChange[];
+  hookWarnings: Problem[];
 }
 
 const SKILL_DESTINATIONS = [CLAUDE_SKILLS_DIRECTORY, AGENTS_SKILLS_DIRECTORY];
@@ -762,6 +770,8 @@ export async function planBuild(
   const root = factory.root;
   const plan: BuildPlan = {
     root,
+    gitHooks: config.gitHooks,
+    cliVersion,
     writes: [],
     removals: [],
     conflicts: [],
@@ -935,9 +945,21 @@ export async function planBuild(
   return plan;
 }
 
+function hookFailureWarning(error: unknown): Problem {
+  const code = (error as NodeJS.ErrnoException).code ?? "error";
+  return {
+    level: "warning",
+    file: ".factory/metafab.yaml",
+    message: `Git hooks could not be synced: ${code}`,
+    fix: "Check the permissions of the repository's hooks directory, then run metafab build again",
+  };
+}
+
 export async function applyBuild(plan: BuildPlan): Promise<BuildReport> {
   const changed: BuildChange[] = [];
-  if (plan.errors.length > 0 || plan.conflicts.length > 0) return { changed };
+  if (plan.errors.length > 0 || plan.conflicts.length > 0) {
+    return { changed, hooks: [], hookWarnings: [] };
+  }
 
   const existingRemovals: string[] = [];
   for (const removal of plan.removals) {
@@ -986,5 +1008,14 @@ export async function applyBuild(plan: BuildPlan): Promise<BuildReport> {
   changed.sort((left, right) =>
     left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
   );
-  return { changed };
+
+  // Hooks follow the config like any other build output, but they are local, so
+  // they are applied only here: `planBuild` and `check` never touch them. A
+  // hook problem never fails the build.
+  try {
+    const sync = await syncGitHooks(plan.root, plan.gitHooks, plan.cliVersion);
+    return { changed, hooks: sync.changed, hookWarnings: sync.warnings };
+  } catch (error) {
+    return { changed, hooks: [], hookWarnings: [hookFailureWarning(error)] };
+  }
 }

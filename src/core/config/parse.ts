@@ -105,6 +105,9 @@ function defaults(doc: Document, problems: Problem[]): Config {
     agents: [...TARGETS],
     agentsRaw: undefined,
     metafabSkill: true,
+    gitHooks: false,
+    gitHooksRaw: undefined,
+    gitHooksPresent: false,
     doc,
     problems,
   };
@@ -190,10 +193,14 @@ export function parseConfig(text: string, options: ParseConfigOptions = {}): Con
   if (root === undefined) return defaults(doc, problems);
 
   const agentsRaw = parseAgents(root.agents);
+  const gitHooksRaw = typeof root["git-hooks"] === "boolean" ? root["git-hooks"] : undefined;
   const config: Config = {
     agents: agentsRaw === undefined || agentsRaw === "all" ? [...TARGETS] : [...agentsRaw],
     agentsRaw,
     metafabSkill: typeof root["metafab-skill"] === "boolean" ? root["metafab-skill"] : true,
+    gitHooks: gitHooksRaw ?? false,
+    gitHooksRaw,
+    gitHooksPresent: Object.hasOwn(root, "git-hooks"),
     doc,
     problems,
   };

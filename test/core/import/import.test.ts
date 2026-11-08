@@ -8,6 +8,7 @@ import type { RepoFiles, TempRepo } from "../../helpers/makeRepo.js";
 import { runCli } from "../../helpers/runCli.js";
 import type { RunCliResult } from "../../helpers/runCli.js";
 import { runGitIn } from "../sources/git-fixture.js";
+import { isolateGitConfig } from "../hooks/helpers.js";
 
 const repos: TempRepo[] = [];
 
@@ -131,6 +132,39 @@ describe("metafab import", () => {
     expect(result.stdout).toContain("Skills");
     expect(result.stdout).toContain("Nothing was committed. Review the changes with git diff.");
   });
+
+  test.skipIf(process.platform === "win32")(
+    "reports a foreign Git hook warning from the closing build",
+    async () => {
+      const isolation = await isolateGitConfig();
+      try {
+        const repo = await repoWith();
+        const foreign = "#!/bin/sh\necho foreign\n";
+        await writeRepoFiles(repo.root, {
+          ".factory/metafab.yaml": "agents: [claude]\ngit-hooks: true\n",
+          ".git/hooks/post-merge": foreign,
+        });
+        const fab = await makeFab(fabFiles());
+
+        const result = await runCli(["import", fab.root, "--agents", "claude", "--json"], {
+          cwd: repo.root,
+        });
+
+        expect(result.code).toBe(0);
+        const problems = parseJson(result).problems as { message: string }[];
+        expect(
+          problems.some(
+            (problem) =>
+              problem.message === ".git/hooks/post-merge exists and was not written by Metafab",
+          ),
+        ).toBe(true);
+        expect(await readFile(repo.path(".git", "hooks", "post-merge"), "utf8")).toBe(foreign);
+      } finally {
+        isolation.restore();
+        await rm(isolation.dir, { recursive: true, force: true });
+      }
+    },
+  );
 
   test("creates no factory.yaml placeholder when the fab has none", async () => {
     const repo = await repoWith();

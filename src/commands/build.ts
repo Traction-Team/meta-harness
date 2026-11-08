@@ -4,6 +4,7 @@ import { dedupeReadErrors } from "../core/build/skill.js";
 import { loadConfig } from "../core/config/load.js";
 import { findFactory } from "../core/discovery.js";
 import { loadFactory } from "../core/factory/index.js";
+import type { HookChange } from "../core/hooks/index.js";
 import { ExitCode } from "../errors.js";
 import type { Problem } from "../errors.js";
 import type { CommandResult } from "../output.js";
@@ -16,12 +17,17 @@ const ACTION_MARK = {
   removed: "-",
 } as const;
 
-function changesSummary(changed: readonly BuildChange[]): string {
-  if (changed.length === 0) return "Up to date.";
+function changesSummary(
+  changed: readonly BuildChange[],
+  hooks: readonly HookChange[] = [],
+): string {
+  const lines = [
+    ...changed.map((change) => `${ACTION_MARK[change.action]} ${change.path}`),
+    ...hooks.map((change) => `${ACTION_MARK[change.action]} git hook ${change.hook}`),
+  ];
+  if (lines.length === 0) return "Up to date.";
 
-  const lines = changed.map((change) => `${ACTION_MARK[change.action]} ${change.path}`);
-  const total =
-    changed.length === 1 ? "1 file changed." : `${changed.length} files changed.`;
+  const total = lines.length === 1 ? "1 file changed." : `${lines.length} files changed.`;
   return [...lines, total].join("\n");
 }
 
@@ -63,15 +69,19 @@ export const buildCommand: CommandDefinition = {
     }
 
     const report = await applyBuild(plan);
+    const problems = [...warnings, ...report.hookWarnings];
     const result: CommandResult = {
       ok: true,
       command: "build",
       exitCode: ExitCode.Ok,
       changed: report.changed,
-      problems: warnings,
+      hooks: report.hooks,
+      problems,
     };
 
-    if (context.options.json !== true) result.summary = changesSummary(report.changed);
+    if (context.options.json !== true) {
+      result.summary = changesSummary(report.changed, report.hooks);
+    }
     return result;
   },
 };

@@ -10,13 +10,20 @@ import { caseInsensitiveFilesystem } from "./case-probe.js";
 import { parseJson, updateFab } from "./git-fab.js";
 import { runCli } from "../../helpers/runCli.js";
 import type { RunCliResult } from "../../helpers/runCli.js";
+import { isolateGitConfig } from "../hooks/helpers.js";
 
 const caseInsensitiveFs = await caseInsensitiveFilesystem();
 
 const repos: TempRepo[] = [];
 const roots: string[] = [];
+let isolation: Awaited<ReturnType<typeof isolateGitConfig>> | undefined;
 
 afterEach(async () => {
+  isolation?.restore();
+  if (isolation !== undefined) {
+    await rm(isolation.dir, { recursive: true, force: true });
+    isolation = undefined;
+  }
   await Promise.all([
     ...repos.splice(0).map((repo) => repo.cleanup()),
     ...roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
@@ -119,6 +126,32 @@ describe("update from an unversioned source", () => {
     expect(result.stderr).toContain("--to 1.0.0 cannot select a version from an unversioned upstream");
     expect(result.stderr).toContain("Run metafab update without --to");
   });
+
+  test.skipIf(process.platform === "win32")(
+    "reports a foreign Git hook warning from the closing build",
+    async () => {
+      isolation = await isolateGitConfig();
+      const { repo, root } = await imported();
+      const config = await readFile(repo.path(".factory", "metafab.yaml"), "utf8");
+      const foreign = "#!/bin/sh\necho foreign\n";
+      await writeRepoFiles(repo.root, {
+        ".factory/metafab.yaml": `${config}git-hooks: true\n`,
+        ".git/hooks/post-merge": foreign,
+      });
+      await writeRepoFiles(root, { ".factory/AGENTS.md": "# Agents v2\n" });
+
+      const result = await updateFab(repo.root, ["--json"]);
+
+      expect(result.code).toBe(0);
+      const problems = parse(result).problems as { message: string }[];
+      expect(
+        problems.some(
+          (problem) => problem.message === ".git/hooks/post-merge exists and was not written by Metafab",
+        ),
+      ).toBe(true);
+      expect(await readFile(repo.path(".git", "hooks", "post-merge"), "utf8")).toBe(foreign);
+    },
+  );
 
   test("keeps the local metafab.yaml and factory README", async () => {
     const { repo, root } = await imported();

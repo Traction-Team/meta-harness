@@ -33,7 +33,7 @@ A team can create, edit, build, and check a factory in one repository.
 - [x] [1.013 Factory edge cases](plans/1.013-factory-edge-cases.md): `factory.yaml` aliases, reserved containers, `create` and `map` fixes
 - [x] [1.014 Adoption and init polish](plans/1.014-adoption-polish.md): links into `.factory/`, real read errors, no partial `init`
 - [x] [1.015 Check markers and internals](plans/1.015-check-markers-and-tidy.md): conflict markers after a BOM or in non-UTF-8 files, one walk, no drift from `build`
-- [ ] [1.016 Git hooks](plans/1.016-git-hooks.md): `git-hooks` setting, hooks rebuild after checkout, merge and rebase, `orca.yaml` suggestion, skill guidance
+- [x] [1.016 Git hooks](plans/1.016-git-hooks.md): `git-hooks` setting, hooks rebuild after checkout, merge and rebase, `orca.yaml` suggestion, skill guidance
 
 ## Milestone 2: Sharing
 

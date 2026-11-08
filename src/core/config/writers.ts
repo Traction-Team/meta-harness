@@ -11,6 +11,7 @@ export const UPSTREAM_COMMENT = " Written by metafab import. Do not edit.";
 
 export interface CreateConfigOptions {
   agents: "all" | Target[];
+  gitHooks?: boolean;
 }
 
 function invalidYaml(text: string, file: string): never {
@@ -97,6 +98,8 @@ export function createConfigText(options: CreateConfigOptions): string {
     doc.set("agents", agents);
   }
 
+  if (options.gitHooks !== undefined) doc.set("git-hooks", options.gitHooks);
+
   return serialize(doc);
 }
 
@@ -136,6 +139,47 @@ export function setUpstreamText(text: string, entry: UpstreamEntry): string {
   const first = doc.contents === null || !isMap(doc.contents) || doc.contents.items.length === 0;
   key.spaceBefore = !first;
   doc.set(key, value);
+
+  return serialize(doc);
+}
+
+function gitHooksPair(doc: Document): Pair | undefined {
+  if (doc.contents === null || !isMap(doc.contents)) return undefined;
+  return doc.contents.items.find((pair) => {
+    const key = pair.key;
+    return (isScalar(key) ? key.value : key) === "git-hooks";
+  });
+}
+
+export function setGitHooksText(text: string, value: boolean): string {
+  const doc = documentForWriting(text);
+  const existing = gitHooksPair(doc);
+
+  if (existing !== undefined && isScalar(existing.value) && existing.value.value === value) {
+    return text;
+  }
+
+  const node = doc.createNode(value);
+
+  if (existing !== undefined) {
+    if (isScalar(existing.value)) {
+      if (typeof existing.value.commentBefore === "string") {
+        node.commentBefore = existing.value.commentBefore;
+      }
+      if (typeof existing.value.comment === "string") {
+        node.comment = existing.value.comment;
+      }
+    } else {
+      carryComments(existing.value, node);
+    }
+    existing.value = node;
+    return serialize(doc);
+  }
+
+  const key = doc.createNode("git-hooks");
+  const first = doc.contents === null || !isMap(doc.contents) || doc.contents.items.length === 0;
+  key.spaceBefore = !first;
+  doc.set(key, node);
 
   return serialize(doc);
 }
@@ -216,6 +260,13 @@ export async function createConfig(factoryDir: string, options: CreateConfigOpti
 
   await writeAtomically(file, createConfigText(options));
   return true;
+}
+
+export async function setGitHooks(factoryDir: string, value: boolean): Promise<void> {
+  const file = path.join(factoryDir, CONFIG_FILENAME);
+  const text = (await readIfExists(file)) ?? "";
+  const updated = setGitHooksText(text, value);
+  if (updated !== text) await writeAtomically(file, updated);
 }
 
 export async function setUpstream(factoryDir: string, entry: UpstreamEntry): Promise<void> {

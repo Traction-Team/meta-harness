@@ -32,6 +32,10 @@ export interface Config {
   agents: Target[];
   agentsRaw: "all" | Target[] | undefined;
   metafabSkill: boolean;
+  gitHooks: boolean;
+  gitHooksRaw: boolean | undefined;
+  /** True when the file contains a `git-hooks` key, whatever its value. */
+  gitHooksPresent: boolean;
   publish?: PublishConfig;
   upstream?: UpstreamEntry;
   doc: Document;
