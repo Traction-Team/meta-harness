@@ -195,6 +195,14 @@ function localIndex(local: LocalPaths): {
   };
 }
 
+/** The problems an import preflight finds, split by whether `--force` helps. */
+export interface ImportConflicts {
+  /** Replacements `--force` may make. */
+  conflicts: Problem[];
+  /** Paths `--force` cannot resolve, because several local spellings fold to one incoming path. */
+  ambiguities: Problem[];
+}
+
 /**
  * Every incoming path that would replace or remove local content: a file, link
  * or directory whose content differs, or a local path that differs only in
@@ -211,72 +219,128 @@ function localIndex(local: LocalPaths): {
  * depth is refused. Without that, an incoming `templates/` would slip past a
  * local `Templates/` on a case-insensitive filesystem and split in two on a
  * case-sensitive one.
+ *
+ * A clash is reported once per clashing component, not once per incoming file
+ * beneath it: a local `Templates/` against three incoming files gives one
+ * problem that names `templates`.
+ *
+ * Two local entries that fold to one incoming component are an ambiguity, not
+ * a conflict: only a case-sensitive filesystem can hold both, and no rename can
+ * choose between them safely. `--force` never overrides an ambiguity.
  */
 export async function findImportConflicts(
   incomingDir: string,
   local: LocalPaths,
-): Promise<Problem[]> {
+): Promise<ImportConflicts> {
   const [incoming, incomingDirectories] = await Promise.all([
     snapshotTree(incomingDir),
     snapshotDirectories(incomingDir),
   ]);
   const index = localIndex(local);
-  const problems: Problem[] = [];
+  const conflicts: Problem[] = [];
+  const ambiguities: Problem[] = [];
   const reported = new Set<string>();
 
-  function report(problem: Problem): void {
+  function report(into: Problem[], problem: Problem): void {
     const id = `${problem.file}\u0000${problem.message}`;
     if (reported.has(id)) return;
     reported.add(id);
-    problems.push(problem);
+    into.push(problem);
+  }
+
+  /** One problem for a component that several local spellings fold to. */
+  function ambiguity(files: readonly string[], incoming: string): void {
+    report(ambiguities, ambiguousSpellingProblem(files, incoming, "import"));
   }
 
   /**
    * Reports the first local entry on the path itself, or among its ancestors,
    * that the incoming entry would replace. Case-only clashes name the local
-   * entry and the incoming path; an exact spelling that changes the kind of
-   * entry is reported as blocked.
+   * entry and the incoming component; an exact spelling that changes the kind
+   * of entry is reported as blocked.
    */
   function checkLocalPath(relativePath: string, incomingDirectory: boolean): void {
     const folded = relativePath.toLowerCase();
 
-    const existingFile = index.files.get(folded)?.[0];
-    if (existingFile !== undefined) {
+    const existingFiles = index.files.get(folded);
+    if (existingFiles !== undefined && existingFiles.length > 0) {
+      if (existingFiles.length > 1) {
+        ambiguity(
+          existingFiles.map((entry) => entry.value.file),
+          relativePath,
+        );
+        return;
+      }
+
+      const existingFile = existingFiles[0]!;
       if (existingFile.key !== relativePath) {
-        report(differentSpelling(existingFile.value.file, relativePath, "import"));
+        report(conflicts, differentSpelling(existingFile.value.file, relativePath, "import"));
       } else if (incomingDirectory) {
-        report(blocked(existingFile.value.file));
+        report(conflicts, blocked(existingFile.value.file));
       } else if (existingFile.value.entry.hash !== incoming[relativePath]!.hash) {
-        report(replaced(existingFile.value.file));
+        report(conflicts, replaced(existingFile.value.file));
       }
       return;
     }
 
     for (const prefix of ancestors(relativePath)) {
       const foldedPrefix = prefix.toLowerCase();
-      const ancestorFile = index.files.get(foldedPrefix)?.[0];
-      if (ancestorFile !== undefined) {
+      const ancestorFiles = index.files.get(foldedPrefix);
+      if (ancestorFiles !== undefined) {
+        if (ancestorFiles.length > 1) {
+          ambiguity(
+            ancestorFiles.map((entry) => entry.value.file),
+            prefix,
+          );
+          return;
+        }
+
+        const ancestorFile = ancestorFiles[0]!;
         report(
+          conflicts,
           ancestorFile.key === prefix
             ? blocked(ancestorFile.value.file)
-            : differentSpelling(ancestorFile.value.file, relativePath, "import"),
+            : differentSpelling(ancestorFile.value.file, prefix, "import"),
         );
         return;
       }
 
-      const ancestorDirectory = index.directories.get(foldedPrefix)?.[0];
-      if (ancestorDirectory !== undefined && ancestorDirectory.key !== prefix) {
-        report(differentSpelling(ancestorDirectory.value, relativePath, "import"));
-        return;
+      const ancestorDirectories = index.directories.get(foldedPrefix);
+      if (ancestorDirectories !== undefined) {
+        if (ancestorDirectories.length > 1) {
+          ambiguity(
+            ancestorDirectories.map((entry) => entry.value),
+            prefix,
+          );
+          return;
+        }
+
+        const ancestorDirectory = ancestorDirectories[0]!;
+        if (ancestorDirectory.key !== prefix) {
+          report(
+            conflicts,
+            differentSpelling(ancestorDirectory.value, prefix, "import"),
+          );
+          return;
+        }
       }
     }
 
-    const existingDirectory = index.directories.get(folded)?.[0];
-    if (existingDirectory === undefined) return;
+    const existingDirectories = index.directories.get(folded);
+    if (existingDirectories === undefined) return;
+    if (existingDirectories.length > 1) {
+      ambiguity(
+        existingDirectories.map((entry) => entry.value),
+        relativePath,
+      );
+      return;
+    }
+
+    const existingDirectory = existingDirectories[0]!;
     if (existingDirectory.key !== relativePath) {
-      report(differentSpelling(existingDirectory.value, relativePath, "import"));
+      report(conflicts, differentSpelling(existingDirectory.value, relativePath, "import"));
     } else if (!incomingDirectory) {
-      report(blocked(existingDirectory.value));
+      report(conflicts, blocked(existingDirectory.value));
     }
   }
 
@@ -290,5 +354,5 @@ export async function findImportConflicts(
     checkLocalPath(relativePath, true);
   }
 
-  return problems;
+  return { conflicts, ambiguities };
 }

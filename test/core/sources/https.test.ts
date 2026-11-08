@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as tar from "tar";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import { ExitCode } from "../../../src/errors.js";
 import {
   fetchFab,
@@ -26,6 +26,17 @@ const requests = new Map<string, number>();
 
 function specFor(relativePath: string): HttpsSourceSpec {
   return { kind: "https", url: `${base}${relativePath}` };
+}
+
+const fetchedDirectories: string[] = [];
+
+/** Fetches a fab and remembers its temporary directory for `afterEach`. */
+async function fetchTracked(
+  ...args: Parameters<typeof fetchFab>
+): Promise<Awaited<ReturnType<typeof fetchFab>>> {
+  const fetched = await fetchFab(...args);
+  fetchedDirectories.push(path.dirname(fetched.factoryDir));
+  return fetched;
 }
 
 beforeAll(async () => {
@@ -106,6 +117,12 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 }, 120_000);
 
+afterEach(async () => {
+  await Promise.all(
+    fetchedDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
+  );
+});
+
 describe("https tarball sources", { timeout: 60_000 }, () => {
   test("resolves an https source as unversioned", async () => {
     const spec = specFor("/root.tgz");
@@ -116,7 +133,7 @@ describe("https tarball sources", { timeout: 60_000 }, () => {
 
   test("fetches a tarball with .factory at the archive root", async () => {
     const url = `${base}/root.tgz`;
-    const fetched = await fetchFab(await resolve(specFor("/root.tgz")));
+    const fetched = await fetchTracked(await resolve(specFor("/root.tgz")));
 
     expect(fetched.upstream).toEqual({ kind: "unversioned", source: url });
     expect(fetched.versioned).toBe(false);
@@ -130,7 +147,7 @@ describe("https tarball sources", { timeout: 60_000 }, () => {
       kind: "https",
       url: `${base}/root.tgz?X-Amz-Signature=secret`,
     });
-    const fetched = await fetchFab(resolved);
+    const fetched = await fetchTracked(resolved);
 
     expect(fetched.upstream.source).toBe(`${base}/root.tgz`);
   });
@@ -141,13 +158,13 @@ describe("https tarball sources", { timeout: 60_000 }, () => {
       kind: "https",
       url: `${upper}/root.tgz?X-Amz-Signature=secret`,
     });
-    const fetched = await fetchFab(resolved);
+    const fetched = await fetchTracked(resolved);
 
     expect(fetched.upstream.source).toBe(`${upper}/root.tgz`);
   });
 
   test("fetches a tarball with .factory under a single top-level directory", async () => {
-    const fetched = await fetchFab(await resolve(specFor("/wrapped.tgz")));
+    const fetched = await fetchTracked(await resolve(specFor("/wrapped.tgz")));
 
     expect(fetched.upstream.source).toBe(`${base}/wrapped.tgz`);
     expect(await pathExists(path.join(fetched.factoryDir, "AGENTS.md"))).toBe(true);
@@ -156,7 +173,7 @@ describe("https tarball sources", { timeout: 60_000 }, () => {
   });
 
   test("cleanup removes the temporary fetch directory", async () => {
-    const fetched = await fetchFab(await resolve(specFor("/root.tgz")));
+    const fetched = await fetchTracked(await resolve(specFor("/root.tgz")));
     const temporary = path.dirname(fetched.factoryDir);
     expect(await pathExists(temporary)).toBe(true);
 
@@ -166,7 +183,7 @@ describe("https tarball sources", { timeout: 60_000 }, () => {
   });
 
   test("cleanup never throws when the directory is already gone", async () => {
-    const fetched = await fetchFab(await resolve(specFor("/root.tgz")));
+    const fetched = await fetchTracked(await resolve(specFor("/root.tgz")));
     await rm(path.dirname(fetched.factoryDir), { recursive: true, force: true });
 
     await expect(fetched.cleanup?.()).resolves.toBeUndefined();
@@ -206,7 +223,7 @@ describe("https tarball sources", { timeout: 60_000 }, () => {
 
   test("keeps downloading while chunks arrive within the idle timeout", async () => {
     const resolved = await resolve(specFor("/chunked.tgz"));
-    const fetched = await fetchFab(resolved, { idleTimeoutMs: 500, timeoutMs: 500 });
+    const fetched = await fetchTracked(resolved, { idleTimeoutMs: 500, timeoutMs: 500 });
 
     expect(await pathExists(path.join(fetched.factoryDir, "AGENTS.md"))).toBe(true);
   });
@@ -253,8 +270,8 @@ describe("https tarball sources", { timeout: 60_000 }, () => {
 
   test("never caches an https source", async () => {
     const before = requests.get("/root.tgz") ?? 0;
-    const first = await fetchFab(await resolve(specFor("/root.tgz")));
-    const second = await fetchFab(await resolve(specFor("/root.tgz")));
+    const first = await fetchTracked(await resolve(specFor("/root.tgz")));
+    const second = await fetchTracked(await resolve(specFor("/root.tgz")));
 
     expect(requests.get("/root.tgz")).toBe(before + 2);
     expect(first.factoryDir).not.toBe(second.factoryDir);

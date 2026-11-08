@@ -20,7 +20,7 @@ import { CONFIG_FILE, CONFIG_FILENAME } from "../config/parse.js";
 import type { UpstreamEntry } from "../config/types.js";
 import { createConfig, setUpstream } from "../config/writers.js";
 import { loadFactory } from "../factory/load.js";
-import { ensureGitattributes } from "../init/gitattributes.js";
+import { assertGitattributesWritable, ensureGitattributes } from "../init/gitattributes.js";
 import { selectTargets } from "../init/targets.js";
 import type { TargetPrompt } from "../init/targets.js";
 import {
@@ -33,9 +33,10 @@ import { fetchFab, parseSource, resolve } from "../sources/index.js";
 import type { FetchedFab, SourceOptions } from "../sources/index.js";
 import { renderSummary, summarise } from "../summary.js";
 import type { Summary } from "../summary.js";
-import { copyFactoryTree } from "./copy.js";
+import { copyFactoryTree, FAB_ROOT_EXCLUDES } from "./copy.js";
 import { findImportConflicts, localFilesForImport } from "./conflicts.js";
-import { emptyTree, snapshotFactory } from "./file-tree.js";
+import { emptyTree, snapshotDirectories, snapshotFactory, snapshotTree } from "./file-tree.js";
+import { alignFactorySpelling } from "../update/spelling.js";
 
 export interface ImportOptions {
   /** Directory that contains, or will contain, `.factory/`. */
@@ -195,7 +196,12 @@ export async function runImport(options: ImportOptions): Promise<ImportReport> {
     assertAdoptionAllowed(plan);
 
     const local = await localFilesForImport(root, factoryDir, plan.moves, hasFactory);
-    const conflicts = await findImportConflicts(fetched.factoryDir, local);
+    await assertGitattributesWritable(root, "import");
+    const { conflicts, ambiguities } = await findImportConflicts(fetched.factoryDir, local);
+    // `--force` replaces differing local content, but it cannot choose between
+    // two local entries that fold to one incoming path: a case-sensitive
+    // filesystem can hold both, and renaming either would be a guess.
+    if (ambiguities.length > 0) throw importConflicts([...ambiguities, ...conflicts]);
     if (conflicts.length > 0 && options.force !== true) throw importConflicts(conflicts);
 
     let declined = false;
@@ -236,6 +242,17 @@ export async function runImport(options: ImportOptions): Promise<ImportReport> {
 
     const before = await snapshotFactory(root);
     if (plan.moves.length > 0) await applyAdoption(plan);
+    // With `--force` a case-only clash is realigned before the copy, so the
+    // result is the same on every filesystem. A declined import never reaches
+    // here, so it still renames nothing. A local file where the fab has a
+    // directory is skipped by `alignFactorySpelling` and replaced by the copy.
+    const fabTree = await snapshotTree(fetched.factoryDir);
+    await alignFactorySpelling(factoryDir, {
+      files: Object.keys(fabTree).filter(
+        (relativePath) => relativePath.includes("/") || !FAB_ROOT_EXCLUDES.has(relativePath),
+      ),
+      directories: await snapshotDirectories(fetched.factoryDir),
+    });
     const copied = await copyFactoryTree(fetched.factoryDir, factoryDir);
     await setUpstream(factoryDir, fetched.upstream);
     const after = await snapshotFactory(root);

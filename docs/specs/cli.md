@@ -100,6 +100,8 @@ Migration follows these rules:
 7. When standard input is not a terminal and `--adopt` is absent, required migration consent produces exit code 2 and a machine-readable description of the decision that names `--adopt` as its flag.
 8. A migration stopped by rules 2 to 4 exits with code 5 and changes nothing.
 
+A symbolic link inside a skill must resolve inside `.factory/` after the move. A link that leaves it, directly or through a symlinked directory, stops migration under rule 4 with `Symlink <path> points outside .factory/ after the move` and exit code 5. A link into another skill adopted in the same run is accepted: after both moves it resolves inside `.factory/skills/`, and the built output holds the linked content.
+
 Metafab does not stage the moved, deleted, or generated files. Git shows the migration for review.
 
 Run `metafab init` again to adopt a skill added directly to a managed destination later. `build` does not prompt or adopt files.

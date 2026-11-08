@@ -256,7 +256,9 @@ Fab validation rejects:
 
 A factory can have only one upstream fab. If `metafab.yaml` already contains an upstream entry, use `update` or `detach`.
 
-`import` stops when the incoming fab would replace or remove different local content, and lists all conflicts. That is a different file, a link, a directory, or a local path that differs only in letter case. A case-only clash is refused on every filesystem, so `import` behaves the same everywhere. `--force` permits those replacements.
+`import` stops when the incoming fab would replace or remove different local content, and lists all conflicts. That is a different file, a link, a directory, or a local path that differs only in letter case. A case-only clash is refused on every filesystem, so `import` behaves the same everywhere. `--force` permits those replacements, including a case-only clash with a single local entry, which it renames to the fab's spelling. It never resolves two local entries that differ only in case from one incoming path.
+
+With `--force`, the realignment happens before the copy: the local entry is renamed to the fab's spelling, a local-only file beneath it moves with it, and nothing is deleted. The result is the same on every filesystem. A local file where the fab has a directory is still replaced by that directory.
 
 ## Updating a fab
 
