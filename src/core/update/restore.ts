@@ -1,3 +1,4 @@
+import type { Dirent } from "node:fs";
 import {
   chmod,
   lstat,
@@ -124,12 +125,22 @@ async function restoreLink(target: string, node: CapturedNode): Promise<void> {
 }
 
 /**
+ * True when an entry is neither a file, a link nor a directory: a named pipe, a
+ * socket, or a device. Capture does not record these, so restore must not treat
+ * them as something an update wrote either.
+ */
+function isSpecial(entry: Dirent): boolean {
+  return !entry.isFile() && !entry.isDirectory() && !entry.isSymbolicLink();
+}
+
+/**
  * Makes `currentDir` hold exactly the recorded children.
  *
  * Extras are deleted, a name whose spelling differs only in case is renamed
  * back, and every recorded child is recreated or repaired: a missing file, link
  * or directory is created, including an empty directory, and a file whose bytes
- * or mode differ is rewritten.
+ * or mode differ is rewritten. A special entry was never recorded, so it is
+ * left in place rather than mistaken for something an update wrote.
  */
 async function restoreDirectory(
   currentDir: string,
@@ -148,6 +159,7 @@ async function restoreDirectory(
       (entry) =>
         present.has(entry.name) &&
         !recorded.has(entry.name) &&
+        !isSpecial(entry) &&
         entry.name.toLowerCase() === name.toLowerCase(),
     );
     if (matches.length !== 1) continue;
@@ -157,8 +169,10 @@ async function restoreDirectory(
     present.add(name);
   }
 
-  for (const name of present) {
-    if (recorded.has(name)) continue;
+  for (const entry of entries) {
+    const name = entry.name;
+    if (!present.has(name) || recorded.has(name)) continue;
+    if (isSpecial(entry)) continue;
     await rm(path.join(currentDir, name), { recursive: true, force: true });
   }
 

@@ -554,6 +554,36 @@ describe("versioned update", { timeout: 30_000 }, () => {
       Buffer.from(latin1Next),
     );
   });
+
+  test.skipIf(process.platform === "win32")(
+    "a take-theirs write keeps the local 0644 mode when upstream's copy is 0664",
+    async () => {
+      const { repo, fab } = await importedProject();
+      const file = repo.path(".factory", "templates", "note.md");
+      expect((await stat(file)).mode & 0o777).toBe(0o644);
+
+      await fab.commit({ ".factory/templates/note.md": "# Note\n\nupstream\n" }, "v1.1.0");
+      await fab.tag("v1.1.0");
+      await fab.push();
+
+      // The local copy is untouched, so the update takes upstream's file. A
+      // fetch writes the archive's modes through the process umask, so a 0002
+      // umask makes upstream's files 0664 while the imported local ones stay
+      // 0644. Only the executable bit counts as a change, so the write must keep
+      // the local mode.
+      const previousUmask = process.umask(0o002);
+      let result;
+      try {
+        result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build"]));
+      } finally {
+        process.umask(previousUmask);
+      }
+
+      expect(result.code, result.stdout).toBe(0);
+      expect(await readFile(file, "utf8")).toBe("# Note\n\nupstream\n");
+      expect((await stat(file)).mode & 0o777).toBe(0o644);
+    },
+  );
 });
 
 describe("upstream restructures", { timeout: 30_000 }, () => {
@@ -965,6 +995,20 @@ describe("update line endings", { timeout: 30_000 }, () => {
     expect(result.code).toBe(0);
     expect(await readFile(repo.path(".factory", "templates", "note.md"), "utf8")).toBe(
       "# Note upstream\n\nlocal\n",
+    );
+  });
+
+  test("writes LF for a take-theirs file when the local copy uses LF", async () => {
+    const { repo, fab } = await importedProject();
+    // The local copy is untouched, so the update takes upstream's file. Only
+    // the local line endings decide the write, so upstream's CRLF does not make
+    // the local file CRLF.
+    await publish(fab, { ".factory/templates/note.md": "# Note\r\n\r\nupstream\r\n" });
+
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build"]));
+    expect(result.code).toBe(0);
+    expect(await readFile(repo.path(".factory", "templates", "note.md"), "utf8")).toBe(
+      "# Note\n\nupstream\n",
     );
   });
 

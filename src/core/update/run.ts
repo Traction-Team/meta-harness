@@ -421,7 +421,7 @@ function movedSpelling(
   return matches !== undefined && matches.length === 1 ? matches[0]! : relativePath;
 }
 
-/** True when two entries describe different content or permission bits. */
+/** True when two entries describe different content or executable bit. */
 function entriesDiffer(left: FileEntry | undefined, right: FileEntry | undefined): boolean {
   if (left === undefined || right === undefined) return left !== right;
   if (left.hash !== right.hash) return true;
@@ -683,13 +683,17 @@ export function planMerge(
       }
       case "take-theirs": {
         if (theirsEntry !== undefined) {
-          // The write follows the local copy's line endings, so clear upstream's
-          // original bytes and let `crlf` decide for a file both sides have.
+          // The write follows the local copy's line endings, so drop upstream's
+          // CRLF flag and original bytes and let the local `crlf` decide for a
+          // file both sides have. The mode is the one the merge chose, which is
+          // the local mode when only non-executable bits differ.
           const entry: FileEntry = {
             ...theirsEntry,
-            ...(yoursEntry?.crlf === true ? { crlf: true as const } : {}),
+            mode: result.mode,
             raw: undefined,
           };
+          delete entry.crlf;
+          if (yoursEntry?.crlf === true) entry.crlf = true;
           after[relativePath] = entry;
           writes.push({ kind: "write", path: relativePath, entry });
         }

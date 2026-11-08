@@ -1,9 +1,14 @@
-import { chmod, mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { chmod, lstat, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, test } from "vitest";
 import { captureFactory } from "../../../src/core/update/restore.js";
+import { pathExists } from "../../../src/util/fs.js";
 import { makeRepo, writeRepoFiles } from "../../helpers/makeRepo.js";
 import type { TempRepo } from "../../helpers/makeRepo.js";
 import { walkRaw } from "./raw-tree.js";
+
+const execFileAsync = promisify(execFile);
 
 const repos: TempRepo[] = [];
 
@@ -66,6 +71,30 @@ describe("captureFactory", () => {
       await capture.discard();
     }
   });
+
+  test.skipIf(process.platform === "win32")(
+    "leaves a named pipe it does not record in place, and still removes extras",
+    async () => {
+      const repo = await factoryRepo({ ".factory/AGENTS.md": "# Agents\n" });
+      const pipe = repo.path(".factory", "events.pipe");
+      // A pipe is not factory content, so capture never records it. Restore
+      // must not mistake it for a file the update wrote and delete it.
+      await execFileAsync("mkfifo", [pipe]);
+
+      const capture = await captureFactory(repo.path(".factory"));
+      try {
+        await writeFile(repo.path(".factory", "extra.md"), "extra\n");
+
+        await capture.restore();
+
+        expect((await lstat(pipe)).isFIFO()).toBe(true);
+        expect(await pathExists(repo.path(".factory", "extra.md"))).toBe(false);
+        expect(await readFile(repo.path(".factory", "AGENTS.md"), "utf8")).toBe("# Agents\n");
+      } finally {
+        await capture.discard();
+      }
+    },
+  );
 
   test("discard leaves .factory/ as it is and is safe to call twice", async () => {
     const repo = await factoryRepo({ ".factory/AGENTS.md": "# Agents\n" });

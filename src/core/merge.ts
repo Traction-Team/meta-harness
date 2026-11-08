@@ -291,8 +291,8 @@ function mergeWithoutBase(
  *
  * `base`, `yours` and `theirs` are absent when the path does not exist on that
  * side. Text is merged line by line; a binary conflict keeps yours and returns
- * theirs for a `<file>.upstream` side file. A changed permission bit alone
- * counts as a change.
+ * theirs for a `<file>.upstream` side file. A change to the executable bit
+ * alone counts as a change.
  */
 export function mergePath(
   base: MergeInput | undefined,
