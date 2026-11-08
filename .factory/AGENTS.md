@@ -27,7 +27,7 @@ In this repository `metafab` is `node dist/cli.js`: run `npm run build` first.
 - **Specs first.** When the code has to differ from a spec, change the spec in the same pull request and say so in its body. Never let them drift.
 - **One plan, one pull request.** Change only the paths in the plan's `owns`; widen `owns` in the plan when you must, and say why.
 - Conventional Commits with no scope: `feat`, `fix`, `refactor`, `docs`, `chore`, `test`, `ci`, `build`. Branches are `<type>/<slug>`. A plan's branch carries its number: `<type>/<plan file name without .md>`, such as `feat/1.005-check`.
-- Code reaches `main` only through a pull request. Docs-only changes (`docs/`, and `.factory/` except `.factory/scripts/`) may be committed straight to `main`; see "Publishing docs changes".
+- Code reaches `main` only through a pull request. Docs-only changes (`docs/`, `.factory/` except `.factory/scripts/`, and the root `AGENTS.md` block that `.factory/` generates) may be committed straight to `main`; see "Publishing docs changes".
 - Sub-agents run as `subagent_type: "agent-coding"`, defined in `opencode.json`, even when the Agent tool does not list it.
 - Run child processes with `execFile` and an argument list, never through a shell.
 - Tests use temporary directories and local fixtures (a local registry, local bare Git repositories). No test reaches the network.
@@ -53,15 +53,16 @@ When the person asks you to save, publish, commit or push docs changes (`docs/`,
 
 ```bash
 git switch main && git pull --ff-only
-git add docs/<files> .factory/<files>
-git diff --cached --name-only | grep -vE '^(docs|\.factory)/'   # must print nothing
+npm run build && node dist/cli.js build                         # regenerates the root blocks from .factory/
+git add docs/<files> .factory/<files> AGENTS.md                 # stage the regenerated root block too
+git diff --cached --name-only | grep -vE '^(docs/|\.factory/|AGENTS\.md$)'   # must print nothing
 git diff --cached --name-only | grep '^\.factory/scripts/'      # must print nothing: scripts are code and go in a pull request
 node .factory/scripts/check.mjs                                 # fix what it reports
-npm run factory                                                 # when .factory/ changed: also builds and checks, and fails when the AGENTS.md block is stale
+npm run factory                                                 # builds and checks; passes once the regenerated root block is staged
 git commit -m "docs: <what changed>"
 git push
 ```
 
-A docs-only commit runs `node .factory/scripts/check.mjs`. A change to `.factory/` must also run `npm run factory`, because the `AGENTS.md` block is committed: an edit that changes it regenerates root `AGENTS.md`, which must be staged, and that change goes in a pull request.
+A docs-only commit runs `node .factory/scripts/check.mjs`. A change to `.factory/` must also run `npm run factory`, because the `AGENTS.md` block is committed: an edit that changes it regenerates root `AGENTS.md`, which is staged with its source and is part of the same docs commit.
 
-If anything outside `docs/` and `.factory/` (or inside `.factory/scripts/`) is staged, it goes in a pull request instead.
+If anything outside `docs/`, `.factory/` (except `.factory/scripts/`) and the `AGENTS.md` block the build regenerates is staged, it goes in a pull request instead.
