@@ -32,6 +32,8 @@ export interface Config {
   agents: Target[];
   agentsRaw: "all" | Target[] | undefined;
   metafabSkill: boolean;
+  gitHooks: boolean;
+  gitHooksRaw: boolean | undefined;
   publish?: PublishConfig;
   upstream?: UpstreamEntry;
   doc: Document;

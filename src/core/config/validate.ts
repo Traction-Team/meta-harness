@@ -9,7 +9,7 @@ import { didYouMean } from "../../util/suggest.js";
 import { classifySource } from "./source.js";
 import { TARGETS } from "./types.js";
 
-export const TOP_LEVEL_KEYS = ["agents", "metafab-skill", "publish", "upstream"] as const;
+export const TOP_LEVEL_KEYS = ["agents", "metafab-skill", "git-hooks", "publish", "upstream"] as const;
 export const PUBLISH_KEYS = [
   "name",
   "git",
@@ -189,6 +189,16 @@ function validateMetafabSkill(report: Report, entries: Map<string, Pair>, doc: D
   const value = resolvedNode(pair.value, doc);
   if (!isScalar(value) || typeof value.value !== "boolean") {
     report("error", `"metafab-skill" must be a boolean.`, pairNode(pair));
+  }
+}
+
+function validateGitHooks(report: Report, entries: Map<string, Pair>, doc: Document): void {
+  const pair = entries.get("git-hooks");
+  if (pair === undefined) return;
+
+  const value = resolvedNode(pair.value, doc);
+  if (!isScalar(value) || typeof value.value !== "boolean") {
+    report("error", `"git-hooks" must be a boolean.`, pairNode(pair));
   }
 }
 
@@ -387,6 +397,7 @@ export function validateDocument(doc: Document, options: ValidateDocumentOptions
 
   validateAgents(report, entries, doc);
   validateMetafabSkill(report, entries, doc);
+  validateGitHooks(report, entries, doc);
 
   const publish = entries.get("publish");
   if (publish !== undefined) {
