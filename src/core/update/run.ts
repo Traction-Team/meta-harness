@@ -26,6 +26,8 @@ import { renderSummary, summarise, modeMatters } from "../summary.js";
 import type { Summary } from "../summary.js";
 import { findPathClashes } from "./clashes.js";
 import { fetchRecordedBase, recordedBaseGone } from "./fetch.js";
+import { captureFactory } from "./restore.js";
+import type { FactoryCapture } from "./restore.js";
 import { alignFactorySpelling, alignPathSpelling, alignTreeSpelling } from "./spelling.js";
 import {
   recordedLabel,
@@ -164,6 +166,46 @@ function unresolvedConflicts(problems: Problem[]): MetafabError {
     code: "update-unresolved",
     problems,
   });
+}
+
+/**
+ * The error an update that failed while writing reports. The original message
+ * is kept, so the cause of the failure is not lost, and the summary says
+ * whether `.factory/` was put back. When the restore itself failed, the fix
+ * points at Git: the files on disk are the only reliable record of what
+ * changed.
+ */
+function updateWriteFailed(error: unknown, restored: boolean): MetafabError {
+  const original = error instanceof Error && error.message !== "" ? error.message : String(error);
+  const stopped = `Update stopped: ${original.replace(/\.$/, "")}.`;
+  const state = restored ? ".factory/ was restored." : ".factory/ may be partly updated.";
+  return new MetafabError(`${stopped} ${state}`, {
+    exitCode: ExitCode.Failed,
+    code: "update-write-failed",
+    cause: error,
+    ...(restored
+      ? {}
+      : {
+          problems: [
+            {
+              level: "error" as const,
+              file: ".factory",
+              message: "The update stopped before it finished and could not restore .factory/",
+              fix: "Restore .factory/ from Git (git status shows what changed), then run metafab update again",
+            },
+          ],
+        }),
+  });
+}
+
+/** Restores the capture, reporting whether the directory is known to be back. */
+async function restoreCapture(capture: FactoryCapture): Promise<boolean> {
+  try {
+    await capture.restore();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -954,21 +996,35 @@ async function runVersioned(
       // spelling, then alignFactorySpelling moves a directory renamed only in
       // case (and any local-only files inside it), so the writes land at the
       // source's spelling instead of recreating the old directory.
-      await applyWrites(
-        factoryDir,
-        plan.writes.filter((write) => write.kind === "remove"),
-      );
-      await alignFactorySpelling(factoryDir, incoming);
-      await applyWrites(factoryDir, targets);
-      // The selected upstream becomes the base of the next update, even when
-      // conflict markers were written: resolving them is local work against
-      // this version.
-      await setUpstream(factoryDir, theirs.upstream);
-      if (built) {
-        const build = await buildFactory(root, factoryDir);
-        changed = build.changed;
-        problems.push(...build.problems);
+      //
+      // The capture above the first write makes the block atomic in practice: a
+      // failure partway puts `.factory/` back, so the old version stays the base
+      // of the next update instead of half-applied upstream content.
+      const capture = await captureFactory(factoryDir);
+      try {
+        await applyWrites(
+          factoryDir,
+          plan.writes.filter((write) => write.kind === "remove"),
+        );
+        await alignFactorySpelling(factoryDir, incoming);
+        await applyWrites(factoryDir, targets);
+        // The selected upstream becomes the base of the next update, even when
+        // conflict markers were written: resolving them is local work against
+        // this version.
+        await setUpstream(factoryDir, theirs.upstream);
+      } catch (error) {
+        throw updateWriteFailed(error, await restoreCapture(capture));
+      } finally {
+        await capture.discard();
       }
+    }
+
+    // The build runs outside the captured block: a build failure never rolls
+    // back an update that is already complete.
+    if (built) {
+      const build = await buildFactory(root, factoryDir);
+      changed = build.changed;
+      problems.push(...build.problems);
     }
 
     // The realignment moves a local-only file that lives inside a case-only
@@ -1084,16 +1140,28 @@ async function runUnversioned(
     if (options.dryRun === true) {
       notes.push("Dry run: nothing was written.");
     } else {
-      await alignFactorySpelling(factoryDir, {
-        files: Object.keys(theirs),
-        directories: incomingDirectories,
-      });
-      await copyFactoryTree(fetched.factoryDir, factoryDir);
-      if (built) {
-        const build = await buildFactory(root, factoryDir);
-        changed = build.changed;
-        problems.push(...build.problems);
+      // The copy replaces upstream-owned paths and keeps the rest; a failure
+      // partway puts `.factory/` back rather than leaving a mixed tree.
+      const capture = await captureFactory(factoryDir);
+      try {
+        await alignFactorySpelling(factoryDir, {
+          files: Object.keys(theirs),
+          directories: incomingDirectories,
+        });
+        await copyFactoryTree(fetched.factoryDir, factoryDir);
+      } catch (error) {
+        throw updateWriteFailed(error, await restoreCapture(capture));
+      } finally {
+        await capture.discard();
       }
+    }
+
+    // The build runs outside the captured block: a build failure never rolls
+    // back an update that is already complete.
+    if (built) {
+      const build = await buildFactory(root, factoryDir);
+      changed = build.changed;
+      problems.push(...build.problems);
     }
 
     // A dry run cannot write, so it aligns the snapshot the same way the copy
