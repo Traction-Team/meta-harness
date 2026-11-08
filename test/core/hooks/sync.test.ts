@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -128,6 +128,68 @@ describe.skipIf(process.platform === "win32")("syncGitHooks", () => {
       },
     ]);
     expect(await hookText(git, "post-merge")).toBe(foreign);
+  });
+
+  test("leaves a symlinked hook alone and never chmods its target", async () => {
+    const git = await repo();
+    const shared = path.join(git.container, "shared-hooks");
+    await mkdir(shared, { recursive: true });
+    const sharedHook = path.join(shared, "post-merge");
+    await writeFile(sharedHook, hookScript("post-merge", ".", "1.0.0"));
+    await chmod(sharedHook, 0o644);
+    await symlink(sharedHook, git.path(".git/hooks/post-merge"));
+
+    const enabled = await syncGitHooks(git.root, true, "1.0.0");
+
+    expect(enabled.changed).toEqual([
+      { hook: "post-checkout", action: "created" },
+      { hook: "post-rewrite", action: "created" },
+    ]);
+    expect(enabled.warnings).toEqual([
+      {
+        level: "warning",
+        file: ".git/hooks/post-merge",
+        message: ".git/hooks/post-merge exists and was not written by Metafab",
+        fix: `Add this line to .git/hooks/post-merge: ${hookCommand(".", "1.0.0")}`,
+      },
+    ]);
+    expect((await lstat(sharedHook)).mode & 0o777).toBe(0o644);
+    expect(await readFile(sharedHook, "utf8")).toBe(hookScript("post-merge", ".", "1.0.0"));
+    expect((await lstat(git.path(".git/hooks/post-merge"))).isSymbolicLink()).toBe(true);
+
+    const disabled = await syncGitHooks(git.root, false, "1.0.0");
+
+    expect(disabled.changed).toEqual([
+      { hook: "post-checkout", action: "removed" },
+      { hook: "post-rewrite", action: "removed" },
+    ]);
+    expect(disabled.warnings).toEqual([]);
+    expect((await lstat(git.path(".git/hooks/post-merge"))).isSymbolicLink()).toBe(true);
+    expect((await lstat(sharedHook)).mode & 0o777).toBe(0o644);
+  });
+
+  test("a dangling hook link is not written through", async () => {
+    const git = await repo();
+    const shared = path.join(git.container, "shared-hooks");
+    await mkdir(shared, { recursive: true });
+    const missing = path.join(shared, "post-merge");
+    await symlink(missing, git.path(".git/hooks/post-merge"));
+
+    const result = await syncGitHooks(git.root, true, "1.0.0");
+
+    expect(result.changed).toEqual([
+      { hook: "post-checkout", action: "created" },
+      { hook: "post-rewrite", action: "created" },
+    ]);
+    expect(result.warnings).toEqual([
+      {
+        level: "warning",
+        file: ".git/hooks/post-merge",
+        message: ".git/hooks/post-merge exists and was not written by Metafab",
+        fix: `Add this line to .git/hooks/post-merge: ${hookCommand(".", "1.0.0")}`,
+      },
+    ]);
+    await expect(stat(missing)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   test("the ownership marker must be a line of its own", async () => {

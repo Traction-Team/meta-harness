@@ -1,4 +1,5 @@
-import { chmod, mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import type { Stats } from "node:fs";
 import path from "node:path";
 import type { Problem } from "../../errors.js";
 import { runGit } from "../../util/git.js";
@@ -84,13 +85,25 @@ async function gitOutput(args: string[], cwd: string): Promise<string | undefine
   }
 }
 
-async function readIfExists(target: string): Promise<string | undefined> {
+type HookFile = { kind: "missing" } | { kind: "regular"; text: string } | { kind: "other" };
+
+/**
+ * Reads a hook without following a symbolic link.
+ *
+ * A link, a directory or anything else that is not a regular file is reported
+ * as `other`: Metafab never writes, chmods or deletes through a hook path, so
+ * a file elsewhere in the system is left alone.
+ */
+async function readHook(target: string): Promise<HookFile> {
+  let stats: Stats;
   try {
-    return await readFile(target, "utf8");
+    stats = await lstat(target);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { kind: "missing" };
     throw error;
   }
+  if (!stats.isFile()) return { kind: "other" };
+  return { kind: "regular", text: await readFile(target, "utf8") };
 }
 
 function isOwned(text: string): boolean {
@@ -176,14 +189,23 @@ export async function syncGitHooks(
     const file = relativePath(root, target);
 
     try {
-      const existing = await readIfExists(target);
+      const state = await readHook(target);
 
-      if (existing === undefined) {
+      if (state.kind === "missing") {
         if (!canWrite) continue;
         await writeHook(target, hookScript(hook, factoryRelDir, cliVersion));
         changed.push({ hook, action: "created" });
         continue;
       }
+
+      // A symbolic link, or anything else that is not a regular file, is not
+      // a hook Metafab wrote. Leave it and warn, like any other foreign hook.
+      if (state.kind === "other") {
+        if (enabled) warnings.push(foreignWarning(file, factoryRelDir, cliVersion));
+        continue;
+      }
+
+      const existing = state.text;
 
       if (!isOwned(existing)) {
         if (enabled) warnings.push(foreignWarning(file, factoryRelDir, cliVersion));
@@ -214,7 +236,7 @@ export async function syncGitHooks(
       // The content matches, but Git does not run a hook without the
       // executable bits. Windows has no permission bits to compare.
       if (process.platform === "win32") continue;
-      const mode = (await stat(target)).mode & 0o777;
+      const mode = (await lstat(target)).mode & 0o777;
       if (mode === 0o755) continue;
 
       await chmod(target, 0o755);
