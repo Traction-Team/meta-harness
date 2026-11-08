@@ -97,6 +97,7 @@ describe.skipIf(process.platform === "win32")("syncGitHooks", () => {
     const git = await repo();
     const crlf = hookScript("post-merge", ".", "1.0.0").replace(/\n/g, "\r\n");
     await git.write(".git/hooks/post-merge", crlf);
+    await chmod(git.path(".git/hooks/post-merge"), 0o755);
 
     const result = await syncGitHooks(git.root, true, "1.0.0");
 
@@ -294,5 +295,24 @@ describe.skipIf(process.platform === "win32")("syncGitHooks", () => {
     await syncGitHooks(git.root, true, "1.1.0");
 
     expect((await stat(git.path(".git/hooks/post-merge"))).mode & 0o777).toBe(0o755);
+  });
+
+  test("repairs the mode of a matching hook without rewriting its content", async () => {
+    const git = await repo();
+    await syncGitHooks(git.root, true, "1.0.0");
+    const content = await hookText(git, "post-merge");
+    await chmod(git.path(".git/hooks/post-merge"), 0o644);
+
+    const result = await syncGitHooks(git.root, true, "1.0.0");
+
+    expect(result.changed).toEqual([{ hook: "post-merge", action: "updated" }]);
+    expect(result.warnings).toEqual([]);
+    expect((await stat(git.path(".git/hooks/post-merge"))).mode & 0o777).toBe(0o755);
+    expect(await hookText(git, "post-merge")).toBe(content);
+
+    await expect(syncGitHooks(git.root, true, "1.0.0")).resolves.toEqual({
+      changed: [],
+      warnings: [],
+    });
   });
 });

@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Problem } from "../../errors.js";
 import { runGit } from "../../util/git.js";
@@ -205,9 +205,19 @@ export async function syncGitHooks(
       if (!canWrite) continue;
 
       const desired = hookScript(hook, factoryRelDir, cliVersion);
-      if (toLF(existing) === desired) continue;
+      if (toLF(existing) !== desired) {
+        await writeHook(target, desired);
+        changed.push({ hook, action: "updated" });
+        continue;
+      }
 
-      await writeHook(target, desired);
+      // The content matches, but Git does not run a hook without the
+      // executable bits. Windows has no permission bits to compare.
+      if (process.platform === "win32") continue;
+      const mode = (await stat(target)).mode & 0o777;
+      if (mode === 0o755) continue;
+
+      await chmod(target, 0o755);
       changed.push({ hook, action: "updated" });
     } catch (error) {
       warnings.push(fileWarning(file, error));

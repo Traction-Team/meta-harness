@@ -84,7 +84,7 @@ Metafab has no watch mode and installs no agent session hooks.
 | `post-merge` | `git merge` and `git pull` |
 | `post-rewrite` | `git rebase`. Not `git commit --amend` |
 
-Metafab owns a hook file when it contains the line `# metafab:start`. It owns the whole file, and rewrites it when its content differs from what `build` would write, for example after a CLI upgrade. `build` follows these rules:
+Metafab owns a hook file when it contains the line `# metafab:start`. It owns the whole file, and rewrites it when its content differs from what `build` would write, for example after a CLI upgrade, or when its mode is not 0755. `build` follows these rules:
 
 1. With `git-hooks: true`, it creates each missing hook as a POSIX shell script with mode 0755.
 2. It never changes a hook file it does not own. It leaves the file unchanged and still exits 0. With `git-hooks: true` it warns with the hook name and the line to add by hand.
