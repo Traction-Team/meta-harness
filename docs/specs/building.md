@@ -87,7 +87,7 @@ Metafab has no watch mode and installs no agent session hooks.
 Metafab owns a hook file when it contains the line `# metafab:start`. It owns the whole file, and rewrites it when its content differs from what `build` would write, for example after a CLI upgrade. `build` follows these rules:
 
 1. With `git-hooks: true`, it creates each missing hook as a POSIX shell script with mode 0755.
-2. It never changes a hook file it does not own. It leaves the file unchanged, warns with the hook name and the line to add by hand, and still exits 0.
+2. It never changes a hook file it does not own. It leaves the file unchanged and still exits 0. With `git-hooks: true` it warns with the hook name and the line to add by hand.
 3. When `core.hooksPath` is set, it creates and rewrites no hooks and warns once, with the line to add by hand. Rule 4 still removes hooks it owns in the shared hooks directory.
 4. With `git-hooks: false`, or when the key is absent, it deletes the hook files it owns and nothing else.
 5. Outside a Git repository, or when `git` is not installed, it skips hooks. With `git-hooks: true` it warns once.
