@@ -52,7 +52,9 @@ export type SideFileReason = "binary" | "new-local" | "base-unavailable" | "link
  * differ from upstream while the base is unavailable. `remove` deletes the
  * local path; its note reports an upstream change to a file that was already
  * removed locally. `take-theirs`, `add`, `write` and `conflict` carry the
- * content and the permission bits to write. `side-file` keeps yours and writes
+ * content and the mode the merge decided to write: only the executable bit
+ * counts as a permission change, so a side that differs in other bits leaves
+ * the local mode alone. `side-file` keeps yours and writes
  * `upstream` to `<file>.upstream`, and its reason says whether that is a binary
  * conflict, a new local file that differs from the new upstream file, or a path
  * only upstream has while the base is unavailable.

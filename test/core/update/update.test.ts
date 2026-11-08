@@ -560,7 +560,9 @@ describe("versioned update", { timeout: 30_000 }, () => {
     async () => {
       const { repo, fab } = await importedProject();
       const file = repo.path(".factory", "templates", "note.md");
-      expect((await stat(file)).mode & 0o777).toBe(0o644);
+      // Import writes through the ambient umask, so set the local mode this
+      // test is about rather than depending on it.
+      await chmod(file, 0o644);
 
       await fab.commit({ ".factory/templates/note.md": "# Note\n\nupstream\n" }, "v1.1.0");
       await fab.tag("v1.1.0");

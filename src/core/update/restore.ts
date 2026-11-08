@@ -1,4 +1,3 @@
-import type { Dirent } from "node:fs";
 import {
   chmod,
   lstat,
@@ -53,7 +52,8 @@ async function lstatIfExists(target: string) {
  * copies each file's bytes into `staging`.
  *
  * A socket or other special entry is not factory content an update writes, so
- * it is not recorded; restore never creates or removes one.
+ * it is not recorded; restore never creates one, and removes one only when it
+ * sits on a recorded path.
  */
 async function captureDirectory(
   dir: string,
@@ -125,12 +125,19 @@ async function restoreLink(target: string, node: CapturedNode): Promise<void> {
 }
 
 /**
- * True when an entry is neither a file, a link nor a directory: a named pipe, a
- * socket, or a device. Capture does not record these, so restore must not treat
- * them as something an update wrote either.
+ * Classifies an entry with lstat, as capture does. A `Dirent` may report an
+ * unknown type on some filesystems, which would make a real file or link look
+ * special, so its type is not trusted here.
  */
-function isSpecial(entry: Dirent): boolean {
-  return !entry.isFile() && !entry.isDirectory() && !entry.isSymbolicLink();
+async function classifyEntry(
+  target: string,
+): Promise<"directory" | "file" | "link" | "special" | undefined> {
+  const info = await lstatIfExists(target);
+  if (info === undefined) return undefined;
+  if (info.isSymbolicLink()) return "link";
+  if (info.isDirectory()) return "directory";
+  if (info.isFile()) return "file";
+  return "special";
 }
 
 /**
@@ -140,7 +147,8 @@ function isSpecial(entry: Dirent): boolean {
  * back, and every recorded child is recreated or repaired: a missing file, link
  * or directory is created, including an empty directory, and a file whose bytes
  * or mode differ is rewritten. A special entry was never recorded, so it is
- * left in place rather than mistaken for something an update wrote.
+ * left in place rather than mistaken for something an update wrote, unless it
+ * sits on a recorded path, which is restored over it.
  */
 async function restoreDirectory(
   currentDir: string,
@@ -149,6 +157,12 @@ async function restoreDirectory(
   const entries = await readdir(currentDir, { withFileTypes: true });
   const present = new Set(entries.map((entry) => entry.name));
   const recorded = new Set(record.keys());
+  const special = new Set<string>();
+  for (const entry of entries) {
+    if ((await classifyEntry(path.join(currentDir, entry.name))) === "special") {
+      special.add(entry.name);
+    }
+  }
 
   // A case-only difference is one logical entry, so rename it back instead of
   // deleting and recreating it. Only an unambiguous candidate is renamed; the
@@ -159,7 +173,7 @@ async function restoreDirectory(
       (entry) =>
         present.has(entry.name) &&
         !recorded.has(entry.name) &&
-        !isSpecial(entry) &&
+        !special.has(entry.name) &&
         entry.name.toLowerCase() === name.toLowerCase(),
     );
     if (matches.length !== 1) continue;
@@ -172,7 +186,7 @@ async function restoreDirectory(
   for (const entry of entries) {
     const name = entry.name;
     if (!present.has(name) || recorded.has(name)) continue;
-    if (isSpecial(entry)) continue;
+    if (special.has(name)) continue;
     await rm(path.join(currentDir, name), { recursive: true, force: true });
   }
 
