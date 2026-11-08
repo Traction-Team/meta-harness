@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
-import { mkdir, mkdtemp, rename, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -46,6 +46,97 @@ function disabledHooksConfig(): string {
 
 function gitConfigArgs(): string[] {
   return ["-c", disabledHooksConfig()];
+}
+
+/**
+ * A fab must reach the project byte for byte. Git converts line endings while
+ * it exports a tree: the user's `core.autocrlf`, or a `text`/`eol` rule in the
+ * fab's own `.gitattributes`, turns LF into CRLF in `git archive` output. That
+ * would make a fetched fab depend on how the machine is set up, and it changes
+ * files that are not text at all: a file that is not valid UTF-8 still has no
+ * NUL byte, so Git converts it too. The blob Git stored is the fab - the same
+ * bytes `publish` wrote verbatim - so every conversion attribute is turned off
+ * for the mirror before it is exported. `info/attributes` outranks the fab's
+ * own `.gitattributes`, and the config handles an older cache or a Git that
+ * reads the attribute files in a different order. Line ending conversion is
+ * not the only rewrite `git archive` does: `export-subst` expands `$Format$`
+ * placeholders and `export-ignore` drops files, so those two are disabled too.
+ */
+const VERBATIM_ATTRIBUTES =
+  "* -text -eol -filter -ident -working-tree-encoding -export-subst -export-ignore\n";
+
+/**
+ * The config `git archive` must run with. The line-ending settings stop the
+ * user's checkout setup from rewriting the bytes, and `tar.umask` stops the
+ * user's own setting from rewriting the modes: with `tar.umask=0077` every
+ * entry is recorded as 0600 instead of Git's default 0664. Pinning Git's
+ * default (0002) makes the exported modes the same whatever the machine says.
+ */
+const VERBATIM_CONFIG = [
+  "-c",
+  "core.autocrlf=false",
+  "-c",
+  "core.eol=lf",
+  "-c",
+  "core.safecrlf=false",
+  "-c",
+  "tar.umask=0002",
+];
+
+/**
+ * Every input that decides the bytes `git archive` writes for a commit: the
+ * attribute rules, the config overrides, the archive format and the path it
+ * exports. Editing any of them changes the fab cache key, so a stale entry
+ * cannot be reused. Keeping them in one constant means a new export setting
+ * cannot be added to the command without also entering the key.
+ */
+const VERBATIM_EXPORT = [
+  VERBATIM_ATTRIBUTES,
+  ...VERBATIM_CONFIG,
+  "--format=tar",
+  ".factory",
+].join("\n");
+
+/**
+ * Part of the fab cache key. A commit can export different bytes than an
+ * earlier build exported from the same commit, so a build that changes the
+ * export format carries a new segment and never reuses the old entry. The
+ * segment is derived from the export format itself, so editing it cannot
+ * leave a stale entry behind.
+ */
+const FAB_FETCH_FORMAT = `git-verbatim-${createHash("sha256")
+  .update(VERBATIM_EXPORT)
+  .digest("hex")
+  .slice(0, 12)}`;
+
+async function writeVerbatimAttributes(mirror: string, sourceLabel: string): Promise<void> {
+  const info = path.join(mirror, "info");
+  const target = path.join(info, "attributes");
+  // Every fetch through this mirror leaves the rules in place, so this is the
+  // steady state and nothing is written at all. That matters on Windows: a
+  // concurrent `git archive` can have the file open (rename fails with EPERM)
+  // and a concurrent `replaceMirror` can move the whole mirror away (the
+  // parent directory is then gone, so mkdir/write/rename fail with ENOENT).
+  const current = await readFile(target, "utf8").catch(() => undefined);
+  if (current === VERBATIM_ATTRIBUTES) return;
+
+  // Concurrent fetches share the mirror. Writing in place would let one of
+  // them read a truncated file, so write a sibling and rename it over: where
+  // the rename is atomic, a reader sees the old file or the new one, never a
+  // partial one.
+  const temporary = path.join(info, `.attributes.tmp-${randomUUID()}`);
+  try {
+    await mkdir(info, { recursive: true });
+    await writeFile(temporary, VERBATIM_ATTRIBUTES);
+    await rename(temporary, target);
+  } catch (error) {
+    await rm(temporary, { force: true }).catch(() => undefined);
+    const detail = error instanceof Error ? error.message : String(error);
+    throw fetchError(
+      `Cannot export .factory from ${sourceLabel} byte for byte: ${detail}`,
+      error,
+    );
+  }
 }
 
 export interface GitOptions {
@@ -126,6 +217,21 @@ function fetchError(message: string, cause?: unknown): MetafabError {
     exitCode: ExitCode.FetchFailed,
     code: "fetch-failed",
     cause,
+  });
+}
+
+/**
+ * The repository answered, but the ref, tag or commit it names does not exist.
+ *
+ * This is the one fetch failure that means a recorded base is gone, such as a
+ * commit removed by a force push. Every other failure (an unreachable remote,
+ * a rejected credential, a cache or filesystem problem) is `fetch-failed` and
+ * must stop an update rather than be mistaken for a missing base.
+ */
+function notFoundError(message: string): MetafabError {
+  return new MetafabError(redact(message), {
+    exitCode: ExitCode.FetchFailed,
+    code: "fetch-not-found",
   });
 }
 
@@ -306,7 +412,7 @@ async function selectByRange(
   );
   const tag = candidates.find((candidate) => candidate.version === version);
   if (version === null || tag === undefined) {
-    throw fetchError(`Cannot resolve Git source ${source}: no version tag matches "${range}"`);
+    throw notFoundError(`Cannot resolve Git source ${source}: no version tag matches "${range}"`);
   }
   return { commit: tag.commit, version, requested: range };
 }
@@ -357,7 +463,7 @@ async function selectByName(
     }
   }
 
-  throw fetchError(`Cannot resolve Git source ${source}: ref "${name}" was not found`);
+  throw notFoundError(`Cannot resolve Git source ${source}: ref "${name}" was not found`);
 }
 
 async function selectRef(
@@ -381,7 +487,7 @@ async function selectRef(
 
     const head = refs.head === undefined ? undefined : refs.heads.get(refs.head);
     if (head === undefined) {
-      throw fetchError(
+      throw notFoundError(
         `Cannot resolve Git source ${spec.source}: the default branch was not found`,
       );
     }
@@ -419,8 +525,18 @@ async function exportFactory(
   const staging = await mkdtemp(path.join(tmpdir(), "metafab-git-"));
   try {
     const archive = path.join(staging, "factory.tar");
+    await writeVerbatimAttributes(mirror, sourceLabel);
     await runGit(
-      ["-C", mirror, "archive", "--format=tar", `--output=${archive}`, commit, ".factory"],
+      [
+        ...VERBATIM_CONFIG,
+        "-C",
+        mirror,
+        "archive",
+        "--format=tar",
+        `--output=${archive}`,
+        commit,
+        ".factory",
+      ],
       `Cannot export .factory from ${sourceLabel}`,
       options,
     );
@@ -467,7 +583,11 @@ export async function fetchGit(
   options: GitOptions = {},
 ): Promise<FetchedFab> {
   const layout = cacheLayout(options.cache ?? cacheRoot());
-  const key = fabKey(stripSourceCredentials(source.spec.source), source.commit);
+  const key = fabKey(
+    FAB_FETCH_FORMAT,
+    stripSourceCredentials(source.spec.source),
+    source.commit,
+  );
   const fabDir = layout.fabDir(key);
   const sourceLabel = `${source.spec.source}#${source.commit.slice(0, 7)}`;
 

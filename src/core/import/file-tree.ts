@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
-import { isBinary, toLF } from "../../util/text.js";
+import { toLF } from "../../util/text.js";
+import { textContent } from "../build/skill.js";
 
 export interface FileEntry {
   /** SHA-256 of the content: the LF-normalised bytes for text, the raw bytes for binary. */
@@ -40,10 +41,14 @@ async function entryOf(target: string, link: string | undefined): Promise<FileEn
 
   const [data, info] = await Promise.all([readFile(target), lstat(target)]);
   const mode = info.mode & 0o777;
-  if (isBinary(data)) {
+  // Decoding keeps a valid UTF-8 file as text. Anything else stays raw bytes:
+  // re-encoding a lossy decode would corrupt the file, and two different invalid
+  // sequences would decode to the same replacement characters.
+  const decoded = textContent(data);
+  if (decoded === undefined) {
     return { hash: hashOf(data), mode, binary: true, data };
   }
-  const text = toLF(data.toString("utf8"));
+  const text = toLF(decoded);
   return { hash: hashOf(text), mode, binary: false, text };
 }
 
@@ -52,9 +57,10 @@ async function entryOf(target: string, link: string | undefined): Promise<FileEn
  * relative to `dir`.
  *
  * Text is stored with LF line endings and hashed that way, so a change of line
- * endings alone is not a change. Binary content is stored and hashed as bytes.
- * A link is stored with its target, so an added, removed, or repointed link is
- * a change like any other.
+ * endings alone is not a change. Content that is not valid UTF-8, and content
+ * with a NUL, are binary: stored and hashed as raw bytes. A link is stored with
+ * its target, so an added, removed, or repointed link is a change like any
+ * other.
  */
 export async function snapshotTree(dir: string): Promise<FileTree> {
   const root = path.resolve(dir);

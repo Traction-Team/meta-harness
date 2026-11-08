@@ -1,12 +1,15 @@
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { ExitCode, MetafabError } from "../../../src/errors.js";
 import {
   cacheLayout,
+  fabKey,
   fetchFab,
   parseSource,
   resolve,
@@ -17,9 +20,12 @@ import {
   createGitFixture,
   createUntaggedGitFixture,
   installReferenceTransactionHook,
+  isolatedGitEnvironment,
   runGitIn,
 } from "./git-fixture.js";
 import type { GitFixture } from "./git-fixture.js";
+
+const FIXTURES = fileURLToPath(new URL("../../fixtures/fabs/", import.meta.url));
 
 let fixture: GitFixture;
 let cache: string;
@@ -190,7 +196,7 @@ describe("git sources", { timeout: 60_000 }, () => {
       expect(error).toBeInstanceOf(MetafabError);
       const failure = error as MetafabError;
       expect(failure.exitCode).toBe(ExitCode.FetchFailed);
-      expect(failure.code).toBe("fetch-failed");
+      expect(failure.code).toBe("fetch-not-found");
       expect(failure.message).toContain("does-not-exist");
       return;
     }
@@ -200,7 +206,7 @@ describe("git sources", { timeout: 60_000 }, () => {
   test("fails with exit 3 when no version tag matches a range", async () => {
     await expect(
       resolveGit(gitSpec(fixture.repo, { ref: { type: "range", range: "^9.0.0" } })),
-    ).rejects.toMatchObject({ exitCode: ExitCode.FetchFailed, code: "fetch-failed" });
+    ).rejects.toMatchObject({ exitCode: ExitCode.FetchFailed, code: "fetch-not-found" });
   });
 
   test("fails with exit 3 when the repository cannot be reached", async () => {
@@ -400,6 +406,252 @@ describe("git sources", { timeout: 60_000 }, () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  test("fetches fab content byte for byte whatever core.autocrlf says", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "metafab-git-eol-"));
+    const work = path.join(root, "work");
+    const repo = path.join(root, "repo.git");
+    const plain = Buffer.from("plain\n", "utf8");
+    const latin = Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]);
+    try {
+      await runGitIn(root, ["init", "-q", "-b", "main", work]);
+      // The fixture stores exactly the bytes this test expects, so the line
+      // endings the host's Git is set up to write cannot reach the commit.
+      await runGitIn(work, ["config", "core.autocrlf", "false"]);
+      await runGitIn(work, ["config", "user.name", "Metafab Test"]);
+      await runGitIn(work, ["config", "user.email", "metafab@example.com"]);
+      await cp(path.join(FIXTURES, "valid-fab", ".factory"), path.join(work, ".factory"), {
+        recursive: true,
+      });
+      await writeFile(path.join(work, ".factory", "plain.md"), plain);
+      await writeFile(path.join(work, ".factory", "latin.txt"), latin);
+      await runGitIn(work, ["add", "-A"]);
+      await runGitIn(work, ["commit", "-qm", "line endings"]);
+      await runGitIn(work, ["tag", "v1.0.0"]);
+      await runGitIn(root, ["clone", "-q", "--bare", work, repo]);
+
+      // The Windows default setup, on every platform: a fetch that goes through
+      // a checkout or `git archive` would turn each LF into CRLF.
+      const gitconfig = path.join(root, "gitconfig");
+      await writeFile(gitconfig, "[core]\n\tautocrlf = true\n");
+      const env = { ...process.env, GIT_CONFIG_GLOBAL: gitconfig, GIT_CONFIG_NOSYSTEM: "1" };
+
+      const resolved = await resolve(gitSpec(repo), { cache, env });
+      const fetched = await fetchFab(resolved, { cache, env });
+
+      expect(await readFile(path.join(fetched.factoryDir, "plain.md"))).toEqual(plain);
+      expect(await readFile(path.join(fetched.factoryDir, "latin.txt"))).toEqual(latin);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("fetches fab content byte for byte whatever the fab's .gitattributes say", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "metafab-git-attributes-"));
+    const work = path.join(root, "work");
+    const repo = path.join(root, "repo.git");
+    const lf = Buffer.from("plain\n", "utf8");
+    const crlf = Buffer.from("one\r\ntwo\r\n", "utf8");
+    try {
+      // The commit happens under an empty Git configuration, so the host's
+      // global settings cannot change the stored blob bytes.
+      const env = await isolatedGitEnvironment(root);
+      await runGitIn(root, ["init", "-q", "-b", "main", work], env);
+      await runGitIn(work, ["config", "core.autocrlf", "false"], env);
+      await runGitIn(work, ["config", "user.name", "Metafab Test"], env);
+      await runGitIn(work, ["config", "user.email", "metafab@example.com"], env);
+      await cp(path.join(FIXTURES, "valid-fab", ".factory"), path.join(work, ".factory"), {
+        recursive: true,
+      });
+      await writeFile(path.join(work, ".factory", "plain.md"), lf);
+      await writeFile(path.join(work, ".factory", "crlf.txt"), crlf);
+      await runGitIn(work, ["add", "-A"], env);
+      await runGitIn(work, ["commit", "-qm", "line endings"], env);
+      // The rules arrive after the blobs are committed, so the blobs keep the
+      // exact bytes a fab can contain; `git archive` still applies the rules
+      // when it exports the tree.
+      await writeFile(
+        path.join(work, ".factory", ".gitattributes"),
+        "*.md text eol=crlf\n*.txt text=auto eol=lf\n",
+      );
+      await runGitIn(work, ["add", "-A"], env);
+      await runGitIn(work, ["commit", "-qm", "line ending rules"], env);
+      await runGitIn(work, ["tag", "v1.0.0"], env);
+      await runGitIn(root, ["clone", "-q", "--bare", work, repo], env);
+
+      const resolved = await resolveGit(gitSpec(repo));
+      const fetched = await fetchFab(resolved, options());
+
+      expect(await readFile(path.join(fetched.factoryDir, "plain.md"))).toEqual(lf);
+      expect(await readFile(path.join(fetched.factoryDir, "crlf.txt"))).toEqual(crlf);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("fetches fab files that export-subst or export-ignore would rewrite or drop", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "metafab-git-export-"));
+    const work = path.join(root, "work");
+    const repo = path.join(root, "repo.git");
+    const stamp = Buffer.from("commit $Format:%H$\n", "utf8");
+    const kept = Buffer.from("keep me\n", "utf8");
+    try {
+      const env = await isolatedGitEnvironment(root);
+      await runGitIn(root, ["init", "-q", "-b", "main", work], env);
+      await runGitIn(work, ["config", "core.autocrlf", "false"], env);
+      await runGitIn(work, ["config", "user.name", "Metafab Test"], env);
+      await runGitIn(work, ["config", "user.email", "metafab@example.com"], env);
+      await cp(path.join(FIXTURES, "valid-fab", ".factory"), path.join(work, ".factory"), {
+        recursive: true,
+      });
+      await writeFile(path.join(work, ".factory", "stamp.txt"), stamp);
+      await writeFile(path.join(work, ".factory", "skip.txt"), kept);
+      await writeFile(
+        path.join(work, ".factory", ".gitattributes"),
+        "stamp.txt export-subst\nskip.txt export-ignore\n",
+      );
+      await runGitIn(work, ["add", "-A"], env);
+      await runGitIn(work, ["commit", "-qm", "export attributes"], env);
+      await runGitIn(work, ["tag", "v1.0.0"], env);
+      await runGitIn(root, ["clone", "-q", "--bare", work, repo], env);
+
+      const resolved = await resolveGit(gitSpec(repo));
+      const fetched = await fetchFab(resolved, options());
+
+      expect(await readFile(path.join(fetched.factoryDir, "stamp.txt"))).toEqual(stamp);
+      expect(await readFile(path.join(fetched.factoryDir, "skip.txt"))).toEqual(kept);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("leaves the mirror attribute rules untouched when they are already in place", async () => {
+    const first = await resolve(gitSpec(fixture.repo), { ...options(), to: "v1.0.0" });
+    await fetchFab(first, options());
+
+    const attributes = path.join(
+      cacheLayout(cache).gitMirror(fixture.repo),
+      "info",
+      "attributes",
+    );
+    expect(await readFile(attributes, "utf8")).toContain("-export-ignore");
+    const before = await stat(attributes);
+
+    // A second fetch through the same mirror must not rewrite the file. On
+    // Windows a read-only or open attribute file would otherwise fail the
+    // whole fetch with EPERM.
+    const second = await resolve(gitSpec(fixture.repo), { ...options(), to: "v2.0.0" });
+    await fetchFab(second, options());
+
+    const after = await stat(attributes);
+    expect(after.mtimeMs).toBe(before.mtimeMs);
+  });
+
+  test("fails with exit 3 when the mirror cannot hold the verbatim attribute rules", async () => {
+    const resolved = await resolveGit(gitSpec(fixture.repo));
+    const mirror = cacheLayout(cache).gitMirror(fixture.repo);
+    await rm(path.join(mirror, "info"), { recursive: true, force: true });
+    await writeFile(path.join(mirror, "info"), "not a directory\n");
+
+    await expect(fetchFab(resolved, options())).rejects.toMatchObject({
+      exitCode: ExitCode.FetchFailed,
+      code: "fetch-failed",
+    });
+  });
+
+  test("does not reuse a fab cached before the fetch format changed", async () => {
+    const resolved = await resolveGit(gitSpec(fixture.repo));
+    if (resolved.kind !== "git") throw new Error("expected a git source");
+    const legacy = cacheLayout(cache).fabDir(fabKey(`file://${fixture.repo}`, resolved.commit));
+    await mkdir(legacy, { recursive: true });
+    await writeFile(path.join(legacy, "from-an-older-fetch"), "stale");
+
+    const fetched = await fetchFab(resolved, options());
+
+    expect(fetched.factoryDir).not.toBe(legacy);
+    expect(await pathExists(path.join(legacy, "from-an-older-fetch"))).toBe(true);
+  });
+
+  // Windows has no POSIX mode bits, so both fetches report the same fixed mode.
+  test.skipIf(process.platform === "win32")(
+    "fetches the same file modes whatever tar.umask says",
+    async () => {
+      const root = await mkdtemp(path.join(tmpdir(), "metafab-git-umask-"));
+      const work = path.join(root, "work");
+      const repo = path.join(root, "repo.git");
+      const script = Buffer.from("#!/bin/sh\necho hi\n", "utf8");
+      const plain = Buffer.from("plain\n", "utf8");
+      const defaultCache = await mkdtemp(path.join(tmpdir(), "metafab-git-umask-default-"));
+      const restrictiveCache = await mkdtemp(path.join(tmpdir(), "metafab-git-umask-restrictive-"));
+      try {
+        const env = await isolatedGitEnvironment(root);
+        await runGitIn(root, ["init", "-q", "-b", "main", work], env);
+        await runGitIn(work, ["config", "core.autocrlf", "false"], env);
+        await runGitIn(work, ["config", "user.name", "Metafab Test"], env);
+        await runGitIn(work, ["config", "user.email", "metafab@example.com"], env);
+        await cp(path.join(FIXTURES, "valid-fab", ".factory"), path.join(work, ".factory"), {
+          recursive: true,
+        });
+        await writeFile(path.join(work, ".factory", "run.sh"), script);
+        await chmod(path.join(work, ".factory", "run.sh"), 0o755);
+        await writeFile(path.join(work, ".factory", "plain.md"), plain);
+        await runGitIn(work, ["add", "-A"], env);
+        await runGitIn(work, ["commit", "-qm", "file modes"], env);
+        await runGitIn(work, ["tag", "v1.0.0"], env);
+        await runGitIn(root, ["clone", "-q", "--bare", work, repo], env);
+
+        const defaults = await fetchFab(await resolveGit(gitSpec(repo)), { cache: defaultCache });
+
+        // The host's umask, applied to `git archive` through `tar.umask=0077`.
+        // Without the pinned setting every entry is recorded as 0600, so this
+        // fetch would land a fab whose modes depend on the machine.
+        const gitconfig = path.join(root, "restrictive-gitconfig");
+        await writeFile(gitconfig, "[tar]\n\tumask = 0077\n");
+        const restrictiveEnv = {
+          ...process.env,
+          GIT_CONFIG_GLOBAL: gitconfig,
+          GIT_CONFIG_NOSYSTEM: "1",
+        };
+        const resolved = await resolve(gitSpec(repo), { cache: restrictiveCache, env: restrictiveEnv });
+        const restrictive = await fetchFab(resolved, { cache: restrictiveCache, env: restrictiveEnv });
+
+        for (const relativePath of ["run.sh", "plain.md", "factory.yaml", "AGENTS.md"]) {
+          expect(
+            (await stat(path.join(restrictive.factoryDir, relativePath))).mode & 0o777,
+          ).toBe((await stat(path.join(defaults.factoryDir, relativePath))).mode & 0o777);
+        }
+        // The executable bit survives in both, as a fab's scripts need it.
+        expect((await stat(path.join(restrictive.factoryDir, "run.sh"))).mode & 0o111).not.toBe(0);
+      } finally {
+        await rm(defaultCache, { recursive: true, force: true });
+        await rm(restrictiveCache, { recursive: true, force: true });
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test("does not reuse a fab cached under the attribute-only fetch format", async () => {
+    const resolved = await resolveGit(gitSpec(fixture.repo));
+    if (resolved.kind !== "git") throw new Error("expected a git source");
+    // The format segment the fetch used before the export settings entered the
+    // key: only the attribute rules were hashed.
+    const attributeOnlyFormat = `git-verbatim-${createHash("sha256")
+      .update(
+        "* -text -eol -filter -ident -working-tree-encoding -export-subst -export-ignore\n",
+      )
+      .digest("hex")
+      .slice(0, 12)}`;
+    const previous = cacheLayout(cache).fabDir(
+      fabKey(attributeOnlyFormat, `file://${fixture.repo}`, resolved.commit),
+    );
+    await mkdir(previous, { recursive: true });
+    await writeFile(path.join(previous, "from-an-older-fetch"), "stale");
+
+    const fetched = await fetchFab(resolved, options());
+
+    expect(fetched.factoryDir).not.toBe(previous);
+    expect(await pathExists(path.join(previous, "from-an-older-fetch"))).toBe(true);
   });
 
   test("does not run git hooks from the environment", async () => {
