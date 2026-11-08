@@ -380,7 +380,7 @@ export async function runImport(options: ImportOptions): Promise<ImportReport> {
       moved: plan.moves.map((move) => ({ ...move, from: [...move.from] })),
       copied,
       changed: build.changed,
-      problems: [...warnings, ...buildPlan.warnings],
+      problems: [...warnings, ...buildPlan.warnings, ...build.hookWarnings],
       review: summarise(before, after, { title: importTitle(fetched.upstream) }),
       declined: false,
     };

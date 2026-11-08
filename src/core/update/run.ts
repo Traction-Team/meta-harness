@@ -231,7 +231,10 @@ async function buildFactory(
   if (plan.errors.length > 0) throw buildFailed(plan, warnings);
 
   const report = await applyBuild(plan);
-  return { changed: report.changed, problems: [...warnings, ...plan.warnings] };
+  return {
+    changed: report.changed,
+    problems: [...warnings, ...plan.warnings, ...report.hookWarnings],
+  };
 }
 
 async function lstatIfExists(target: string) {
