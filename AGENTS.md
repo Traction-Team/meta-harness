@@ -14,15 +14,16 @@ This repository builds **Metafab**: the `metafab` CLI, published as `@seasb/meta
 
 ## Commands
 
-Plan 1.001 creates the package. Until it merges there is nothing to build or test.
-
 ```bash
 npm install
-npm run verify          # typecheck, tests, build: run before every push
+npm run verify          # typecheck, tests, build, factory: run before every push
+npm run factory         # metafab build and check, then the docs check; fails when the AGENTS.md block is stale
 node dist/cli.js <cmd>  # the CLI from this checkout
-node .factory/scripts/check.mjs   # validates .factory/, plans, roadmap, intake and changelog
+node .factory/scripts/check.mjs   # validates plans, roadmap, intake and changelog
 node .factory/scripts/next.mjs    # plans that can be built next
 ```
+
+In this repository `metafab` is `node dist/cli.js`: run `npm run build` first.
 
 ## Rules
 
@@ -59,9 +60,12 @@ git add docs/<files> .factory/<files>
 git diff --cached --name-only | grep -vE '^(docs|\.factory)/'   # must print nothing
 git diff --cached --name-only | grep '^\.factory/scripts/'      # must print nothing: scripts are code and go in a pull request
 node .factory/scripts/check.mjs                                 # fix what it reports
+npm run factory                                                 # when .factory/ changed: also builds and checks, and fails when the AGENTS.md block is stale
 git commit -m "docs: <what changed>"
 git push
 ```
+
+A docs-only commit runs `node .factory/scripts/check.mjs`. A change to `.factory/` must also run `npm run factory`, because the `AGENTS.md` block is committed: an edit that changes it regenerates root `AGENTS.md`, which must be staged, and that change goes in a pull request.
 
 If anything outside `docs/` and `.factory/` (or inside `.factory/scripts/`) is staged, it goes in a pull request instead.
 
