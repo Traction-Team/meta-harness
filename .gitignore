@@ -2,3 +2,8 @@
 *.log
 node_modules/
 dist/
+
+# metafab:start
+.claude/skills/
+.agents/skills/
+# metafab:end
