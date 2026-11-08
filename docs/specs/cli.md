@@ -75,6 +75,8 @@ For a new `factory.yaml`, `init` writes `format: 1` and derives `name` from the 
 
 When `init` creates `metafab.yaml` and the repository root has an `orca.yaml` whose text does not contain `metafab build`, it suggests adding `npx --yes @seasb/metafab build` to `scripts.setup`, so new Orca worktrees get the factory skills. It never edits `orca.yaml`. The suggestion is a line in the summary and an entry in `suggestions` in the `--json` result.
 
+`init` refuses to write through a symbolic link. When it would create or change `.factory/AGENTS.md` or the root `.gitattributes` and the path is a symbolic link, it exits with code 1 and changes nothing: `<path> is a symbolic link, so metafab init will not write through it`, with the fix `Replace it with a regular file, then run metafab init again`. A dangling link therefore never creates its target. A link to an existing file that needs no change is left alone.
+
 `init` does not create part directories. All directories are optional, and Git does not track empty directories.
 
 An existing factory remains intact. `init` adds only missing entries.

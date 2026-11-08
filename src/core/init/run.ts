@@ -1,4 +1,3 @@
-import { createRequire } from "node:module";
 import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
@@ -6,6 +5,7 @@ import type { Problem } from "../../errors.js";
 import { confirm, NeedsInput } from "../../input.js";
 import type { InputIO } from "../../input.js";
 import { isDirectory, pathExists } from "../../util/fs.js";
+import { cliVersion } from "../../util/version.js";
 import {
   ADOPTION_QUESTION,
   adoptionRequired,
@@ -21,10 +21,11 @@ import { destinations } from "../config/destinations.js";
 import { loadConfig, unreadableConfigCode } from "../config/load.js";
 import { TARGETS } from "../config/types.js";
 import type { Config, Target } from "../config/types.js";
-import { createConfig, createConfigText } from "../config/writers.js";
+import { createConfig, createConfigText, setGitHooks } from "../config/writers.js";
 import { createFactoryYamlText } from "../edit/factory-yaml.js";
 import { loadFactory } from "../factory/load.js";
-import { ensureGitattributes } from "./gitattributes.js";
+import type { HookChange } from "../hooks/index.js";
+import { assertGitattributesWritable, ensureGitattributes } from "./gitattributes.js";
 import { deriveFactoryName } from "./name.js";
 import { selectTargets } from "./targets.js";
 import type { TargetPrompt } from "./targets.js";
@@ -36,6 +37,8 @@ export interface InitOptions {
   agents?: string;
   /** Consent to adopt existing repository skills without asking. */
   adopt?: boolean;
+  /** `--git-hooks` (`true`) or `--no-git-hooks` (`false`); absent when neither was given. */
+  gitHooks?: boolean;
   /** Injected input and output; production uses the process streams. */
   io?: InputIO;
   /** Injected agent-target prompt, so tests do not need a terminal. */
@@ -54,17 +57,24 @@ export interface InitReport {
   moved: AdoptionMove[];
   /** Files created, updated, or removed by the closing build. */
   changed: BuildChange[];
-  /** Build warnings. */
+  /** Git hooks created, updated, or removed by the closing build. */
+  hooks: HookChange[];
+  /** Build and hook warnings. */
   problems: Problem[];
   /** True when the adoption question was answered with no. */
   declined: boolean;
+  /** Human notes, such as a `git-hooks` value that was left alone. */
+  notes: string[];
+  /** Suggestions printed last, such as the Orca worktree setup step. */
+  suggestions: string[];
 }
 
-function cliVersion(): string {
-  const require = createRequire(import.meta.url);
-  const pkg = require("../../../package.json") as { version?: unknown };
-  return typeof pkg.version === "string" ? pkg.version : "0.0.0";
-}
+const AGENTS_FILE = ".factory/AGENTS.md";
+
+const GIT_HOOKS_QUESTION = "Run metafab build automatically after checkout, merge, and rebase?";
+
+const ORCA_SUGGESTION =
+  'Add "npx --yes @seasb/metafab build" to scripts.setup in orca.yaml so new Orca worktrees get the factory skills.';
 
 function selectedTargets(selection: "all" | Target[]): Target[] {
   return selection === "all" ? [...TARGETS] : [...selection];
@@ -176,6 +186,60 @@ function isAdoptionSource(file: string, moves: readonly AdoptionMove[]): boolean
 }
 
 /**
+ * Refuses a `.factory/AGENTS.md` that is a symbolic link `init` would write
+ * through. `ensureFactoryFiles` writes the file only when it does not resolve
+ * to a file, so a link to an existing file is left alone.
+ */
+async function assertAgentsFileWritable(factoryDir: string): Promise<void> {
+  const file = path.join(factoryDir, "AGENTS.md");
+
+  let info;
+  try {
+    info = await lstat(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw unreadableFactory(
+      AGENTS_FILE,
+      `Cannot read ${AGENTS_FILE}`,
+      "Check its permissions or restore the file",
+    );
+  }
+
+  if (!info.isSymbolicLink()) return;
+  if (await pathExists(file)) return;
+
+  throw unreadableFactory(
+    AGENTS_FILE,
+    `${AGENTS_FILE} is a symbolic link, so metafab init will not write through it`,
+    "Replace it with a regular file, then run metafab init again",
+  );
+}
+
+/**
+ * Refuses every entry `init` would write through a symbolic link, before it
+ * writes anything. A dangling link would otherwise create its target, possibly
+ * outside the repository.
+ */
+async function assertWritableEntries(root: string, factoryDir: string): Promise<void> {
+  await assertGitattributesWritable(root, "init");
+  await assertAgentsFileWritable(factoryDir);
+}
+
+/** The Orca setup suggestion, when this run created the config and Orca is used. */
+async function orcaSuggestions(root: string, created: readonly string[]): Promise<string[]> {
+  if (!created.includes(`.factory/${CONFIG_FILENAME}`)) return [];
+
+  let text: string;
+  try {
+    text = await readFile(path.join(root, "orca.yaml"), "utf8");
+  } catch {
+    return [];
+  }
+
+  return text.includes("metafab build") ? [] : [ORCA_SUGGESTION];
+}
+
+/**
  * The output conflicts `build` would refuse, checked before `init` writes
  * anything. Validation errors that are already in the factory are left for the
  * closing build to report, so `init` still adds the missing entries the
@@ -210,6 +274,7 @@ async function ensureFactoryFiles(
   root: string,
   factoryDir: string,
   selection: "all" | Target[],
+  gitHooks?: boolean,
 ): Promise<string[]> {
   const created: string[] = [];
   await mkdir(factoryDir, { recursive: true });
@@ -227,7 +292,9 @@ async function ensureFactoryFiles(
     created.push(".factory/AGENTS.md");
   }
 
-  if (await createConfig(factoryDir, { agents: selection })) {
+  const config: { agents: "all" | Target[]; gitHooks?: boolean } = { agents: selection };
+  if (gitHooks !== undefined) config.gitHooks = gitHooks;
+  if (await createConfig(factoryDir, config)) {
     created.push(`.factory/${CONFIG_FILENAME}`);
   }
 
@@ -287,16 +354,43 @@ export async function runInit(options: InitOptions): Promise<InitReport> {
       gitattributes: [],
       moved: [],
       changed: [],
+      hooks: [],
       problems: [],
       declined: true,
+      notes: [],
+      suggestions: [],
     };
+  }
+
+  const notes: string[] = [];
+  let hooksValue: boolean | undefined;
+  const hooksKeyPresent = configExists && existingConfig.gitHooksRaw !== undefined;
+
+  if (hooksKeyPresent) {
+    notes.push(
+      `git-hooks is already ${String(existingConfig.gitHooks)} in .factory/${CONFIG_FILENAME}`,
+    );
+  } else if (options.gitHooks !== undefined) {
+    hooksValue = options.gitHooks;
+  } else if (tty) {
+    hooksValue = await confirm(
+      { name: "git-hooks", flag: "--git-hooks", description: GIT_HOOKS_QUESTION },
+      { default: true },
+      { ...io, tty },
+    );
   }
 
   await preflightBuild(root, existingConfig, selection, configExists, plan.moves);
   await assertFactoryFileReadable(factoryDir);
+  await assertWritableEntries(root, factoryDir);
 
-  const created = await ensureFactoryFiles(root, factoryDir, selection);
+  const created = await ensureFactoryFiles(root, factoryDir, selection, hooksValue);
   const updated: string[] = [];
+
+  if (configExists && hooksValue !== undefined) {
+    await setGitHooks(factoryDir, hooksValue);
+    updated.push(`.factory/${CONFIG_FILENAME}`);
+  }
 
   const gitattributesExisted = await pathExists(path.join(root, ".gitattributes"));
   const gitattributes = await ensureGitattributes(root);
@@ -306,6 +400,8 @@ export async function runInit(options: InitOptions): Promise<InitReport> {
   }
 
   if (plan.moves.length > 0) await applyAdoption(plan);
+
+  const suggestions = await orcaSuggestions(root, created);
 
   const builtFactory = await loadFactory(root);
   const config = await readConfig(factoryDir);
@@ -338,8 +434,11 @@ export async function runInit(options: InitOptions): Promise<InitReport> {
     gitattributes: [...gitattributes.added],
     moved: plan.moves.map((move) => ({ ...move, from: [...move.from] })),
     changed: report.changed,
-    problems: allWarnings,
+    hooks: report.hooks,
+    problems: [...allWarnings, ...report.hookWarnings],
     declined: false,
+    notes,
+    suggestions,
   };
 }
 
@@ -352,19 +451,27 @@ export function describeInit(report: InitReport): string {
     report.updated.length === 0 &&
     report.gitattributes.length === 0 &&
     report.moved.length === 0 &&
-    report.changed.length === 0;
-  if (seemsComplete) return "Already initialised";
+    report.changed.length === 0 &&
+    report.hooks.length === 0;
 
   const marks = { created: "+", updated: "~", removed: "-" } as const;
-  const gitattributesUpdated = report.updated.includes(".gitattributes");
-  const lines = [
-    ...report.created.map((file) => `Created ${file}`),
-    ...report.updated.map((file) => `Updated ${file}`),
-    ...(gitattributesUpdated
-      ? report.gitattributes.map((line) => `Added .gitattributes line: ${line}`)
-      : []),
-    ...report.moved.map((move) => `Moved ${move.from.join(", ")} -> ${move.to}`),
-    ...report.changed.map((change) => `${marks[change.action]} ${change.path}`),
-  ];
-  return lines.join("\n");
+  const lines: string[] = [];
+
+  if (seemsComplete) {
+    lines.push("Already initialised");
+  } else {
+    const gitattributesUpdated = report.updated.includes(".gitattributes");
+    lines.push(
+      ...report.created.map((file) => `Created ${file}`),
+      ...report.updated.map((file) => `Updated ${file}`),
+      ...(gitattributesUpdated
+        ? report.gitattributes.map((line) => `Added .gitattributes line: ${line}`)
+        : []),
+      ...report.moved.map((move) => `Moved ${move.from.join(", ")} -> ${move.to}`),
+      ...report.changed.map((change) => `${marks[change.action]} ${change.path}`),
+      ...report.hooks.map((change) => `${marks[change.action]} git hook ${change.hook}`),
+    );
+  }
+
+  return [...lines, ...report.notes, ...report.suggestions].join("\n");
 }
