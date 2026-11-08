@@ -1,8 +1,8 @@
 import { chmod, lstat, mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
+import { cliVersion } from "../../util/version.js";
 import { applyBuild, planBuild } from "../build/index.js";
 import type { BuildChange } from "../build/index.js";
 import { scanFactoryFiles } from "../check/index.js";
@@ -114,12 +114,6 @@ interface TreeChanges {
   added: string[];
   updated: string[];
   removed: string[];
-}
-
-function cliVersion(): string {
-  const require = createRequire(import.meta.url);
-  const pkg = require("../../../package.json") as { version?: unknown };
-  return typeof pkg.version === "string" ? pkg.version : "0.0.0";
 }
 
 function noUpstream(): MetafabError {
@@ -721,6 +715,10 @@ function sameUpstream(left: VersionedUpstream, right: VersionedUpstream): boolea
  * recorded and writes the request the selection resolved, so a later update
  * follows a new `--to` range even when it selected the version already
  * installed.
+ *
+ * `upstreamEntry` in `src/core/sources/git.ts` and `npm.ts` rebuilds the
+ * recorded source from the source spec instead. This function must not use it:
+ * it keeps the recorded `source` spelling, which a rebuilt entry would change.
  */
 function upstreamFor(
   previous: VersionedUpstream,

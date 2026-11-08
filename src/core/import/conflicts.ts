@@ -21,21 +21,33 @@ export interface LocalPaths {
 }
 
 /**
- * Local paths indexed the way the filesystem compares them: ignoring case,
- * with each directory mapped to a key beneath it. The entries keep the
- * spelling and the file path of the local tree, so a problem names the local
- * entry.
+ * Local paths indexed the way the filesystem compares them: ignoring case, with
+ * every spelling kept. A case-sensitive filesystem can hold two entries that
+ * fold to one name, and both callers must see both rather than silently
+ * choosing one.
  */
-interface LocalIndex {
-  files: Map<string, { key: string; local: LocalFile }>;
-  directories: Map<string, { key: string; local: string }>;
+export interface Indexed<T> {
+  key: string;
+  value: T;
+}
+
+/** One list of entries per folded name, each entry keeping its local spelling. */
+export function indexOf<T>(entries: Iterable<[string, T]>): Map<string, Indexed<T>[]> {
+  const index = new Map<string, Indexed<T>[]>();
+  for (const [key, value] of entries) {
+    const folded = key.toLowerCase();
+    const indexed = index.get(folded);
+    if (indexed === undefined) index.set(folded, [{ key, value }]);
+    else indexed.push({ key, value });
+  }
+  return index;
 }
 
 function absolute(root: string, relativePath: string): string {
   return path.join(root, ...relativePath.split("/"));
 }
 
-function ancestors(relativePath: string): string[] {
+export function ancestors(relativePath: string): string[] {
   const parts = relativePath.split("/");
   const prefixes: string[] = [];
   for (let index = 1; index < parts.length; index += 1) {
@@ -62,12 +74,46 @@ function blocked(file: string): Problem {
   };
 }
 
-function differentSpelling(file: string, incoming: string): Problem {
+/** The one wording for a local entry that differs only in case from an incoming path. */
+export function differentSpelling(
+  file: string,
+  incoming: string,
+  command: "import" | "update",
+): Problem {
+  const importing = command === "import";
   return {
     level: "error",
     file,
-    message: `The incoming fab writes ${incoming}, which differs only in case from ${file}`,
-    fix: "Keep the local file, or run metafab import --force to replace it",
+    message: importing
+      ? `The incoming fab writes ${incoming}, which differs only in case from ${file}`
+      : `The update writes ${incoming}, which differs only in case from ${file}`,
+    fix: importing
+      ? "Keep the local file, or run metafab import --force to replace it"
+      : "Move the local entry away, then run metafab update again",
+  };
+}
+
+/**
+ * The problem for an incoming path that several local spellings fold to.
+ *
+ * The clash preflight and the realignment both refuse this case, so the text is
+ * built here once and both paths report it identically.
+ */
+export function ambiguousSpellingProblem(
+  files: readonly string[],
+  incoming: string,
+  command: "import" | "update",
+): Problem {
+  const importing = command === "import";
+  return {
+    level: "error",
+    file: files[0] ?? incoming,
+    message: importing
+      ? `The incoming fab writes ${incoming}, but these local entries differ only in case: ${files.join(", ")}`
+      : `The update writes ${incoming}, but these local entries differ only in case: ${files.join(", ")}`,
+    fix: importing
+      ? "Move all but one of the local entries away, then run metafab import again"
+      : "Move all but one of the local entries away, then run metafab update again",
   };
 }
 
@@ -139,21 +185,14 @@ export async function localFilesForImport(
   return paths;
 }
 
-function indexOf(local: LocalPaths): LocalIndex {
-  const files = new Map<string, { key: string; local: LocalFile }>();
-  const directories = new Map<string, { key: string; local: string }>();
-
-  for (const [key, file] of local.directories) {
-    const folded = key.toLowerCase();
-    if (!directories.has(folded)) directories.set(folded, { key, local: file });
-  }
-
-  for (const [key, localFile] of local.files) {
-    const folded = key.toLowerCase();
-    if (!files.has(folded)) files.set(folded, { key, local: localFile });
-  }
-
-  return { files, directories };
+function localIndex(local: LocalPaths): {
+  files: Map<string, Indexed<LocalFile>[]>;
+  directories: Map<string, Indexed<string>[]>;
+} {
+  return {
+    files: indexOf(local.files.entries()),
+    directories: indexOf(local.directories.entries()),
+  };
 }
 
 /**
@@ -181,7 +220,7 @@ export async function findImportConflicts(
     snapshotTree(incomingDir),
     snapshotDirectories(incomingDir),
   ]);
-  const index = indexOf(local);
+  const index = localIndex(local);
   const problems: Problem[] = [];
   const reported = new Set<string>();
 
@@ -201,43 +240,43 @@ export async function findImportConflicts(
   function checkLocalPath(relativePath: string, incomingDirectory: boolean): void {
     const folded = relativePath.toLowerCase();
 
-    const existingFile = index.files.get(folded);
+    const existingFile = index.files.get(folded)?.[0];
     if (existingFile !== undefined) {
       if (existingFile.key !== relativePath) {
-        report(differentSpelling(existingFile.local.file, relativePath));
+        report(differentSpelling(existingFile.value.file, relativePath, "import"));
       } else if (incomingDirectory) {
-        report(blocked(existingFile.local.file));
-      } else if (existingFile.local.entry.hash !== incoming[relativePath]!.hash) {
-        report(replaced(existingFile.local.file));
+        report(blocked(existingFile.value.file));
+      } else if (existingFile.value.entry.hash !== incoming[relativePath]!.hash) {
+        report(replaced(existingFile.value.file));
       }
       return;
     }
 
     for (const prefix of ancestors(relativePath)) {
       const foldedPrefix = prefix.toLowerCase();
-      const ancestorFile = index.files.get(foldedPrefix);
+      const ancestorFile = index.files.get(foldedPrefix)?.[0];
       if (ancestorFile !== undefined) {
         report(
           ancestorFile.key === prefix
-            ? blocked(ancestorFile.local.file)
-            : differentSpelling(ancestorFile.local.file, relativePath),
+            ? blocked(ancestorFile.value.file)
+            : differentSpelling(ancestorFile.value.file, relativePath, "import"),
         );
         return;
       }
 
-      const ancestorDirectory = index.directories.get(foldedPrefix);
+      const ancestorDirectory = index.directories.get(foldedPrefix)?.[0];
       if (ancestorDirectory !== undefined && ancestorDirectory.key !== prefix) {
-        report(differentSpelling(ancestorDirectory.local, relativePath));
+        report(differentSpelling(ancestorDirectory.value, relativePath, "import"));
         return;
       }
     }
 
-    const existingDirectory = index.directories.get(folded);
+    const existingDirectory = index.directories.get(folded)?.[0];
     if (existingDirectory === undefined) return;
     if (existingDirectory.key !== relativePath) {
-      report(differentSpelling(existingDirectory.local, relativePath));
+      report(differentSpelling(existingDirectory.value, relativePath, "import"));
     } else if (!incomingDirectory) {
-      report(blocked(existingDirectory.local));
+      report(blocked(existingDirectory.value));
     }
   }
 

@@ -1,11 +1,10 @@
-import { lstat } from "node:fs/promises";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import { confirm, NeedsInput } from "../../input.js";
 import type { InputIO } from "../../input.js";
 import { isDirectory, pathExists } from "../../util/fs.js";
+import { cliVersion } from "../../util/version.js";
 import {
   ADOPTION_QUESTION,
   adoptionRequired,
@@ -17,15 +16,19 @@ import type { AdoptionMove, AdoptionPlan } from "../adopt.js";
 import { applyBuild, planBuild } from "../build/index.js";
 import type { BuildChange } from "../build/index.js";
 import { destinations } from "../config/destinations.js";
-import { loadConfig } from "../config/load.js";
-import { CONFIG_FILE, CONFIG_FILENAME, parseConfig } from "../config/parse.js";
-import { TARGETS } from "../config/types.js";
-import type { Config, Target, UpstreamEntry } from "../config/types.js";
-import { createConfig, createConfigText, setUpstream } from "../config/writers.js";
+import { CONFIG_FILE, CONFIG_FILENAME } from "../config/parse.js";
+import type { UpstreamEntry } from "../config/types.js";
+import { createConfig, setUpstream } from "../config/writers.js";
 import { loadFactory } from "../factory/load.js";
 import { ensureGitattributes } from "../init/gitattributes.js";
 import { selectTargets } from "../init/targets.js";
 import type { TargetPrompt } from "../init/targets.js";
+import {
+  assertFactoryDirectoryUsable,
+  preflightBuild,
+  readConfig,
+  selectedTargets,
+} from "../setup.js";
 import { fetchFab, parseSource, resolve } from "../sources/index.js";
 import type { FetchedFab, SourceOptions } from "../sources/index.js";
 import { renderSummary, summarise } from "../summary.js";
@@ -78,79 +81,6 @@ export interface ImportReport {
   review: Summary;
   /** True when the adoption question was answered with no. */
   declined: boolean;
-}
-
-function cliVersion(): string {
-  const require = createRequire(import.meta.url);
-  const pkg = require("../../../package.json") as { version?: unknown };
-  return typeof pkg.version === "string" ? pkg.version : "0.0.0";
-}
-
-function unreadableFactory(file: string, message: string, fix: string): MetafabError {
-  return new MetafabError(message, {
-    exitCode: ExitCode.Failed,
-    code: "factory-unreadable",
-    problems: [{ level: "error", file, message, fix }],
-  });
-}
-
-/** Refuses a `.factory` entry that cannot hold a factory before anything reads it. */
-async function assertFactoryDirectoryUsable(factoryDir: string): Promise<void> {
-  let info;
-  try {
-    info = await lstat(factoryDir);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ENOENT") return;
-    throw unreadableFactory(
-      ".factory",
-      "Cannot read the .factory entry",
-      "Check its permissions or restore the directory",
-    );
-  }
-
-  if (info.isDirectory()) return;
-  if (info.isSymbolicLink() && (await isDirectory(factoryDir))) return;
-
-  throw unreadableFactory(
-    ".factory",
-    info.isSymbolicLink()
-      ? ".factory is a symbolic link that does not point to a directory"
-      : ".factory is a file, not a directory",
-    "Move it or replace it with a directory, then run metafab import again",
-  );
-}
-
-/**
- * True when `loadConfig` reported that the configuration exists but cannot be
- * read. `loadConfig` answers such a failure with a problem instead of throwing,
- * so `import` has to refuse before it treats the file as missing and writes it.
- */
-function unreadableConfig(config: Config): boolean {
-  return config.problems.some(
-    (problem) =>
-      problem.level === "error" &&
-      problem.file === CONFIG_FILE &&
-      problem.message === `Cannot read ${CONFIG_FILE}`,
-  );
-}
-
-/** Loads `metafab.yaml`, turning any failure to read it into a problem list. */
-async function readConfig(factoryDir: string): Promise<Config> {
-  const config = await loadConfig(factoryDir);
-  if (unreadableConfig(config)) {
-    throw unreadableFactory(
-      CONFIG_FILE,
-      `Cannot read file ${CONFIG_FILE}`,
-      "Check its permissions or restore the file",
-    );
-  }
-
-  return config;
-}
-
-function selectedTargets(selection: "all" | Target[]): Target[] {
-  return selection === "all" ? [...TARGETS] : [...selection];
 }
 
 function upstreamExists(): MetafabError {
@@ -209,40 +139,6 @@ function declinedReport(
   };
 }
 
-function isAdoptionSource(file: string, moves: readonly AdoptionMove[]): boolean {
-  return moves.some((move) => move.from.some((from) => file === from || file.startsWith(`${from}/`)));
-}
-
-/**
- * The output conflicts `build` would refuse, checked before `import` writes
- * anything. Validation errors that are already in the factory are left for the
- * closing build to report. Conflict problems inside a planned move are ignored:
- * the move removes them.
- */
-async function preflightBuild(
-  root: string,
-  config: Config,
-  selection: "all" | Target[],
-  configExists: boolean,
-  moves: readonly AdoptionMove[],
-): Promise<void> {
-  const factory = await loadFactory(root);
-  const effective = configExists ? config : parseConfig(createConfigText({ agents: selection }));
-  const planned = await planBuild(factory, effective, cliVersion());
-  const conflicts = planned.conflicts.filter((problem) => !isAdoptionSource(problem.file, moves));
-
-  if (conflicts.length === 0) return;
-
-  throw new MetafabError(
-    "Build stopped because the repository contains output that Metafab does not own.",
-    {
-      exitCode: ExitCode.NotOwned,
-      code: "build-conflict",
-      problems: [...conflicts, ...planned.errors, ...planned.warnings],
-    },
-  );
-}
-
 /**
  * Runs `metafab import`: resolve and fetch the source, check it against the
  * repository without writing, collect adoption consent, then create the local
@@ -257,9 +153,9 @@ export async function runImport(options: ImportOptions): Promise<ImportReport> {
   const io: InputIO = options.io ?? {};
   const tty = io.tty ?? process.stdin.isTTY === true;
 
-  await assertFactoryDirectoryUsable(factoryDir);
+  await assertFactoryDirectoryUsable(factoryDir, "import");
   const hasFactory = await isDirectory(factoryDir);
-  const existingConfig = await readConfig(factoryDir);
+  const existingConfig = await readConfig(factoryDir, "import");
 
   if (existingConfig.upstream !== undefined) throw upstreamExists();
   const configErrors = existingConfig.problems.filter((problem) => problem.level === "error");
@@ -345,7 +241,7 @@ export async function runImport(options: ImportOptions): Promise<ImportReport> {
     const after = await snapshotFactory(root);
 
     const builtFactory = await loadFactory(root);
-    const config = await readConfig(factoryDir);
+    const config = await readConfig(factoryDir, "import");
     const warnings = [...builtFactory.problems, ...config.problems].filter(
       (problem) => problem.level === "warning",
     );

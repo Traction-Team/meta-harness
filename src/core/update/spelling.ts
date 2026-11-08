@@ -2,7 +2,7 @@ import { mkdir, readdir, rename } from "node:fs/promises";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { FileEntry, FileTree } from "../import/file-tree.js";
-import { ambiguousSpellingProblem } from "./clashes.js";
+import { ambiguousSpellingProblem } from "../import/conflicts.js";
 
 /** Factory-relative paths an update writes, in the source's spelling. */
 export interface IncomingSpelling {
@@ -45,7 +45,7 @@ function ambiguousSpelling(relativePath: string, candidates: readonly string[]):
     {
       exitCode: ExitCode.Failed,
       code: "update-path-conflict",
-      problems: [ambiguousSpellingProblem(candidates, relativePath)],
+      problems: [ambiguousSpellingProblem(candidates, relativePath, "update")],
     },
   );
 }

@@ -495,6 +495,21 @@ describe("copying a fab", () => {
 });
 
 describe("preflight before writing", () => {
+  test("a directory named metafab.yaml gives the import fix line and writes nothing", async () => {
+    const repo = await repoWith({ ".factory/factory.yaml": "format: 1\nname: demo\n" });
+    await mkdir(repo.path(".factory", "metafab.yaml"));
+    await writeRepoFiles(repo.root, { ".factory/metafab.yaml/keep.txt": "" });
+    const fab = await makeFab(fabFiles());
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["import", fab.root, "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Cannot read file .factory/metafab.yaml");
+    expect(result.stderr).toContain("Restore the file, then run metafab import again");
+    expect(await snapshot(repo.root)).toEqual(before);
+  });
+
   test("an incoming symlink over a local file or directory is a conflict", async () => {
     const repo = await repoWith({
       ".factory/notes-link.md/keep.txt": "keep\n",
@@ -543,6 +558,12 @@ describe("preflight before writing", () => {
     expect(result.code).toBe(5);
     expect(result.stderr).toContain(".factory/templates/note.md");
     expect(result.stderr).toContain(".factory/skills/Guide/SKILL.md");
+    expect(result.stderr).toContain(
+      "The incoming fab writes templates/Note.md, which differs only in case from .factory/templates/note.md",
+    );
+    expect(result.stderr).toContain(
+      "fix: Keep the local file, or run metafab import --force to replace it",
+    );
     expect(await snapshot(repo.root)).toEqual(before);
     expect(await readFile(repo.path(".factory", "templates", "note.md"), "utf8")).toBe("local\n");
   });
