@@ -3,6 +3,7 @@ import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import { cliVersion } from "../../util/version.js";
+import { toLF } from "../../util/text.js";
 import { applyBuild, planBuild } from "../build/index.js";
 import type { BuildChange } from "../build/index.js";
 import { scanFactoryFiles } from "../check/index.js";
@@ -16,12 +17,12 @@ import { emptyTree, snapshotDirectories } from "../import/file-tree.js";
 import type { FileEntry, FileTree } from "../import/file-tree.js";
 import { copyFactoryTree } from "../import/copy.js";
 import { mergePath } from "../merge.js";
-import type { MergeLabels, SideFileReason } from "../merge.js";
+import type { MergeLabels, MergeResult } from "../merge.js";
 import { fetchFab, resolve } from "../sources/index.js";
 import type { FetchedFab, SourceOptions } from "../sources/index.js";
 import { parseSource } from "../sources/parse.js";
 import type { Resolved } from "../sources/types.js";
-import { renderSummary, summarise } from "../summary.js";
+import { renderSummary, summarise, modeMatters } from "../summary.js";
 import type { Summary } from "../summary.js";
 import { findPathClashes } from "./clashes.js";
 import { fetchRecordedBase, recordedBaseGone } from "./fetch.js";
@@ -75,6 +76,8 @@ export interface UpdateReport {
   requested?: string;
   /** Local edits the merge kept. */
   preserved: string[];
+  /** Paths whose content matches upstream but whose executable bit differs. */
+  modeOnly: string[];
   /** Paths left with conflict markers or a `.upstream` side file. */
   conflicts: string[];
   sideFiles: string[];
@@ -98,6 +101,7 @@ interface MergePlan {
   after: FileTree;
   writes: PlannedWrite[];
   preserved: string[];
+  modeOnly: string[];
   conflicts: string[];
   sideFiles: string[];
   notes: string[];
@@ -250,7 +254,8 @@ async function containsFile(directory: string): Promise<boolean> {
 }
 
 /**
- * Writes one planned path, replacing whatever local file or link it lands on.
+ * Resolves the target of a planned write, removing a file, link, or emptied
+ * directory in its way.
  *
  * The clash preflight refuses a write over a directory that still holds local
  * content, so the directory branch below is a defensive invariant: it fires
@@ -259,11 +264,7 @@ async function containsFile(directory: string): Promise<boolean> {
  * directory the plan emptied is removed and replaced, which is how an upstream
  * directory collapses into a file.
  */
-async function writeEntry(
-  factoryDir: string,
-  relativePath: string,
-  entry: FileEntry,
-): Promise<void> {
+async function prepareWrite(factoryDir: string, relativePath: string): Promise<string> {
   const target = factoryPath(factoryDir, relativePath);
   await mkdir(path.dirname(target), { recursive: true });
   const existing = await lstatIfExists(target);
@@ -288,14 +289,51 @@ async function writeEntry(
   } else if (existing !== undefined) {
     await rm(target, { force: true });
   }
+  return target;
+}
+
+/**
+ * The bytes a planned write puts on disk.
+ *
+ * A merged file keeps the line ending its local copy had, so a CRLF file stays
+ * CRLF. An added file is written as upstream had it, original bytes included.
+ * A binary file is never converted.
+ */
+function writeContentFor(entry: FileEntry): Buffer {
+  if (entry.link !== undefined || entry.binary) return entryContent(entry);
+  if (entry.crlf === true) {
+    return Buffer.from(toLF(entry.text ?? "").replace(/\n/g, "\r\n"), "utf8");
+  }
+  return entry.raw ?? entryContent(entry);
+}
+
+/** Writes one planned path, replacing whatever local file or link it lands on. */
+async function writeEntry(
+  factoryDir: string,
+  relativePath: string,
+  entry: FileEntry,
+): Promise<void> {
+  const target = await prepareWrite(factoryDir, relativePath);
 
   if (entry.link !== undefined) {
     await symlink(entry.link, target);
     return;
   }
 
-  await writeFile(target, entryContent(entry), { mode: entry.mode });
+  await writeFile(target, writeContentFor(entry), { mode: entry.mode });
   await chmod(target, entry.mode);
+}
+
+/** Writes a side file from upstream's bytes, which are already final. */
+async function writeRawEntry(
+  factoryDir: string,
+  relativePath: string,
+  content: Buffer,
+  mode: number,
+): Promise<void> {
+  const target = await prepareWrite(factoryDir, relativePath);
+  await writeFile(target, content, { mode });
+  await chmod(target, mode);
 }
 
 async function applyWrites(factoryDir: string, writes: readonly PlannedWrite[]): Promise<void> {
@@ -304,11 +342,7 @@ async function applyWrites(factoryDir: string, writes: readonly PlannedWrite[]):
       // A planned removal names a local file or link, never a directory.
       await rm(factoryPath(factoryDir, write.path), { force: true });
     } else if (write.kind === "side-file") {
-      await writeEntry(
-        factoryDir,
-        `${write.path}.upstream`,
-        entryFromContent(write.content, write.mode),
-      );
+      await writeRawEntry(factoryDir, `${write.path}.upstream`, write.content, write.mode);
     } else {
       await writeEntry(factoryDir, write.path, write.entry);
     }
@@ -349,9 +383,7 @@ function movedSpelling(
 function entriesDiffer(left: FileEntry | undefined, right: FileEntry | undefined): boolean {
   if (left === undefined || right === undefined) return left !== right;
   if (left.hash !== right.hash) return true;
-  // A link's mode belongs to the host, not to the fab, and differs between
-  // hosts, so only a file's mode counts, as in the review summary.
-  return left.link === undefined && right.link === undefined && left.mode !== right.mode;
+  return modeMatters(left, right);
 }
 
 /**
@@ -393,14 +425,30 @@ function withoutBase(difference: string): string {
   return `the base is unavailable, so Metafab cannot tell ${difference}`;
 }
 
-function conflictNote(path: string, reason: SideFileReason): string {
-  if (reason === "new-local") {
+function conflictNote(path: string, result: Extract<MergeResult, { action: "side-file" }>): string {
+  if (result.reason === "link") {
+    if (result.upstreamLink !== undefined) {
+      return `Conflict in ${path}: upstream is a link to ${result.upstreamLink}; its target is in ${path}.upstream.`;
+    }
+    return `Conflict in ${path}: your entry is a link to ${result.yoursLink ?? ""}; upstream's file is in ${path}.upstream.`;
+  }
+  if (result.reason === "new-local") {
     return `Conflict in ${path}: the local entry differs from the new upstream file, which was written to ${path}.upstream.`;
   }
-  if (reason === "base-unavailable") {
+  if (result.reason === "base-unavailable") {
     return `Conflict in ${path}: ${withoutBase("a local removal from an upstream addition")}. The path stays absent, and upstream was written to ${path}.upstream.`;
   }
   return `Binary conflict in ${path}: upstream was written to ${path}.upstream.`;
+}
+
+/**
+ * Upstream's bytes as a side file holds them: a link's target, or a file's
+ * original bytes when they differ from its LF text.
+ */
+function sideFileContent(entry: FileEntry): Buffer {
+  if (entry.link !== undefined) return Buffer.from(entry.link, "utf8");
+  if (entry.binary) return Buffer.from(entry.data ?? new Uint8Array());
+  return entry.raw ?? Buffer.from(entry.text ?? "", "utf8");
 }
 
 /** One base path upstream renamed while changing only the case of its spelling. */
@@ -510,6 +558,7 @@ export function planMerge(
   const after: Record<string, FileEntry> = { ...mergedYours.tree };
   const writes: PlannedWrite[] = [];
   const preserved: string[] = [];
+  const modeOnly: string[] = [];
   const conflicts: string[] = [];
   const sideFiles: string[] = [];
   const notes: string[] = [];
@@ -546,10 +595,11 @@ export function planMerge(
             `${relativePath}: ${withoutBase("a local addition from an upstream removal")}; kept your file.`,
           );
         } else if (result.note === "base-unavailable-mode") {
-          // Same content, different permission bits: yours stays as it is and
-          // the difference is reported. Without a base there is no way to tell
-          // which side changed the mode, and a mode is not a conflict.
-          preserved.push(relativePath);
+          // Same content, different executable bit: yours stays as it is and
+          // the difference is reported, but it is not a local edit to keep.
+          // Without a base there is no way to tell which side changed the mode,
+          // and a mode is not a conflict.
+          modeOnly.push(relativePath);
           notes.push(
             `${relativePath}: ${withoutBase("which side changed the permission bits")}; kept your permission bits.`,
           );
@@ -591,14 +641,22 @@ export function planMerge(
       }
       case "take-theirs": {
         if (theirsEntry !== undefined) {
-          after[relativePath] = theirsEntry;
-          writes.push({ kind: "write", path: relativePath, entry: theirsEntry });
+          // The write follows the local copy's line endings, so clear upstream's
+          // original bytes and let `crlf` decide for a file both sides have.
+          const entry: FileEntry = {
+            ...theirsEntry,
+            ...(yoursEntry?.crlf === true ? { crlf: true as const } : {}),
+            raw: undefined,
+          };
+          after[relativePath] = entry;
+          writes.push({ kind: "write", path: relativePath, entry });
         }
         break;
       }
       case "write":
       case "conflict": {
         const entry = entryFromContent(result.content, result.mode);
+        if (yoursEntry?.crlf === true) entry.crlf = true;
         after[relativePath] = entry;
         writes.push({ kind: "write", path: relativePath, entry });
         if (result.action === "conflict") conflicts.push(relativePath);
@@ -607,11 +665,11 @@ export function planMerge(
       case "side-file": {
         sideFiles.push(relativePath);
         conflicts.push(relativePath);
-        notes.push(conflictNote(relativePath, result.reason));
+        notes.push(conflictNote(relativePath, result));
         writes.push({
           kind: "side-file",
           path: relativePath,
-          content: result.upstream,
+          content: theirsEntry === undefined ? result.upstream : sideFileContent(theirsEntry),
           mode: result.upstreamMode,
         });
         break;
@@ -629,6 +687,7 @@ export function planMerge(
       ...writes.filter((write) => write.kind !== "remove"),
     ],
     preserved: [...new Set(preserved)].sort(),
+    modeOnly: [...new Set(modeOnly)].sort(),
     conflicts: [...new Set(conflicts)].sort(),
     sideFiles: sideFiles.sort(),
     notes,
@@ -649,6 +708,7 @@ function baseReport(
   | "upstream"
   | "replaced"
   | "preserved"
+  | "modeOnly"
   | "conflicts"
   | "sideFiles"
   | "added"
@@ -667,6 +727,7 @@ function baseReport(
     upstream: previous,
     replaced: [],
     preserved: [],
+    modeOnly: [],
     conflicts: [],
     sideFiles: [],
     added: [],
@@ -781,6 +842,7 @@ async function runVersioned(
         ...report,
         status: "up-to-date",
         message: `Already up to date. Dry run: would record requested range ${range}.`,
+        requested: range,
       };
     }
     await setUpstream(factoryDir, upstream);
@@ -954,6 +1016,7 @@ async function runVersioned(
       from: recordedLabel(previous),
       to: recordedLabel(selectedEntry),
       preserved,
+      modeOnly: plan.modeOnly,
       conflicts: plan.conflicts,
       sideFiles: plan.sideFiles,
       added: changes.added,

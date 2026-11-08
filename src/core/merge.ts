@@ -1,5 +1,6 @@
 import { diff3Merge } from "node-diff3";
 import { textContent } from "./build/skill.js";
+import { modeMatters } from "./summary.js";
 import { toLF } from "../util/text.js";
 
 /** One version of a path: its bytes and its permission bits. */
@@ -7,6 +8,8 @@ export interface MergeInput {
   content: Buffer;
   /** Permission bits, such as 0o644 or 0o755. */
   mode: number;
+  /** The target of a symbolic link, when this side is a link rather than a file. */
+  link?: string;
 }
 
 /** Versions printed in conflict markers. */
@@ -39,7 +42,7 @@ export type MergeNote =
  * file that both sides changed, a new local file that differs from the new
  * upstream file, or a path only upstream has while the base is unavailable.
  */
-export type SideFileReason = "binary" | "new-local" | "base-unavailable";
+export type SideFileReason = "binary" | "new-local" | "base-unavailable" | "link";
 
 /**
  * One outcome of the merge table.
@@ -66,6 +69,10 @@ export type MergeResult =
       upstream: Buffer;
       upstreamMode: number;
       reason: SideFileReason;
+      /** The target of your link, when yours is a link. */
+      yoursLink?: string;
+      /** The target of upstream's link, when upstream is a link. */
+      upstreamLink?: string;
     };
 
 const YOURS_MARKER = "<<<<<<< yours";
@@ -88,10 +95,33 @@ function sameContent(left: Buffer, right: Buffer): boolean {
   return left.equals(right);
 }
 
-/** True when two sides have the same content and permission bits. */
+/** True when two sides have the same content, link target and permission bits. */
 function sameInput(left: MergeInput | undefined, right: MergeInput | undefined): boolean {
   if (left === undefined || right === undefined) return left === right;
-  return modeOf(left) === modeOf(right) && sameContent(left.content, right.content);
+  return (
+    left.link === right.link &&
+    !modeMatters(left, right) &&
+    sameContent(left.content, right.content)
+  );
+}
+
+/**
+ * A conflict that keeps yours and writes upstream beside it. A link is never
+ * merged as text: the side file holds upstream's link target, or upstream's
+ * file bytes when upstream is a file.
+ */
+function linkConflict(
+  yours: MergeInput,
+  theirs: MergeInput,
+): Extract<MergeResult, { action: "side-file" }> {
+  return {
+    action: "side-file",
+    upstream: theirs.link === undefined ? theirs.content : Buffer.from(theirs.link, "utf8"),
+    upstreamMode: modeOf(theirs),
+    reason: "link",
+    ...(yours.link === undefined ? {} : { yoursLink: yours.link }),
+    ...(theirs.link === undefined ? {} : { upstreamLink: theirs.link }),
+  };
 }
 
 /**
@@ -101,6 +131,10 @@ function sameInput(left: MergeInput | undefined, right: MergeInput | undefined):
  * written as conflict markers.
  */
 function mergedMode(base: MergeInput, yours: MergeInput, theirs: MergeInput): number {
+  // Only the executable bit counts, so a difference that is not a change to it
+  // leaves the local file's mode alone.
+  if (!modeMatters(yours, theirs)) return modeOf(yours);
+
   const baseMode = modeOf(base);
   const yoursMode = modeOf(yours);
   const theirsMode = modeOf(theirs);
@@ -163,6 +197,10 @@ function mergeChanges(
 ): MergeResult {
   const mode = mergedMode(base, yours, theirs);
 
+  // A link is never merged as text, even when its target happens to read like
+  // the other side's bytes.
+  if (yours.link !== undefined || theirs.link !== undefined) return linkConflict(yours, theirs);
+
   // Only the mode differs, so there is no line conflict to render and no
   // reason to write a side file holding the same bytes.
   if (sameContent(yours.content, theirs.content)) {
@@ -217,10 +255,16 @@ function mergeWithoutBase(
     // there is nothing to write to a side file.
     return { action: "keep", note: "base-unavailable" };
   }
+  // A link is never merged as text, even when its target happens to read like
+  // the other side's bytes.
+  if (yours.link !== undefined || theirs.link !== undefined) {
+    if (yours.link === theirs.link) return { action: "keep" };
+    return linkConflict(yours, theirs);
+  }
   if (sameContent(yours.content, theirs.content)) {
     // Only the permission bits differ, so there is no line conflict to render
     // and keeping yours would lose nothing.
-    if (modeOf(yours) === modeOf(theirs)) return { action: "keep" };
+    if (!modeMatters(yours, theirs)) return { action: "keep" };
     return { action: "keep", note: "base-unavailable-mode" };
   }
 
@@ -271,6 +315,7 @@ export function mergePath(
   if (base === undefined) {
     if (theirs === undefined) return { action: "keep" };
     if (sameInput(yours, theirs)) return { action: "keep" };
+    if (yours.link !== undefined || theirs.link !== undefined) return linkConflict(yours, theirs);
     return {
       action: "side-file",
       upstream: theirs.content,
@@ -290,7 +335,11 @@ export function mergePath(
 
   if (!yoursChanged) {
     if (!theirsChanged) return { action: "keep" };
-    return { action: "take-theirs", content: theirs.content, mode: modeOf(theirs) };
+    return {
+      action: "take-theirs",
+      content: theirs.content,
+      mode: modeMatters(yours, theirs) ? modeOf(theirs) : modeOf(yours),
+    };
   }
   if (!theirsChanged) return { action: "keep" };
   if (sameInput(yours, theirs)) return { action: "keep" };

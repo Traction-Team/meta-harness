@@ -127,6 +127,13 @@ describe("update from an unversioned source", () => {
     expect(result.stderr).toContain("Run metafab update without --to");
   });
 
+  test("diff with no edits names the source without a version", async () => {
+    const { repo, root } = await imported();
+    const result = await runCli(["diff"], { cwd: repo.root });
+    expect(result.code).toBe(0);
+    expect(result.stdout.trim()).toBe(`No local edits since ${path.join(root, ".factory")}.`);
+  });
+
   test.skipIf(process.platform === "win32")(
     "reports a foreign Git hook warning from the closing build",
     async () => {

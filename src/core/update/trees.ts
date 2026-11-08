@@ -6,6 +6,7 @@ import { snapshotFactory, snapshotTree } from "../import/file-tree.js";
 import type { FileEntry, FileTree } from "../import/file-tree.js";
 import { FAB_ROOT_EXCLUDES } from "../import/copy.js";
 import type { MergeInput } from "../merge.js";
+import { modeMatters } from "../summary.js";
 
 /**
  * Files that belong to the receiving repository rather than the fab:
@@ -44,7 +45,11 @@ export function entryContent(entry: FileEntry): Buffer {
 /** One side of a three-way merge, or undefined when the path is absent. */
 export function mergeInputOf(entry: FileEntry | undefined): MergeInput | undefined {
   if (entry === undefined) return undefined;
-  return { content: entryContent(entry), mode: entry.mode };
+  return {
+    content: entryContent(entry),
+    mode: entry.mode,
+    ...(entry.link === undefined ? {} : { link: entry.link }),
+  };
 }
 
 function hashOf(data: Uint8Array | string): string {
@@ -64,7 +69,7 @@ export function entryFromContent(content: Buffer, mode: number): FileEntry {
 /** True when two snapshots describe the same content, mode, and link target. */
 export function sameEntry(left: FileEntry | undefined, right: FileEntry | undefined): boolean {
   if (left === undefined || right === undefined) return left === right;
-  return left.hash === right.hash && left.mode === right.mode && left.link === right.link;
+  return left.hash === right.hash && left.link === right.link && !modeMatters(left, right);
 }
 
 /** Absolute path of a factory-relative POSIX path. */

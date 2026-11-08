@@ -12,6 +12,10 @@ function binary(bytes: readonly number[], mode = 0o644): MergeInput {
   return { content: Buffer.from(bytes), mode };
 }
 
+function link(target: string, mode = 0o777): MergeInput {
+  return { content: Buffer.from(target), mode, link: target };
+}
+
 function merge(
   base: MergeInput | undefined,
   yours: MergeInput | undefined,
@@ -173,6 +177,67 @@ describe("mergePath: permission bits", () => {
       mode: 0o755,
     });
   });
+
+  test("a non-executable mode difference is not a change", () => {
+    // 0644 and 0664 differ only in bits that do not count, so neither side
+    // changed the other's mode and the file is kept.
+    expect(merge(text("a\n", 0o644), text("a\n", 0o664), text("a\n", 0o644))).toEqual({
+      action: "keep",
+    });
+    expect(merge(text("a\n", 0o644), text("a\n", 0o644), text("a\n", 0o664))).toEqual({
+      action: "keep",
+    });
+  });
+
+  test("takes theirs keeps the local mode when only non-executable bits differ", () => {
+    // Theirs changed the content and has 0664; the mode that matters is still
+    // the local 0644.
+    expect(merge(text("a\n", 0o644), text("a\n", 0o644), text("b\n", 0o664))).toEqual({
+      action: "take-theirs",
+      content: Buffer.from("b\n"),
+      mode: 0o644,
+    });
+  });
+});
+
+describe("mergePath: links", () => {
+  test("both links changed: keep yours and write upstream's target", () => {
+    expect(merge(link("base"), link("mine"), link("theirs", 0o755))).toEqual({
+      action: "side-file",
+      upstream: Buffer.from("theirs"),
+      upstreamMode: 0o755,
+      reason: "link",
+      yoursLink: "mine",
+      upstreamLink: "theirs",
+    });
+  });
+
+  test("a link replaced by a file upstream keeps yours and writes the file", () => {
+    // A link and a file are different entries even when their bytes coincide.
+    expect(merge(link("base"), link("mine"), text("upstream\n"))).toEqual({
+      action: "side-file",
+      upstream: Buffer.from("upstream\n"),
+      upstreamMode: 0o644,
+      reason: "link",
+      yoursLink: "mine",
+    });
+  });
+
+  test("a new local link against a new upstream file is a link conflict", () => {
+    expect(merge(undefined, link("mine"), text("mine"))).toEqual({
+      action: "side-file",
+      upstream: Buffer.from("mine"),
+      upstreamMode: 0o644,
+      reason: "link",
+      yoursLink: "mine",
+    });
+  });
+
+  test("the same link on both sides is kept", () => {
+    expect(merge(undefined, link("same"), link("same"), { baseUnavailable: true })).toEqual({
+      action: "keep",
+    });
+  });
 });
 
 describe("mergePath: base unavailable", () => {
@@ -201,6 +266,12 @@ describe("mergePath: base unavailable", () => {
     expect(
       merge(undefined, text("same\r\n", 0o755), text("same\n", 0o644), { baseUnavailable: true }),
     ).toEqual({ action: "keep", note: "base-unavailable-mode" });
+  });
+
+  test("a non-executable mode difference is not reported either", () => {
+    expect(
+      merge(undefined, text("same\n", 0o664), text("same\n", 0o644), { baseUnavailable: true }),
+    ).toEqual({ action: "keep" });
   });
 
   test("a path only upstream has is a conflict, not an addition", () => {

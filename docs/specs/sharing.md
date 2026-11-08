@@ -307,7 +307,9 @@ Metafab applies these rules to every path present in base, yours, or theirs:
 
 Metafab does not merge binary files line by line. For a binary conflict, it keeps yours and writes theirs to `<file>.upstream`.
 
-Metafab compares text files with CRLF line endings treated as LF. A change of line endings alone is not a change.
+A conflict where either side is a symbolic link is never merged as text. Metafab keeps yours and writes upstream's link target, or upstream's file bytes when upstream is a file, to `<file>.upstream`. The summary says `Conflict in <path>: upstream is a link to <target>; its target is in <path>.upstream.` or, when yours is the link and upstream is a file, `Conflict in <path>: your entry is a link to <target>; upstream's file is in <path>.upstream.`
+
+Metafab compares text files with CRLF line endings treated as LF. A change of line endings alone is not a change. When every line of the local copy ends in CRLF, `update` writes a clean merge, a file taken from upstream, and a conflict-marker file with CRLF; otherwise it writes LF. A `<file>.upstream` side file holds upstream's bytes unchanged.
 
 If the base version is unavailable, every path where both sides have different content is a conflict. A file only upstream has is written to `<file>.upstream`, and a file only you have is kept and reported. For example, a Git base is unavailable when its commit was removed by a force push, and an npm base is unavailable when its version was unpublished or removed. A base download that fails for any other reason, such as an unreachable source, rejected credentials, or a cache or filesystem problem, stops the update before it changes a file and reports that problem and its exit code.
 
@@ -387,6 +389,8 @@ metafab diff [<path>]
 This command downloads the version recorded in the upstream entry and compares `.factory/` with it. For an unversioned source, it compares with the current source.
 
 Use the optional path to limit the comparison. Teams can use this diff when proposing a local change to the upstream fab.
+
+When `.factory/` matches its upstream, `diff` prints `No local edits since <source> <version>.` For an unversioned source it omits the version: `No local edits since <source>.` With a path limit it prints `No local edits in <path> since ...` with the same source and version.
 
 ## Detaching from an upstream
 

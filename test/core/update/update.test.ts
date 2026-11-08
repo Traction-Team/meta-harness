@@ -1,4 +1,4 @@
-import { chmod, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, readdir, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { cacheLayout } from "../../../src/core/sources/cache.js";
@@ -265,6 +265,15 @@ describe("update version selection", { timeout: 30_000 }, () => {
     );
     expect(dryRun.code).toBe(0);
     expect(dryRun.stdout).toContain("Dry run: would record requested range 1.0.0.");
+    expect(await metafabYaml(repo)).toContain("requested: ~1.0.0");
+
+    // The JSON caller sees the range it would record, and the dry run writes
+    // nothing, so the recorded request stays the previous one.
+    const dryRunJson = await withFabEnvironment(fab, () =>
+      updateFab(repo.root, ["--to", "1.0.0", "--dry-run", "--json"]),
+    );
+    expect(dryRunJson.code).toBe(0);
+    expect(parseJson(dryRunJson).requested).toBe("1.0.0");
     expect(await metafabYaml(repo)).toContain("requested: ~1.0.0");
   });
 });
@@ -925,6 +934,126 @@ describe("upstream restructures", { timeout: 30_000 }, () => {
   });
 });
 
+describe("update line endings", { timeout: 30_000 }, () => {
+  test("keeps a local CRLF file CRLF after a clean merge", async () => {
+    const { repo, fab } = await importedProject();
+    await writeRepoFiles(repo.root, {
+      ".factory/templates/note.md": "# Note\r\n\r\nlocal\r\n",
+    });
+    // Upstream changes a different line, so the merge is clean.
+    await publish(fab, { ".factory/templates/note.md": "# Note upstream\n\nold\n" });
+
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build"]));
+    expect(result.code).toBe(0);
+    expect(await readFile(repo.path(".factory", "templates", "note.md"), "utf8")).toBe(
+      "# Note upstream\r\n\r\nlocal\r\n",
+    );
+
+    const again = await withFabEnvironment(fab, () => updateFab(repo.root));
+    expect(again.code).toBe(0);
+    expect(again.stdout).toContain("Already up to date.");
+  });
+
+  test("writes LF when the local file uses LF", async () => {
+    const { repo, fab } = await importedProject();
+    await writeRepoFiles(repo.root, {
+      ".factory/templates/note.md": "# Note\n\nlocal\n",
+    });
+    await publish(fab, { ".factory/templates/note.md": "# Note upstream\n\nold\n" });
+
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build"]));
+    expect(result.code).toBe(0);
+    expect(await readFile(repo.path(".factory", "templates", "note.md"), "utf8")).toBe(
+      "# Note upstream\n\nlocal\n",
+    );
+  });
+
+  test("writes a conflict-marker file with the local file's CRLF", async () => {
+    const { repo, fab } = await importedProject();
+    await writeRepoFiles(repo.root, {
+      ".factory/templates/note.md": "# Note\r\n\r\nlocal\r\n",
+    });
+    await publish(fab, { ".factory/templates/note.md": "# Note\n\nupstream\n" });
+
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build"]));
+    expect(result.code).toBe(1);
+    const text = await readFile(repo.path(".factory", "templates", "note.md"), "utf8");
+    expect(text).toContain("<<<<<<< yours\r\nlocal\r\n");
+    expect(text).toContain(">>>>>>> upstream 1.1.0\r\n");
+    expect(text).not.toContain("\n\n");
+  });
+
+  test("writes an upstream CRLF side file with its original bytes", async () => {
+    const { repo, fab } = await importedProject();
+    await writeRepoFiles(repo.root, { ".factory/templates/local.md": "# Local\n" });
+    await publish(fab, { ".factory/templates/local.md": "# Upstream\r\n\r\nbody\r\n" });
+
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build"]));
+    expect(result.code).toBe(1);
+    const bytes = await readFile(repo.path(".factory", "templates", "local.md.upstream"));
+    expect(bytes.toString("utf8")).toBe("# Upstream\r\n\r\nbody\r\n");
+  });
+});
+
+describe("update link conflicts", { timeout: 30_000, skip: process.platform === "win32" }, () => {
+  async function projectWithLink(): Promise<{ repo: TempRepo; fab: GitFab; link: string }> {
+    const fab = await track(await createGitFab(fabV1()));
+    const upstreamLink = path.join(fab.work, ".factory", "templates", "link.md");
+    await symlink("note.md", upstreamLink);
+    await fab.commit({}, "add link");
+    await fab.tag("v1.0.0");
+    await fab.push();
+    const repo = await project();
+    const imported = await withFabEnvironment(fab, () => importFab(repo.root));
+    expect(imported.code, imported.stdout).toBe(0);
+    const link = repo.path(".factory", "templates", "link.md");
+    // Both sides change the link, so the link target is the difference.
+    await rm(link);
+    await symlink("kept.md", link);
+    return { repo, fab, link };
+  }
+
+  test("keeps yours and writes upstream's link target with the link wording", async () => {
+    const { repo, fab, link } = await projectWithLink();
+    const upstreamLink = path.join(fab.work, ".factory", "templates", "link.md");
+    await rm(upstreamLink);
+    await symlink("dropped.md", upstreamLink);
+    await fab.commit({}, "change link");
+    await fab.tag("v1.1.0");
+    await fab.push();
+
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build"]));
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain(
+      "Conflict in templates/link.md: upstream is a link to dropped.md; its target is in templates/link.md.upstream.",
+    );
+    expect(await readlink(link)).toBe("kept.md");
+    expect(await readFile(repo.path(".factory", "templates", "link.md.upstream"), "utf8")).toBe(
+      "dropped.md",
+    );
+    expect(result.stdout).not.toContain("<<<<<<<");
+  });
+
+  test("a link replaced by a file upstream keeps yours and writes the file", async () => {
+    const { repo, fab, link } = await projectWithLink();
+    await rm(path.join(fab.work, ".factory", "templates", "link.md"));
+    await writeRepoFiles(fab.work, { ".factory/templates/link.md": "upstream file\n" });
+    await fab.commit({}, "replace link with a file");
+    await fab.tag("v1.1.0");
+    await fab.push();
+
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--no-build"]));
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain(
+      "Conflict in templates/link.md: your entry is a link to kept.md; upstream's file is in templates/link.md.upstream.",
+    );
+    expect(await readlink(link)).toBe("kept.md");
+    expect(await readFile(repo.path(".factory", "templates", "link.md.upstream"), "utf8")).toBe(
+      "upstream file\n",
+    );
+  });
+});
+
 describe("update without a base", { timeout: 30_000 }, () => {
   const CONFIG = "format: 1\nname: sample-fab\n";
   /** A commit the fixture repository does not have, so the base cannot be fetched. */
@@ -1006,11 +1135,12 @@ describe("update without a base", { timeout: 30_000 }, () => {
   });
 
   test.skipIf(process.platform === "win32")(
-    "a mode-only difference is kept and reported, not a conflict",
+    "an executable-bit-only difference without a base goes to modeOnly, not preserved",
     async () => {
-      // The local file's content still matches upstream; only its permission
-      // bits differ. Without a base there is no way to tell which side changed
-      // them, so the file is kept and the difference is a note.
+      // The local file's content still matches upstream; only its executable
+      // bit differs. Without a base there is no way to tell which side changed
+      // it, so the file is kept and the difference is a note, not a local edit
+      // to preserve.
       const modeOnly = async () => {
         const { repo, fab } = await importedProject();
         const file = repo.path(".factory", "skills", "guide", "SKILL.md");
@@ -1030,7 +1160,8 @@ describe("update without a base", { timeout: 30_000 }, () => {
       expect(result.code).toBe(0);
       const payload = parseJson(result);
       expect(payload.conflicts).toEqual([]);
-      expect(payload.preserved).toContain("skills/guide/SKILL.md");
+      expect(payload.preserved).toEqual([]);
+      expect(payload.modeOnly).toEqual(["skills/guide/SKILL.md"]);
       expect((payload.notes as string[]).some((note) => note.includes("permission bits"))).toBe(
         true,
       );
@@ -1047,6 +1178,36 @@ describe("update without a base", { timeout: 30_000 }, () => {
       expect(printed.stdout).toContain("skills/guide/SKILL.md");
       expect(printed.stdout).toContain("permission bits");
       expect((await stat(human.file)).mode & 0o777).toBe(0o755);
+    },
+  );
+
+  test.skipIf(process.platform === "win32")(
+    "a change between 0644 and 0664 is not reported with or without a base",
+    async () => {
+      const run = async (forget: boolean) => {
+        const { repo, fab } = await importedProject();
+        const file = repo.path(".factory", "skills", "guide", "SKILL.md");
+        await chmod(file, 0o664);
+        await fab.tag("v1.1.0");
+        await fab.push();
+        if (forget) await forgetBase(repo);
+        const result = await withFabEnvironment(fab, () =>
+          updateFab(repo.root, ["--no-build", "--json"]),
+        );
+        expect(result.code).toBe(0);
+        const payload = parseJson(result);
+        expect(payload.preserved).toEqual([]);
+        expect(payload.modeOnly).toEqual([]);
+        expect(payload.updated).toEqual([]);
+        expect((payload.notes as string[]).some((note) => note.includes("permission bits"))).toBe(
+          false,
+        );
+        expect((await stat(file)).mode & 0o777).toBe(0o664);
+        return payload;
+      };
+
+      await run(false);
+      await run(true);
     },
   );
 
