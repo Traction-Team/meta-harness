@@ -107,6 +107,7 @@ function defaults(doc: Document, problems: Problem[]): Config {
     metafabSkill: true,
     gitHooks: false,
     gitHooksRaw: undefined,
+    gitHooksPresent: false,
     doc,
     problems,
   };
@@ -199,6 +200,7 @@ export function parseConfig(text: string, options: ParseConfigOptions = {}): Con
     metafabSkill: typeof root["metafab-skill"] === "boolean" ? root["metafab-skill"] : true,
     gitHooks: gitHooksRaw ?? false,
     gitHooksRaw,
+    gitHooksPresent: Object.hasOwn(root, "git-hooks"),
     doc,
     problems,
   };

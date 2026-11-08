@@ -364,12 +364,16 @@ export async function runInit(options: InitOptions): Promise<InitReport> {
 
   const notes: string[] = [];
   let hooksValue: boolean | undefined;
-  const hooksKeyPresent = configExists && existingConfig.gitHooksRaw !== undefined;
+  const hooksKeyPresent = configExists && existingConfig.gitHooksPresent;
 
   if (hooksKeyPresent) {
-    notes.push(
-      `git-hooks is already ${String(existingConfig.gitHooks)} in .factory/${CONFIG_FILENAME}`,
-    );
+    // A value that is present but not a boolean is left for the closing build
+    // to report as a configuration error; `init` must not overwrite it.
+    if (existingConfig.gitHooksRaw !== undefined) {
+      notes.push(
+        `git-hooks is already ${String(existingConfig.gitHooks)} in .factory/${CONFIG_FILENAME}`,
+      );
+    }
   } else if (options.gitHooks !== undefined) {
     hooksValue = options.gitHooks;
   } else if (tty) {

@@ -28,6 +28,7 @@ describe("git-hooks parsing", () => {
 
     expect(config.gitHooks).toBe(false);
     expect(config.gitHooksRaw).toBeUndefined();
+    expect(config.gitHooksPresent).toBe(false);
     expect(config.problems).toEqual([]);
   });
 
@@ -39,6 +40,7 @@ describe("git-hooks parsing", () => {
 
     expect(config.gitHooks).toBe(value);
     expect(config.gitHooksRaw).toBe(value);
+    expect(config.gitHooksPresent).toBe(true);
     expect(config.problems).toEqual([]);
   });
 
@@ -47,6 +49,7 @@ describe("git-hooks parsing", () => {
 
     expect(config.gitHooks).toBe(false);
     expect(config.gitHooksRaw).toBeUndefined();
+    expect(config.gitHooksPresent).toBe(true);
     expect(config.problems).toHaveLength(1);
     expect(config.problems[0]?.level).toBe("error");
     expect(config.problems[0]?.message).toBe(`"git-hooks" must be a boolean.`);

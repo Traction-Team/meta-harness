@@ -69,7 +69,10 @@ describe("metafab init git-hooks", () => {
     expect(await config(repo)).toBe("agents: [claude]\ngit-hooks: true\n");
     for (const hook of HOOK_NAMES) {
       expect(await hookExists(repo, hook)).toBe(true);
-      expect((await stat(repo.path(".git", "hooks", hook))).mode & 0o777).toBe(0o755);
+      // Windows has no executable bit: the mode is not meaningful there.
+      if (process.platform !== "win32") {
+        expect((await stat(repo.path(".git", "hooks", hook))).mode & 0o777).toBe(0o755);
+      }
       expect(result.stdout).toContain(`+ git hook ${hook}`);
     }
   });
@@ -158,6 +161,19 @@ describe("metafab init git-hooks", () => {
     expect(result.stdout).toContain("git-hooks is already true in .factory/metafab.yaml");
     expect(result.stderr).not.toContain(GIT_HOOKS_QUESTION);
     expect(await hookExists(repo, "post-merge")).toBe(true);
+  });
+
+  test("leaves a present non-boolean value alone and reports the configuration error", async () => {
+    const repo = await gitRepo();
+    const original = 'agents: [claude]\ngit-hooks: "yes"\n';
+    await repo.write(".factory/metafab.yaml", original);
+
+    const result = await runCli(["init", "--agents", "claude", "--git-hooks"], { cwd: repo.root });
+
+    expect(result.code).toBe(1);
+    expect(await config(repo)).toBe(original);
+    expect(result.stderr).toContain(`"git-hooks" must be a boolean.`);
+    expect(await hookExists(repo, "post-merge")).toBe(false);
   });
 
   test("prints the note after Already initialised and includes it in JSON", async () => {
