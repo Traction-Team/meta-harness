@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { LINK_HASH_PREFIX } from "../../../src/core/import/file-tree.js";
 import type { FileEntry, FileTree } from "../../../src/core/import/file-tree.js";
 
 function hashOf(data: Uint8Array | string): string {
@@ -18,7 +17,10 @@ export function binaryFile(data: Uint8Array, mode = 0o644): FileEntry {
 
 /** An in-memory symbolic link entry, hashed the way `snapshotTree` hashes it. */
 export function linkFile(target: string, mode = 0o755): FileEntry {
-  return { hash: hashOf(`${LINK_HASH_PREFIX}${target}`), mode, binary: false, link: target };
+  // The prefix is spelled out, not imported: this pins the link hash format a
+  // snapshot produces, so a change to it fails a test instead of silently
+  // rewriting every stored list of links.
+  return { hash: hashOf(`\0metafab-link\0${target}`), mode, binary: false, link: target };
 }
 
 export function makeTree(files: Record<string, FileEntry>): FileTree {

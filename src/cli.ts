@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { realpathSync } from "node:fs";
 import path from "node:path";
-import { createRequire } from "node:module";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { ExitCode, MetafabError } from "./errors.js";
@@ -10,6 +9,7 @@ import { renderResult } from "./output.js";
 import type { CommandResult } from "./output.js";
 import { normalizeProblemPath } from "./util/fs.js";
 import { didYouMean } from "./util/suggest.js";
+import { cliVersion } from "./util/version.js";
 import { buildCommand } from "./commands/build.js";
 import { checkCommand } from "./commands/check.js";
 import { createCommand } from "./commands/create.js";
@@ -77,12 +77,6 @@ function splitGlobalFlags(argv: readonly string[]): GlobalFlags {
 
 function hasJsonFlag(argv: readonly string[]): boolean {
   return argv.some((token) => token === "--json" || token === "--json=true");
-}
-
-function packageVersion(): string {
-  const require = createRequire(import.meta.url);
-  const pkg = require("../package.json") as { version?: unknown };
-  return typeof pkg.version === "string" ? pkg.version : "0.0.0";
 }
 
 function helpText(commands: readonly CommandDefinition[]): string {
@@ -205,7 +199,7 @@ export async function main(
     }
 
     if (global.version) {
-      const version = packageVersion();
+      const version = cliVersion();
       return emit(
         { ok: true, command: "version", exitCode: ExitCode.Ok, summary: version, version },
         json,

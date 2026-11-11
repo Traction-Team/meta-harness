@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -7,7 +7,7 @@ import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import { copyTree, listFiles } from "../../util/fs.js";
 import type { PublishConfig } from "../config/types.js";
-import { withEnv } from "../sources/env.js";
+import { disabledHooksConfig, gitEnvironment, gitMessage, VERBATIM_TEXT_ATTRIBUTES } from "../sources/git-process.js";
 import { redact, stripSourceCredentials } from "../sources/redact.js";
 import type { PublishOptions } from "./types.js";
 
@@ -26,29 +26,8 @@ const NPM_ONLY_FILES = new Set(["package.json"]);
  * `ident` expands `$Id$`. Every clone publish uses turns those attributes off
  * for every path before anything is checked out or added.
  */
-const VERBATIM_ATTRIBUTES = "* -text -eol -filter -ident -working-tree-encoding\n";
-
-let hooksDirectory: string | undefined;
-
-/**
- * Git runs `core.hooksPath` hooks from the user's configuration, and a hook is
- * code from outside the fab; publishing must never run it. An empty directory
- * is a hooks directory with nothing in it on every platform.
- */
-function hooksConfig(): string {
-  if (hooksDirectory === undefined) {
-    const directory = mkdtempSync(path.join(tmpdir(), "metafab-publish-hooks-"));
-    hooksDirectory = directory;
-    process.once("exit", () => {
-      try {
-        rmSync(directory, { recursive: true, force: true });
-      } catch {
-        // best effort: the temporary directory is empty
-      }
-    });
-  }
-  return `core.hooksPath=${hooksDirectory}`;
-}
+// Publish never runs git archive, so it needs no export rules and no tar.umask.
+const VERBATIM_ATTRIBUTES = `* ${VERBATIM_TEXT_ATTRIBUTES}\n`;
 
 /**
  * A fab may ship its own `.gitignore`, and the user's global exclude file is
@@ -84,22 +63,8 @@ interface GitContext {
  */
 function gitContext(options: PublishOptions): GitContext {
   return {
-    env: withEnv(
-      options.env ?? process.env,
-      options.interactive === true ? {} : { GIT_TERMINAL_PROMPT: "0" },
-    ),
+    env: gitEnvironment(options.env, options.interactive),
   };
-}
-
-function gitMessage(failure: GitFailure): string {
-  const raw = (failure.stderr ?? "").trim() || (failure.stdout ?? "").trim() || failure.message || "";
-  return (
-    raw
-      .split("\n")
-      .map((line) => line.trimEnd())
-      .filter((line) => line !== "")
-      .join("\n") || "git failed"
-  );
 }
 
 function gitError(message: string, code: string, exitCode: ExitCode, cause?: unknown): MetafabError {
@@ -116,7 +81,7 @@ async function tryGit(
   return new Promise((resolve) => {
     const child = execFile(
       "git",
-      ["-c", hooksConfig(), ...config, ...args],
+      ["-c", disabledHooksConfig(), ...config, ...args],
       {
         cwd,
         env: context.env,

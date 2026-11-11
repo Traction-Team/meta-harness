@@ -1,4 +1,4 @@
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { cacheLayout } from "../../../src/core/sources/cache.js";
@@ -64,15 +64,41 @@ function diffFab(cwd: string, args: readonly string[] = []): Promise<RunCliResul
 }
 
 describe("metafab diff", { timeout: 30_000 }, () => {
-  test("prints nothing when the factory matches its recorded upstream", async () => {
+  test("prints the no-edits line when the factory matches its recorded upstream", async () => {
     const { repo, fab } = await importedProject();
 
     const human = await withFabEnvironment(fab, () => diffFab(repo.root));
     expect(human.code).toBe(0);
-    expect(human.stdout.trim()).toBe("");
+    expect(human.stdout.trim()).toBe(
+      "No local edits since git+https://example.com/fab.git 1.0.0.",
+    );
 
     const json = await withFabEnvironment(fab, () => diffFab(repo.root, ["--json"]));
     expect(json.code).toBe(0);
+    expect(parseJson(json).files).toEqual([]);
+  });
+
+  test("names the path prefix when a limited comparison finds no edits", async () => {
+    const { repo, fab } = await importedProject();
+
+    const human = await withFabEnvironment(fab, () => diffFab(repo.root, [".factory/skills"]));
+    expect(human.code).toBe(0);
+    expect(human.stdout.trim()).toBe(
+      "No local edits in skills since git+https://example.com/fab.git 1.0.0.",
+    );
+  });
+
+  test("does not report a 0644 to 0664 difference", async () => {
+    const { repo, fab } = await importedProject();
+    await chmod(repo.path(".factory", "skills", "guide", "SKILL.md"), 0o664);
+
+    const human = await withFabEnvironment(fab, () => diffFab(repo.root));
+    expect(human.code).toBe(0);
+    expect(human.stdout.trim()).toBe(
+      "No local edits since git+https://example.com/fab.git 1.0.0.",
+    );
+
+    const json = await withFabEnvironment(fab, () => diffFab(repo.root, ["--json"]));
     expect(parseJson(json).files).toEqual([]);
   });
 

@@ -1,5 +1,6 @@
 import type { Problem } from "../../errors.js";
-import type { LocalPaths } from "../import/conflicts.js";
+import { ambiguousSpellingProblem, ancestors, differentSpelling, indexOf } from "../import/conflicts.js";
+import type { Indexed, LocalPaths } from "../import/conflicts.js";
 
 /** Factory-relative paths an update will write, as files and as directories. */
 export interface IncomingPaths {
@@ -38,28 +39,6 @@ export interface IncomingPaths {
   mergedCaseOnlyFiles?: readonly string[];
 }
 
-interface Indexed<T> {
-  key: string;
-  value: T;
-}
-
-/**
- * Local paths indexed the way the filesystem compares them: ignoring case, with
- * every spelling kept. A case-sensitive filesystem can hold two entries that
- * fold to one name, and the update must see both rather than silently choosing
- * one.
- */
-function indexOf<T>(entries: Iterable<[string, T]>): Map<string, Indexed<T>[]> {
-  const index = new Map<string, Indexed<T>[]>();
-  for (const [key, value] of entries) {
-    const folded = key.toLowerCase();
-    const indexed = index.get(folded);
-    if (indexed === undefined) index.set(folded, [{ key, value }]);
-    else indexed.push({ key, value });
-  }
-  return index;
-}
-
 /** The candidates the plan has not removed, in their local spelling. */
 function remaining<T>(
   candidates: readonly Indexed<T>[] | undefined,
@@ -72,48 +51,12 @@ function exactOf<T>(candidates: readonly Indexed<T>[], relativePath: string): In
   return candidates.find((candidate) => candidate.key === relativePath);
 }
 
-function ancestors(relativePath: string): string[] {
-  const parts = relativePath.split("/");
-  const prefixes: string[] = [];
-  for (let index = 1; index < parts.length; index += 1) {
-    prefixes.push(parts.slice(0, index).join("/"));
-  }
-  return prefixes;
-}
-
 function replacedKind(file: string): Problem {
   return {
     level: "error",
     file,
     message: `The update would replace ${file} with a different kind of entry`,
     fix: "Move the local entry away, then run metafab update again",
-  };
-}
-
-function differentSpelling(file: string, incoming: string): Problem {
-  return {
-    level: "error",
-    file,
-    message: `The update writes ${incoming}, which differs only in case from ${file}`,
-    fix: "Move the local entry away, then run metafab update again",
-  };
-}
-
-/**
- * The problem for an incoming path that several local spellings fold to.
- *
- * The clash preflight and the realignment both refuse this case, so the text is
- * built here once and both paths report it identically.
- */
-export function ambiguousSpellingProblem(
-  files: readonly string[],
-  incoming: string,
-): Problem {
-  return {
-    level: "error",
-    file: files[0] ?? incoming,
-    message: `The update writes ${incoming}, but these local entries differ only in case: ${files.join(", ")}`,
-    fix: "Move all but one of the local entries away, then run metafab update again",
   };
 }
 
@@ -196,11 +139,11 @@ export function findPathClashes(local: LocalPaths, incoming: IncomingPaths): Pro
         return true;
       }
       if (ancestorFiles.length > 1) {
-        report(ambiguousSpellingProblem(ancestorFiles.map((entry) => entry.value.file), relativePath));
+        report(ambiguousSpellingProblem(ancestorFiles.map((entry) => entry.value.file), relativePath, "update"));
         return true;
       }
       if (ancestorFiles.length === 1) {
-        report(differentSpelling(ancestorFiles[0]!.value.file, relativePath));
+        report(differentSpelling(ancestorFiles[0]!.value.file, relativePath, "update"));
         return true;
       }
 
@@ -212,6 +155,7 @@ export function findPathClashes(local: LocalPaths, incoming: IncomingPaths): Pro
           ambiguousSpellingProblem(
             ancestorDirectories.map((entry) => entry.value),
             relativePath,
+            "update",
           ),
         );
         return true;
@@ -222,7 +166,7 @@ export function findPathClashes(local: LocalPaths, incoming: IncomingPaths): Pro
           incoming.renameCaseOnlyDirectories === true ||
           emptied(foldedPrefix);
         if (!replaceable) {
-          report(differentSpelling(ancestorDirectories[0]!.value, relativePath));
+          report(differentSpelling(ancestorDirectories[0]!.value, relativePath, "update"));
           return true;
         }
       }
@@ -253,6 +197,7 @@ export function findPathClashes(local: LocalPaths, incoming: IncomingPaths): Pro
             ...localDirectories.map((entry) => entry.value),
           ],
           relativePath,
+          "update",
         ),
       );
       return;
@@ -263,7 +208,7 @@ export function findPathClashes(local: LocalPaths, incoming: IncomingPaths): Pro
       return;
     }
     if (localFiles.length > 1) {
-      report(ambiguousSpellingProblem(localFiles.map((entry) => entry.value.file), relativePath));
+      report(ambiguousSpellingProblem(localFiles.map((entry) => entry.value.file), relativePath, "update"));
       return;
     }
     if (localFiles.length === 1) {
@@ -275,7 +220,7 @@ export function findPathClashes(local: LocalPaths, incoming: IncomingPaths): Pro
       const replaceCaseOnlyFile =
         incomingDirectory !== true && incoming.replaceCaseOnlyFiles === true;
       if (!mergedCaseOnlyFile && !replaceCaseOnlyFile) {
-        report(differentSpelling(localFiles[0]!.value.file, relativePath));
+        report(differentSpelling(localFiles[0]!.value.file, relativePath, "update"));
         return;
       }
       // The file's own spelling is accepted, but the realignment still walks
@@ -306,7 +251,7 @@ export function findPathClashes(local: LocalPaths, incoming: IncomingPaths): Pro
         (incoming.renameCaseOnlyDirectories === true && incomingDirectory) ||
         emptied(folded);
       if (!replaceable) {
-        report(differentSpelling(localDirectories[0]!.value, relativePath));
+        report(differentSpelling(localDirectories[0]!.value, relativePath, "update"));
       }
     }
   }
