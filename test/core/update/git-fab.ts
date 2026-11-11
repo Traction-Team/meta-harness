@@ -54,6 +54,11 @@ export async function createGitFab(initial: RepoFiles): Promise<GitFab> {
   await mkdir(work, { recursive: true });
 
   await runGitIn(root, ["init", "-q", "-b", "main", work]);
+  // A Windows runner sets core.autocrlf=true in its system config, which would
+  // turn a CRLF file into LF in the commit. The fixture must commit the bytes a
+  // test wrote, so the working repository turns line-ending conversion off.
+  await runGitIn(work, ["config", "core.autocrlf", "false"]);
+  await runGitIn(work, ["config", "core.safecrlf", "false"]);
   await runGitIn(work, ["config", "user.name", "Metafab Test"]);
   await runGitIn(work, ["config", "user.email", "metafab@example.com"]);
   await runGitIn(root, ["init", "-q", "--bare", repo]);

@@ -43,6 +43,24 @@ describe("snapshotTree", () => {
     expect(crlfEntry.hash).toBe(lfEntry.hash);
   });
 
+  test("records a CRLF file as CRLF and keeps its original bytes", async () => {
+    const dir = await makeDir({ "AGENTS.md": "# Agents\r\nBody\r\n" });
+
+    const entry = (await snapshotTree(dir))["AGENTS.md"]!;
+
+    expect(entry.crlf).toBe(true);
+    expect(entry.raw?.toString("utf8")).toBe("# Agents\r\nBody\r\n");
+  });
+
+  test("records no CRLF flag or original bytes for an LF file", async () => {
+    const dir = await makeDir({ "AGENTS.md": "# Agents\nBody\n" });
+
+    const entry = (await snapshotTree(dir))["AGENTS.md"]!;
+
+    expect(entry.crlf).toBeUndefined();
+    expect(entry.raw).toBeUndefined();
+  });
+
   test("records binary content as bytes", async () => {
     const data = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]);
     const dir = await makeDir({ "templates/logo.png": data });

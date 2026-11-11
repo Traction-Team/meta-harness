@@ -189,6 +189,13 @@ describe("summarise", () => {
     expectRow(rendered, "M skills/helper/run.sh", "not executable");
   });
 
+  test("ignores a change between 0644 and 0664", () => {
+    const before = makeTree({ "templates/note.md": textFile("# Note\n", 0o644) });
+    const after = makeTree({ "templates/note.md": textFile("# Note\n", 0o664) });
+
+    expect(summarise(before, after, CONTEXT).groups).toEqual([]);
+  });
+
   test("describes factory.yaml pipeline changes instead of counting lines", () => {
     const before = makeTree({
       "factory.yaml": textFile(factoryYaml(["build-slice", "review-slice"])),

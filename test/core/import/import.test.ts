@@ -1,6 +1,7 @@
 import { chmod, mkdir, mkdtemp, readdir, readFile, readlink, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { Readable } from "node:stream";
 import { afterEach, describe, expect, test } from "vitest";
 import { listFiles, pathExists } from "../../../src/util/fs.js";
 import { makeRepo, writeRepoFiles } from "../../helpers/makeRepo.js";
@@ -495,6 +496,21 @@ describe("copying a fab", () => {
 });
 
 describe("preflight before writing", () => {
+  test("a directory named metafab.yaml gives the import fix line and writes nothing", async () => {
+    const repo = await repoWith({ ".factory/factory.yaml": "format: 1\nname: demo\n" });
+    await mkdir(repo.path(".factory", "metafab.yaml"));
+    await writeRepoFiles(repo.root, { ".factory/metafab.yaml/keep.txt": "" });
+    const fab = await makeFab(fabFiles());
+    const before = await snapshot(repo.root);
+
+    const result = await runCli(["import", fab.root, "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Cannot read file .factory/metafab.yaml");
+    expect(result.stderr).toContain("Restore the file, then run metafab import again");
+    expect(await snapshot(repo.root)).toEqual(before);
+  });
+
   test("an incoming symlink over a local file or directory is a conflict", async () => {
     const repo = await repoWith({
       ".factory/notes-link.md/keep.txt": "keep\n",
@@ -519,12 +535,14 @@ describe("preflight before writing", () => {
     const repo = await repoWith();
     await mkdir(repo.path(".factory", "templates", "empty"), { recursive: true });
     const fab = await makeFab({ ...fabFiles(), ".factory/templates/empty": "fab file\n" });
+    const before = await snapshot(repo.root);
 
     const result = await runCli(["import", fab.root, "--agents", "claude"], { cwd: repo.root });
 
     expect(result.code).toBe(5);
     expect(result.stderr).toContain("would replace .factory/templates/empty with a different kind of entry");
     expect((await stat(repo.path(".factory", "templates", "empty"))).isDirectory()).toBe(true);
+    expect(await snapshot(repo.root)).toEqual(before);
   });
 
   test("a case-only path clash is a conflict, even with identical content", async () => {
@@ -543,6 +561,12 @@ describe("preflight before writing", () => {
     expect(result.code).toBe(5);
     expect(result.stderr).toContain(".factory/templates/note.md");
     expect(result.stderr).toContain(".factory/skills/Guide/SKILL.md");
+    expect(result.stderr).toContain(
+      "The incoming fab writes templates/Note.md, which differs only in case from .factory/templates/note.md",
+    );
+    expect(result.stderr).toContain(
+      "fix: Keep the local file, or run metafab import --force to replace it",
+    );
     expect(await snapshot(repo.root)).toEqual(before);
     expect(await readFile(repo.path(".factory", "templates", "note.md"), "utf8")).toBe("local\n");
   });
@@ -611,14 +635,61 @@ describe("preflight before writing", () => {
     });
 
     expect(result.code).toBe(0);
-    // --force copies in place like it does for a case-only file clash: the
-    // content lands once, under whichever spelling the filesystem keeps.
-    const notes = (await listFiles(repo.root)).filter(
-      (file) => file.toLowerCase() === ".factory/templates/note.md",
-    );
-    expect(notes).toHaveLength(1);
-    expect(await readFile(repo.path(...notes[0]!.split("/")), "utf8")).toBe("fab\n");
+    // --force realigns the local directory to the fab's spelling before the
+    // copy, so the result is the same on every filesystem.
+    expect((await readdir(repo.path(".factory"))).filter((name) => name.toLowerCase() === "templates")).toEqual([
+      "templates",
+    ]);
+    expect(await readFile(repo.path(".factory", "templates", "note.md"), "utf8")).toBe("fab\n");
   });
+
+  test("a case-only directory clash with three incoming files gives one problem", async () => {
+    const repo = await repoWith();
+    await mkdir(repo.path(".factory", "Templates"), { recursive: true });
+    const fab = await makeFab({
+      ...fabFiles(),
+      ".factory/templates/one.md": "one\n",
+      ".factory/templates/two.md": "two\n",
+      ".factory/templates/three.md": "three\n",
+    });
+
+    const result = await runCli(["import", fab.root, "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stderr).toContain(
+      "The incoming fab writes templates, which differs only in case from .factory/Templates",
+    );
+    expect(result.stderr).not.toContain("templates/one.md, which differs only in case");
+    expect((result.stderr.match(/differs only in case/g) ?? []).length).toBe(1);
+  });
+
+  test.skipIf(process.platform === "darwin" || process.platform === "win32")(
+    "two local entries that fold to one incoming path are refused, even with --force",
+    async () => {
+      const repo = await repoWith({
+        ".factory/Skills/one.md": "one\n",
+        ".factory/skills/two.md": "two\n",
+      });
+      const fab = await makeFab({ ...fabFiles(), ".factory/SKILLS/a.md": "a\n" });
+      const before = await snapshot(repo.root);
+
+      const result = await runCli(
+        ["import", fab.root, "--agents", "claude", "--force"],
+        { cwd: repo.root },
+      );
+
+      expect(result.code).toBe(5);
+      expect(result.stderr).toContain(
+        "The incoming fab writes SKILLS, but these local entries differ only in case: .factory/Skills, .factory/skills",
+      );
+      expect(result.stderr).toContain(
+        "fix: Move all but one of the local entries away, then run metafab import again",
+      );
+      expect(result.stderr).not.toContain("SKILLS/a.md, but these local entries");
+      expect(await snapshot(repo.root)).toEqual(before);
+      expect(await pathExists(repo.path(".factory", "SKILLS"))).toBe(false);
+    },
+  );
 
   test("an incoming ancestor that is a local file is a conflict", async () => {
     const repo = await repoWith({ ".factory/templates": "local file\n" });
@@ -678,4 +749,127 @@ describe("preflight before writing", () => {
     expect(await pathExists(repo.path(".claude", "skills", "guide", "SKILL.md"))).toBe(true);
     expect(await pathExists(repo.path(".agents", "skills", "guide", "SKILL.md"))).toBe(true);
   });
+});
+
+describe("import --force realignment", () => {
+  test("renames a case-only directory and keeps a local-only file inside it", async () => {
+    const repo = await repoWith({
+      ".factory/Skills/guide/SKILL.md": skill("guide", "Local body."),
+      ".factory/Skills/local-only.md": "local only\n",
+    });
+    const fab = await makeFab(fabFiles("Fab body."));
+
+    const result = await runCli(["import", fab.root, "--agents", "claude", "--force"], {
+      cwd: repo.root,
+    });
+
+    expect(result.code).toBe(0);
+    expect((await readdir(repo.path(".factory"))).filter((name) => name.toLowerCase() === "skills")).toEqual([
+      "skills",
+    ]);
+    expect(await readFile(repo.path(".factory", "skills", "guide", "SKILL.md"), "utf8")).toBe(
+      skill("guide", "Fab body."),
+    );
+    expect(await readFile(repo.path(".factory", "skills", "local-only.md"), "utf8")).toBe(
+      "local only\n",
+    );
+  });
+
+  test("renames a case-only skill directory to the fab's spelling", async () => {
+    const repo = await repoWith({
+      ".factory/skills/Plan/SKILL.md": skill("plan", "Local body."),
+    });
+    const fab = await makeFab({
+      ...fabFiles(),
+      ".factory/skills/plan/SKILL.md": skill("plan", "Fab body."),
+    });
+
+    const result = await runCli(["import", fab.root, "--agents", "claude", "--force"], {
+      cwd: repo.root,
+    });
+
+    expect(result.code).toBe(0);
+    expect(await readdir(repo.path(".factory", "skills"))).toContain("plan");
+    expect(await readdir(repo.path(".factory", "skills"))).not.toContain("Plan");
+    expect(await readFile(repo.path(".factory", "skills", "plan", "SKILL.md"), "utf8")).toBe(
+      skill("plan", "Fab body."),
+    );
+  });
+
+  test("replaces a local file where the fab has a directory", async () => {
+    const repo = await repoWith({ ".factory/skills": "local file\n" });
+    const fab = await makeFab({ ...fabFiles(), ".factory/skills/extra.md": "extra\n" });
+
+    const result = await runCli(["import", fab.root, "--agents", "claude", "--force"], {
+      cwd: repo.root,
+    });
+
+    expect(result.code).toBe(0);
+    expect((await stat(repo.path(".factory", "skills"))).isDirectory()).toBe(true);
+    expect(await readFile(repo.path(".factory", "skills", "extra.md"), "utf8")).toBe("extra\n");
+    expect(await readFile(repo.path(".factory", "skills", "guide", "SKILL.md"), "utf8")).toBe(
+      skill("guide", "Fab body."),
+    );
+  });
+
+  test("a declined import renames nothing", async () => {
+    const repo = await repoWith({
+      ".factory/skills/Plan/SKILL.md": skill("plan", "Local body."),
+      ".claude/skills/release/SKILL.md": skill("release"),
+    });
+    const fab = await makeFab({
+      ...fabFiles(),
+      ".factory/skills/plan/SKILL.md": skill("plan", "Fab body."),
+    });
+
+    const result = await runCli(["import", fab.root, "--agents", "claude", "--force"], {
+      cwd: repo.root,
+      tty: true,
+      stdin: Readable.from(["n\n"]),
+    });
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Adoption declined");
+    expect(await readdir(repo.path(".factory", "skills"))).toEqual(["Plan"]);
+    expect(await readFile(repo.path(".factory", "skills", "Plan", "SKILL.md"), "utf8")).toBe(
+      skill("plan", "Local body."),
+    );
+  });
+
+  test("renames an empty local directory to the fab's spelling of an empty directory", async () => {
+    const repo = await repoWith();
+    await mkdir(repo.path(".factory", "docs"), { recursive: true });
+    const fab = await makeFab(fabFiles());
+    await mkdir(fab.path(".factory", "Docs"), { recursive: true });
+
+    const result = await runCli(["import", fab.root, "--agents", "claude", "--force"], {
+      cwd: repo.root,
+    });
+
+    expect(result.code).toBe(0);
+    expect((await readdir(repo.path(".factory"))).filter((name) => name.toLowerCase() === "docs")).toEqual([
+      "Docs",
+    ]);
+  });
+
+  test.skipIf(process.platform === "win32")(
+    "a dangling .gitattributes link is refused before any write",
+    async () => {
+      const repo = await repoWith();
+      await symlink("missing-attributes", repo.path(".gitattributes"));
+      const fab = await makeFab(fabFiles());
+      const before = await snapshot(repo.root);
+
+      const result = await runCli(["import", fab.root, "--agents", "claude"], { cwd: repo.root });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain(
+        ".gitattributes is a symbolic link, so metafab import will not write through it",
+      );
+      expect(result.stderr).toContain("Replace it with a regular file, then run metafab import again");
+      expect(await snapshot(repo.root)).toEqual(before);
+      expect(await pathExists(repo.path(".factory"))).toBe(false);
+      expect(await pathExists(repo.path("missing-attributes"))).toBe(false);
+    },
+  );
 });

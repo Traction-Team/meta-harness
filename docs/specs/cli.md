@@ -77,6 +77,8 @@ When `init` creates `metafab.yaml` and the repository root has an `orca.yaml` wh
 
 `init` refuses to write through a symbolic link. When it would create or change `.factory/AGENTS.md` or the root `.gitattributes` and the path is a symbolic link, it exits with code 1 and changes nothing: `<path> is a symbolic link, so metafab init will not write through it`, with the fix `Replace it with a regular file, then run metafab init again`. A dangling link therefore never creates its target. A link to an existing file that needs no change is left alone.
 
+`import` refuses a symbolic link at the root `.gitattributes` the same way, with `metafab import` in the message and fix, before it writes anything.
+
 `init` does not create part directories. All directories are optional, and Git does not track empty directories.
 
 An existing factory remains intact. `init` adds only missing entries.
@@ -99,6 +101,8 @@ Migration follows these rules:
 6. `--adopt` gives the consent in advance, so the command does not ask.
 7. When standard input is not a terminal and `--adopt` is absent, required migration consent produces exit code 2 and a machine-readable description of the decision that names `--adopt` as its flag.
 8. A migration stopped by rules 2 to 4 exits with code 5 and changes nothing.
+
+A symbolic link inside a skill must resolve inside `.factory/` after the move. A link that leaves it, directly or through a symlinked directory, stops migration under rule 4 with `Symlink <path> points outside .factory/ after the move` and exit code 5. A link into another skill adopted in the same run is accepted: after both moves it resolves inside `.factory/skills/`, and the built output holds the linked content.
 
 Metafab does not stage the moved, deleted, or generated files. Git shows the migration for review.
 

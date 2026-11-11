@@ -355,9 +355,18 @@ describe("planAdoption", () => {
     const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
 
     expect(plan.moves).toEqual([]);
+    expect(plan.blockers[0]!.file).toBe(".claude/skills/release/notes-link.md");
     expect(plan.blockers[0]!.message).toBe(
-      "Symlink .claude/skills/release/notes-link.md points outside .factory/",
+      "Symlink .claude/skills/release/notes-link.md points outside .factory/ after the move",
     );
+
+    const result = await runCli(["init", "--agents", "claude"], { cwd: repo.root });
+
+    expect(result.code).toBe(5);
+    expect(result.stderr).toContain(
+      "Symlink .claude/skills/release/notes-link.md points outside .factory/ after the move",
+    );
+    expect(await pathExists(repo.path(".factory/skills"))).toBe(false);
   });
 
   test("blocks a symlink loop that build would report after the move", async () => {
@@ -643,6 +652,32 @@ describe("planAdoption", () => {
       "shared notes\n",
     );
   });
+
+  test.skipIf(process.platform === "win32")(
+    "accepts a link into a sibling skill adopted in the same run and builds the linked content",
+    async () => {
+      const repo = await repoWith({
+        ".claude/skills/release/SKILL.md": skill("release"),
+        ".claude/skills/reference/SKILL.md": skill("reference"),
+        ".claude/skills/reference/notes.md": "reference notes\n",
+      });
+      await symlink("../reference/notes.md", repo.path(".claude/skills/release/notes.md"));
+
+      const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+      expect(plan.blockers).toEqual([]);
+      expect(plan.moves.map((move) => move.name).sort()).toEqual(["reference", "release"]);
+
+      await applyAdoption(plan);
+
+      const result = await runCli(["build"], { cwd: repo.root });
+
+      expect(result.code).toBe(0);
+      expect(await readFile(repo.path(".claude/skills/release/notes.md"), "utf8")).toBe(
+        "reference notes\n",
+      );
+    },
+  );
 
   test("still blocks a symlink into another destination", async () => {
     const repo = await repoWith({

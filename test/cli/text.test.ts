@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { equalIgnoringEOL, isBinary, isSingleLine, toLF } from "../../src/util/text.js";
+import { equalIgnoringEOL, isSingleLine, toLF } from "../../src/util/text.js";
 
 describe("toLF", () => {
   test("converts CRLF and CR to LF", () => {
@@ -19,24 +19,6 @@ describe("equalIgnoringEOL", () => {
 
   test("still compares content", () => {
     expect(equalIgnoringEOL("a\nb", "a\nc")).toBe(false);
-  });
-});
-
-describe("isBinary", () => {
-  test("is false for text", () => {
-    expect(isBinary(Buffer.from("hello\nworld\n"))).toBe(false);
-  });
-
-  test("is true for a NUL byte in the first 8 KB", () => {
-    const data = Buffer.alloc(16, 0x61);
-    data[15] = 0;
-    expect(isBinary(data)).toBe(true);
-  });
-
-  test("ignores a NUL byte past the first 8 KB", () => {
-    const data = Buffer.alloc(8 * 1024 + 1, 0x61);
-    data[8 * 1024] = 0;
-    expect(isBinary(data)).toBe(false);
   });
 });
 

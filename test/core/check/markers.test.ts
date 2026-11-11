@@ -161,6 +161,54 @@ describe("conflict marker scanner", () => {
     expect(problems).toEqual([markerProblem(".factory/latin1.md", 2)]);
   });
 
+  test("finds a marker in a Latin-1 file whose first bytes are a UTF-16LE BOM", async () => {
+    const target = await repo({
+      // 0xFF 0xFE is ÿþ in ISO-8859-1 and the UTF-16LE BOM. The marker is
+      // ASCII, so the lenient UTF-8 decode must still find it.
+      ".factory/latin1-le.md": Buffer.from("\u00ff\u00feone\ntwo\n<<<<<<< HEAD\n", "latin1"),
+    });
+
+    const problems = await scanFactoryFiles(target.root);
+
+    expect(problems).toEqual([markerProblem(".factory/latin1-le.md", 3)]);
+  });
+
+  test("finds a marker in a Latin-1 file whose first bytes are a UTF-16BE BOM", async () => {
+    const target = await repo({
+      ".factory/latin1-be.md": Buffer.from("\u00fe\u00ffone\ntwo\n<<<<<<< HEAD\n", "latin1"),
+    });
+
+    const problems = await scanFactoryFiles(target.root);
+
+    expect(problems).toEqual([markerProblem(".factory/latin1-be.md", 3)]);
+  });
+
+  test("finds a marker on line 1 of a UTF-16LE file with a BOM", async () => {
+    const target = await repo({
+      ".factory/utf16le-first.md": Buffer.concat([
+        Buffer.from([0xff, 0xfe]),
+        Buffer.from("<<<<<<< HEAD\nleft\n", "utf16le"),
+      ]),
+    });
+
+    const problems = await scanFactoryFiles(target.root);
+
+    expect(problems).toEqual([markerProblem(".factory/utf16le-first.md", 1)]);
+  });
+
+  test("finds a marker on line 1 of a UTF-16BE file with a BOM", async () => {
+    const bigEndian = Buffer.from("<<<<<<< HEAD\nleft\n", "utf16le");
+    bigEndian.swap16();
+
+    const target = await repo({
+      ".factory/utf16be-first.md": Buffer.concat([Buffer.from([0xfe, 0xff]), bigEndian]),
+    });
+
+    const problems = await scanFactoryFiles(target.root);
+
+    expect(problems).toEqual([markerProblem(".factory/utf16be-first.md", 1)]);
+  });
+
   test("finds a marker in a UTF-16LE file with a BOM", async () => {
     const target = await repo({
       ".factory/utf16le.md": Buffer.concat([

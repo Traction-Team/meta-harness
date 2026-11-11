@@ -74,10 +74,22 @@ function isExecutable(entry: FileEntry | undefined): boolean {
   return entry !== undefined && entry.link === undefined && (entry.mode & 0o111) !== 0;
 }
 
+/**
+ * True when two entries differ in a permission bit that matters: only the
+ * executable bit counts, and a link has no mode of its own, because the host
+ * that holds it gives it one.
+ */
+export function modeMatters(
+  left: { mode: number; link?: string },
+  right: { mode: number; link?: string },
+): boolean {
+  if (left.link !== undefined || right.link !== undefined) return false;
+  return ((left.mode & 0o111) !== 0) !== ((right.mode & 0o111) !== 0);
+}
+
 /** True when two entries differ in permission bits that matter. */
 function modeDiffers(previous: FileEntry, next: FileEntry): boolean {
-  if (previous.link !== undefined || next.link !== undefined) return false;
-  return previous.mode !== next.mode;
+  return modeMatters(previous, next);
 }
 
 function baseName(relativePath: string): string {
