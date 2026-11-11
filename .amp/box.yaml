@@ -1,0 +1,5 @@
+source: false
+artifacts: [prototype/mark-two/index.html, assets, .amp/serve-site.mjs]
+services:
+  web:
+    command: node .amp/serve-site.mjs
