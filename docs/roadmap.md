@@ -46,7 +46,7 @@ A team can publish a factory as a fab and other teams can import and update it.
 
 ## Milestone 3: Release
 
-- [ ] [1.017 Dogfood](plans/1.017-dogfood.md): this repository builds its factory with `metafab build`; `link.mjs` retires
+- [x] [1.017 Dogfood](plans/1.017-dogfood.md): this repository builds its factory with `metafab build`; `link.mjs` retires
 - [ ] [1.018 Sharing edge cases and shared helpers](plans/1.018-sharing-polish.md): CRLF and restore-on-failure in `update`, `import --force` case clashes, `diff` with no edits, one copy of each shared helper
 - [ ] [1.012 Release v1](plans/1.012-release.md): hardening, agent tool verification, first fab, `@seasb/metafab@1.0.0`
 
