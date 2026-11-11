@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Prepares an Amp orb to build and test this repository. Runs once per fresh orb and
+# again on a stale snapshot, so every step must be idempotent and non-interactive.
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+step() {
+  local name="$1"
+  shift
+  echo "==> $name"
+  local start=$SECONDS
+  "$@"
+  echo "<== $name ($((SECONDS - start))s)"
+}
+
+check_node() {
+  # package.json requires Node >= 20; the orb base image ships a newer Node.
+  node -e 'const major = Number(process.versions.node.split(".")[0]); if (major < 20) { console.error(`Node ${process.version} is older than the required 20`); process.exit(1); }'
+  echo "node $(node -v), npm $(npm -v)"
+}
+
+# npm ci keeps package-lock.json untouched; npm install can rewrite it.
+step "Check Node" check_node
+step "Install dependencies" npm ci --no-audit --no-fund
+step "Build dist/" npm run build --silent
