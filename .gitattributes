@@ -1,0 +1,3 @@
+.factory/** text=auto eol=lf
+.claude/skills/** text=auto eol=lf
+.agents/skills/** text=auto eol=lf

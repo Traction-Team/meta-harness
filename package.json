@@ -19,7 +19,8 @@
     "test": "vitest run",
     "build": "tsc",
     "postbuild": "node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755);\"",
-    "verify": "npm run typecheck && npm run test && npm run build"
+    "verify": "npm run typecheck && npm run test && npm run factory",
+    "factory": "npm run build && node dist/cli.js build && git diff --exit-code -- AGENTS.md CLAUDE.md .gitignore .gitattributes && node dist/cli.js check && node .factory/scripts/check.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
