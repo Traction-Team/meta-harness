@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import validateNpmPackageName from "validate-npm-package-name";
 import { ExitCode, MetafabError } from "../../errors.js";
-import { redact } from "./redact.js";
+import { redact, stripSourceCredentials } from "./redact.js";
 import type { GitRef, SourceSpec } from "./types.js";
 
 export interface ParseSourceOptions {
@@ -111,14 +111,31 @@ function parseGithub(input: string): SourceSpec {
   };
 }
 
+// A Windows drive path after the `file://` authority, with either slash:
+// `C:\fabs\fab.git` or `/C:/fabs/fab.git`.
+const DRIVE_AFTER_AUTHORITY = /^\/?([A-Za-z]:[\\/].*)$/;
+
+/**
+ * The `file://` URL Git reads for the text after the authority. Git's parser
+ * needs a `/` after the authority: a backslash path gives it no path at all
+ * (`file://C:\fabs\fab.git` fails with "no path specified"). Both accepted
+ * Windows spellings therefore become the three-slash forward-slash form.
+ */
+function drivePathFileUrl(after: string): string | undefined {
+  const match = DRIVE_AFTER_AUTHORITY.exec(after);
+  if (match === null) return undefined;
+  return `file:///${(match[1] as string).replace(/\\/g, "/")}`;
+}
+
 /**
  * A `git+file://` source is a Git repository on this machine or a mounted
  * share, such as the bare fab repository `publish.git: file:///…` writes. The
  * path must be absolute, so `update` can re-parse the recorded source from
  * another working directory: three slashes, `localhost`, or a Windows drive.
- * The URL Git is given is `file:` plus the text after `git+file:`, unchanged;
- * Git accepts and decodes that text itself, and re-serialising it would change
- * the recorded source and the mirror key.
+ * The URL Git is given is `file:` plus the text after `git+file:`, except that
+ * a Windows drive path becomes the three-slash form Git reads; re-serialising
+ * the rest through `new URL()` would change the recorded source and the mirror
+ * key.
  */
 function parseGitFileUrl(input: string): SourceSpec {
   const { base, ref } = splitRef(input);
@@ -142,7 +159,7 @@ function parseGitFileUrl(input: string): SourceSpec {
 
   return {
     kind: "git",
-    url: `file:${rest}`,
+    url: drivePathFileUrl(after) ?? `file:${rest}`,
     source: base,
     ...(ref === undefined ? {} : { ref: parseGitRef(ref, input) }),
   };
@@ -319,13 +336,27 @@ export function parseSource(input: string, options: ParseSourceOptions): SourceS
  * The URL to hand to Git: `git+https://`, `git+ssh://` and `git+file://` lose
  * `git+`. The scheme is lower-cased because Git compares it case-sensitively,
  * and the rest of the text is kept byte for byte. An scp form has no scheme
- * with `//`, so it is returned unchanged.
+ * with `//`, so it is returned unchanged. A `file://` Windows drive path is
+ * turned into the three-slash form Git reads, as `parseGitFileUrl` does.
  */
 export function gitTransportUrl(url: string): string {
   const match = SCHEME.exec(url);
   if (match === null) return url;
   const scheme = (match[1] as string).replace(/^git\+/i, "").toLowerCase();
-  return `${scheme}://${url.slice(match[0].length)}`;
+  const after = url.slice(match[0].length);
+  const fileUrl = scheme === "file" ? drivePathFileUrl(after) : undefined;
+  return fileUrl ?? `${scheme}://${after}`;
+}
+
+/**
+ * The source to record or key on: the value without credentials, except for a
+ * `file:` source. A file URL names a path, not a host, and carries no
+ * credentials, so stripping would cut a `@` in a share path
+ * (`C:\Users\bob@corp\fab.git`) as if it were userinfo, and the recorded
+ * source would no longer parse.
+ */
+export function sourceWithoutCredentials(source: string): string {
+  return /^(?:git\+)?file:/i.test(source) ? source : stripSourceCredentials(source);
 }
 
 /**

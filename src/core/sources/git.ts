@@ -13,7 +13,8 @@ import { cacheLayout, cacheRoot, fabKey, getOrCreate, cacheWriteError, isLostRac
 import type { CacheLayout } from "./cache.js";
 import { extractTarball } from "./extract.js";
 import { disabledHooksConfig, gitEnvironment, gitMessage, VERBATIM_TEXT_ATTRIBUTES } from "./git-process.js";
-import { redact, stripSourceCredentials } from "./redact.js";
+import { redact } from "./redact.js";
+import { sourceWithoutCredentials } from "./parse.js";
 import type { FetchedFab, GitRef, GitSourceSpec, Resolved } from "./types.js";
 import { dropPayloadFiles, validateFab } from "./validate.js";
 
@@ -260,8 +261,8 @@ async function cloneInto(
       options,
     );
     await runGit(
-      ["-C", destination, "remote", "set-url", "origin", stripSourceCredentials(url)],
-      `Cannot record Git source ${stripSourceCredentials(url)}`,
+      ["-C", destination, "remote", "set-url", "origin", sourceWithoutCredentials(url)],
+      `Cannot record Git source ${sourceWithoutCredentials(url)}`,
       options,
     );
   } catch (error) {
@@ -585,7 +586,7 @@ async function exportFactory(
 function upstreamEntry(source: ResolvedGit): UpstreamEntry {
   return {
     kind: "git",
-    source: stripSourceCredentials(source.spec.source),
+    source: sourceWithoutCredentials(source.spec.source),
     ...(source.requested === undefined ? {} : { requested: source.requested }),
     ...(source.version === undefined ? {} : { version: source.version }),
     commit: source.commit,
@@ -618,7 +619,7 @@ export async function fetchGit(
   const layout = cacheLayout(options.cache ?? cacheRoot());
   const key = fabKey(
     FAB_FETCH_FORMAT,
-    stripSourceCredentials(source.spec.source),
+    sourceWithoutCredentials(source.spec.source),
     source.commit,
   );
   const fabDir = layout.fabDir(key);

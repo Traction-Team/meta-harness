@@ -5,7 +5,7 @@ import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import { pathExists, toPosixPath } from "../../util/fs.js";
-import { stripSourceCredentials } from "./redact.js";
+import { sourceWithoutCredentials } from "./parse.js";
 
 export interface CacheLayout {
   root: string;
@@ -57,8 +57,9 @@ export function cacheLayout(root: string = cacheRoot()): CacheLayout {
     },
     gitMirror(url: string): string {
       // Key on the URL without credentials so a new token reuses the mirror
-      // instead of cloning the same repository again.
-      const hash = createHash("sha256").update(stripSourceCredentials(url)).digest("hex");
+      // instead of cloning the same repository again. A `file:` URL carries
+      // none, and its path may hold a `@` that is not userinfo.
+      const hash = createHash("sha256").update(sourceWithoutCredentials(url)).digest("hex");
       return path.join(root, "git", hash);
     },
     fabDir(key: string): string {

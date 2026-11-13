@@ -374,6 +374,27 @@ describe("git sources", { timeout: 60_000 }, () => {
     }
   });
 
+  test("records a file source whose path holds an @ unchanged", async () => {
+    // `@` in a share path is not userinfo. Stripping it as if it were would
+    // record a host-looking source that `update` and `diff` cannot re-parse.
+    const root = await mkdtemp(path.join(tmpdir(), "metafab-git-at-"));
+    const repo = path.join(root, "bob@corp", "fab.git");
+    await mkdir(path.dirname(repo), { recursive: true });
+    try {
+      await runGitIn(root, ["clone", "-q", "--bare", fixture.repo, repo]);
+      const source = `git+file://${repo}`;
+      const parsed = parseSource(source, { cwd: process.cwd() });
+      if (parsed.kind !== "git") throw new Error("expected a git source");
+
+      const fetched = await fetchFab(await resolveGit(parsed), options());
+
+      expect(fetched.upstream.source).toBe(source);
+      expect(fetched.upstream.source).toContain("@corp");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("redacts credentials in Git errors", async () => {
     const token = "secret-token-value";
     const spec = gitSpec(`https://${token}@127.0.0.1:1/fab.git`, {

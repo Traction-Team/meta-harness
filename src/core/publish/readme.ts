@@ -3,8 +3,7 @@ import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { PublishConfig } from "../config/types.js";
 import type { Factory, Skill } from "../factory/index.js";
-import { stripSourceCredentials } from "../sources/redact.js";
-import { importSourceForGitUrl } from "../sources/parse.js";
+import { importSourceForGitUrl, sourceWithoutCredentials } from "../sources/parse.js";
 
 const IMPORT_COMMAND = "npx @seasb/metafab import";
 
@@ -58,7 +57,7 @@ function skillLine(skill: Skill): string {
 export function publishSource(publish: PublishConfig): string | undefined {
   if (publish.name !== undefined) return publish.name;
   if (publish.git === undefined) return undefined;
-  return importSourceForGitUrl(stripSourceCredentials(publish.git));
+  return importSourceForGitUrl(sourceWithoutCredentials(publish.git));
 }
 
 /**

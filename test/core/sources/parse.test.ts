@@ -6,6 +6,7 @@ import {
   gitTransportUrl,
   importSourceForGitUrl,
   parseSource,
+  sourceWithoutCredentials,
 } from "../../../src/core/sources/index.js";
 
 const CWD = path.resolve("/work/repo");
@@ -273,8 +274,15 @@ describe("parseSource", () => {
     });
     expect(parseSource("git+file://C:\\fabs\\fab.git", { cwd: CWD })).toEqual({
       kind: "git",
-      url: "file://C:\\fabs\\fab.git",
+      // Git needs `/` after the authority, so the documented backslash form is
+      // handed to Git as the three-slash drive URL; `source` stays as typed.
+      url: "file:///C:/fabs/fab.git",
       source: "git+file://C:\\fabs\\fab.git",
+    });
+    expect(parseSource("git+file:///C:\\fabs\\fab.git", { cwd: CWD })).toEqual({
+      kind: "git",
+      url: "file:///C:/fabs/fab.git",
+      source: "git+file:///C:\\fabs\\fab.git",
     });
     // `update` re-parses the recorded source, so an encoded path stays encoded.
     expect(parseSource("git+file:///srv/my%20fab.git", { cwd: CWD })).toEqual({
@@ -382,6 +390,17 @@ describe("gitTransportUrl and importSourceForGitUrl", () => {
       ["https://example.com/fab.git", "https://example.com/fab.git", "git+https://example.com/fab.git"],
       ["ssh://git@example.com/fab.git", "ssh://git@example.com/fab.git", "ssh://git@example.com/fab.git"],
       ["file:///srv/fab.git", "file:///srv/fab.git", "git+file:///srv/fab.git"],
+      // A Windows drive path reaches Git in the three-slash form it reads.
+      [
+        "git+file://C:\\fabs\\fab.git",
+        "file:///C:/fabs/fab.git",
+        "git+file://C:\\fabs\\fab.git",
+      ],
+      [
+        "git+file:///C:\\fabs\\fab.git",
+        "file:///C:/fabs/fab.git",
+        "git+file:///C:\\fabs\\fab.git",
+      ],
       // Credentials are neither added nor lost.
       [
         "git+https://user:secret@example.com/Fab.git",
@@ -406,6 +425,27 @@ describe("gitTransportUrl and importSourceForGitUrl", () => {
     expect(gitTransportUrl("GIT+FILE:///srv/Fab.git")).toBe("file:///srv/Fab.git");
     expect(importSourceForGitUrl("HTTPS://Example.com/Fab.git")).toBe(
       "git+https://Example.com/Fab.git",
+    );
+  });
+});
+
+describe("sourceWithoutCredentials", () => {
+  test("keeps a file path that holds a @", () => {
+    // A `file:` URL names a path, not a host: the `@` is not userinfo, so the
+    // recorded source must survive `update` and `diff` re-parsing it.
+    for (const source of [
+      "git+file://C:\\Users\\bob@corp\\fab.git",
+      "git+file:///srv/bob@corp/fab.git",
+      "git+file://localhost/srv/bob@corp/fab.git",
+      "file:///srv/bob@corp/fab.git",
+    ]) {
+      expect(sourceWithoutCredentials(source), source).toBe(source);
+    }
+  });
+
+  test("still drops credentials from a Git over HTTP source", () => {
+    expect(sourceWithoutCredentials("git+https://oauth2:glpat-secret@example.com/fab.git")).toBe(
+      "git+https://example.com/fab.git",
     );
   });
 });
