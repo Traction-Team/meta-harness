@@ -467,8 +467,9 @@ async function fetchNpmTarball(
       const size = (await stat(dir)).size;
       if (size > maxBytes) throw tarballTooLarge(source, size, maxBytes);
       const data = await readFile(dir);
-      // Name the cache entry that stays, not the staging file `getOrCreate`
-      // removes when validation fails.
+      // Name the cache path the tarball belongs at, not the staging file just
+      // read: `getOrCreate` removes the staging file, and a complete entry that
+      // failed validation, so neither is there afterwards.
       verifyIntegrity(target, data, source.integrity);
       return target;
     },
