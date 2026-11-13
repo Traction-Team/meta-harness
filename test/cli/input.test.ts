@@ -60,6 +60,18 @@ describe("ask", () => {
     await expect(ask(description, io)).rejects.toMatchObject({ exitCode: 2 });
   });
 
+  test("treats a destroyed input stream as ended", async () => {
+    const stdin = new PassThrough();
+    const io = { tty: true, stdin, stderr: () => undefined };
+
+    const pending = ask(description, io).catch((error: unknown) => error);
+    stdin.destroy();
+
+    expect(await pending).toBeInstanceOf(NeedsInput);
+    // The next question must fail instead of waiting on the dead stream.
+    await expect(ask(description, io)).rejects.toBeInstanceOf(NeedsInput);
+  });
+
   test("closeInput closes every open reader", async () => {
     const stdin = new PassThrough();
     stdin.write("first\n");

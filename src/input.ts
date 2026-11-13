@@ -48,7 +48,8 @@ const endedStreams = new WeakSet<NodeJS.ReadableStream>();
 
 /** `readableEnded` is on `stream.Readable`, not on the `NodeJS.ReadableStream` type. */
 function hasEnded(stream: NodeJS.ReadableStream): boolean {
-  return (stream as { readableEnded?: boolean }).readableEnded === true;
+  const state = stream as { readableEnded?: boolean; destroyed?: boolean; closed?: boolean };
+  return state.readableEnded === true || state.destroyed === true || state.closed === true;
 }
 
 const closedReader: LineReader = {
@@ -101,6 +102,17 @@ function readerFor(stdin: NodeJS.ReadableStream): LineReader {
     settle();
   });
 
+  // A stream that is destroyed instead of ended (`destroy()` with no `end()`)
+  // announces `close` but never `end`, so readline leaves its interface open.
+  // Treat that as the end of input too, or the next question waits forever on
+  // a dead stream.
+  const onStreamClose = (): void => {
+    ended = true;
+    endedStreams.add(stdin);
+    settle();
+  };
+  stdin.on("close", onStreamClose);
+
   const reader: LineReader = {
     next() {
       return new Promise<string | undefined>((resolve) => {
@@ -119,6 +131,7 @@ function readerFor(stdin: NodeJS.ReadableStream): LineReader {
       });
     },
     close() {
+      stdin.off("close", onStreamClose);
       rl.close();
       readers.delete(stdin);
     },
