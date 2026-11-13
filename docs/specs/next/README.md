@@ -10,18 +10,19 @@ Each draft records the intent, a proposed design, and the open questions to sett
 | --- | --- | --- |
 | Distributor | Find, import, and update other people's fabs | [Sharing](../sharing.md) (v1). Finding fabs is still open |
 | Bundler | Compile one factory into the right skills for each developer's environment | [Bundling](bundling.md) (draft) |
-| Record keeper | Attach metadata, such as scores and memory, to work, and follow it through branches and merges | [Store](metastore.md) (draft) |
+| Record keeper | Keep a factory's working documents and scores in a shared store outside Git | [Metastore](../metastore.md) (version 2, plans 2.001 to 2.009). Branch-aware records and memory: [draft](metastore.md) |
 
 ## Drafts
 
 | File | Summary |
 | --- | --- |
 | [Bundling](bundling.md) | Environment profiles, conditional skill content, skill composition, and configurable skill folders |
-| [Store](metastore.md) | `metafab store`: a branch-aware store of metadata about work, such as scores and memory, with history across branches, pull requests, and merges. Backends include the repository's own Git data and Metastore, our hosted product |
+| [Branch-aware records](metastore.md) | Records visible only on a branch until it merges, links between branches, the trail, and agent memory. Partly superseded by the version 2 [Metastore](../metastore.md) |
+| [Metastore Cloud](metastore-cloud.md) | What our hosted metastore, built in its own repository, must do |
 
 ## Relation to v1 deferred features
 
 The [v1 deferred features](../README.md#deferred-features) include scorers, score records, `metafab score`, history links, the Git ledger, and runtimes. These drafts propose how some of them return:
 
 - `runtimes/` and agent-tool instructions → environment profiles in [Bundling](bundling.md).
-- Scorers, score records, history links, and the Git ledger → [Store](metastore.md).
+- Scorers and score records → the version 2 [Metastore](../metastore.md). History links and the Git ledger → [Branch-aware records](metastore.md).

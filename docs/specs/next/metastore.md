@@ -1,8 +1,10 @@
-# Store (draft)
+# Branch-aware records (draft)
 
 > Draft for a later version. Not the acceptance standard. See [Next iterations](README.md).
+>
+> **Superseded in part, 14 Nov 2026.** The trunk-only [Metastore](../metastore.md) (version 2) now covers documents, scores, origin, backends and the commands, following what Dragonfly built and ran. This draft keeps the ideas it does not cover: records that are visible only on a branch until it merges, links between branches, the trail, and agent memory. Where this draft and the metastore spec disagree, the metastore spec wins. Read [Backends](#backends) and [Interface](#interface) below as history; a later version would add these features to the metastore protocol as capabilities, and to `metafab metastore` as commands.
 
-The store records metadata about work, such as scores, memory, and decisions, and follows that metadata through branches, pull requests, and merges. Metafab provides it as `metafab store` commands. A factory's workflows write to it and read from it.
+This draft records metadata about work, such as scores, memory, and decisions, and follows that metadata through branches, pull requests, and merges. A factory's workflows write to it and read from it.
 
 The commands work with more than one store implementation, called a **backend**. Metastore, our hosted product, is one backend. A team can also keep records in the repository itself, or in its own database through an adapter. See [Backends](#backends).
 
