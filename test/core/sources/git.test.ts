@@ -374,9 +374,10 @@ describe("git sources", { timeout: 60_000 }, () => {
     }
   });
 
-  test("records a file source whose path holds an @ unchanged", async () => {
-    // `@` in a share path is not userinfo. Stripping it as if it were would
-    // record a host-looking source that `update` and `diff` cannot re-parse.
+  test("records a POSIX file source whose path holds an @ unchanged", async () => {
+    // Regression guard for the whole recording path. The authority of a
+    // three-slash or `localhost` file URL ends at the first `/`, before the
+    // `@`, so `stripSourceCredentials` never saw this `@` as userinfo.
     const root = await mkdtemp(path.join(tmpdir(), "metafab-git-at-"));
     const repo = path.join(root, "bob@corp", "fab.git");
     await mkdir(path.dirname(repo), { recursive: true });
@@ -393,6 +394,26 @@ describe("git sources", { timeout: 60_000 }, () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  test("records a Windows drive file source whose path holds an @ unchanged", async () => {
+    // The two-slash drive form is the one where the authority is really the
+    // start of a path and stripping cut everything from the drive colon to the
+    // `@`. Its repository cannot exist here, so fetch from the fixture's POSIX
+    // URL and record the drive form: only `spec.source` reaches the recorded
+    // upstream and the fab key.
+    const spec = gitSpec(fixture.repo);
+    const resolved = await resolveGit(spec);
+    const driveSource = "git+file://C:\\Users\\bob@corp\\fab.git";
+
+    const fetched = await fetchFab(
+      { ...resolved, spec: { ...resolved.spec, source: driveSource } },
+      options(),
+    );
+
+    expect(fetched.upstream.source).toBe(driveSource);
+    expect(fetched.upstream.source).toContain("@corp");
+    expect(parseSource(fetched.upstream.source, { cwd: process.cwd() }).kind).toBe("git");
   });
 
   test("redacts credentials in Git errors", async () => {
