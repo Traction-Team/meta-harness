@@ -146,6 +146,28 @@ describe("repositoryScope", () => {
     expect(location.root).toBe(gitTop);
     expect(location.factoryDir).toBe(path.join(gitTop, ".factory"));
   });
+
+  test("names the repository root when GIT_WORK_TREE is not above the current directory", async () => {
+    const repo = await repoWith({ "outer.txt": "", "sub/file.txt": "" }, true);
+    const workTree = repo.path("sub");
+    const workTreeRunner: GitRunner = (args, options) =>
+      runGit(args, {
+        ...options,
+        env: { ...process.env, GIT_DIR: repo.path(".git"), GIT_WORK_TREE: workTree },
+      });
+
+    const error = await findFactory(repo.root, { git: workTreeRunner }).catch(
+      (caught: unknown) => caught,
+    );
+    const gitTop = await realpath(workTree);
+
+    expect(error).toBeInstanceOf(MetafabError);
+    const failure = error as MetafabError;
+    expect(failure.code).toBe("factory-not-found");
+    expect(failure.message).toBe(`No .factory directory found at the repository root ${gitTop}.`);
+    expect(failure.problems?.[0]?.message).toBe(`No factory found at the repository root ${gitTop}.`);
+    expect(failure.details).toEqual({ cwd: repo.root, repositoryRoot: gitTop });
+  });
 });
 
 describe("findFactory", () => {

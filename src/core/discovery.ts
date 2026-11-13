@@ -224,9 +224,38 @@ async function searchScope(
   return undefined;
 }
 
-function missingFactoryError(scope: RepositoryScope, cwd: string): MetafabError {
+/**
+ * True when Git named a top level that does not contain the current directory,
+ * as with a `GIT_WORK_TREE` elsewhere: it is the only directory searched, and
+ * it is not the current directory under another spelling (a symlink into it).
+ */
+async function searchesRootOnly(scope: RepositoryScope, cwd: string): Promise<boolean> {
+  const topLevel = scope.topLevel;
+  if (topLevel === undefined) return false;
+  if (scope.searched.length !== 1 || scope.searched[0] !== topLevel) return false;
+
+  const [start, top] = await Promise.all([identity(cwd), identity(topLevel)]);
+  return start !== undefined && top !== undefined && !sameFile(start, top);
+}
+
+async function missingFactoryError(scope: RepositoryScope, cwd: string): Promise<MetafabError> {
   const file = normalizeProblemPath(".factory", cwd);
   const topLevel = scope.topLevel;
+  if (topLevel !== undefined && (await searchesRootOnly(scope, cwd))) {
+    return new MetafabError(`No .factory directory found at the repository root ${topLevel}.`, {
+      exitCode: ExitCode.Failed,
+      code: MISSING_FACTORY_CODE,
+      details: { cwd, repositoryRoot: topLevel },
+      problems: [
+        {
+          level: "error",
+          file,
+          message: `No factory found at the repository root ${topLevel}.`,
+          fix: "Run metafab init",
+        },
+      ],
+    });
+  }
   if (topLevel !== undefined) {
     return new MetafabError(
       `No .factory directory found in ${cwd} or its parents up to the repository root ${topLevel}.`,
@@ -266,7 +295,7 @@ export async function findFactory(cwd: string, options: DiscoveryOptions = {}): 
   const scope = await repositoryScope(cwd, options.git);
   const location = await searchScope(scope, cwd, options.command);
   if (location !== undefined) return location;
-  throw missingFactoryError(scope, cwd);
+  throw await missingFactoryError(scope, cwd);
 }
 
 export async function resolveNewFactoryRoot(cwd: string, options: DiscoveryOptions = {}): Promise<string> {
