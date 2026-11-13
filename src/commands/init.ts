@@ -24,11 +24,25 @@ function bothHookFlags(): MetafabError {
 export const initCommand: CommandDefinition = {
   name: "init",
   description: "Create missing factory files and build the factory",
+  usage: "metafab init [--agents <list>] [--adopt] [--git-hooks | --no-git-hooks]",
   options: {
-    agents: { type: "string" },
-    adopt: { type: "boolean" },
-    "git-hooks": { type: "boolean" },
-    "no-git-hooks": { type: "boolean" },
+    agents: {
+      type: "string",
+      value: "<list>",
+      description: "Agent tools to install for: targets separated by commas, or all",
+    },
+    adopt: {
+      type: "boolean",
+      description: "Move existing repository skills into .factory/skills/ without asking",
+    },
+    "git-hooks": {
+      type: "boolean",
+      description: "Run metafab build after checkout, merge and rebase",
+    },
+    "no-git-hooks": {
+      type: "boolean",
+      description: "Leave Git hooks off without asking",
+    },
   },
   async run(context) {
     const gitHooks = context.options["git-hooks"] === true;

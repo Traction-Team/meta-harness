@@ -21,6 +21,7 @@ function argumentError(message: string): MetafabError {
 export const mapCommand: CommandDefinition = {
   name: "map",
   description: "Show the pipeline, workflows, and skills",
+  usage: "metafab map",
   async run(context) {
     if (context.positionals.length !== 0) {
       throw argumentError("map takes no arguments.");

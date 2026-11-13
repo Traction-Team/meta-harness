@@ -77,9 +77,17 @@ function summary(
 export const publishCommand: CommandDefinition = {
   name: "publish",
   description: "Package the factory and publish it",
+  usage: "metafab publish [--dry-run] [--tag <tag>]",
   options: {
-    "dry-run": { type: "boolean" },
-    tag: { type: "string" },
+    "dry-run": {
+      type: "boolean",
+      description: "Stage and validate the fab without publishing",
+    },
+    tag: {
+      type: "string",
+      value: "<tag>",
+      description: "The npm dist-tag to publish under",
+    },
   },
   async run(context) {
     if (context.positionals.length !== 0) {

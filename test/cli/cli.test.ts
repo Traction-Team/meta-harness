@@ -141,6 +141,7 @@ describe("command arguments", () => {
   const capturing: CommandDefinition = {
     name: "create",
     description: "Create a skill in the factory",
+    usage: "metafab create <path>",
     options: {
       description: { type: "string" },
       force: { type: "boolean" },
@@ -190,6 +191,7 @@ describe("NeedsInput", () => {
   const needsInput: CommandDefinition = {
     name: "create",
     description: "Create a skill in the factory",
+    usage: "metafab create <path>",
     async run() {
       throw new NeedsInput(required);
     },
@@ -219,6 +221,7 @@ describe("MetafabError", () => {
   const failing: CommandDefinition = {
     name: "check",
     description: "Validate the factory",
+    usage: "metafab check",
     async run() {
       throw new MetafabError("invalid fab", {
         exitCode: ExitCode.InvalidFab,
@@ -257,6 +260,7 @@ describe("unexpected errors", () => {
   const broken: CommandDefinition = {
     name: "check",
     description: "Validate the factory",
+    usage: "metafab check",
     async run() {
       throw new Error("boom");
     },

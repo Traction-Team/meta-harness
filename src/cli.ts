@@ -4,6 +4,14 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { ExitCode, MetafabError } from "./errors.js";
+import {
+  GLOBAL_OPTIONS,
+  commandHelp,
+  globalHelp,
+  groupHelp,
+  renderCommandHelp,
+  renderGroupHelp,
+} from "./help.js";
 import { NeedsInput } from "./input.js";
 import { renderResult } from "./output.js";
 import type { CommandResult } from "./output.js";
@@ -79,19 +87,70 @@ function hasJsonFlag(argv: readonly string[]): boolean {
   return argv.some((token) => token === "--json" || token === "--json=true");
 }
 
-function helpText(commands: readonly CommandDefinition[]): string {
-  const width = Math.max(...commands.map((command) => command.name.length)) + 2;
-  return [
-    "metafab <command> [options]",
-    "",
-    "Commands:",
-    ...commands.map((command) => `  ${command.name.padEnd(width)}${command.description}`),
-    "",
-    "Options:",
-    "  --json     Write one JSON object to stdout",
-    "  -h, --help Show this help",
-    "  --version  Show the metafab version",
-  ].join("\n");
+/** Which help a command line asks for, or undefined when it asks for none. */
+type HelpTarget =
+  | { kind: "command"; definition: CommandDefinition }
+  | { kind: "group"; group: string }
+  | { kind: "global" };
+
+/**
+ * `--help` or `-h` anywhere after the command name, before a `--`, wins over every
+ * other flag and argument. The leading words name the command (`pipeline add`), the
+ * `pipeline` group, or nothing (the global help, also for an unknown name).
+ */
+function helpTarget(
+  tokens: readonly string[],
+  commands: readonly CommandDefinition[],
+  globalHelpFlag: boolean,
+): HelpTarget | undefined {
+  const end = tokens.indexOf("--");
+  const beforeDash = end === -1 ? tokens : tokens.slice(0, end);
+  const wantsHelp =
+    globalHelpFlag || beforeDash.some((token) => token === "--help" || token === "-h");
+  if (!wantsHelp) return undefined;
+
+  const names: string[] = [];
+  for (const token of tokens) {
+    if (token.startsWith("-")) break;
+    names.push(token);
+  }
+
+  if (names.length >= 2) {
+    const definition = findCommand(commands, `${names[0]} ${names[1]}`);
+    if (definition !== undefined) return { kind: "command", definition };
+  }
+  if (names.length >= 1) {
+    const name = names[0]!;
+    const definition = findCommand(commands, name);
+    if (definition !== undefined) return { kind: "command", definition };
+    if (name === "pipeline") return { kind: "group", group: name };
+  }
+  return { kind: "global" };
+}
+
+/** The help result: rendered as `summary` for a person, as data with `--json`. */
+function renderHelp(
+  target: HelpTarget,
+  commands: readonly CommandDefinition[],
+  json: boolean,
+): CommandResult {
+  const result: CommandResult = { ok: true, command: "help", exitCode: ExitCode.Ok, problems: [] };
+
+  if (target.kind === "command") {
+    const help = commandHelp(target.definition);
+    result.help = help;
+    if (!json) result.summary = renderCommandHelp(help);
+  } else if (target.kind === "group") {
+    const help = groupHelp(target.group, commands);
+    result.help = help;
+    if (!json) result.summary = renderGroupHelp(help);
+  } else {
+    const help = globalHelp(commands);
+    result.commands = help.commands;
+    if (!json) result.summary = help.text;
+  }
+
+  return result;
 }
 
 function emit(result: CommandResult, json: boolean, stdout: Write, stderr: Write): number {
@@ -185,17 +244,17 @@ export async function main(
   const stderr: Write = io.stderr ?? ((text) => process.stderr.write(text));
   const global = splitGlobalFlags(argv);
   let json = global.json;
-  const failureJson = json || hasJsonFlag(argv);
+  const helpJson = json || hasJsonFlag(argv);
+  const failureJson = helpJson;
   let commandName = "metafab";
 
   try {
-    if (global.help) {
-      return emit(
-        { ok: true, command: "help", exitCode: ExitCode.Ok, summary: helpText(commands) },
-        json,
-        stdout,
-        stderr,
-      );
+    // Help is decided before the pipeline branch and before the command's options are
+    // parsed, so `import --bogus --help` and `pipeline add -h` still print help.
+    const tokens = global.rest;
+    const target = helpTarget(tokens, commands, global.help);
+    if (target !== undefined) {
+      return emit(renderHelp(target, commands, helpJson), helpJson, stdout, stderr);
     }
 
     if (global.version) {
@@ -208,14 +267,8 @@ export async function main(
       );
     }
 
-    const tokens = global.rest;
     if (tokens.length === 0) {
-      return emit(
-        { ok: true, command: "help", exitCode: ExitCode.Ok, summary: helpText(commands) },
-        json,
-        stdout,
-        stderr,
-      );
+      return emit(renderHelp({ kind: "global" }, commands, helpJson), helpJson, stdout, stderr);
     }
 
     const first = tokens[0]!;
@@ -263,8 +316,7 @@ export async function main(
     commandName = definition.name;
     const options: CommandOptions = {
       ...definition.options,
-      json: { type: "boolean" },
-      help: { type: "boolean" },
+      ...GLOBAL_OPTIONS,
     };
     let parsed: { positionals: string[]; values: Record<string, CommandOptionValue | undefined> };
     try {
@@ -272,7 +324,11 @@ export async function main(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return emit(
-        failure(definition.name, message, "Run metafab --help to see the available commands."),
+        failure(
+          definition.name,
+          message,
+          `Run metafab ${definition.name} --help to see its options`,
+        ),
         failureJson,
         stdout,
         stderr,
@@ -285,7 +341,7 @@ export async function main(
 
     if (parsed.values.help === true) {
       return emit(
-        { ok: true, command: "help", exitCode: ExitCode.Ok, summary: helpText(commands) },
+        renderHelp({ kind: "command", definition }, commands, json),
         json,
         stdout,
         stderr,

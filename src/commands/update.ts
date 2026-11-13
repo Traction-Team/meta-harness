@@ -7,10 +7,21 @@ import type { CommandDefinition } from "./types.js";
 export const updateCommand: CommandDefinition = {
   name: "update",
   description: "Merge or overwrite from the factory upstream",
+  usage: "metafab update [--to <version|range|ref>] [--dry-run] [--no-build]",
   options: {
-    to: { type: "string" },
-    "dry-run": { type: "boolean" },
-    "no-build": { type: "boolean" },
+    to: {
+      type: "string",
+      value: "<version|range|ref>",
+      description: "Update to this version, range or Git ref and record it",
+    },
+    "dry-run": {
+      type: "boolean",
+      description: "Show what would change without writing",
+    },
+    "no-build": {
+      type: "boolean",
+      description: "Do not run metafab build afterwards",
+    },
   },
   async run(context) {
     const location = await findFactory(context.cwd, { command: "update" });

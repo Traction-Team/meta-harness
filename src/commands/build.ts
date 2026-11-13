@@ -44,6 +44,7 @@ function failed(exitCode: ExitCode, problems: readonly Problem[]): CommandResult
 export const buildCommand: CommandDefinition = {
   name: "build",
   description: "Compile the factory for the configured agent tools",
+  usage: "metafab build",
   async run(context) {
     const location = await findFactory(context.cwd, { command: "build" });
     const factory = await loadFactory(location.root);

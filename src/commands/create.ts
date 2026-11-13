@@ -46,8 +46,16 @@ async function askDescription(context: CommandContext): Promise<string> {
 export const createCommand: CommandDefinition = {
   name: "create",
   description: "Create a skill in the factory",
+  usage: "metafab create <path> [--description <text>]",
+  arguments: [
+    { name: "path", description: "Where the skill goes in .factory/, such as workflows/review-slice" },
+  ],
   options: {
-    description: { type: "string" },
+    description: {
+      type: "string",
+      value: "<text>",
+      description: "The skill's description; asked for in a terminal when absent",
+    },
   },
   async run(context) {
     const input = context.positionals;

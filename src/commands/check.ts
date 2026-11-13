@@ -26,6 +26,7 @@ function problemsSummary(problems: readonly Problem[]): string {
 export const checkCommand: CommandDefinition = {
   name: "check",
   description: "Validate the factory and its installed output",
+  usage: "metafab check",
   async run(context) {
     const location = await findFactory(context.cwd, { command: "check" });
     const problems = await runCheck(location.root, cliVersion());
