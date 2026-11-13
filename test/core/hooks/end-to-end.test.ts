@@ -1,22 +1,14 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { chmod, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { buildCli, cliPath } from "../../cli/build.js";
 import { HOOK_NAMES, syncGitHooks } from "../../../src/core/hooks/index.js";
 import { isolateGitConfig, makeTestRepo } from "./helpers.js";
 import type { TestRepo } from "./helpers.js";
 
 const execFileAsync = promisify(execFile);
-const require = createRequire(import.meta.url);
-
-const repoRoot = path.resolve(fileURLToPath(new URL("../../..", import.meta.url)));
-const cliPath = path.join(repoRoot, "dist", "cli.js");
-const tscPath = path.join(path.dirname(require.resolve("typescript/package.json")), "bin", "tsc");
-const buildLock = path.join(tmpdir(), "metafab-hooks-cli-build.lock");
 
 let isolation: Awaited<ReturnType<typeof isolateGitConfig>> | undefined;
 const repos: TestRepo[] = [];
@@ -74,31 +66,6 @@ function restorePath(stub: PathEntry): void {
   else process.env.PATH = stub.originalPath;
 }
 
-/**
- * Compiles the CLI once across test files. `test/cli/e2e.test.ts` compiles the
- * same `dist/`, so a lock keeps two `tsc` runs from writing it at once.
- */
-async function buildCli(): Promise<void> {
-  for (let attempt = 0; attempt < 600; attempt += 1) {
-    try {
-      await mkdir(buildLock);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      continue;
-    }
-
-    try {
-      await execFileAsync(process.execPath, [tscPath], { cwd: repoRoot, timeout: 120_000 });
-    } finally {
-      await rm(buildLock, { recursive: true, force: true });
-    }
-    return;
-  }
-
-  throw new Error(`Timed out waiting for ${buildLock}`);
-}
-
 /** A `metafab` on `PATH` that runs the CLI built from this checkout. */
 async function installCli(git: TestRepo): Promise<PathEntry> {
   const bin = path.join(git.container, "cli-bin");
@@ -123,7 +90,9 @@ async function clear(log: string): Promise<void> {
 }
 
 describe.skipIf(process.platform === "win32")("Git hooks end to end", () => {
-  beforeAll(buildCli, 120_000);
+  // The shared helper's lock keeps this `tsc` from interleaving with
+  // `test/cli/e2e.test.ts`, which compiles the same `dist/`.
+  beforeAll(buildCli, 180_000);
 
   test(
     "post-checkout finds a factory below the repository root",
