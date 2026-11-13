@@ -65,4 +65,4 @@ git push
 
 A docs-only commit runs `node .factory/scripts/check.mjs`. A change to `.factory/` must also run `npm run factory`, because the `AGENTS.md` block is committed: an edit that changes it regenerates root `AGENTS.md`, which is staged with its source and is part of the same docs commit.
 
-If anything outside `docs/`, `.factory/` (except `.factory/scripts/`) and the `AGENTS.md` block the build regenerates is staged, it goes in a pull request instead. A change to `.factory/metafab.yaml` (for example `agents`) can regenerate `.gitignore` or `.gitattributes`; those are not docs, so that change goes in a pull request.
+If anything outside `docs/`, `.factory/` (except `.factory/scripts/`) and the `AGENTS.md` block the build regenerates is staged, it goes in a pull request instead. A change to `.factory/metafab.yaml` (for example `agents`) can regenerate `.gitignore`; that is not docs, so that change goes in a pull request.

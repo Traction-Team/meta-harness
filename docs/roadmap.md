@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-08
+updated: 2026-11-12
 ---
 
 # Metafab v1 roadmap
@@ -48,7 +48,14 @@ A team can publish a factory as a fab and other teams can import and update it.
 
 - [x] [1.017 Dogfood](plans/1.017-dogfood.md): this repository builds its factory with `metafab build`; `link.mjs` retires
 - [x] [1.018 Sharing edge cases and shared helpers](plans/1.018-sharing-polish.md): CRLF and restore-on-failure in `update`, `import --force` case clashes, `diff` with no edits, one copy of each shared helper
-- [ ] [1.012 Release v1](plans/1.012-release.md): hardening, agent tool verification, first fab, `@seasb/metafab@1.0.0`
+- [ ] [1.019 Exact file identity on Windows](plans/1.019-fix-windows-file-identity.md): `bigint` `dev`/`ino` in containment and the `CLAUDE.md` link check; fixes the flaky Windows CI test
+- [ ] [1.020 CLI fixes](plans/1.020-cli-fixes.md): discovery stays in the Git repository and refuses Droid's `.factory/`, `<command> --help`, one prompt reader per run, `DT_UNKNOWN` walkers, hook warnings and hook lines
+- [ ] [1.021 Source hardening](plans/1.021-source-hardening.md): `git+file://` sources, safe cache and mirror swaps, cache write errors exit 3, npm size checked before download
+- [ ] [1.023 Factory requirements](plans/1.023-factory-requires.md): `requires:` in `factory.yaml`; `import` and `update` offer to create missing repository files from templates, `check` warns
+- [ ] [1.022 Verification](plans/1.022-verification.md): agent tools, Windows, git hooks under Git for Windows, the CI recipe against `mark4-like`, the error message and `--json` contract, recorded in `docs/verification.md`
+- [ ] [1.024 First fab](plans/1.024-first-fab.md): the Dragonfly factory generalised as `@seasb/fab-orca`, and this repository imports it
+- [ ] [1.012 Release v1](plans/1.012-release.md): package `README.md`, release workflow with provenance, `@seasb/metafab@1.0.0`
+- [ ] [1.025 Git hooks on here](plans/1.025-git-hooks-on.md): `@seasb/metafab` as a devDependency and `git-hooks: true` in this repository, once 1.0.0 is on npm
 
 ## Order and parallel work
 
@@ -61,10 +68,11 @@ A team can publish a factory as a fab and other teams can import and update it.
 1.014 ─┬─ 1.016 ─┬─ 1.017
 1.015 ─┘  1.009 ─┘
           1.016 ─── 1.018
-all ── 1.012
+1.019 ── 1.020 ─┬─ 1.023 ─┬─ 1.022 ─┬─ 1.012 ── 1.025
+         1.021 ─┘         └─ 1.024 ─┘
 ```
 
-1.002 and 1.003 can run in parallel. 1.007 can run in parallel with 1.004 to 1.006. 1.013 needs nothing unmerged and can run beside 1.005 and 1.006. 1.008 can start once 1.002 and 1.003 are done. 1.014 and 1.015 need nothing unmerged and share no paths with 1.009 to 1.011, so they can run beside them. 1.017 should land between waves, because it changes how every worktree gets its skills. 1.018 shares no paths with 1.017, so the two can run side by side after 1.016; 1.012 needs 1.018 because both change `src/core/sources/git.ts`.
+1.002 and 1.003 can run in parallel. 1.007 can run in parallel with 1.004 to 1.006. 1.013 needs nothing unmerged and can run beside 1.005 and 1.006. 1.008 can start once 1.002 and 1.003 are done. 1.014 and 1.015 need nothing unmerged and share no paths with 1.009 to 1.011, so they can run beside them. 1.017 should land between waves, because it changes how every worktree gets its skills. 1.018 shares no paths with 1.017, so the two can run side by side after 1.016. On 12 Nov 1.012 was split into 1.020 to 1.024. 1.019 and 1.021 can run side by side; 1.020 waits for 1.019 because both change `src/core/build/plan.ts`. 1.023 needs 1.020 and 1.021. 1.022 and 1.024 can run side by side after 1.023; 1.024 should land between waves, because it replaces `.factory/` and every worktree's skills. 1.012 publishes the package, and 1.025 turns on hooks here once it is on npm.
 
 ## Open questions
 
@@ -73,7 +81,7 @@ Answer these before or during the named plan. Spec-level questions are linked to
 | Question | Blocks | Proposal |
 | --- | --- | --- |
 | Field-level frontmatter merge | [1.010](plans/1.010-update-diff-detach.md#open-questions), [spec](specs/sharing.md#open-questions) | Line merge in v1 |
-| Duplicate skills in Cursor and Copilot | [1.012](plans/1.012-release.md), [spec](specs/README.md#open-questions) | Test during release |
+| Duplicate skills in Cursor and Copilot | [1.022](plans/1.022-verification.md), [spec](specs/README.md#open-questions) | Test during verification |
 | Multiple upstream fabs; pipeline branches; trusted publishers; fleet updates | After v1 | Deferred |
 
 ## Decisions
@@ -82,6 +90,10 @@ Record answered questions here with the date and the commit that applied them.
 
 | Date | Decision | Applied in |
 | --- | --- | --- |
+| 2026-11-12 | Split 1.012 into 1.020 to 1.024 and the npm release. The first fab generalises the Dragonfly factory as `@seasb/fab-orca` instead of porting Mark IV, and this repository imports it | [1.012](plans/1.012-release.md), [1.024](plans/1.024-first-fab.md) |
+| 2026-11-12 | Factory discovery stops at the Git top level, and outside Git checks only the current directory. Keep the name `.factory/`; a `.factory/` with Factory.ai Droid's files and no `factory.yaml` is refused with exit 5 | [1.020](plans/1.020-cli-fixes.md) |
+| 2026-11-12 | A factory declares the repository files it needs under `requires:` in `factory.yaml`. `import` and `update` offer to create missing ones from templates and never overwrite; `check` warns. No scripts run on import in v1. Per-repository values live in a repository-owned settings file the fab's template creates | [1.023](plans/1.023-factory-requires.md) |
+| 2026-11-12 | `metafab <command> --help` prints the command's usage, arguments and options; `git+file://` is a Git source | [1.020](plans/1.020-cli-fixes.md), [1.021](plans/1.021-source-hardening.md) |
 | 2026-10-31 | `publish` releases Git first, then npm. A target that already has the version with identical content is skipped, so a re-run finishes a partial publish; different content refuses the whole publish. No `--provenance` flags in v1: detection only | #13 |
 | 2026-10-31 | The review summary has an **Other** group (templates and other files) after Skills, before preserved edits and conflicts | #12 |
 | 2026-10-31 | `import` refuses, without `--force`, any incoming path that would replace a different local file, link or directory, or that differs from a local path only in letter case; it checks the build output can be written before it writes anything | #12 |
