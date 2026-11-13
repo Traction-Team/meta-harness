@@ -7,7 +7,7 @@ import semver from "semver";
 import * as ssri from "ssri";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { UpstreamEntry } from "../config/types.js";
-import { fabKey, getOrCreate } from "./cache.js";
+import { cacheWriteError, fabKey, getOrCreate } from "./cache.js";
 import type { CacheLayout } from "./cache.js";
 import { cacheRoot, cacheLayout } from "./cache.js";
 import { withEnv } from "./env.js";
@@ -360,14 +360,15 @@ async function fetchNpmTarball(
   const target = layout.npmTarball(source.spec.name, source.version);
   const maxBytes = options.maxTarballSize ?? MAX_TARBALL_SIZE;
   await getOrCreate(target, {
-    validate: async () => {
-      const size = (await stat(target)).size;
+    root: layout.root,
+    validate: async (dir) => {
+      const size = (await stat(dir)).size;
       if (size > maxBytes) throw tarballTooLarge(source, size, maxBytes);
-      const data = await readFile(target);
-      verifyIntegrity(target, data, source.integrity);
+      const data = await readFile(dir);
+      verifyIntegrity(dir, data, source.integrity);
       return target;
     },
-    create: () => downloadTarball(source, target, options),
+    create: (staging) => downloadTarball(source, staging, options),
   });
 }
 
@@ -394,12 +395,16 @@ export async function fetchNpm(
   const fabDir = layout.fabDir(key);
 
   await getOrCreate(fabDir, {
-    validate: () => validateExtractedFab(fabDir, sourceLabel).then(() => fabDir),
-    create: async () => {
-      await rm(fabDir, { recursive: true, force: true });
-      await mkdir(fabDir, { recursive: true });
-      await extractTarball(tarball, fabDir, { stripPrefix: "package" });
-      await validateExtractedFab(fabDir, sourceLabel);
+    root: layout.root,
+    validate: (dir) => validateExtractedFab(dir, sourceLabel).then(() => fabDir),
+    create: async (staging) => {
+      // `extractTarball` creates the staging directory; a cache Metafab cannot
+      // write is reported as a cache write failure, not a bad tarball.
+      await extractTarball(tarball, staging, {
+        stripPrefix: "package",
+        writeError: (target, error) => cacheWriteError(target, layout.root, error),
+      });
+      await validateExtractedFab(staging, sourceLabel);
     },
   });
 

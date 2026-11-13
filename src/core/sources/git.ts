@@ -9,7 +9,7 @@ import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import type { UpstreamEntry } from "../config/types.js";
 import { pathExists } from "../../util/fs.js";
-import { cacheLayout, cacheRoot, fabKey, getOrCreate } from "./cache.js";
+import { cacheLayout, cacheRoot, fabKey, getOrCreate, cacheWriteError, isLostRaceError, sweepStale } from "./cache.js";
 import type { CacheLayout } from "./cache.js";
 import { extractTarball } from "./extract.js";
 import { disabledHooksConfig, gitEnvironment, gitMessage, VERBATIM_TEXT_ATTRIBUTES } from "./git-process.js";
@@ -238,31 +238,77 @@ function versionAtCommit(refs: MirrorRefs, commit: string): string | undefined {
   return versionTags(refs).find((tag) => tag.commit === commit)?.version;
 }
 
-async function cloneMirror(
+async function cloneInto(
   url: string,
-  mirror: string,
+  destination: string,
+  layout: CacheLayout,
   options: GitOptions,
 ): Promise<void> {
-  await mkdir(path.dirname(mirror), { recursive: true });
+  try {
+    await mkdir(path.dirname(destination), { recursive: true });
+  } catch (error) {
+    throw cacheWriteError(path.dirname(destination), layout.root, error);
+  }
   try {
     // Clone with the URL as given: it may carry a token that the server
     // requires. The origin is rewritten straight away so no credential is
     // left in the mirror's config, and later fetches pass the URL on the
     // command line instead.
     await runGit(
-      ["clone", "--mirror", "--", url, mirror],
+      ["clone", "--mirror", "--", url, destination],
       `Cannot clone Git source ${url}`,
       options,
     );
     await runGit(
-      ["-C", mirror, "remote", "set-url", "origin", stripSourceCredentials(url)],
+      ["-C", destination, "remote", "set-url", "origin", stripSourceCredentials(url)],
       `Cannot record Git source ${stripSourceCredentials(url)}`,
       options,
     );
   } catch (error) {
-    await rm(mirror, { recursive: true, force: true });
+    await rm(destination, { recursive: true, force: true }).catch(() => undefined);
     throw error;
   }
+}
+
+/**
+ * Renames a finished clone into place. Two commands can race here: when the
+ * rename loses because the mirror is now there, the winner's mirror is used.
+ * A mirror that appears but is not usable fails the fetch rather than leaving
+ * a path that every later command would trip over.
+ */
+async function installMirror(
+  temporary: string,
+  mirror: string,
+  layout: CacheLayout,
+  options: GitOptions,
+): Promise<void> {
+  try {
+    await rename(temporary, mirror);
+  } catch (error) {
+    if (await isLostRaceError(error, mirror)) {
+      await rm(temporary, { recursive: true, force: true }).catch(() => undefined);
+      if (await isUsableMirror(mirror, options)) return;
+      throw fetchError(
+        `Cannot use the Git mirror ${mirror}: another command left it incomplete`,
+      );
+    }
+    await rm(temporary, { recursive: true, force: true }).catch(() => undefined);
+    throw cacheWriteError(mirror, layout.root, error);
+  }
+}
+
+async function cloneMirror(
+  url: string,
+  mirror: string,
+  layout: CacheLayout,
+  options: GitOptions,
+): Promise<void> {
+  // Every clone, first or replacement, lands in a temporary sibling and is
+  // renamed into place: an interrupted clone can never leave a partial mirror
+  // at the real path.
+  const temporary = `${mirror}.tmp-${randomUUID()}`;
+  await cloneInto(url, temporary, layout, options);
+  await installMirror(temporary, mirror, layout, options);
 }
 
 async function isUsableMirror(mirror: string, options: GitOptions): Promise<boolean> {
@@ -275,26 +321,38 @@ async function isUsableMirror(mirror: string, options: GitOptions): Promise<bool
 async function replaceMirror(
   url: string,
   mirror: string,
+  layout: CacheLayout,
   options: GitOptions,
 ): Promise<string> {
   const replacement = `${mirror}.tmp-${randomUUID()}`;
-  await cloneMirror(url, replacement, options);
+  await cloneInto(url, replacement, layout, options);
 
   const backup = `${mirror}.old-${randomUUID()}`;
-  await rename(mirror, backup);
+  try {
+    await rename(mirror, backup);
+  } catch (error) {
+    await rm(replacement, { recursive: true, force: true }).catch(() => undefined);
+    throw cacheWriteError(mirror, layout.root, error);
+  }
+
   try {
     await rename(replacement, mirror);
   } catch (error) {
+    // Put the old mirror back where it was: a swap that did not happen must
+    // not cost the caller the mirror it had.
     await rename(backup, mirror).catch(() => undefined);
-    await rm(replacement, { recursive: true, force: true });
-    throw error;
+    await rm(replacement, { recursive: true, force: true }).catch(() => undefined);
+    throw cacheWriteError(mirror, layout.root, error);
   }
-  await rm(backup, { recursive: true, force: true });
+
+  // The swap succeeded; a backup that cannot be removed only costs disk.
+  await rm(backup, { recursive: true, force: true }).catch(() => undefined);
   return mirror;
 }
 
 async function ensureMirror(url: string, layout: CacheLayout, options: GitOptions): Promise<string> {
   const mirror = layout.gitMirror(url);
+  await sweepStale(path.dirname(mirror), path.basename(mirror));
 
   if (await pathExists(mirror)) {
     if (await isUsableMirror(mirror, options)) {
@@ -305,12 +363,16 @@ async function ensureMirror(url: string, layout: CacheLayout, options: GitOption
         options,
       );
       if (fetched.ok) return mirror;
-      return replaceMirror(url, mirror, options);
+      return replaceMirror(url, mirror, layout, options);
     }
-    await rm(mirror, { recursive: true, force: true });
+    try {
+      await rm(mirror, { recursive: true, force: true });
+    } catch (error) {
+      throw cacheWriteError(mirror, layout.root, error);
+    }
   }
 
-  await cloneMirror(url, mirror, options);
+  await cloneMirror(url, mirror, layout, options);
   return mirror;
 }
 
@@ -465,6 +527,7 @@ async function exportFactory(
   commit: string,
   fabDir: string,
   sourceLabel: string,
+  layout: CacheLayout,
   options: GitOptions,
 ): Promise<void> {
   const hasFactory = await tryGit(["-C", mirror, "cat-file", "-e", `${commit}:.factory`], options);
@@ -484,7 +547,13 @@ async function exportFactory(
     });
   }
 
-  const staging = await mkdtemp(path.join(tmpdir(), "metafab-git-"));
+  let staging: string;
+  try {
+    staging = await mkdtemp(path.join(tmpdir(), "metafab-git-"));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw fetchError(`Cannot create a temporary directory in ${tmpdir()}: ${detail}`, error);
+  }
   try {
     const archive = path.join(staging, "factory.tar");
     await writeVerbatimAttributes(mirror, sourceLabel);
@@ -503,9 +572,11 @@ async function exportFactory(
       options,
     );
 
-    await rm(fabDir, { recursive: true, force: true });
-    await mkdir(fabDir, { recursive: true });
-    await extractTarball(archive, fabDir);
+    // `extractTarball` creates the staging directory itself; a cache Metafab
+    // cannot write is reported as a cache write failure, not a bad tarball.
+    await extractTarball(archive, fabDir, {
+      writeError: (target, error) => cacheWriteError(target, layout.root, error),
+    });
   } finally {
     await rm(staging, { recursive: true, force: true });
   }
@@ -554,16 +625,17 @@ export async function fetchGit(
   const sourceLabel = `${source.spec.source}#${source.commit.slice(0, 7)}`;
 
   await getOrCreate(fabDir, {
-    validate: async () => {
-      await dropPayloadFiles(fabDir);
-      await validateFab(fabDir, { sourceLabel });
+    root: layout.root,
+    validate: async (dir) => {
+      await dropPayloadFiles(dir);
+      await validateFab(dir, { sourceLabel });
       return fabDir;
     },
-    create: async () => {
+    create: async (staging) => {
       const mirror = await ensureMirror(source.spec.url, layout, options);
-      await exportFactory(mirror, source.commit, fabDir, sourceLabel, options);
-      await dropPayloadFiles(fabDir);
-      await validateFab(fabDir, { sourceLabel });
+      await exportFactory(mirror, source.commit, staging, sourceLabel, layout, options);
+      await dropPayloadFiles(staging);
+      await validateFab(staging, { sourceLabel });
     },
   });
 

@@ -5,7 +5,7 @@ import { gzipSync } from "node:zlib";
 import * as tar from "tar";
 import { describe, expect, test } from "vitest";
 import { ExitCode, MetafabError } from "../../../src/errors.js";
-import { extractTarball } from "../../../src/core/sources/index.js";
+import { extractTarball, isCacheWriteFailure } from "../../../src/core/sources/index.js";
 import type { ExtractTarballOptions } from "../../../src/core/sources/index.js";
 import { pathExists } from "../../../src/util/fs.js";
 
@@ -720,5 +720,66 @@ describe("extractTarball", () => {
     } finally {
       await rm(base, { recursive: true, force: true });
     }
+  });
+
+  test("strips a prefix and flattens the single directory below it", async () => {
+    const base = await tempDir();
+    try {
+      const staging = path.join(base, "staging");
+      await mkdir(path.join(staging, "package", "fab-1.0.0", ".factory"), { recursive: true });
+      await writeFile(path.join(staging, "package", "fab-1.0.0", "README.md"), "readme");
+      await writeFile(
+        path.join(staging, "package", "fab-1.0.0", ".factory", "factory.yaml"),
+        "format: 1\n",
+      );
+      const archive = path.join(base, "fab.tgz");
+      await makeTar(archive, staging, ["package"]);
+
+      const destination = path.join(base, "out");
+      await extractTarball(archive, destination, {
+        stripPrefix: "package",
+        flattenSingleDirectory: true,
+      });
+
+      expect(await readFile(path.join(destination, ".factory", "factory.yaml"), "utf8")).toBe(
+        "format: 1\n",
+      );
+      expect(await pathExists(path.join(destination, "fab-1.0.0"))).toBe(false);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("without writeError a destination that cannot be created stays a tarball error", async () => {
+    const base = await tempDir();
+    try {
+      const staging = path.join(base, "staging");
+      await mkdir(path.join(staging, ".factory"), { recursive: true });
+      await writeFile(path.join(staging, ".factory", "factory.yaml"), "format: 1\n");
+      const archive = path.join(base, "fab.tar.gz");
+      await makeTar(archive, staging, [".factory"]);
+
+      const destination = path.join(base, "out");
+      await writeFile(destination, "a file, not a directory");
+
+      await expect(extractTarball(archive, destination)).rejects.toMatchObject({
+        exitCode: ExitCode.InvalidFab,
+        code: "invalid-fab",
+        message: expect.stringContaining("Cannot extract"),
+      });
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("isCacheWriteFailure", () => {
+  test("is true for the write failures and false for anything else", () => {
+    for (const code of ["EACCES", "EPERM", "ENOSPC", "EROFS", "EDQUOT"]) {
+      expect(isCacheWriteFailure(Object.assign(new Error(code), { code }))).toBe(true);
+    }
+    expect(isCacheWriteFailure(Object.assign(new Error("ENOENT"), { code: "ENOENT" }))).toBe(false);
+    expect(isCacheWriteFailure(new MetafabError("boom"))).toBe(false);
+    expect(isCacheWriteFailure("not an error")).toBe(false);
   });
 });

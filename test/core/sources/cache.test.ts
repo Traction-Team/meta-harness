@@ -1,16 +1,41 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   cacheLayout,
   cacheRoot,
   fabKey,
   getOrCreate,
+  sweepStale,
 } from "../../../src/core/sources/index.js";
+import { pathExists } from "../../../src/util/fs.js";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, rm: vi.fn(actual.rm) };
+});
+
+let actualFs: typeof import("node:fs/promises");
+
+beforeAll(async () => {
+  actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+});
+
+beforeEach(() => {
+  vi.mocked(rm).mockImplementation(actualFs.rm as never);
+});
+
+afterAll(() => {
+  vi.mocked(rm).mockReset();
+});
 
 async function tempDir(): Promise<string> {
   return mkdtemp(path.join(tmpdir(), "metafab-cache-"));
+}
+
+function tempSiblings(base: string): Promise<string[]> {
+  return readdir(base).then((entries) => entries.filter((entry) => /\.(?:tmp|old)-/.test(entry)));
 }
 
 describe("cacheRoot", () => {
@@ -55,28 +80,84 @@ describe("cacheLayout", () => {
     expect(() => fabKey("..")).toThrow();
     expect(() => fabKey()).toThrow();
   });
+
+  test("fabKey keeps a key of 120 characters unchanged", () => {
+    const key = "k".repeat(120);
+    expect(fabKey(key)).toBe(key);
+  });
+
+  test("fabKey caps a longer key with a digest of the whole key", () => {
+    const shared = "a".repeat(80);
+    const first = fabKey(`${shared}${"b".repeat(50)}`);
+    const second = fabKey(`${shared}${"c".repeat(50)}`);
+
+    expect(first).toHaveLength(113);
+    expect(first.startsWith(shared)).toBe(true);
+    expect(fabKey(`${shared}${"b".repeat(50)}`)).toBe(first);
+    expect(second).not.toBe(first);
+  });
 });
 
-describe("getOrCreate", () => {
-  test("creates a missing entry", async () => {
+describe("sweepStale", () => {
+  test("removes old temporary siblings and keeps fresh or unrelated entries", async () => {
     const base = await tempDir();
     try {
-      const target = path.join(base, "entry");
-      const result = await getOrCreate(target, {
-        validate: () => readFile(path.join(target, "value"), "utf8"),
-        create: async () => {
-          await mkdir(target, { recursive: true });
-          await writeFile(path.join(target, "value"), "good");
-        },
-      });
+      const name = "entry";
+      const staleTmp = path.join(base, `${name}.tmp-stale`);
+      const staleOld = path.join(base, `${name}.old-stale`);
+      const freshTmp = path.join(base, `${name}.tmp-fresh`);
+      const unrelated = path.join(base, "other.tmp-stale");
+      for (const directory of [staleTmp, staleOld, freshTmp, unrelated]) {
+        await mkdir(directory, { recursive: true });
+      }
+      const old = new Date(Date.now() - 25 * 60 * 60 * 1000);
+      await utimes(staleTmp, old, old);
+      await utimes(staleOld, old, old);
 
-      expect(result).toBe("good");
+      await sweepStale(base, name);
+
+      expect(await pathExists(staleTmp)).toBe(false);
+      expect(await pathExists(staleOld)).toBe(false);
+      expect(await pathExists(freshTmp)).toBe(true);
+      expect(await pathExists(unrelated)).toBe(true);
     } finally {
       await rm(base, { recursive: true, force: true });
     }
   });
 
-  test("deletes a corrupt entry and fetches it once more", async () => {
+  test("does nothing when the parent does not exist", async () => {
+    const base = await tempDir();
+    try {
+      await expect(sweepStale(path.join(base, "missing"), "entry")).resolves.toBeUndefined();
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("getOrCreate", () => {
+  test("creates a missing entry in a staging directory and renames it into place", async () => {
+    const base = await tempDir();
+    try {
+      const target = path.join(base, "entry");
+      const result = await getOrCreate(target, {
+        root: base,
+        validate: (dir) => readFile(path.join(dir, "value"), "utf8"),
+        create: async (staging) => {
+          await mkdir(staging, { recursive: true });
+          await writeFile(path.join(staging, "value"), "good");
+        },
+      });
+
+      expect(result).toBe("good");
+      expect(await readFile(path.join(target, "value"), "utf8")).toBe("good");
+      expect(await tempSiblings(base)).toEqual([]);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("replaces a corrupt entry", async () => {
     const base = await tempDir();
     try {
       const target = path.join(base, "entry");
@@ -85,65 +166,138 @@ describe("getOrCreate", () => {
 
       let validations = 0;
       const result = await getOrCreate(target, {
-        validate: async () => {
+        root: base,
+        validate: async (dir) => {
           validations += 1;
-          const value = await readFile(path.join(target, "value"), "utf8");
+          const value = await readFile(path.join(dir, "value"), "utf8");
           if (value !== "good") throw new Error("corrupt entry");
           return value;
         },
-        create: async () => {
-          await mkdir(target, { recursive: true });
-          await writeFile(path.join(target, "value"), "good");
+        create: async (staging) => {
+          await mkdir(staging, { recursive: true });
+          await writeFile(path.join(staging, "value"), "good");
         },
       });
 
       expect(result).toBe("good");
       expect(validations).toBe(2);
+      expect(await readFile(path.join(target, "value"), "utf8")).toBe("good");
     } finally {
       await rm(base, { recursive: true, force: true });
     }
   });
 
-  test("deletes an entry whose creation fails", async () => {
+  test("a failing create leaves no staging sibling and rethrows its own error", async () => {
     const base = await tempDir();
     try {
       const target = path.join(base, "entry");
       await expect(
         getOrCreate(target, {
-          validate: () => readFile(path.join(target, "value"), "utf8"),
-          create: async () => {
-            await mkdir(target, { recursive: true });
-            await writeFile(path.join(target, "value"), "partial");
+          root: base,
+          validate: (dir) => readFile(path.join(dir, "value"), "utf8"),
+          create: async (staging) => {
+            await mkdir(staging, { recursive: true });
+            await writeFile(path.join(staging, "value"), "partial");
             throw new Error("create failed");
           },
         }),
       ).rejects.toThrow("create failed");
 
-      await expect(readFile(path.join(target, "value"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await tempSiblings(base)).toEqual([]);
+      await expect(readFile(path.join(target, "value"), "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      });
     } finally {
       await rm(base, { recursive: true, force: true });
     }
   });
 
-  test("deletes an entry that is still invalid after fetching", async () => {
+  test("a failing create rethrows its own error even when the cleanup fails", async () => {
+    const base = await tempDir();
+    try {
+      const target = path.join(base, "entry");
+      const cleanupError = Object.assign(new Error("EBUSY: resource busy"), { code: "EBUSY" });
+      vi.mocked(rm).mockRejectedValue(cleanupError);
+
+      await expect(
+        getOrCreate(target, {
+          root: base,
+          validate: (dir) => readFile(path.join(dir, "value"), "utf8"),
+          create: async () => {
+            throw new Error("create failed");
+          },
+        }),
+      ).rejects.toThrow("create failed");
+    } finally {
+      vi.mocked(rm).mockImplementation(actualFs.rm as never);
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("two overlapping creates both return the entry and neither deletes the other's", async () => {
+    const base = await tempDir();
+    try {
+      const target = path.join(base, "entry");
+      let entered!: () => void;
+      const enteredCreate = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+
+      let creates = 0;
+      const options = {
+        root: base,
+        validate: (dir: string) => readFile(path.join(dir, "value"), "utf8"),
+        create: async (staging: string) => {
+          creates += 1;
+          if (creates === 1) {
+            entered();
+            await gate;
+          }
+          await mkdir(staging, { recursive: true });
+          await writeFile(path.join(staging, "value"), "good");
+        },
+      };
+
+      const first = getOrCreate(target, options);
+      await enteredCreate;
+      const second = await getOrCreate(target, options);
+      release();
+      const firstResult = await first;
+
+      expect(firstResult).toBe("good");
+      expect(second).toBe("good");
+      expect(await readFile(path.join(target, "value"), "utf8")).toBe("good");
+      expect(await tempSiblings(base)).toEqual([]);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("a corrupt staging entry is removed and its own error is rethrown", async () => {
     const base = await tempDir();
     try {
       const target = path.join(base, "entry");
       await expect(
         getOrCreate(target, {
-          validate: async () => {
-            const value = await readFile(path.join(target, "value"), "utf8");
+          root: base,
+          validate: async (dir) => {
+            const value = await readFile(path.join(dir, "value"), "utf8");
             if (value !== "good") throw new Error("corrupt entry");
             return value;
           },
-          create: async () => {
-            await mkdir(target, { recursive: true });
-            await writeFile(path.join(target, "value"), "still corrupt");
+          create: async (staging) => {
+            await mkdir(staging, { recursive: true });
+            await writeFile(path.join(staging, "value"), "still corrupt");
           },
         }),
       ).rejects.toThrow("corrupt entry");
 
-      await expect(readFile(path.join(target, "value"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await pathExists(target)).toBe(false);
+      expect(await tempSiblings(base)).toEqual([]);
     } finally {
       await rm(base, { recursive: true, force: true });
     }
