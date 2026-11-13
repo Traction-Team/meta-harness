@@ -94,6 +94,27 @@ describe("resolveReadme", () => {
     );
   });
 
+  test("does not write credentials from a file URL in publish.git", async () => {
+    // A `file:` URL that names an authority is not a path, so its userinfo is
+    // a credential and must not reach the published README.
+    const target = await repo({
+      publish: [
+        "publish:",
+        "  git: file://user:ghp_secret@localhost/srv/fab.git",
+        "  version: 1.0.0",
+        "",
+      ].join("\n"),
+    });
+    await rm(target.path(".factory", "README.md"));
+
+    const readme = await resolve(target);
+
+    expect(readme).not.toContain("ghp_secret");
+    expect(readme).toContain(
+      "npx @seasb/metafab import git+file://user@localhost/srv/fab.git",
+    );
+  });
+
   test("names the import form of the Git URL in the generated import command", async () => {
     // `import` reads a plain https URL as a tarball, so the README of a fab
     // published to a Git repository must name the `git+` form.

@@ -348,15 +348,22 @@ export function gitTransportUrl(url: string): string {
   return fileUrl ?? `${scheme}://${after}`;
 }
 
+// A `file:` URL whose text after `//` is a Windows drive path. Only here is the
+// "authority" really the start of a path, so only here is a `@` not userinfo.
+const FILE_DRIVE_AUTHORITY = /^(?:git\+)?file:\/\/[A-Za-z]:[\\/]/i;
+
 /**
  * The source to record or key on: the value without credentials, except for a
- * `file:` source. A file URL names a path, not a host, and carries no
- * credentials, so stripping would cut a `@` in a share path
- * (`C:\Users\bob@corp\fab.git`) as if it were userinfo, and the recorded
- * source would no longer parse.
+ * `file:` URL written with a Windows drive right after `//`
+ * (`file://C:\Users\bob@corp\fab.git`). There the authority is really the
+ * start of a path, so stripping would cut the `@` in the path as if it were
+ * userinfo and the recorded source would no longer parse. Every other form
+ * keeps `stripSourceCredentials`: in `file:///…` and `file://localhost/…` the
+ * authority ends at the first `/`, before any `@`, and a `file://` URL that
+ * does name an authority carries credentials that must not be written down.
  */
 export function sourceWithoutCredentials(source: string): string {
-  return /^(?:git\+)?file:/i.test(source) ? source : stripSourceCredentials(source);
+  return FILE_DRIVE_AUTHORITY.test(source) ? source : stripSourceCredentials(source);
 }
 
 /**

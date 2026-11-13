@@ -430,17 +430,40 @@ describe("gitTransportUrl and importSourceForGitUrl", () => {
 });
 
 describe("sourceWithoutCredentials", () => {
-  test("keeps a file path that holds a @", () => {
-    // A `file:` URL names a path, not a host: the `@` is not userinfo, so the
-    // recorded source must survive `update` and `diff` re-parsing it.
+  test("keeps a Windows drive file path that holds a @", () => {
+    // The two-slash drive form is the one where the authority is really the
+    // start of a path: the `@` is not userinfo, so the recorded source must
+    // survive `update` and `diff` re-parsing it.
     for (const source of [
       "git+file://C:\\Users\\bob@corp\\fab.git",
+      "git+file://C:/Users/bob@corp/fab.git",
+      "file://C:\\Users\\bob@corp\\fab.git",
+    ]) {
+      expect(sourceWithoutCredentials(source), source).toBe(source);
+    }
+  });
+
+  test("keeps a POSIX share path that holds a @", () => {
+    // The authority ends at the first `/`, before the `@`, so the path is
+    // already safe; this guards that it stays so.
+    for (const source of [
       "git+file:///srv/bob@corp/fab.git",
       "git+file://localhost/srv/bob@corp/fab.git",
       "file:///srv/bob@corp/fab.git",
     ]) {
       expect(sourceWithoutCredentials(source), source).toBe(source);
     }
+  });
+
+  test("drops credentials from a file URL that names an authority", () => {
+    // Not a path: `localhost` is a host, so the userinfo is a credential and
+    // must not reach a recorded source or a published README.
+    expect(sourceWithoutCredentials("git+file://user:pw@localhost/x.git")).toBe(
+      "git+file://user@localhost/x.git",
+    );
+    expect(sourceWithoutCredentials("file://user:ghp_secret@localhost/srv/fab.git")).not.toContain(
+      "ghp_secret",
+    );
   });
 
   test("still drops credentials from a Git over HTTP source", () => {
