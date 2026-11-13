@@ -177,10 +177,11 @@ These checks apply to every matching file in each declared folder, whether the f
 | --- | --- |
 | Markdown frontmatter or the HTML `<!--metastore` comment does not parse as a YAML mapping | Error |
 | The properties do not match the schema. One problem per schema error, on the line of the property it names, or the first line of the frontmatter | Error |
-| Two documents share a value of a `unique` property. Reported on the later path in path order | Error |
+| Two documents share a value of a `unique` property. Reported on the later path in path order that has a file on disk, naming the other path | Error |
+| A `references` value is not a portable repository-relative path (see [Paths](#paths)), such as `../x.md` or `/x.md` | Warning |
 | A `references` value names a repository path that is neither a file in the working tree nor a document in the [index](#the-index). A trailing `@v<n>` is ignored, and values that are URLs are skipped | Warning |
 
-**Unique values.** A string, number or boolean value counts as itself. A list counts each of its items that is a string, number or boolean. `null`, empty lists, mappings, and lists or mappings inside a list do not count. Two values are equal when their JSON text is equal, so `"1"` and `1` differ, and comparison is case-sensitive.
+**Unique values.** A string, number or boolean value counts as itself. A list counts each of its items that is a string, number or boolean, once, however often it repeats in that list. `null`, empty lists, mappings, and lists or mappings inside a list do not count. Two values are equal when their JSON text is equal, so `"1"` and `1` differ, and comparison is case-sensitive.
 
 **Which documents take part.** Schema checks apply to the matching files on disk. `unique` and `references` also count the documents that the index lists in the folder and that have no local file, with their stored properties, so a document outside the [sync windows](#sync-windows) still holds its unique values.
 
@@ -238,6 +239,8 @@ Every developer of a repository must use the same metastore, so this configurati
 
 Every file below a store folder is a document, except files below a folder whose name starts with `.`. Files outside the store folders are never read or written by the mirror commands.
 
+The mirror commands never write through a symbolic link. When the mirror root, `<root>/.metastore`, or any folder between the repository root and them is a symbolic link, every mirror command stops with exit code 1 before it writes anything. A link inside a store folder is reported by `status` and left alone.
+
 ### Working-tree files
 
 The CLI keeps its own files in `<root>/.metastore/`, which Git ignores. Do not edit them.
@@ -283,7 +286,7 @@ Pull also writes a document whose path differs only in letter case from a local 
 
 ### Status
 
-`metafab metastore status` reads the state file and the local files, and lists the metastore once. It reports each document that is `modified`, `new` (a local file with no state entry and no document), `deleted` (a state entry with no local file), `behind` (clean, but the metastore has a newer version), `conflict` (has a conflict copy), or `archived` (the local file remains, but the document is archived). It reports tracked files in store folders, and counts the documents outside the sync windows on one line. With `--offline` it reads the index instead of listing the metastore, and says the result may be stale.
+`metafab metastore status` reads the state file and the local files, and lists the metastore once. It reports each document that is `modified`, `new` (a local file with no state entry and no document), `unrecorded` (a local file with no state entry whose path the metastore holds; status fetches the current version and says whether the next pull records it, when equal, or writes a conflict copy), `deleted` (a state entry with no local file), `behind` (clean, but the metastore has a newer version), `conflict` (has a conflict copy), or `archived` (the local file remains, but the document is archived). It reports tracked files in store folders, and counts the documents outside the sync windows on one line. With `--offline` it reads the index instead of listing the metastore, and says the result may be stale.
 
 ### Push
 
@@ -439,7 +442,7 @@ A document subject for a path that is not in the metastore is refused, and so is
 
 | Command | Behaviour |
 | --- | --- |
-| `score <subject> (--file <json> \| --name <n> (--value <x> \| --label <l>) [--scale <min>..<max>] [--rationale <text>] [--model <m>])` | Records one score. `--file` holds a whole score object without `id`, `subject` or `origin`; flags override its fields. The CLI checks the score before it sends it. A document subject without `@v<n>` whose local file has unsaved changes is refused, with the fix `Push it first, or name the version with @v<n>`, because the score would name a version nobody read |
+| `score <subject> (--file <json> \| --name <n> (--value <x> \| --label <l>) [--scale <min>..<max>] [--rationale <text>] [--model <m>])` | Records one score. `--file` holds a whole score object without `id`, `subject` or `origin`; flags override its fields. The CLI checks the score before it sends it. A document subject without `@v<n>` whose local file has unsaved changes, is new, or was deleted is refused, with the fix `Push it first, or name the version with @v<n>`, because the score would name a version nobody read |
 | `scores [<subject> \| <folder>] [--name <n>] [--since <date>] [--limit <n>] [--json]` | Lists scores, newest first: the time, the name, the value on its scale or the label, the subject at its version or revision, and the scorer. A folder lists the scores of the documents under it |
 
 [Scorers](#scorers) record scores through `metafab scorer record`, which builds the score from a judge's result.
@@ -450,7 +453,7 @@ A **scorer** is a rubric that a judge applies to a subject: a fixed scale, named
 
 ### Scorer files
 
-In a factory with `format: 2`, each Markdown file directly in `.factory/scorers/` is a scorer, `.factory/scorers/<name>.md`. Scorers are not Agent Skills and `build` does not install them. A skill directory in `scorers/` is still an ordinary skill.
+In a factory with `format: 2`, each Markdown file directly in `.factory/scorers/` is a scorer, `.factory/scorers/<name>.md`, except a file named exactly `SKILL.md`, which [Factory format](factory-format.md#validation) rule 11 already reports. Scorers are not Agent Skills and `build` does not install them. A skill directory in `scorers/` is still an ordinary skill.
 
 ```markdown
 ---
@@ -495,7 +498,7 @@ The prompt has five parts: the judge's role, with the statement that it has no s
 { "criteria": [{ "id": "real-names", "value": 4, "note": "Names match src/core/metastore/." }], "rationale": "…" }
 ```
 
-`prompt` pins the subject as `score` does, and prints the `record` command to run, with the pinned subject (such as `plans/x.md@v7`, `pr:42@<sha>` or `docs/specs/cli.md@<sha>`) and `--scorer-version` set to the scorer file's Git blob hash. `record` refuses a scorer file whose hash differs from `--scorer-version`, because the judge saw another rubric. A document subject is read with `metafab metastore show <path> --version <n>`, a pull request with `gh pr view` and `gh pr diff`, a branch with `git log` and `git diff` from its merge base with the default branch, a commit with `git show`, and a file with `git show <sha>:<path>`. `prompt` refuses a document whose local file has unsaved changes, with the fix `Push it first`, because the score would name a version the judge did not read.
+`prompt` pins the subject as `score` does, and prints the `record` command to run, with the pinned subject (such as `plans/x.md@v7`, `pr:42@<sha>` or `docs/specs/cli.md@<sha>`) and `--scorer-version` set to the scorer file's Git blob hash. `record` refuses a scorer file whose hash differs from `--scorer-version`, because the judge saw another rubric. A document subject is read with `metafab metastore show <path> --version <n>`, a pull request with `gh pr view` and `gh pr diff`, a branch with `git log` and `git diff` from its merge base with the default branch, a commit with `git show`, and a file with `git show <sha>:<path>`. `prompt` refuses a document whose local file has unsaved changes or was deleted, with the fix `Push it first`, because the score would name a version the judge did not read. It also refuses a `branch`, `commit` or `file` subject in another repository than this checkout's `origin`, with the fix `Run metafab scorer prompt in a checkout of <repo>`, because the judge reads those with local Git. `record` checks that the scorer applies to the subject, as `prompt` does.
 
 `record` reads the last fenced `json` block in the result file (`-` reads standard input), so a judge's whole answer can be saved as it is. It checks that every criterion appears exactly once with a whole-number `value` on the scale and a non-empty `note`, and that `rationale` is a non-empty string. It computes `value` as the mean of the criteria values weighted by `weight`, rounded to two decimal places, and records the score with `scale`, `criteria` (with weights), `rationale`, `scorer`, `scorerVersion` (`git hash-object` of the scorer file), `model`, and `run.round`. When the scorer file has uncommitted changes, `run.dirty` is `true`. An invalid result exits with code 1 and one line that names the problem, so a workflow can ask the judge once more. `--dry-run` prints the score and records nothing.
 
@@ -563,7 +566,7 @@ Tokens are saved in `~/.metafab/credentials.json`, keyed by the URL's scheme, ho
 
 Metastore commands follow the [CLI rules](cli.md#command-behaviour), with these additions:
 
-1. Every command finds the factory as other commands do, and stops with exit code 1 when `metafab.yaml` has no `metastore`: `No metastore is configured`, with the fix `Add a metastore section to .factory/metafab.yaml`.
+1. Every command finds the factory as other commands do, and stops with exit code 1 when `metafab.yaml` has no `metastore`: `No metastore is configured`, with the fix `Add a metastore section to .factory/metafab.yaml`. `login` and `logout` with `--url` need no factory.
 2. Every command supports `--json`. Each result contains the documents or scores it changed or listed.
 3. A command that cannot reach a remote backend, or whose credentials are missing or refused, exits with code 6. Read requests are retried three times with backoff; a push is retried with the same idempotency key.
 4. A command never changes Git: it never stages, commits, checks out or pushes.

@@ -42,7 +42,7 @@ A problem is `{ "index": <n>, "path": <store path>?, "message": <text> }`, where
 
 A client retries a `GET` up to three times, after 1, 2 and 4 seconds, on a network error, 429 or 5xx, honouring `Retry-After`.
 
-`POST /v1/changes` takes an `Idempotency-Key` header, a ULID the client creates for one push. A server keeps the result of each key for at least 24 hours, and answers a repeated key with the first result, without saving again. A client retries a push with the same key.
+`POST /v1/changes` takes an `Idempotency-Key` header, a ULID the client creates for one push. A server keeps the result of each key for at least 24 hours, whatever the outcome (`saved`, `conflict`, `archived` or `invalid`), and answers a repeated key with the first result, without applying the change again. A client retries a push with the same key, and uses a new key for every new push, such as one after the person resolved a conflict. A 5xx answer is not a result: the change was not applied, and the key is not kept.
 
 Scores carry their own `id`. A server ignores a score whose `id` it already holds and returns the stored score, so a retried `POST /v1/scores` never records a score twice.
 
