@@ -108,6 +108,17 @@ interface PackageVersions {
   distTags: Record<string, string>;
 }
 
+/**
+ * The versions npm reports. npm 9 prints a scalar `versions` when the package
+ * has one published version; every other npm prints a list.
+ */
+export function npmVersionList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((version): version is string => typeof version === "string");
+  }
+  return typeof value === "string" ? [value] : [];
+}
+
 async function listVersions(spec: NpmSourceSpec, options: NpmOptions): Promise<PackageVersions> {
   const context = `Cannot resolve npm package "${spec.name}"`;
   const stdout = await runNpm(
@@ -118,12 +129,7 @@ async function listVersions(spec: NpmSourceSpec, options: NpmOptions): Promise<P
   const parsed = parseJson(stdout, context);
   if (!isRecord(parsed)) throw fetchError(`${context}: npm returned an unexpected response`);
 
-  const versions = Array.isArray(parsed.versions)
-    ? parsed.versions.filter((version): version is string => typeof version === "string")
-    : typeof parsed.versions === "string"
-      ? // npm 9 prints a scalar when the package has one published version.
-        [parsed.versions]
-      : [];
+  const versions = npmVersionList(parsed.versions);
   const distTags: Record<string, string> = {};
   if (isRecord(parsed["dist-tags"])) {
     for (const [tag, version] of Object.entries(parsed["dist-tags"])) {
@@ -461,7 +467,9 @@ async function fetchNpmTarball(
       const size = (await stat(dir)).size;
       if (size > maxBytes) throw tarballTooLarge(source, size, maxBytes);
       const data = await readFile(dir);
-      verifyIntegrity(dir, data, source.integrity);
+      // Name the cache entry that stays, not the staging file `getOrCreate`
+      // removes when validation fails.
+      verifyIntegrity(target, data, source.integrity);
       return target;
     },
     create: (staging) => downloadTarball(source, staging, layout.root, options),

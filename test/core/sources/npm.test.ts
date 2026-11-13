@@ -14,6 +14,7 @@ import {
   resolve,
 } from "../../../src/core/sources/index.js";
 import type { Resolved } from "../../../src/core/sources/index.js";
+import { npmVersionList } from "../../../src/core/sources/npm.js";
 import { fetchRecordedBase } from "../../../src/core/update/fetch.js";
 import { pathExists } from "../../../src/util/fs.js";
 import { startRegistry } from "../../helpers/registry/index.js";
@@ -272,10 +273,21 @@ describe("npm sources", { timeout: 60_000 }, () => {
     const mismatchCache = await mkdtemp(path.join(tmpdir(), "metafab-npm-mismatch-"));
     try {
       const broken = { ...resolved, integrity: tamper(integrity as string) } as Resolved;
-      await expect(fetchFab(broken, npmOptions(mismatchCache))).rejects.toMatchObject({
-        exitCode: ExitCode.InvalidFab,
-        code: "invalid-fab",
-      });
+      try {
+        await fetchFab(broken, npmOptions(mismatchCache));
+      } catch (error) {
+        expect(error).toBeInstanceOf(MetafabError);
+        const failure = error as MetafabError;
+        expect(failure.exitCode).toBe(ExitCode.InvalidFab);
+        expect(failure.code).toBe("invalid-fab");
+        // The cache entry that stays is named, not the staging file that
+        // `getOrCreate` removes before the person sees the error.
+        expect(failure.message).toBe(
+          `Integrity check failed for ${path.join(mismatchCache, "npm", "fab-range", "1.2.0.tgz")}`,
+        );
+        return;
+      }
+      throw new Error("expected the integrity check to fail");
     } finally {
       await rm(mismatchCache, { recursive: true, force: true });
     }
@@ -464,5 +476,20 @@ describe("npm sources", { timeout: 60_000 }, () => {
       exitCode: ExitCode.InvalidFab,
       code: "invalid-fab",
     });
+  });
+});
+
+describe("npmVersionList", () => {
+  test("reads the scalar versions field npm 9 prints for one version", () => {
+    expect(npmVersionList("1.0.0")).toEqual(["1.0.0"]);
+  });
+
+  test("reads a list and drops values that are not versions", () => {
+    expect(npmVersionList(["1.0.0", 2, "2.0.0"])).toEqual(["1.0.0", "2.0.0"]);
+  });
+
+  test("has no versions for a missing or unexpected field", () => {
+    expect(npmVersionList(undefined)).toEqual([]);
+    expect(npmVersionList({ "1.0.0": {} })).toEqual([]);
   });
 });
