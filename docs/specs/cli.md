@@ -44,7 +44,7 @@ All commands follow these rules:
 
 Every command except `init` and `import` uses the nearest factory. Inside a Git repository, it looks for `.factory/` in the current directory, then in each parent directory up to the repository's top level, and never above it. In a monorepo, the nearest factory wins. Outside a Git repository, it looks only in the current directory. When no `.factory/` is found, the command stops with exit code 1 and suggests `metafab init`.
 
-The repository is the one Git reports for the current directory, so a linked worktree, a submodule, and a repository inside another repository's directory each stop at their own top level, and `GIT_DIR` and `GIT_WORK_TREE` are honoured. When `git` is not installed or cannot answer, the nearest directory that contains a `.git` entry is the top level. A directory inside a Git directory with no work tree, such as a bare repository, is refused with exit code 1.
+The repository is the one Git reports for the current directory, so a linked worktree, a submodule, and a repository inside another repository's directory each stop at their own top level, and `GIT_DIR` and `GIT_WORK_TREE` are honoured. When `GIT_WORK_TREE` names a directory that does not contain the current directory, that directory is the repository, and it is the only one searched. When `git` is not installed or cannot answer, the nearest directory that contains a `.git` entry is the top level. A directory inside a Git directory with no work tree, such as a bare repository, is refused with exit code 1.
 
 `init` and `import` also use the nearest factory when one exists. Otherwise they create `.factory/` at the top level of the current Git repository, or in the current directory outside one.
 

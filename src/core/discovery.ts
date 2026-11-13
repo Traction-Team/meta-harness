@@ -146,6 +146,13 @@ export async function repositoryScope(cwd: string, git: GitRunner = runGit): Pro
         const realIndex = await matchIndex(realChain, gitTop);
         if (realIndex !== undefined) return scopeFromChain(realChain, realIndex, "git");
       }
+
+      // The top level exists but is not above the current directory, as with a
+      // `GIT_WORK_TREE` that names a subdirectory. Git is the authority on the
+      // repository, so search only the one it reports.
+      if ((await identity(gitTop)) !== undefined) {
+        return { searched: [gitTop], topLevel: gitTop, via: "git" };
+      }
       // For example a Cygwin Git printing a path this filesystem does not
       // have; the `.git` fallback below decides instead.
     } else if (result.exitCode === 128 && NOT_A_REPOSITORY.test(result.stderr)) {

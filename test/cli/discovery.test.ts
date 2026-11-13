@@ -119,6 +119,33 @@ describe("repositoryScope", () => {
     expect(scope.topLevel).toBe(current);
     expect(scope.searched).toEqual([current]);
   });
+
+  test("honours GIT_WORK_TREE: a work tree that does not contain the current directory is the repository", async () => {
+    const repo = await repoWith(
+      {
+        ".factory/factory.yaml": factoryYaml("outer"),
+        "sub/.factory/factory.yaml": factoryYaml("work-tree"),
+        "sub/file.txt": "",
+      },
+      true,
+    );
+    const workTree = repo.path("sub");
+    const workTreeRunner: GitRunner = (args, options) =>
+      runGit(args, {
+        ...options,
+        env: { ...process.env, GIT_DIR: repo.path(".git"), GIT_WORK_TREE: workTree },
+      });
+
+    const scope = await repositoryScope(repo.root, workTreeRunner);
+    const location = await findFactory(repo.root, { git: workTreeRunner });
+    // Git prints the real path (on macOS `/var` is `/private/var`), and it is
+    // the only spelling of a work tree that is not on the current path.
+    const gitTop = await realpath(workTree);
+
+    expect(scope).toEqual({ searched: [gitTop], topLevel: gitTop, via: "git" });
+    expect(location.root).toBe(gitTop);
+    expect(location.factoryDir).toBe(path.join(gitTop, ".factory"));
+  });
 });
 
 describe("findFactory", () => {
