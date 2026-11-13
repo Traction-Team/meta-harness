@@ -1,8 +1,9 @@
-import { cp, lstat, mkdir, readdir, readFile, readlink, realpath, rename, rm } from "node:fs/promises";
+import { cp, lstat, mkdir, readFile, readlink, realpath, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../errors.js";
 import type { Problem } from "../errors.js";
 import type { RequiredValue } from "../input.js";
+import { readdirTyped } from "../util/fs.js";
 import { parseFrontmatter } from "../util/frontmatter.js";
 import type { FrontmatterResult } from "../util/frontmatter.js";
 import { equalIgnoringEOL } from "../util/text.js";
@@ -318,7 +319,7 @@ async function treeProblems(root: string, from: string, to: string): Promise<Pro
 
     let entries;
     try {
-      entries = await readdir(absolute(root, current), { withFileTypes: true });
+      entries = await readdirTyped(absolute(root, current));
     } catch {
       // `compileSkill` reports the unreadable directory itself.
       continue;
@@ -457,7 +458,7 @@ async function scanDestination(
 
   let entries;
   try {
-    entries = await readdir(target, { withFileTypes: true });
+    entries = await readdirTyped(target);
   } catch {
     blockers.push(unreadable(directory));
     return [];
@@ -495,7 +496,7 @@ async function collectTree(root: string, directory: string): Promise<Map<string,
   const entries = new Map<string, TreeEntry>();
 
   async function walk(relativePath: string, prefix: string): Promise<void> {
-    const children = await readdir(absolute(root, relativePath), { withFileTypes: true });
+    const children = await readdirTyped(absolute(root, relativePath));
     children.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
 
     for (const child of children) {

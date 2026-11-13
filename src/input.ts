@@ -1,5 +1,4 @@
-import { createInterface } from "node:readline/promises";
-import { Writable } from "node:stream";
+import { createInterface } from "node:readline";
 import { ExitCode, MetafabError } from "./errors.js";
 
 export interface RequiredValue {
@@ -36,6 +35,110 @@ export class NeedsInput extends MetafabError {
   }
 }
 
+/** One line reader per input stream, shared by every question in a run. */
+interface LineReader {
+  next(): Promise<string | undefined>;
+  close(): void;
+}
+
+const readers = new Map<NodeJS.ReadableStream, LineReader>();
+
+/** Input streams whose end a reader has already seen. */
+const endedStreams = new WeakSet<NodeJS.ReadableStream>();
+
+/** `readableEnded` is on `stream.Readable`, not on the `NodeJS.ReadableStream` type. */
+function hasEnded(stream: NodeJS.ReadableStream): boolean {
+  return (stream as { readableEnded?: boolean }).readableEnded === true;
+}
+
+const closedReader: LineReader = {
+  next: async () => undefined,
+  close: () => undefined,
+};
+
+/**
+ * The one reader for `stdin`, created on first use. Its lines are queued, so a
+ * chunk that holds several answers answers several questions. The reader is
+ * paused while no question waits, so a child process that later reads standard
+ * input is not starved.
+ */
+function readerFor(stdin: NodeJS.ReadableStream): LineReader {
+  const existing = readers.get(stdin);
+  if (existing !== undefined) return existing;
+  // A reader removed at the end of input must not be created again: a stream
+  // that already ended never announces the end a second time.
+  if (endedStreams.has(stdin) || hasEnded(stdin)) return closedReader;
+
+  const queued: string[] = [];
+  const waiting: ((line: string | undefined) => void)[] = [];
+  let ended = false;
+
+  const rl = createInterface({ input: stdin, crlfDelay: Infinity });
+  rl.pause();
+
+  const settle = (): void => {
+    while (waiting.length > 0 && (queued.length > 0 || ended)) {
+      waiting.shift()!(queued.shift());
+    }
+    if (ended) {
+      // Queued answers still belong to later questions; the reader goes away
+      // once nothing is left to hand out.
+      if (queued.length === 0 && waiting.length === 0) readers.delete(stdin);
+    } else if (waiting.length === 0) {
+      rl.pause();
+    }
+  };
+
+  rl.on("line", (line) => {
+    if (waiting.length > 0) waiting.shift()!(line);
+    else queued.push(line);
+    settle();
+  });
+
+  rl.on("close", () => {
+    ended = true;
+    if (hasEnded(stdin)) endedStreams.add(stdin);
+    settle();
+  });
+
+  const reader: LineReader = {
+    next() {
+      return new Promise<string | undefined>((resolve) => {
+        if (queued.length > 0) {
+          resolve(queued.shift());
+          settle();
+          return;
+        }
+        if (ended) {
+          resolve(undefined);
+          settle();
+          return;
+        }
+        waiting.push(resolve);
+        rl.resume();
+      });
+    },
+    close() {
+      rl.close();
+      readers.delete(stdin);
+    },
+  };
+
+  readers.set(stdin, reader);
+  return reader;
+}
+
+/** Closes every open reader. `main` calls it in `finally`. */
+export function closeInput(): void {
+  for (const reader of [...readers.values()]) reader.close();
+  readers.clear();
+}
+
+/** @internal Test-only: how many input streams still have an open reader. */
+export function openReaderCount(): number {
+  return readers.size;
+}
+
 function resolveIO(io: InputIO = {}): ResolvedInputIO {
   return {
     tty: io.tty ?? process.stdin.isTTY === true,
@@ -57,19 +160,15 @@ function promptFor(required: RequiredValue): string {
   return `${required.description}${choices} `;
 }
 
-async function question(text: string, io: ResolvedInputIO): Promise<string> {
-  const output = new Writable({
-    write(chunk, _encoding, callback) {
-      io.stderr(String(chunk));
-      callback();
-    },
-  });
-  const rl = createInterface({ input: io.stdin, output });
-  try {
-    return (await rl.question(text)).trim();
-  } finally {
-    rl.close();
-  }
+async function question(
+  text: string,
+  required: RequiredValue,
+  io: ResolvedInputIO,
+): Promise<string> {
+  io.stderr(text);
+  const answer = await readerFor(io.stdin).next();
+  if (answer === undefined) throw new NeedsInput([required]);
+  return answer.trim();
 }
 
 export async function ask(required: RequiredValue, io?: InputIO): Promise<string> {
@@ -78,7 +177,7 @@ export async function ask(required: RequiredValue, io?: InputIO): Promise<string
   const prompt = promptFor(required);
 
   for (;;) {
-    const answer = await question(prompt, resolved);
+    const answer = await question(prompt, required, resolved);
     if (answer === "" || required.choices === undefined || required.choices.includes(answer)) {
       return answer;
     }
@@ -97,7 +196,7 @@ export async function confirm(required: RequiredValue, options: ConfirmOptions =
   const prompt = `${required.description} ${fallback ? "[Y/n]" : "[y/N]"} `;
 
   for (;;) {
-    const answer = (await question(prompt, resolved)).toLowerCase();
+    const answer = (await question(prompt, required, resolved)).toLowerCase();
     if (answer === "") return fallback;
     if (answer === "y" || answer === "yes") return true;
     if (answer === "n" || answer === "no") return false;

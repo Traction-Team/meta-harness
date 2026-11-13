@@ -1,5 +1,6 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { readdirTyped } from "../../util/fs.js";
 import type { Problem } from "../../errors.js";
 import { parseFrontmatter } from "../../util/frontmatter.js";
 import type { Skill } from "./types.js";
@@ -108,7 +109,7 @@ export async function discoverSkills(root: string): Promise<DiscoveryResult> {
   async function walk(dir: string, relDir: string, parentSkill: string | undefined): Promise<void> {
     let entries;
     try {
-      entries = await readdir(dir, { withFileTypes: true });
+      entries = await readdirTyped(dir);
     } catch (error) {
       if (isAbsentError(error)) return;
       result.skipped.push(relDir);

@@ -1,7 +1,8 @@
-import { chmod, lstat, mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
+import { readdirTyped } from "../../util/fs.js";
 import { cliVersion } from "../../util/version.js";
 import { toLF } from "../../util/text.js";
 import { applyBuild, planBuild } from "../build/index.js";
@@ -288,7 +289,7 @@ async function lstatIfExists(target: string) {
 
 /** True when anything beneath `directory` is not itself a directory. */
 async function containsFile(directory: string): Promise<boolean> {
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
+  for (const entry of await readdirTyped(directory)) {
     if (!entry.isDirectory()) return true;
     if (await containsFile(path.join(directory, entry.name))) return true;
   }

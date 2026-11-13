@@ -12,7 +12,7 @@ import {
   renderCommandHelp,
   renderGroupHelp,
 } from "./help.js";
-import { NeedsInput } from "./input.js";
+import { closeInput, NeedsInput } from "./input.js";
 import { renderResult } from "./output.js";
 import type { CommandResult } from "./output.js";
 import { normalizeProblemPath } from "./util/fs.js";
@@ -367,6 +367,9 @@ export async function main(
       return emit(fromMetafabError(commandName, error), json, stdout, stderr);
     }
     return renderBug(error, json, stdout, stderr);
+  } finally {
+    // An open reader on process.stdin would keep the process alive.
+    closeInput();
   }
 }
 

@@ -93,6 +93,31 @@ describe("metafab init git-hooks", () => {
     }
   });
 
+  test("exits 2 when the input ends at the git-hooks question", async () => {
+    const repo = await gitRepo();
+    await repo.write(
+      ".claude/skills/release/SKILL.md",
+      "---\nname: release\ndescription: Use release when shipping.\n---\n\n# release\n",
+    );
+
+    const result = await runCli(["init", "--agents", "claude", "--json"], {
+      cwd: repo.root,
+      tty: true,
+      stdin: Readable.from(["y\n"]),
+    });
+
+    expect(result.code).toBe(2);
+    const payload = parseJson(result);
+    expect(payload.exitCode).toBe(2);
+    const required = payload.required as { name: string }[];
+    expect(required.map((value) => value.name)).toEqual(["git-hooks"]);
+    expect(await pathExists(repo.path(".factory"))).toBe(false);
+    expect(await pathExists(repo.path(".gitattributes"))).toBe(false);
+    expect(
+      await pathExists(repo.path(".claude", "skills", "release", "SKILL.md")),
+    ).toBe(true);
+  });
+
   test("leaves the key absent without a terminal and without a flag", async () => {
     const repo = await gitRepo();
 

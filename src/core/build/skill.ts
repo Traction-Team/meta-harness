@@ -1,5 +1,6 @@
-import { lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
+import { lstat, readFile, readlink, realpath, stat } from "node:fs/promises";
 import path from "node:path";
+import { readdirTyped } from "../../util/fs.js";
 import type { Problem } from "../../errors.js";
 import { toLF } from "../../util/text.js";
 
@@ -349,7 +350,7 @@ async function walk(
 ): Promise<void> {
   let entries;
   try {
-    entries = await readdir(directory, { withFileTypes: true });
+    entries = await readdirTyped(directory);
   } catch {
     const display = prefix === "" ? context.sourcePath : problemFile(context, prefix);
     addProblem(

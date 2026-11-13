@@ -1,7 +1,8 @@
-import { readdir, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import path from "node:path";
 import { MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
+import { readdirTyped } from "../../util/fs.js";
 import { isSingleLine } from "../../util/text.js";
 import { discoverSkills } from "../factory/discovery.js";
 import { RESERVED_CONTAINERS, skillFile } from "../factory/validate.js";
@@ -41,7 +42,7 @@ function factoryPath(relDir: string): string {
 
 async function hasSkillFile(directory: string): Promise<boolean> {
   try {
-    const entries = await readdir(directory, { withFileTypes: true });
+    const entries = await readdirTyped(directory);
     return entries.some((entry) => entry.name === "SKILL.md" && entry.isFile());
   } catch {
     // A directory that cannot be read holds no confirmable skill here. Discovery records it
@@ -53,7 +54,7 @@ async function hasSkillFile(directory: string): Promise<boolean> {
 async function hasChildSkill(directory: string, prefix = ""): Promise<string | undefined> {
   let entries;
   try {
-    entries = await readdir(directory, { withFileTypes: true });
+    entries = await readdirTyped(directory);
   } catch {
     // Unreadable: discovery records the directory and the unreadable check refuses.
     return undefined;
