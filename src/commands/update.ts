@@ -13,7 +13,7 @@ export const updateCommand: CommandDefinition = {
     "no-build": { type: "boolean" },
   },
   async run(context) {
-    const location = await findFactory(context.cwd);
+    const location = await findFactory(context.cwd, { command: "update" });
     const report = await runUpdate({
       root: location.root,
       ...(typeof context.options.to === "string" ? { to: context.options.to } : {}),

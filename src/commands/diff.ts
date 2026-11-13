@@ -8,7 +8,7 @@ export const diffCommand: CommandDefinition = {
   name: "diff",
   description: "Show local edits since the upstream version",
   async run(context) {
-    const location = await findFactory(context.cwd);
+    const location = await findFactory(context.cwd, { command: "diff" });
     const report = await runDiff({
       root: location.root,
       ...(context.positionals[0] === undefined ? {} : { path: context.positionals[0] }),

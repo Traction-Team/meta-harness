@@ -86,7 +86,7 @@ export const publishCommand: CommandDefinition = {
       throw argumentError("publish takes no arguments.");
     }
 
-    const location = await findFactory(context.cwd);
+    const location = await findFactory(context.cwd, { command: "publish" });
     const factory = await loadFactory(location.root);
     const config = await loadConfig(factory.dir);
 

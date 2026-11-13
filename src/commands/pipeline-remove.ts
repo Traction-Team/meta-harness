@@ -29,7 +29,7 @@ export const pipelineRemoveCommand: CommandDefinition = {
     }
 
     const workflow = context.positionals[0]!;
-    const { root } = await findFactory(context.cwd);
+    const { root } = await findFactory(context.cwd, { command: "pipeline remove" });
     const result = await removeWorkflow(root, workflow);
 
     const commandResult: CommandResult = {

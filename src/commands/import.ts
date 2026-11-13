@@ -31,7 +31,7 @@ export const importCommand: CommandDefinition = {
     const source = context.positionals[0];
     if (source === undefined || source.trim() === "") throw missingSource();
 
-    const root = await resolveNewFactoryRoot(context.cwd);
+    const root = await resolveNewFactoryRoot(context.cwd, { command: "import" });
     const report = await runImport({
       root,
       source,

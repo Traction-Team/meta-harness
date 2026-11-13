@@ -87,13 +87,13 @@ Metafab has no watch mode and installs no agent session hooks.
 Metafab owns a hook file when it contains the line `# metafab:start`. It owns the whole file, and rewrites it when its content differs from what `build` would write, for example after a CLI upgrade, or sets its mode to 0755 when its content matches and its mode is not 0755. `build` follows these rules:
 
 1. With `git-hooks: true`, it creates each missing hook as a POSIX shell script with mode 0755.
-2. It never changes a hook file it does not own. It leaves the file unchanged and still exits 0. With `git-hooks: true` it warns with the hook name and the line to add by hand. A hook path that is a symbolic link, or anything else that is not a regular file, counts as a hook Metafab does not own: `build` never writes, chmods or deletes through it, not even with `git-hooks: false`.
+2. It never changes a hook file it does not own. It leaves the file unchanged and still exits 0. With `git-hooks: true` it warns with the hook name and the line to add by hand. A hook path that is a symbolic link, or anything else that is not a regular file, counts as a hook Metafab does not own: `build` never writes, chmods or deletes through it, not even with `git-hooks: false`. For a symbolic link the warning says the hook is a link that Metafab left alone, and names its target, instead of the line to add; a dangling link says its target is missing.
 3. When `core.hooksPath` is set, it creates and rewrites no hooks and warns once, with the line to add by hand. Rule 4 still removes hooks it owns in the shared hooks directory.
 4. With `git-hooks: false`, or when the key is absent, it deletes the hook files it owns and nothing else.
 5. Outside a Git repository, or when `git` is not installed, it skips hooks. With `git-hooks: true` it warns once.
 6. An owned hook that names a different factory directory is never changed or deleted, whatever `git-hooks` says. With `git-hooks: true`, `build` warns. Hooks support one factory per Git repository.
 
-Every command that runs `build`, including `init`, `import`, and `update`, applies these rules. Hooks live in `.git/`, are never committed, and are not reported by `check`.
+Every command that runs `build`, including `init`, `import`, and `update`, applies these rules. `build`, `init`, `import` and `update` list each hook they create, update or remove as `+ git hook <name>`, `~ git hook <name>` or `- git hook <name>`, and return them as `hooks` in `--json`. Hooks live in `.git/`, are never committed, and are not reported by `check`.
 
 A hook runs the first `metafab` it finds: `node_modules/.bin/metafab` in the factory root, then `metafab` on `PATH`, then `npx --yes @seasb/metafab@<version>`, where `<version>` is the CLI version that wrote the hook. A hook never fails the Git command that ran it. If the build fails, it prints one line that says to run `metafab build`, and exits 0.
 

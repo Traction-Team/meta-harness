@@ -27,7 +27,7 @@ export const checkCommand: CommandDefinition = {
   name: "check",
   description: "Validate the factory and its installed output",
   async run(context) {
-    const location = await findFactory(context.cwd);
+    const location = await findFactory(context.cwd, { command: "check" });
     const problems = await runCheck(location.root, cliVersion());
     const { errors } = countProblems(problems);
 

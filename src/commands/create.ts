@@ -55,7 +55,7 @@ export const createCommand: CommandDefinition = {
       throw argumentError("create", "create requires one path, such as workflows/review-slice.");
     }
 
-    const { root } = await findFactory(context.cwd);
+    const { root } = await findFactory(context.cwd, { command: "create" });
     const plan = await planCreate(root, input[0]!);
     const given = descriptionOption(context.options.description);
     const description = validateDescription(given ?? (await askDescription(context)));

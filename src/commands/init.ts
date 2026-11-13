@@ -37,7 +37,7 @@ export const initCommand: CommandDefinition = {
 
     const hookFlag: boolean | undefined = gitHooks ? true : noGitHooks ? false : undefined;
 
-    const root = await resolveNewFactoryRoot(context.cwd);
+    const root = await resolveNewFactoryRoot(context.cwd, { command: "init" });
     const report = await runInit({
       root,
       ...(typeof context.options.agents === "string" ? { agents: context.options.agents } : {}),

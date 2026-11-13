@@ -52,7 +52,7 @@ describe("global flags", () => {
   test("a pipeline subcommand is dispatched", async () => {
     const result = await runCli(["pipeline", "add", "review-slice"], { cwd: repo.root, tty: false });
     expect(result.code).toBe(ExitCode.Failed);
-    expect(result.stderr).toContain("No factory found");
+    expect(result.stderr).toContain("No .factory directory found");
   });
 });
 
@@ -126,7 +126,7 @@ describe("commands without a factory", () => {
   test("map exits 1 with a missing factory message", async () => {
     const result = await runCli(["map"], { cwd: repo.root, tty: false });
     expect(result.code).toBe(ExitCode.Failed);
-    expect(result.stderr).toContain("No factory found");
+    expect(result.stderr).toContain("No .factory directory found");
   });
 
   test("does not change files", async () => {

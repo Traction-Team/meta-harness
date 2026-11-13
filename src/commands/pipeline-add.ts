@@ -39,7 +39,7 @@ export const pipelineAddCommand: CommandDefinition = {
     const workflow = context.positionals[0]!;
     const after = stringOption(context.options.after);
     const stop = stringOption(context.options.stop);
-    const { root } = await findFactory(context.cwd);
+    const { root } = await findFactory(context.cwd, { command: "pipeline add" });
     const result = await addWorkflow(root, workflow, {
       ...(after === undefined ? {} : { after }),
       ...(stop === undefined ? {} : { stop }),

@@ -26,7 +26,7 @@ export const mapCommand: CommandDefinition = {
       throw argumentError("map takes no arguments.");
     }
 
-    const { root } = await findFactory(context.cwd);
+    const { root } = await findFactory(context.cwd, { command: "map" });
     const data = await mapFactory(root);
     const errors = data.problems.filter((problem) => problem.level === "error");
 

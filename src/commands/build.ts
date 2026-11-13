@@ -45,7 +45,7 @@ export const buildCommand: CommandDefinition = {
   name: "build",
   description: "Compile the factory for the configured agent tools",
   async run(context) {
-    const location = await findFactory(context.cwd);
+    const location = await findFactory(context.cwd, { command: "build" });
     const factory = await loadFactory(location.root);
     const config = await loadConfig(factory.dir);
 
