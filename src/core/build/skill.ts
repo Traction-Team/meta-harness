@@ -1,4 +1,4 @@
-import { lstat, readFile, readlink, realpath, stat } from "node:fs/promises";
+import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { readdirTyped } from "../../util/fs.js";
 import type { Problem } from "../../errors.js";

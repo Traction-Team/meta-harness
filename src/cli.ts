@@ -339,15 +339,6 @@ export async function main(
     // A global `--json` before the command reaches the command the same way.
     if (json && parsed.values.json !== true) parsed.values.json = true;
 
-    if (parsed.values.help === true) {
-      return emit(
-        renderHelp({ kind: "command", definition }, commands, json),
-        json,
-        stdout,
-        stderr,
-      );
-    }
-
     const result = await definition.run({
       cwd: io.cwd ?? process.cwd(),
       positionals: parsed.positionals,
