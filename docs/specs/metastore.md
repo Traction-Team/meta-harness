@@ -1,6 +1,6 @@
 # Metastore
 
-> **Version 2.** Status: draft for approval, written 14 Nov 2026. Plans 2.001 to 2.009 implement it. It is the acceptance standard for those plans only; version 1 behaviour is unchanged until they merge. The wire protocol that every remote backend implements is in [Metastore protocol](metastore-protocol.md).
+> **Version 2.** Status: draft for approval, written 14 Nov 2026. Plans 2.001 to 2.009 implement it. It is the acceptance standard for those plans only; version 1 behaviour is unchanged until they merge. While they are being built, Plan 2.003 registers every `metastore` and `scorer` command, and a command whose plan has not merged yet exits 1 with `not implemented yet`; no release ships until Plan 2.009 has merged. The wire protocol that every remote backend implements is in [Metastore protocol](metastore-protocol.md).
 
 The metastore is a shared, versioned store for a factory's working documents and for the scores that judges give to work. It lives outside Git. Agents read and edit its documents as ordinary files in a local folder, the **mirror**, and save them with `metafab metastore push`. Every save and every score records the repository, branch and commit it came from.
 
@@ -79,7 +79,7 @@ The extension sets the format. Comparison ignores letter case.
 | --- | --- | --- |
 | `.md` | `markdown` | Properties from the YAML frontmatter, and the body after it |
 | `.html` | `html` | Properties from a comment at the very top of the file: `<!--metastore` on its own line, then YAML, then `-->` on its own line. The body is the rest |
-| Any other | `file` | The bytes, unchanged, as one content-addressed blob. No properties |
+| Any other | `file` | The bytes, unchanged, as one content-addressed blob. No properties. Its content type comes from the extension: `.png` `image/png`, `.jpg` and `.jpeg` `image/jpeg`, `.gif` `image/gif`, `.webp` `image/webp`, `.svg` `image/svg+xml`, `.pdf` `application/pdf`, `.json` `application/json`, `.csv` `text/csv`, `.txt` `text/plain`, `.xlsx`, `.docx` and `.pptx` their Office Open XML types, `.zip` `application/zip`; anything else `application/octet-stream` |
 
 A markdown file with no frontmatter, or an HTML file with no `<!--metastore` comment, has no properties and is all body. An empty file is a valid document.
 
@@ -164,7 +164,7 @@ Validation rules, which `metafab check` reports with the line of the entry:
 
 1. `documents` needs `format: 2`. With `format: 1`, it is an error whose fix is `Set format: 2`.
 2. Each entry is a mapping with only the keys above. `folder` and `description` are non-empty single-line strings; `match`, `unique` and `references` are a non-empty string or a list of them.
-3. `folder` follows the portable rules in [Paths](#paths), is not `.factory/` or below it, is not a skill destination or below one, and does not start with `.git/`.
+3. `folder` follows rules 1, 3 and 4 of [Paths](#paths), contains none of `!`, `#`, `[` and `]` (so it can be written to `.gitignore` as it is), is not `.factory/` or below it, is not a skill destination or below one, and does not start with `.git/`.
 4. No folder equals another, ignoring letter case, or is below another.
 5. `schema` starts with `.factory/`, names an existing file, parses as JSON or YAML, and is a valid JSON Schema (draft 2020-12). It may use `$ref` only within the same file.
 6. Names in `unique` and `references` follow the property name rule in [Properties](#properties).
@@ -178,7 +178,7 @@ These checks apply to every matching file in each declared folder, whether the f
 | Markdown frontmatter or the HTML `<!--metastore` comment does not parse as a YAML mapping | Error |
 | The properties do not match the schema. One problem per schema error, on the line of the property it names, or the first line of the frontmatter | Error |
 | Two documents share a value of a `unique` property. Reported on the later path in path order that has a file on disk, naming the other path | Error |
-| A `references` value is not a portable repository-relative path (see [Paths](#paths)), such as `../x.md` or `/x.md` | Warning |
+| A `references` value is not a relative path with `/` separators and no empty, `.` or `..` segment, or breaks rule 4 of [Paths](#paths), such as `../x.md` or `/x.md`. A segment that starts with a dot, such as `.factory/`, is allowed here | Warning |
 | A `references` value names a repository path that is neither a file in the working tree nor a document in the [index](#the-index). A trailing `@v<n>` is ignored, and values that are URLs are skipped | Warning |
 
 **Unique values.** A string, number or boolean value counts as itself. A list counts each of its items that is a string, number or boolean, once, however often it repeats in that list. `null`, empty lists, mappings, and lists or mappings inside a list do not count. Two values are equal when their JSON text is equal, so `"1"` and `1` differ, and comparison is case-sensitive.
@@ -218,7 +218,7 @@ metastore:
 | `url` | For `remote` | The metastore's base URL. `https`, or `http` only for `localhost`, `127.0.0.1` or `[::1]` |
 | `name` | No, `local` only | The local metastore's name. Default: the factory name in `factory.yaml`, else the name `init` would derive from the repository directory |
 | `root` | No | The mirror root, a repository-relative folder. Default `docs` |
-| `folders` | No | Store folders, relative to `root`, each ending in `/`. Default: every [document folder](#declaring-document-folders) below `root`. `[]` keeps every document in Git and uses the metastore for scores only |
+| `folders` | No | Store folders, relative to `root`, each ending in `/`. Default: every [document folder](#declaring-document-folders) strictly below `root` (a document folder equal to `root` is never a default store folder). `[]` keeps every document in Git and uses the metastore for scores only |
 | `sync` | No | [Sync windows](#sync-windows), keyed by store folder |
 
 Every developer of a repository must use the same metastore, so this configuration is committed. Credentials are personal and are never committed; see [Credentials](#credentials).
@@ -229,8 +229,8 @@ Every developer of a repository must use the same metastore, so this configurati
 2. `backend` is missing or is not `remote` or `local`.
 3. `backend: remote` has no `url`, or `url` is not an absolute `https` URL, or an `http` URL for a loopback host. A URL with credentials, a query or a fragment is an error.
 4. `name` is given with `backend: remote`, or does not follow the factory name rule.
-5. `root` is not a portable repository-relative folder (see [Paths](#paths)), or is `.factory`, a skill destination, or below one of them.
-6. A folder in `folders` does not end in `/`, breaks the path rules, repeats another ignoring letter case, or is below another.
+5. `root` breaks rules 1, 3 or 4 of [Paths](#paths), contains `!`, `#`, `[` or `]`, or is `.factory`, a skill destination, or below one of them.
+6. A folder in `folders` does not end in `/`, breaks the same rules as `root`, repeats another ignoring letter case, or is below another.
 7. A `sync` key is not one of the store folders, a window has an unknown key, has neither `where` nor `recent`, or `recent` is not a positive whole number.
 
 ### Git ignores the mirror
@@ -423,12 +423,14 @@ A subject is pinned to what was read, so an old score is never read as a score o
 
 | Kind | Input forms | Canonical subject | Pin |
 | --- | --- | --- | --- |
-| Document | `docs/plans/x.md`, `plans/x.md`, `plans/x.md@v7`, for a path in a store folder | `doc:plans/x.md` | `version`: the given version, else the current version, set by the backend |
+| Document | `docs/plans/x.md`, `plans/x.md`, `plans/x.md@v7`, for a path in a store folder | `doc:plans/x.md` | `version`: the given version; else, when a clean local file exists, the version it is based on, which is what a reader of that file read; else the current version, set by the backend |
 | Pull request | `#42`, `pr:42`, `pr:42@<sha>`, `https://github.com/<owner>/<repo>/pull/42` | `pr:github.com/<owner>/<repo>#42` | `revision`: the head commit |
 | Branch | `branch:feat/x`, `branch:feat/x@<sha>`, `https://github.com/<owner>/<repo>/tree/<branch>` | `branch:github.com/<owner>/<repo>#feat/x` | `revision`: the branch's commit |
 | Commit | `commit:<sha>`, `https://github.com/<owner>/<repo>/commit/<sha>` | `commit:github.com/<owner>/<repo>#<sha>` | `revision`: the full commit |
 | Repository file | A repository path outside the store folders, such as `docs/specs/cli.md`, or `docs/specs/cli.md@<sha>` | `file:github.com/<owner>/<repo>#docs/specs/cli.md` | `revision`: the given commit, which must contain the path, else `HEAD`. Without a given commit, the score's `run.modified` is `true` when the file has uncommitted changes |
 | URL | Any other `https://` URL | `url:<the URL without its fragment or trailing />` | None |
+
+Every canonical subject is also accepted as input, with a pin: `doc:plans/x.md@v7`, `pr:github.com/o/r#42@<sha>`, `branch:github.com/o/r#feat/x@<sha>`, `commit:github.com/o/r#<sha>`, `file:github.com/o/r#docs/specs/cli.md@<sha>`, `url:https://…`. A canonical input is recognised by its prefix: `doc:` and `url:` always; `pr:`, `branch:`, `commit:` and `file:` when a repository (a host with a dot, then a path) and `#` follow, so `pr:42` and `branch:feat/x` stay short forms. `scorer prompt` prints the subject in this form, so `record` names exactly what the judge read, in any repository.
 
 Short forms take the repository from the [origin](#origin) `repo`. The CLI resolves each revision before it sends the score, because a backend never calls Git or GitHub:
 
@@ -498,9 +500,9 @@ The prompt has five parts: the judge's role, with the statement that it has no s
 { "criteria": [{ "id": "real-names", "value": 4, "note": "Names match src/core/metastore/." }], "rationale": "…" }
 ```
 
-`prompt` pins the subject as `score` does, and prints the `record` command to run, with the pinned subject (such as `plans/x.md@v7`, `pr:42@<sha>` or `docs/specs/cli.md@<sha>`) and `--scorer-version` set to the scorer file's Git blob hash. `record` refuses a scorer file whose hash differs from `--scorer-version`, because the judge saw another rubric. A document subject is read with `metafab metastore show <path> --version <n>`, a pull request with `gh pr view` and `gh pr diff`, a branch with `git log` and `git diff` from its merge base with the default branch, a commit with `git show`, and a file with `git show <sha>:<path>`. `prompt` refuses a document whose local file has unsaved changes or was deleted, with the fix `Push it first`, because the score would name a version the judge did not read. It also refuses a `branch`, `commit` or `file` subject in another repository than this checkout's `origin`, with the fix `Run metafab scorer prompt in a checkout of <repo>`, because the judge reads those with local Git. `record` checks that the scorer applies to the subject, as `prompt` does.
+`prompt` pins the subject as `score` does, and prints the `record` command to run, with the pinned subject in canonical form (such as `doc:plans/x.md@v7` or `pr:github.com/o/r#42@<sha>`) and `--scorer-version` set to the scorer file's Git blob hash. The CLI computes that hash from the file's bytes as Git's SHA-1 object format does (`blob <size>\0<bytes>`), so it needs no Git and equals `git hash-object` in a SHA-1 repository. `record` refuses a scorer file whose hash differs from `--scorer-version`, because the judge saw another rubric. A document subject is read with `metafab metastore show <path> --version <n>`, a pull request with `gh pr view` and `gh pr diff`, a branch with `git log` and `git diff` from its merge base with the default branch, a commit with `git show`, and a file with `git show <sha>:<path>`. `prompt` refuses a document whose local file has unsaved changes or was deleted, with the fix `Push it first`, because the score would name a version the judge did not read. It also refuses a `branch`, `commit` or `file` subject in another repository than this checkout's `origin`, with the fix `Run metafab scorer prompt in a checkout of <repo>`, because the judge reads those with local Git. `record` checks that the scorer applies to the subject, as `prompt` does.
 
-`record` reads the last fenced `json` block in the result file (`-` reads standard input), so a judge's whole answer can be saved as it is. It checks that every criterion appears exactly once with a whole-number `value` on the scale and a non-empty `note`, and that `rationale` is a non-empty string. It computes `value` as the mean of the criteria values weighted by `weight`, rounded to two decimal places, and records the score with `scale`, `criteria` (with weights), `rationale`, `scorer`, `scorerVersion` (`git hash-object` of the scorer file), `model`, and `run.round`. When the scorer file has uncommitted changes, `run.dirty` is `true`. An invalid result exits with code 1 and one line that names the problem, so a workflow can ask the judge once more. `--dry-run` prints the score and records nothing.
+`record` reads the last fenced `json` block in the result file (`-` reads standard input), so a judge's whole answer can be saved as it is. It checks that every criterion appears exactly once with a whole-number `value` on the scale and a non-empty `note`, and that `rationale` is a non-empty string. It computes `value` as the mean of the criteria values weighted by `weight`, rounded to two decimal places, and records the score with `scale`, `criteria` (with weights), `rationale`, `scorer`, `scorerVersion` (the blob hash above), `model`, and `run.round`. When the scorer file has uncommitted changes, `run.dirty` is `true`; outside Git, `run.dirty` is left out. An invalid result exits with code 1 and one line that names the problem, so a workflow can ask the judge once more. `--dry-run` prints the score and records nothing.
 
 `list` works without a metastore. `prompt` and `record` need one for a `document` subject, because the backend holds its versions, and `record` needs one unless `--dry-run` is given.
 
