@@ -90,8 +90,9 @@ async function clear(log: string): Promise<void> {
 }
 
 describe.skipIf(process.platform === "win32")("Git hooks end to end", () => {
-  // The shared helper's lock keeps this `tsc` from interleaving with
-  // `test/cli/e2e.test.ts`, which compiles the same `dist/`.
+  // The shared helper compiles `dist/` once per test run: the first file to ask
+  // does the `tsc` run, and `test/cli/e2e.test.ts` reuses it instead of
+  // interleaving another compile with this file's spawned CLI.
   beforeAll(buildCli, 180_000);
 
   test(
