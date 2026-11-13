@@ -1,4 +1,4 @@
-import { cp, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -7,12 +7,14 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { ExitCode, MetafabError } from "../../../src/errors.js";
 import {
   fetchFab,
+  MAX_FAB_ENTRIES,
   MAX_FAB_TOTAL_SIZE,
   MAX_TARBALL_SIZE,
   parseSource,
   resolve,
 } from "../../../src/core/sources/index.js";
 import type { Resolved } from "../../../src/core/sources/index.js";
+import { fetchRecordedBase } from "../../../src/core/update/fetch.js";
 import { pathExists } from "../../../src/util/fs.js";
 import { startRegistry } from "../../helpers/registry/index.js";
 import type { Registry } from "../../helpers/registry/index.js";
@@ -23,12 +25,19 @@ const VALID_FACTORY = path.join(FIXTURES, "valid-fab", ".factory");
 let registry: Registry;
 let cache: string;
 
-function npmOptions(cacheDirectory: string = cache): {
+function npmOptions(
+  cacheDirectory: string = cache,
+  extraEnv: NodeJS.ProcessEnv = {},
+): {
   cache: string;
   env: NodeJS.ProcessEnv;
   registry: string;
 } {
-  return { cache: cacheDirectory, env: registry.env, registry: registry.url };
+  return {
+    cache: cacheDirectory,
+    env: { ...registry.env, ...extraEnv },
+    registry: registry.url,
+  };
 }
 
 function specFor(source: string): ReturnType<typeof parseSource> {
@@ -39,8 +48,11 @@ async function resolveSource(source: string): Promise<Resolved> {
   return resolve(specFor(source), npmOptions());
 }
 
-async function fetchSource(source: string): Promise<Awaited<ReturnType<typeof fetchFab>>> {
-  return fetchFab(await resolveSource(source), npmOptions());
+async function fetchSource(
+  source: string,
+  extraEnv: NodeJS.ProcessEnv = {},
+): Promise<Awaited<ReturnType<typeof fetchFab>>> {
+  return fetchFab(await resolveSource(source), npmOptions(cache, extraEnv));
 }
 
 function tamper(integrity: string): string {
@@ -73,8 +85,15 @@ beforeAll(async () => {
     name: "fab-scripts",
     version: "1.0.0",
     factoryDir: VALID_FACTORY,
-    files: [".factory", "install.cjs"],
-    scripts: { install: "node install.cjs" },
+    files: [".factory", "install.cjs", "marker.cjs"],
+    scripts: {
+      preinstall: "node marker.cjs preinstall",
+      install: "node install.cjs",
+      postinstall: "node marker.cjs postinstall",
+      prepare: "node marker.cjs prepare",
+      prepack: "node marker.cjs prepack",
+      postpack: "node marker.cjs postpack",
+    },
     extraFiles: {
       "install.cjs": [
         'const fs = require("node:fs");',
@@ -82,7 +101,37 @@ beforeAll(async () => {
         'fs.writeFileSync(path.join(__dirname, "script-ran.txt"), "ran");',
         "",
       ].join("\n"),
+      "marker.cjs": [
+        'const fs = require("node:fs");',
+        'const path = require("node:path");',
+        'const dir = process.env.METAFAB_TEST_MARKER_DIR;',
+        'if (dir) fs.writeFileSync(path.join(dir, `${process.argv[2] ?? "lifecycle"}.txt`), "ran");',
+        "",
+      ].join("\n"),
     },
+  });
+  await registry.publishFab({
+    name: "fab-oversize-size",
+    version: "1.0.0",
+    factoryDir: VALID_FACTORY,
+  });
+  await registry.setDistSizes("fab-oversize-size", {
+    unpackedSize: MAX_FAB_TOTAL_SIZE + 1,
+  });
+  await registry.publishFab({
+    name: "fab-oversize-files",
+    version: "1.0.0",
+    factoryDir: VALID_FACTORY,
+  });
+  await registry.setDistSizes("fab-oversize-files", { fileCount: MAX_FAB_ENTRIES + 1 });
+  await registry.publishFab({
+    name: "fab-no-sizes",
+    version: "1.0.0",
+    factoryDir: VALID_FACTORY,
+  });
+  await registry.setDistSizes("fab-no-sizes", {
+    unpackedSize: undefined,
+    fileCount: undefined,
   });
   await registry.publishFab({
     name: "fab-no-format",
@@ -274,14 +323,25 @@ describe("npm sources", { timeout: 60_000 }, () => {
   });
 
   test("does not run install scripts from a package", async () => {
-    const fetched = await fetchSource("fab-scripts@1.0.0");
+    const markers = await mkdtemp(path.join(tmpdir(), "metafab-scripts-"));
+    try {
+      const fetched = await fetchSource("fab-scripts@1.0.0", {
+        METAFAB_TEST_MARKER_DIR: markers,
+      });
 
-    expect(await pathExists(path.join(fetched.factoryDir, "install.cjs"))).toBe(false);
-    expect(await pathExists(path.join(path.dirname(fetched.factoryDir), "install.cjs"))).toBe(true);
-    expect(await pathExists(path.join(fetched.factoryDir, "script-ran.txt"))).toBe(false);
-    expect(await pathExists(path.join(path.dirname(fetched.factoryDir), "script-ran.txt"))).toBe(
-      false,
-    );
+      expect(await pathExists(path.join(fetched.factoryDir, "install.cjs"))).toBe(false);
+      expect(await pathExists(path.join(path.dirname(fetched.factoryDir), "install.cjs"))).toBe(
+        true,
+      );
+      expect(await pathExists(path.join(fetched.factoryDir, "script-ran.txt"))).toBe(false);
+      expect(await pathExists(path.join(path.dirname(fetched.factoryDir), "script-ran.txt"))).toBe(
+        false,
+      );
+      // preinstall, postinstall, prepare, prepack and postpack each write a marker.
+      expect(await readdir(markers)).toEqual([]);
+    } finally {
+      await rm(markers, { recursive: true, force: true });
+    }
   });
 
   test("fails with exit 4 when metafab.format is missing", async () => {
@@ -303,6 +363,89 @@ describe("npm sources", { timeout: 60_000 }, () => {
       });
     } finally {
       await rm(smallCache, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses a package whose metadata reports more unpacked bytes than the fab limit", async () => {
+    const resolved = await resolveSource("fab-oversize-size@1.0.0");
+    expect(resolved.kind === "npm" ? resolved.unpackedSize : undefined).toBe(
+      MAX_FAB_TOTAL_SIZE + 1,
+    );
+
+    const smallCache = await mkdtemp(path.join(tmpdir(), "metafab-npm-oversize-"));
+    try {
+      await expect(fetchFab(resolved, npmOptions(smallCache))).rejects.toMatchObject({
+        exitCode: ExitCode.InvalidFab,
+        code: "invalid-fab",
+        message: expect.stringContaining(
+          `it unpacks to ${MAX_FAB_TOTAL_SIZE + 1} bytes, more than the ${MAX_FAB_TOTAL_SIZE}-byte fab limit`,
+        ),
+      });
+      expect(
+        await pathExists(path.join(smallCache, "npm", "fab-oversize-size", "1.0.0.tgz")),
+      ).toBe(false);
+    } finally {
+      await rm(smallCache, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses a package whose metadata reports more files than the fab limit", async () => {
+    const resolved = await resolveSource("fab-oversize-files@1.0.0");
+    expect(resolved.kind === "npm" ? resolved.fileCount : undefined).toBe(MAX_FAB_ENTRIES + 1);
+
+    const smallCache = await mkdtemp(path.join(tmpdir(), "metafab-npm-many-files-"));
+    try {
+      await expect(fetchFab(resolved, npmOptions(smallCache))).rejects.toMatchObject({
+        exitCode: ExitCode.InvalidFab,
+        code: "invalid-fab",
+        message: expect.stringContaining(
+          `it has ${MAX_FAB_ENTRIES + 1} files, more than the ${MAX_FAB_ENTRIES}-file fab limit`,
+        ),
+      });
+      expect(
+        await pathExists(path.join(smallCache, "npm", "fab-oversize-files", "1.0.0.tgz")),
+      ).toBe(false);
+    } finally {
+      await rm(smallCache, { recursive: true, force: true });
+    }
+  });
+
+  test("fetches a package whose metadata reports no unpacked size or file count", async () => {
+    const resolved = await resolveSource("fab-no-sizes@1.0.0");
+    expect(resolved.kind === "npm" ? resolved.unpackedSize : undefined).toBeUndefined();
+    expect(resolved.kind === "npm" ? resolved.fileCount : undefined).toBeUndefined();
+
+    const fetched = await fetchFab(resolved, npmOptions());
+    expect(await pathExists(path.join(fetched.factoryDir, "AGENTS.md"))).toBe(true);
+  });
+
+  test("skips the metadata size check for a recorded base but not for a new source", async () => {
+    const recordedCache = await mkdtemp(path.join(tmpdir(), "metafab-npm-recorded-"));
+    const freshCache = await mkdtemp(path.join(tmpdir(), "metafab-npm-fresh-"));
+    try {
+      const base = await fetchRecordedBase(
+        { kind: "npm", source: "fab-oversize-size", requested: "^1.0.0", version: "1.0.0" },
+        { cwd: process.cwd(), ...npmOptions(recordedCache) },
+      );
+      expect(await pathExists(path.join(base.factoryDir, "AGENTS.md"))).toBe(true);
+      expect(
+        await pathExists(path.join(recordedCache, "npm", "fab-oversize-size", "1.0.0.tgz")),
+      ).toBe(true);
+
+      const resolved = await resolve(
+        specFor("fab-oversize-size@1.0.0"),
+        npmOptions(freshCache),
+      );
+      await expect(fetchFab(resolved, npmOptions(freshCache))).rejects.toMatchObject({
+        exitCode: ExitCode.InvalidFab,
+        code: "invalid-fab",
+      });
+      expect(
+        await pathExists(path.join(freshCache, "npm", "fab-oversize-size", "1.0.0.tgz")),
+      ).toBe(false);
+    } finally {
+      await rm(recordedCache, { recursive: true, force: true });
+      await rm(freshCache, { recursive: true, force: true });
     }
   });
 

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,7 +20,12 @@ import type { GitFixture } from "./git-fixture.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
-  return { ...actual, mkdir: vi.fn(actual.mkdir), rename: vi.fn(actual.rename) };
+  return {
+    ...actual,
+    mkdir: vi.fn(actual.mkdir),
+    rename: vi.fn(actual.rename),
+    copyFile: vi.fn(actual.copyFile),
+  };
 });
 
 const FIXTURES = fileURLToPath(new URL("../../fixtures/fabs/", import.meta.url));
@@ -39,6 +44,7 @@ interface InjectedFailure {
 
 let mkdirFailure: InjectedFailure | undefined;
 let renameFailure: InjectedFailure | undefined;
+let copyFileFailure: InjectedFailure | undefined;
 
 function fsError(code: string, syscall: string, target: string): NodeJS.ErrnoException {
   return Object.assign(new Error(`${code}: ${syscall} '${target}'`), {
@@ -63,6 +69,7 @@ afterAll(async () => {
 beforeEach(async () => {
   mkdirFailure = undefined;
   renameFailure = undefined;
+  copyFileFailure = undefined;
 
   vi.mocked(mkdir).mockImplementation(((target: string, options?: unknown) => {
     if (mkdirFailure?.match(String(target)) === true) {
@@ -81,12 +88,20 @@ beforeEach(async () => {
     return (actualFs.rename as (from: string, to: string) => Promise<void>)(from, to);
   }) as never);
 
+  vi.mocked(copyFile).mockImplementation(((from: string, to: string) => {
+    if (copyFileFailure?.match(String(from), String(to)) === true) {
+      return Promise.reject(fsError(copyFileFailure.code, "copyfile", String(to)));
+    }
+    return (actualFs.copyFile as (from: string, to: string) => Promise<void>)(from, to);
+  }) as never);
+
   cache = await mkdtemp(path.join(tmpdir(), "metafab-fs-errors-"));
 });
 
 afterAll(async () => {
   vi.mocked(mkdir).mockReset();
   vi.mocked(rename).mockReset();
+  vi.mocked(copyFile).mockReset();
 });
 
 function gitSpec(): GitSourceSpec {
@@ -228,6 +243,32 @@ describe("cache write failures", () => {
         (file) => {
           expect(file.startsWith(toPosixPath(path.join(cache, "fabs")))).toBe(true);
           expect(file).toMatch(/\.tmp-[^/]+$/);
+        },
+      );
+    });
+
+    test(`mkdir of the npm tarball directory is exit 3 (${code})`, async () => {
+      const resolved = await resolve(parseSource("fab-fs@1.0.0"), npmOptions());
+      const tarballDirectory = path.dirname(cacheLayout(cache).npmTarball("fab-fs", "1.0.0"));
+      mkdirFailure = { match: (target) => target === tarballDirectory, code };
+
+      await expectCacheWriteFailure(
+        code,
+        () => fetchFab(resolved, npmOptions()),
+        (file) => expect(file).toBe(toPosixPath(tarballDirectory)),
+      );
+    });
+
+    test(`the npm tarball copy into the cache is exit 3 (${code})`, async () => {
+      const resolved = await resolve(parseSource("fab-fs@1.0.0"), npmOptions());
+      copyFileFailure = { match: (_from, to) => to.includes(".tmp-"), code };
+
+      await expectCacheWriteFailure(
+        code,
+        () => fetchFab(resolved, npmOptions()),
+        (file) => {
+          expect(file.startsWith(toPosixPath(path.join(cache, "npm", "fab-fs")))).toBe(true);
+          expect(file).toMatch(/\.tgz\.tmp-/);
         },
       );
     });

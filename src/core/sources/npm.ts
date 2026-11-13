@@ -11,7 +11,7 @@ import { cacheWriteError, fabKey, getOrCreate } from "./cache.js";
 import type { CacheLayout } from "./cache.js";
 import { cacheRoot, cacheLayout } from "./cache.js";
 import { withEnv } from "./env.js";
-import { extractTarball } from "./extract.js";
+import { extractTarball, MAX_FAB_ENTRIES, MAX_FAB_TOTAL_SIZE } from "./extract.js";
 import { MAX_TARBALL_SIZE } from "./https.js";
 import { npmInvocation } from "./npm-cli.js";
 import { redact } from "./redact.js";
@@ -26,10 +26,18 @@ export interface NpmOptions {
   registry?: string;
   cache?: string;
   maxTarballSize?: number;
+  /** The extracted-size cap, so a test can reach the refusal with a small fab. */
+  maxTotalSize?: number;
 }
 
 export interface ResolveNpmOptions extends NpmOptions {
   to?: string;
+  /**
+   * True for the version a recorded upstream names. It was accepted once, so
+   * the metadata size check is skipped; the checks after the download still
+   * apply.
+   */
+  recorded?: boolean;
 }
 
 export type ResolvedNpm = Extract<Resolved, { kind: "npm" }>;
@@ -112,7 +120,10 @@ async function listVersions(spec: NpmSourceSpec, options: NpmOptions): Promise<P
 
   const versions = Array.isArray(parsed.versions)
     ? parsed.versions.filter((version): version is string => typeof version === "string")
-    : [];
+    : typeof parsed.versions === "string"
+      ? // npm 9 prints a scalar when the package has one published version.
+        [parsed.versions]
+      : [];
   const distTags: Record<string, string> = {};
   if (isRecord(parsed["dist-tags"])) {
     for (const [tag, version] of Object.entries(parsed["dist-tags"])) {
@@ -165,6 +176,8 @@ interface NpmManifest {
   tarball: string;
   integrity?: string;
   deprecated?: string;
+  unpackedSize?: number;
+  fileCount?: number;
 }
 
 function distIntegrity(dist: Record<string, unknown>): string | undefined {
@@ -173,6 +186,11 @@ function distIntegrity(dist: Record<string, unknown>): string | undefined {
     return ssri.fromHex(dist.shasum, "sha1").toString();
   }
   return undefined;
+}
+
+/** A count the registry reported, when it is one a real package can have. */
+function distCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 }
 
 async function readManifest(
@@ -193,10 +211,14 @@ async function readManifest(
   }
 
   const integrity = distIntegrity(parsed.dist);
+  const unpackedSize = distCount(parsed.dist.unpackedSize);
+  const fileCount = distCount(parsed.dist.fileCount);
   return {
     tarball,
     ...(integrity === undefined ? {} : { integrity }),
     ...(typeof parsed.deprecated === "string" ? { deprecated: parsed.deprecated } : {}),
+    ...(unpackedSize === undefined ? {} : { unpackedSize }),
+    ...(fileCount === undefined ? {} : { fileCount }),
   };
 }
 
@@ -208,6 +230,10 @@ export async function resolveNpm(
   const versions = await listVersions(spec, options);
   const version = selectVersion(spec, requested, versions);
   const manifest = await readManifest(spec.name, version, options);
+  // A recorded version was accepted once; a registry that later reports a
+  // larger size must not make the update base look gone.
+  const sizes: Pick<NpmManifest, "unpackedSize" | "fileCount"> =
+    options.recorded === true ? {} : manifest;
 
   return {
     kind: "npm",
@@ -217,6 +243,8 @@ export async function resolveNpm(
     tarball: manifest.tarball,
     ...(manifest.integrity === undefined ? {} : { integrity: manifest.integrity }),
     ...(manifest.deprecated === undefined ? {} : { deprecated: manifest.deprecated }),
+    ...(sizes.unpackedSize === undefined ? {} : { unpackedSize: sizes.unpackedSize }),
+    ...(sizes.fileCount === undefined ? {} : { fileCount: sizes.fileCount }),
     versioned: true,
   };
 }
@@ -315,40 +343,108 @@ function tarballTooLarge(source: ResolvedNpm, size: number, maxBytes: number): M
   );
 }
 
+function packageTooLarge(
+  source: ResolvedNpm,
+  unpackedSize: number,
+  maxTotalSize: number,
+): MetafabError {
+  return new MetafabError(
+    `Cannot download npm package "${source.spec.name}@${source.version}": it unpacks to ${unpackedSize} bytes, more than the ${maxTotalSize}-byte fab limit`,
+    { exitCode: ExitCode.InvalidFab, code: "invalid-fab" },
+  );
+}
+
+function packageHasTooManyFiles(
+  source: ResolvedNpm,
+  fileCount: number,
+  maxEntries: number,
+): MetafabError {
+  return new MetafabError(
+    `Cannot download npm package "${source.spec.name}@${source.version}": it has ${fileCount} files, more than the ${maxEntries}-file fab limit`,
+    { exitCode: ExitCode.InvalidFab, code: "invalid-fab" },
+  );
+}
+
+/** The size of the `.tgz` in a pack directory, if `npm pack` left one. */
+async function packedTarballSize(packDir: string): Promise<number | undefined> {
+  let entries: string[];
+  try {
+    entries = await readdir(packDir);
+  } catch {
+    return undefined;
+  }
+  const filename = entries.find((entry) => entry.endsWith(".tgz"));
+  if (filename === undefined) return undefined;
+  try {
+    return (await stat(path.join(packDir, filename))).size;
+  } catch {
+    return undefined;
+  }
+}
+
 async function downloadTarball(
   source: ResolvedNpm,
   target: string,
+  root: string,
   options: NpmOptions,
 ): Promise<void> {
   const context = `Cannot download npm package "${source.spec.name}@${source.version}"`;
   const maxBytes = options.maxTarballSize ?? MAX_TARBALL_SIZE;
-  const staging = await mkdtemp(path.join(tmpdir(), "metafab-pack-"));
-  try {
-    await runNpm(
-      [
-        "pack",
-        `${source.spec.name}@${source.version}`,
-        "--pack-destination",
-        staging,
-        "--json",
-        "--ignore-scripts",
-      ],
-      options,
-      context,
-    );
+  const maxTotalSize = options.maxTotalSize ?? MAX_FAB_TOTAL_SIZE;
 
-    const entries = await readdir(staging);
+  // npm 9 and 10 hold the whole tarball in memory and write it in one call, so
+  // the registry's own report is the only chance to refuse before the download.
+  if (source.unpackedSize !== undefined && source.unpackedSize > maxTotalSize) {
+    throw packageTooLarge(source, source.unpackedSize, maxTotalSize);
+  }
+  if (source.fileCount !== undefined && source.fileCount > MAX_FAB_ENTRIES) {
+    throw packageHasTooManyFiles(source, source.fileCount, MAX_FAB_ENTRIES);
+  }
+
+  const packDir = await mkdtemp(path.join(tmpdir(), "metafab-pack-"));
+  try {
+    try {
+      await runNpm(
+        [
+          "pack",
+          `${source.spec.name}@${source.version}`,
+          "--pack-destination",
+          packDir,
+          "--json",
+          "--ignore-scripts",
+        ],
+        options,
+        context,
+      );
+    } catch (error) {
+      // npm can fail after it has written the tarball. When that tarball is
+      // already over the cap, the size is the useful reason, not npm's error.
+      const size = await packedTarballSize(packDir);
+      if (size !== undefined && size > maxBytes) throw tarballTooLarge(source, size, maxBytes);
+      throw error;
+    }
+
+    const entries = await readdir(packDir);
     const filename = entries.find((entry) => entry.endsWith(".tgz"));
     if (filename === undefined) throw fetchError(`${context}: npm pack produced no tarball`);
 
-    const packed = path.join(staging, filename);
+    const packed = path.join(packDir, filename);
     const size = (await stat(packed)).size;
     if (size > maxBytes) throw tarballTooLarge(source, size, maxBytes);
 
-    await mkdir(path.dirname(target), { recursive: true });
-    await copyFile(packed, target);
+    const directory = path.dirname(target);
+    try {
+      await mkdir(directory, { recursive: true });
+    } catch (error) {
+      throw cacheWriteError(directory, root, error);
+    }
+    try {
+      await copyFile(packed, target);
+    } catch (error) {
+      throw cacheWriteError(target, root, error);
+    }
   } finally {
-    await rm(staging, { recursive: true, force: true });
+    await rm(packDir, { recursive: true, force: true });
   }
 }
 
@@ -368,7 +464,7 @@ async function fetchNpmTarball(
       verifyIntegrity(dir, data, source.integrity);
       return target;
     },
-    create: (staging) => downloadTarball(source, staging, options),
+    create: (staging) => downloadTarball(source, staging, layout.root, options),
   });
 }
 
