@@ -167,6 +167,48 @@ describe("metafab import", () => {
     },
   );
 
+  test.skipIf(process.platform === "win32")(
+    "prints the Git hook lines the closing build creates and reports them in JSON",
+    async () => {
+      const isolation = await isolateGitConfig();
+      try {
+        const setup = async (): Promise<{ repo: TempRepo; fab: TempRepo }> => {
+          const repo = await repoWith();
+          await writeRepoFiles(repo.root, {
+            ".factory/metafab.yaml": "agents: [claude]\ngit-hooks: true\n",
+          });
+          return { repo, fab: await makeFab(fabFiles()) };
+        };
+
+        const text = await setup();
+        const printed = await runCli(["import", text.fab.root, "--agents", "claude"], {
+          cwd: text.repo.root,
+        });
+
+        expect(printed.code).toBe(0);
+        for (const hook of ["post-checkout", "post-merge", "post-rewrite"]) {
+          expect(printed.stdout).toContain(`+ git hook ${hook}`);
+        }
+
+        const json = await setup();
+        const reported = await runCli(
+          ["import", json.fab.root, "--agents", "claude", "--json"],
+          { cwd: json.repo.root },
+        );
+
+        expect(reported.code).toBe(0);
+        expect(parseJson(reported).hooks).toEqual([
+          { hook: "post-checkout", action: "created" },
+          { hook: "post-merge", action: "created" },
+          { hook: "post-rewrite", action: "created" },
+        ]);
+      } finally {
+        isolation.restore();
+        await rm(isolation.dir, { recursive: true, force: true });
+      }
+    },
+  );
+
   test("creates no factory.yaml placeholder when the fab has none", async () => {
     const repo = await repoWith();
     const fab = await makeFab({

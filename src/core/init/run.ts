@@ -23,6 +23,7 @@ import { createConfig, setGitHooks } from "../config/writers.js";
 import { createFactoryYamlText } from "../edit/factory-yaml.js";
 import { loadFactory } from "../factory/load.js";
 import type { HookChange } from "../hooks/index.js";
+import { hookChangeLines } from "../hooks/index.js";
 import { assertFactoryDirectoryUsable, preflightBuild, readConfig, selectedTargets, unreadableFactory } from "../setup.js";
 import { assertGitattributesWritable, ensureGitattributes } from "./gitattributes.js";
 import { deriveFactoryName } from "./name.js";
@@ -370,7 +371,7 @@ export function describeInit(report: InitReport): string {
         : []),
       ...report.moved.map((move) => `Moved ${move.from.join(", ")} -> ${move.to}`),
       ...report.changed.map((change) => `${marks[change.action]} ${change.path}`),
-      ...report.hooks.map((change) => `${marks[change.action]} git hook ${change.hook}`),
+      ...hookChangeLines(report.hooks),
     );
   }
 

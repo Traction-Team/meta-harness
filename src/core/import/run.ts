@@ -20,6 +20,8 @@ import { CONFIG_FILE, CONFIG_FILENAME } from "../config/parse.js";
 import type { UpstreamEntry } from "../config/types.js";
 import { createConfig, setUpstream } from "../config/writers.js";
 import { loadFactory } from "../factory/load.js";
+import { hookChangeLines } from "../hooks/index.js";
+import type { HookChange } from "../hooks/index.js";
 import { assertGitattributesWritable, ensureGitattributes } from "../init/gitattributes.js";
 import { selectTargets } from "../init/targets.js";
 import type { TargetPrompt } from "../init/targets.js";
@@ -76,6 +78,8 @@ export interface ImportReport {
   copied: string[];
   /** Files created, updated, or removed by the closing build. */
   changed: BuildChange[];
+  /** Git hooks created, updated, or removed by the closing build. */
+  hooks: HookChange[];
   /** Build warnings. */
   problems: Problem[];
   /** The review summary, also rendered as the command's human output. */
@@ -134,6 +138,7 @@ function declinedReport(
     moved: [],
     copied: [],
     changed: [],
+    hooks: [],
     problems: [],
     review,
     declined: true,
@@ -293,6 +298,7 @@ export async function runImport(options: ImportOptions): Promise<ImportReport> {
       moved: plan.moves.map((move) => ({ ...move, from: [...move.from] })),
       copied,
       changed: build.changed,
+      hooks: build.hooks,
       problems: [...warnings, ...buildPlan.warnings, ...build.hookWarnings],
       review: summarise(before, after, { title: importTitle(fetched.upstream) }),
       declined: false,
@@ -304,6 +310,8 @@ export async function runImport(options: ImportOptions): Promise<ImportReport> {
 
 /** Human-readable report for `import`: the review summary, or the declined notice. */
 export function describeImport(report: ImportReport): string {
-  if (report.declined) return "Adoption declined. Nothing changed.";
-  return renderSummary(report.review);
+  const body = report.declined ? "Adoption declined. Nothing changed." : renderSummary(report.review);
+  const hookLines = hookChangeLines(report.hooks);
+  if (hookLines.length === 0) return body;
+  return body === "" ? hookLines.join("\n") : [body, ...hookLines].join("\n");
 }

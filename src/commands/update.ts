@@ -57,6 +57,7 @@ export const updateCommand: CommandDefinition = {
       notes: report.notes,
       built: report.built,
       changed: report.changed,
+      hooks: report.hooks,
       problems: report.problems,
       dryRun: context.options["dry-run"] === true,
       ...(report.review === undefined ? {} : { review: report.review }),

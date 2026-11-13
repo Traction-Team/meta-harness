@@ -13,6 +13,8 @@ import { CONFIG_FILE } from "../config/parse.js";
 import type { Config, UpstreamEntry } from "../config/types.js";
 import { setUpstream } from "../config/writers.js";
 import { loadFactory } from "../factory/load.js";
+import { hookChangeLines } from "../hooks/index.js";
+import type { HookChange } from "../hooks/index.js";
 import { localFilesForImport } from "../import/conflicts.js";
 import { emptyTree, snapshotDirectories } from "../import/file-tree.js";
 import type { FileEntry, FileTree } from "../import/file-tree.js";
@@ -92,6 +94,8 @@ export interface UpdateReport {
   problems: Problem[];
   built: boolean;
   changed: BuildChange[];
+  /** Git hooks created, updated, or removed by the closing build. */
+  hooks: HookChange[];
   review?: Summary;
 }
 
@@ -260,7 +264,7 @@ async function assertResolved(root: string): Promise<void> {
 async function buildFactory(
   root: string,
   factoryDir: string,
-): Promise<{ changed: BuildChange[]; problems: Problem[] }> {
+): Promise<{ changed: BuildChange[]; hooks: HookChange[]; problems: Problem[] }> {
   const factory = await loadFactory(root);
   const config = await loadConfig(factoryDir);
   const warnings = [...factory.problems, ...config.problems].filter(
@@ -274,6 +278,7 @@ async function buildFactory(
   const report = await applyBuild(plan);
   return {
     changed: report.changed,
+    hooks: report.hooks,
     problems: [...warnings, ...plan.warnings, ...report.hookWarnings],
   };
 }
@@ -765,6 +770,7 @@ function baseReport(
   | "problems"
   | "built"
   | "changed"
+  | "hooks"
 > {
   return {
     root,
@@ -784,6 +790,7 @@ function baseReport(
     problems: [],
     built: false,
     changed: [],
+    hooks: [],
   };
 }
 
@@ -972,6 +979,7 @@ async function runVersioned(
 
     const built = !options.dryRun && options.noBuild !== true && plan.conflicts.length === 0;
     let changed: BuildChange[] = [];
+    let hooks: HookChange[] = [];
 
     // The paths the update writes, in the source's spelling. The realignment
     // uses them on disk and the review uses them on the planned tree. A side
@@ -1029,6 +1037,7 @@ async function runVersioned(
     if (built) {
       const build = await buildFactory(root, factoryDir);
       changed = build.changed;
+      hooks = build.hooks;
       problems.push(...build.problems);
     }
 
@@ -1087,6 +1096,7 @@ async function runVersioned(
       problems,
       built,
       changed,
+      hooks,
       review,
     };
   } finally {
@@ -1139,6 +1149,7 @@ async function runUnversioned(
 
     const notes = ["Replaced local edits can be restored from Git."];
     let changed: BuildChange[] = [];
+    let hooks: HookChange[] = [];
     const problems: Problem[] = [];
     const built = options.dryRun !== true && options.noBuild !== true;
 
@@ -1166,6 +1177,7 @@ async function runUnversioned(
     if (built) {
       const build = await buildFactory(root, factoryDir);
       changed = build.changed;
+      hooks = build.hooks;
       problems.push(...build.problems);
     }
 
@@ -1197,6 +1209,7 @@ async function runUnversioned(
       problems,
       built,
       changed,
+      hooks,
       review,
     };
   } finally {
@@ -1236,6 +1249,13 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateReport> {
 
 /** Human-readable report for `update`. */
 export function describeUpdate(report: UpdateReport): string {
-  if (report.message !== undefined) return report.message;
-  return report.review === undefined ? "" : renderSummary(report.review);
+  const body =
+    report.message !== undefined
+      ? report.message
+      : report.review === undefined
+        ? ""
+        : renderSummary(report.review);
+  const hookLines = hookChangeLines(report.hooks);
+  if (hookLines.length === 0) return body;
+  return body === "" ? hookLines.join("\n") : [body, ...hookLines].join("\n");
 }

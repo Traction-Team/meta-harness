@@ -149,8 +149,8 @@ describe.skipIf(process.platform === "win32")("syncGitHooks", () => {
       {
         level: "warning",
         file: ".git/hooks/post-merge",
-        message: ".git/hooks/post-merge exists and was not written by Metafab",
-        fix: `Add this line to .git/hooks/post-merge: ${hookCommand(".", "1.0.0")}`,
+        message: `.git/hooks/post-merge is a symbolic link to ${sharedHook}, so Metafab did not change it`,
+        fix: `Add this line to ${sharedHook}: ${hookCommand(".", "1.0.0")}, or replace the link with a regular file and run metafab build again`,
       },
     ]);
     expect((await lstat(sharedHook)).mode & 0o777).toBe(0o644);
@@ -185,11 +185,47 @@ describe.skipIf(process.platform === "win32")("syncGitHooks", () => {
       {
         level: "warning",
         file: ".git/hooks/post-merge",
-        message: ".git/hooks/post-merge exists and was not written by Metafab",
-        fix: `Add this line to .git/hooks/post-merge: ${hookCommand(".", "1.0.0")}`,
+        message: `.git/hooks/post-merge is a symbolic link to ${missing}, which does not exist, so Metafab did not change it`,
+        fix: "Remove the link, then run metafab build again",
       },
     ]);
     await expect(stat(missing)).rejects.toMatchObject({ code: "ENOENT" });
+
+    const disabled = await syncGitHooks(git.root, false, "1.0.0");
+
+    expect(disabled.warnings).toEqual([]);
+    expect((await lstat(git.path(".git/hooks/post-merge"))).isSymbolicLink()).toBe(true);
+    await expect(stat(missing)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("a directory at a hook path is not a regular file and is left alone", async () => {
+    const git = await repo();
+    const hookDir = git.path(".git/hooks/post-merge");
+    await mkdir(hookDir, { recursive: true });
+    await writeFile(path.join(hookDir, "inner"), "keep\n");
+
+    const enabled = await syncGitHooks(git.root, true, "1.0.0");
+
+    expect(enabled.changed).toEqual([
+      { hook: "post-checkout", action: "created" },
+      { hook: "post-rewrite", action: "created" },
+    ]);
+    expect(enabled.warnings).toEqual([
+      {
+        level: "warning",
+        file: ".git/hooks/post-merge",
+        message: ".git/hooks/post-merge is not a regular file, so Metafab did not change it",
+        fix: "Remove it, then run metafab build again",
+      },
+    ]);
+    expect((await lstat(hookDir)).isDirectory()).toBe(true);
+    expect(await readFile(path.join(hookDir, "inner"), "utf8")).toBe("keep\n");
+
+    const disabled = await syncGitHooks(git.root, false, "1.0.0");
+
+    expect(disabled.warnings).toEqual([]);
+    expect((await lstat(hookDir)).isDirectory()).toBe(true);
+    expect(await readFile(path.join(hookDir, "inner"), "utf8")).toBe("keep\n");
   });
 
   test("the ownership marker must be a line of its own", async () => {

@@ -70,6 +70,7 @@ export const importCommand: CommandDefinition = {
       moved: report.moved,
       copied: report.copied,
       changed: report.changed,
+      hooks: report.hooks,
       problems: report.problems,
       declined: report.declined,
       review: report.review,
