@@ -156,6 +156,7 @@ describe("rule 7: Git URLs", () => {
     "https://github.com/seasb/fab-mark4.git",
     "git+https://github.com/seasb/fab-mark4.git",
     "file:///tmp/fab-mark4.git",
+    "git+file:///tmp/fab-mark4.git",
   ])("accepts %s", (url) => {
     const config = parseConfig(`publish:\n  git: ${url}\n  version: 1.2.0\n`);
 
@@ -167,6 +168,9 @@ describe("rule 7: Git URLs", () => {
 
     expect(config.problems).toHaveLength(1);
     expect(config.problems[0]?.message).toBe(`"publish.git" is not a Git URL.`);
+    expect(config.problems[0]?.fix).toBe(
+      "Use git@host:path, ssh://, git+ssh://, https://, git+https://, file:// or git+file://.",
+    );
   });
 });
 

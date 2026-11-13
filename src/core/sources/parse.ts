@@ -18,6 +18,14 @@ const UNC_PATH = /^\\\\/;
 // path is a path, never a host. The user is required so a drive-relative path
 // such as `C:fab` is never mistaken for a repository.
 const SCP_GIT = /^([A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+):(.+)$/;
+const SCHEME = /^([A-Za-z][A-Za-z0-9+.-]*):\/\//;
+const ANY_SCHEME = /^([A-Za-z][A-Za-z0-9+.-]*):/;
+
+const SUPPORTED_SOURCES =
+  "an npm name, github:owner/repo, git+https://, git+ssh://, ssh://, git@host:path, git+file:///<path>, an https:// tarball, or a local path";
+const GIT_SOURCE_FIX =
+  "Use git+https://, git+ssh://, git+file://, ssh://, user@host:path or github:owner/repo for a Git repository, an https:// URL for a tarball, an npm name, or a local path";
+const WINDOWS_PATH_FIX = "Write the path as C:\\fabs\\acme or C:/fabs/acme";
 
 function isScpGit(value: string): boolean {
   if (DRIVE_PATH.test(value)) return false;
@@ -101,6 +109,77 @@ function parseGithub(input: string): SourceSpec {
     source: `github:${repository}`,
     ...(ref === undefined ? {} : { ref: parseGitRef(ref, input) }),
   };
+}
+
+/**
+ * A `git+file://` source is a Git repository on this machine or a mounted
+ * share, such as the bare fab repository `publish.git: file:///…` writes. The
+ * path must be absolute, so `update` can re-parse the recorded source from
+ * another working directory: three slashes, `localhost`, or a Windows drive.
+ * The URL Git is given is `file:` plus the text after `git+file:`, unchanged;
+ * Git accepts and decodes that text itself, and re-serialising it would change
+ * the recorded source and the mirror key.
+ */
+function parseGitFileUrl(input: string): SourceSpec {
+  const { base, ref } = splitRef(input);
+  const rest = base.slice("git+file:".length);
+  if (!rest.startsWith("//")) {
+    throw invalidSource(
+      input,
+      "a Git file URL must be absolute, such as git+file:///srv/fabs/fab.git",
+    );
+  }
+
+  const after = rest.slice(2);
+  if (after === "" || after === "/") {
+    throw invalidSource(input, "the Git file URL has no path");
+  }
+  // Git accepts an empty host (the third slash), `localhost`, and a Windows
+  // drive right after `//` or `///`. Any other authority names a host.
+  if (!after.startsWith("/") && !/^localhost\//i.test(after) && !DRIVE_PATH.test(after)) {
+    throw invalidSource(input, "a Git file URL cannot name a host; use git+file:///<absolute path>");
+  }
+
+  return {
+    kind: "git",
+    url: `file:${rest}`,
+    source: base,
+    ...(ref === undefined ? {} : { ref: parseGitRef(ref, input) }),
+  };
+}
+
+function schemeHint(scheme: string): string | undefined {
+  // A one-letter scheme is a Windows drive with no slash after it: `C:fab` is
+  // drive-relative, so it cannot name a repository.
+  if (/^[a-z]$/.test(scheme)) {
+    return "A Windows path needs a slash after the drive, such as C:\\fabs\\acme";
+  }
+  if (scheme === "http") return "Use https:// for a tarball or git+https:// for a Git repository";
+  if (scheme === "git" || scheme === "git+http") return "Use git+https:// or git+ssh://";
+  return undefined;
+}
+
+/**
+ * Every value that looks like a URL scheme but is not a supported source is
+ * refused with the list of forms `import` reads, instead of falling through to
+ * the npm package-name parser and its unhelpful error. Unlike `invalidSource`,
+ * this carries a problem with a fix line, so the CLI prints what to write
+ * instead.
+ */
+function unsupportedScheme(input: string, rawScheme: string): MetafabError {
+  const shown = redact(input);
+  const scheme = rawScheme.toLowerCase();
+  const hint = schemeHint(scheme);
+  const message =
+    `Invalid source "${shown}": unsupported URL scheme "${scheme}:". ` +
+    `Supported sources: ${SUPPORTED_SOURCES}${hint === undefined ? "" : `. ${hint}`}`;
+  const fix = /^[a-z]$/.test(scheme) ? WINDOWS_PATH_FIX : GIT_SOURCE_FIX;
+
+  return new MetafabError(message, {
+    exitCode: ExitCode.Failed,
+    code: "invalid-source",
+    problems: [{ level: "error", file: shown, message, fix }],
+  });
 }
 
 function parseGitUrl(input: string, prefix: string): SourceSpec {
@@ -199,6 +278,8 @@ export function parseSource(input: string, options: ParseSourceOptions): SourceS
   const value = input.trim();
   if (value === "") throw invalidSource(input, "the source is empty");
 
+  if (/^git\+file:/i.test(value)) return parseGitFileUrl(value);
+
   if (/^file:/i.test(value)) {
     const withoutProtocol = value.slice("file:".length);
     if (withoutProtocol === "") throw invalidSource(input, "the file source is empty");
@@ -223,8 +304,39 @@ export function parseSource(input: string, options: ParseSourceOptions): SourceS
 
   if (/^https:\/\//i.test(value)) return parseHttps(value);
 
+  // An npm name never contains `:`, and the scp and path forms above have
+  // already claimed `git@host:path` and `C:\…` or `C:/…`.
+  const scheme = ANY_SCHEME.exec(value);
+  if (scheme !== null) throw unsupportedScheme(input, scheme[1] as string);
+
   const npm = splitNpm(value, input);
   return npm.requested === undefined
     ? { kind: "npm", name: npm.name }
     : { kind: "npm", name: npm.name, requested: npm.requested };
+}
+
+/**
+ * The URL to hand to Git: `git+https://`, `git+ssh://` and `git+file://` lose
+ * `git+`. The scheme is lower-cased because Git compares it case-sensitively,
+ * and the rest of the text is kept byte for byte. An scp form has no scheme
+ * with `//`, so it is returned unchanged.
+ */
+export function gitTransportUrl(url: string): string {
+  const match = SCHEME.exec(url);
+  if (match === null) return url;
+  const scheme = (match[1] as string).replace(/^git\+/i, "").toLowerCase();
+  return `${scheme}://${url.slice(match[0].length)}`;
+}
+
+/**
+ * The source `import` accepts for a URL Git accepts: `https://` and `file://`
+ * gain `git+`. Every other form is returned unchanged, and only the scheme
+ * text changes.
+ */
+export function importSourceForGitUrl(url: string): string {
+  const match = SCHEME.exec(url);
+  if (match === null) return url;
+  const scheme = (match[1] as string).toLowerCase();
+  if (scheme.startsWith("git+") || (scheme !== "https" && scheme !== "file")) return url;
+  return `git+${scheme}://${url.slice(match[0].length)}`;
 }
