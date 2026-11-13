@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { COMMANDS } from "../../src/cli.js";
 import type { CommandDefinition } from "../../src/commands/types.js";
@@ -107,6 +107,32 @@ describe("command help", () => {
     expect(result.code).toBe(ExitCode.Ok);
     expect(result.stdout).toContain("Usage: metafab create <path> [--description <text>]");
     expect(result.stdout).toContain("--description <text>");
+  });
+
+  test("a clustered short option that includes h is help, so init -hh writes nothing", async () => {
+    const gitRepo = await makeRepo({ "README.md": "hello\n" }, { git: true });
+    try {
+      const result = await runCli(["init", "-hh"], { cwd: gitRepo.root, tty: false });
+
+      expect(result.code).toBe(ExitCode.Ok);
+      expect(result.stderr).toBe("");
+      expect(result.stdout).toContain("Usage: metafab init");
+      expect(result.stdout).toContain("--git-hooks");
+      for (const created of [".factory", "AGENTS.md", "metafab.yaml", ".gitignore", ".gitattributes"]) {
+        expect(await stat(gitRepo.path(created)).catch(() => undefined), created).toBeUndefined();
+      }
+    } finally {
+      await gitRepo.cleanup();
+    }
+  });
+
+  test("check -hh prints check's help instead of looking for a factory", async () => {
+    const result = await help(["check", "-hh"]);
+
+    expect(result.code).toBe(ExitCode.Ok);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Usage: metafab check");
+    expect(result.stdout).toContain("--json");
   });
 
   test("build --help has no Arguments section", async () => {

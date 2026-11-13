@@ -94,9 +94,20 @@ type HelpTarget =
   | { kind: "global" };
 
 /**
- * `--help` or `-h` anywhere after the command name, before a `--`, wins over every
- * other flag and argument. The leading words name the command (`pipeline add`), the
- * `pipeline` group, or nothing (the global help, also for an unknown name).
+ * `--help` or a short-option cluster that contains `h` (`-h`, `-hh`, `-jh`),
+ * anywhere after the command name and before a `--`, asks for help: `parseArgs`
+ * reads the cluster as `help: true` too.
+ */
+function isHelpToken(token: string): boolean {
+  if (token === "--help" || token === "-h") return true;
+  return /^-[a-zA-Z]+$/.test(token) && token.includes("h");
+}
+
+/**
+ * `--help`, `-h` or a short-option cluster with `h` anywhere after the command
+ * name, before a `--`, wins over every other flag and argument. The leading words
+ * name the command (`pipeline add`), the `pipeline` group, or nothing (the global
+ * help, also for an unknown name).
  */
 function helpTarget(
   tokens: readonly string[],
@@ -105,8 +116,7 @@ function helpTarget(
 ): HelpTarget | undefined {
   const end = tokens.indexOf("--");
   const beforeDash = end === -1 ? tokens : tokens.slice(0, end);
-  const wantsHelp =
-    globalHelpFlag || beforeDash.some((token) => token === "--help" || token === "-h");
+  const wantsHelp = globalHelpFlag || beforeDash.some(isHelpToken);
   if (!wantsHelp) return undefined;
 
   const names: string[] = [];
@@ -338,6 +348,17 @@ export async function main(
     if (parsed.values.json === true) json = true;
     // A global `--json` before the command reaches the command the same way.
     if (json && parsed.values.json !== true) parsed.values.json = true;
+
+    // A safety net: whatever spelling made `parseArgs` read `help`, print the
+    // command's help instead of running it. Nothing a help request does may write.
+    if (parsed.values.help === true) {
+      return emit(
+        renderHelp({ kind: "command", definition }, commands, helpJson),
+        helpJson,
+        stdout,
+        stderr,
+      );
+    }
 
     const result = await definition.run({
       cwd: io.cwd ?? process.cwd(),
