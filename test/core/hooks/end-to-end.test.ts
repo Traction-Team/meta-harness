@@ -2,7 +2,8 @@ import { execFile } from "node:child_process";
 import { chmod, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { buildCli, cliPath } from "../../cli/build.js";
 import { HOOK_NAMES, syncGitHooks } from "../../../src/core/hooks/index.js";
 import { isolateGitConfig, makeTestRepo } from "./helpers.js";
 import type { TestRepo } from "./helpers.js";
@@ -37,10 +38,13 @@ async function logLines(log: string): Promise<string[]> {
   }
 }
 
-interface Stub {
+interface PathEntry {
   bin: string;
-  log: string;
   originalPath: string | undefined;
+}
+
+interface Stub extends PathEntry {
+  log: string;
 }
 
 async function installStub(git: TestRepo, script: string): Promise<Stub> {
@@ -53,13 +57,23 @@ async function installStub(git: TestRepo, script: string): Promise<Stub> {
   return { bin, log, originalPath: process.env.PATH };
 }
 
-function usePath(stub: Stub): void {
+function usePath(stub: PathEntry): void {
   process.env.PATH = `${stub.bin}${path.delimiter}${stub.originalPath ?? ""}`;
 }
 
-function restorePath(stub: Stub): void {
+function restorePath(stub: PathEntry): void {
   if (stub.originalPath === undefined) delete process.env.PATH;
   else process.env.PATH = stub.originalPath;
+}
+
+/** A `metafab` on `PATH` that runs the CLI built from this checkout. */
+async function installCli(git: TestRepo): Promise<PathEntry> {
+  const bin = path.join(git.container, "cli-bin");
+  await mkdir(bin, { recursive: true });
+  const entry = path.join(bin, "metafab");
+  await writeFile(entry, `#!/bin/sh\nexec "${process.execPath}" "${cliPath}" "$@"\n`, "utf8");
+  await chmod(entry, 0o755);
+  return { bin, originalPath: process.env.PATH };
 }
 
 const LOGGING_STUB = `#!/bin/sh
@@ -76,6 +90,69 @@ async function clear(log: string): Promise<void> {
 }
 
 describe.skipIf(process.platform === "win32")("Git hooks end to end", () => {
+  // The shared helper compiles `dist/` once per test run: the first file to ask
+  // does the `tsc` run, and `test/cli/e2e.test.ts` reuses it instead of
+  // interleaving another compile with this file's spawned CLI.
+  beforeAll(buildCli, 180_000);
+
+  test(
+    "post-checkout finds a factory below the repository root",
+    { timeout: 60_000 },
+    async () => {
+      const git = await repo();
+      const skill = "---\nname: demo\ndescription: Demo. Use when testing.\n---\n\n# Demo\n";
+      await git.write(
+        "packages/app/.factory/factory.yaml",
+        "format: 1\nname: demo\n",
+      );
+      await git.write(
+        "packages/app/.factory/metafab.yaml",
+        "agents: [claude]\nmetafab-skill: false\ngit-hooks: true\n",
+      );
+      await git.write("packages/app/.factory/skills/demo/SKILL.md", skill);
+      await git.writeAndCommit("README.md", "one\n", "initial");
+
+      const cli = await installCli(git);
+      usePath(cli);
+
+      try {
+        const built = await execFileAsync(process.execPath, [cliPath, "build"], {
+          cwd: git.path("packages", "app"),
+          encoding: "utf8",
+        });
+        expect(built.stdout).toContain("+ git hook post-checkout");
+        for (const hook of HOOK_NAMES) {
+          expect(await readFile(git.path(".git/hooks", hook), "utf8")).toContain(
+            'cd "$(git rev-parse --show-toplevel)/packages/app"',
+          );
+        }
+
+        const installed = git.path("packages", "app", ".claude", "skills", "demo", "SKILL.md");
+        const installedText = await readFile(installed, "utf8");
+        expect(installedText).toContain("# Demo");
+        // Keep the generated comment: it marks the file as Metafab-owned, so
+        // the build repairs the body instead of refusing a foreign file.
+        await writeFile(installed, installedText.replace("# Demo", "# Demo edited"));
+
+        // `git switch -c` runs post-checkout, which `cd`s to packages/app and
+        // runs `metafab build` there.
+        const switched = await git.gitRaw("switch", "-c", "other");
+
+        expect(switched.exitCode).toBe(0);
+        expect(`${switched.stdout}${switched.stderr}`).not.toContain("not a Git repository");
+        expect(`${switched.stdout}${switched.stderr}`).not.toContain("metafab: build failed");
+        expect(await readFile(installed, "utf8")).toBe(installedText);
+        for (const hook of HOOK_NAMES) {
+          expect(await readFile(git.path(".git/hooks", hook), "utf8")).toContain(
+            "/packages/app",
+          );
+        }
+      } finally {
+        restorePath(cli);
+      }
+    },
+  );
+
   test("worktree add, merge and rebase run metafab build; amend and file checkout do not", async () => {
     const git = await repo();
     await git.writeAndCommit(

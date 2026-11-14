@@ -22,16 +22,31 @@ function missingSource(): MetafabError {
 export const importCommand: CommandDefinition = {
   name: "import",
   description: "Import a fab as the factory upstream",
+  usage: "metafab import <source> [--agents <list>] [--force] [--adopt]",
+  arguments: [
+    {
+      name: "source",
+      description:
+        "The fab: an npm package, a Git repository, an HTTPS tarball or a local path",
+    },
+  ],
   options: {
-    agents: { type: "string" },
-    force: { type: "boolean" },
-    adopt: { type: "boolean" },
+    agents: {
+      type: "string",
+      value: "<list>",
+      description: "Agent tools to install for, when import creates metafab.yaml",
+    },
+    force: { type: "boolean", description: "Replace local factory files that differ from the fab" },
+    adopt: {
+      type: "boolean",
+      description: "Move existing repository skills into .factory/skills/ without asking",
+    },
   },
   async run(context) {
     const source = context.positionals[0];
     if (source === undefined || source.trim() === "") throw missingSource();
 
-    const root = await resolveNewFactoryRoot(context.cwd);
+    const root = await resolveNewFactoryRoot(context.cwd, { command: "import" });
     const report = await runImport({
       root,
       source,
@@ -55,6 +70,7 @@ export const importCommand: CommandDefinition = {
       moved: report.moved,
       copied: report.copied,
       changed: report.changed,
+      hooks: report.hooks,
       problems: report.problems,
       declined: report.declined,
       review: report.review,

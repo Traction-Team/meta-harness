@@ -37,12 +37,18 @@ All commands follow these rules:
 6. Missing non-interactive input produces exit code 2 and a machine-readable list of required values.
 7. `import` and `update` never run package scripts.
 8. Repeated `init`, `build`, `map`, and `check` commands are safe.
+9. `metafab <command> --help` (or `-h`) prints the command's usage line, its one-line description, its arguments and its options, and exits 0. It does not read the factory, run Git, use the network or prompt. With `--json` it writes the same as one JSON object. `metafab pipeline --help` lists the `pipeline` subcommands. `metafab --help` lists the commands, and `metafab --help <command>` is the same as `metafab <command> --help`.
+10. When standard input ends before a prompt is answered, the value is missing input: the command exits with code 2 and the machine-readable list of required values, and writes nothing. Every prompt comes before the command's first write.
 
 ### Finding the factory
 
-Every command except `init` and `import` uses the nearest factory. It looks for `.factory/` in the current directory, then in each parent directory. In a monorepo, the nearest factory wins. When no `.factory/` is found, the command stops and suggests `metafab init`.
+Every command except `init` and `import` uses the nearest factory. Inside a Git repository, it looks for `.factory/` in the current directory, then in each parent directory up to the repository's top level, and never above it. In a monorepo, the nearest factory wins. Outside a Git repository, it looks only in the current directory. When no `.factory/` is found, the command stops with exit code 1 and suggests `metafab init`.
 
-`init` and `import` also use the nearest factory when one exists. Otherwise they create `.factory/` at the root of the current Git repository, or in the current directory outside a Git repository.
+The repository is the one Git reports for the current directory, so a linked worktree, a submodule, and a repository inside another repository's directory each stop at their own top level, and `GIT_DIR` and `GIT_WORK_TREE` are honoured. When `GIT_WORK_TREE` names a directory that does not contain the current directory, that directory is the repository, and it is the only one searched. When `git` is not installed or cannot answer, the nearest directory that contains a `.git` entry is the top level. A directory inside a Git directory with no work tree, such as a bare repository, is refused with exit code 1.
+
+`init` and `import` also use the nearest factory when one exists. Otherwise they create `.factory/` at the top level of the current Git repository, or in the current directory outside one.
+
+Factory.ai Droid also keeps its files in a `.factory/` directory, in projects and in the home directory. A `.factory/` that has no `factory.yaml` but has `settings.json` or `droids/` belongs to Droid. When the nearest `.factory/` is Droid's, every command, `init` included, stops with exit code 5 before it fetches or writes anything: `<path> belongs to Factory.ai Droid, not Metafab`. Metafab never adopts, writes or deletes files in it. Droid never writes `factory.yaml`, so a Metafab factory that has `settings.json` or `droids/` but has lost its `factory.yaml` gets back in use when the person adds a valid `.factory/factory.yaml` by hand, with `format: 1` and `name: <name>` (see [factory.yaml](factory-format.md)); `init` cannot do this for them, because it refuses the folder too.
 
 The repository root for installed output (`AGENTS.md`, `.claude/`, `.agents/`) is the directory that contains `.factory/`.
 
@@ -71,7 +77,7 @@ For a new `factory.yaml`, `init` writes `format: 1` and derives `name` from the 
 
 `init` writes `agents` to a new `metafab.yaml`. It uses `--agents` when present. Otherwise it asks in a terminal, or selects `all` without one.
 
-`init` writes `git-hooks` to `metafab.yaml`, new or existing, when the key is absent. It writes `true` with `--git-hooks` and `false` with `--no-git-hooks`. Otherwise it asks in a terminal, "Run metafab build automatically after checkout, merge, and rebase?", with yes as the default. Without a terminal it leaves the key absent, so hooks stay off; this is not a required value and does not exit 2. `init` never changes a `git-hooks` value that is already set, and passing both flags is a usage error. See [Git hooks](building.md#git-hooks).
+`init` writes `git-hooks` to `metafab.yaml`, new or existing, when the key is absent. It writes `true` with `--git-hooks` and `false` with `--no-git-hooks`. Otherwise it asks in a terminal, "Run metafab build automatically after checkout, merge, and rebase?", with yes as the default. Without a terminal it does not ask and leaves the key absent, so hooks stay off; running without a terminal therefore does not exit 2 for this question. When the question is asked and standard input ends before an answer, `init` exits 2 like any other prompt (rule 10 of [Command behaviour](#command-behaviour)). `init` never changes a `git-hooks` value that is already set, and passing both flags is a usage error. See [Git hooks](building.md#git-hooks).
 
 When `init` creates `metafab.yaml` and the repository root has an `orca.yaml` whose text does not contain `metafab build`, it suggests adding `npx --yes @seasb/metafab build` to `scripts.setup`, so new Orca worktrees get the factory skills. It never edits `orca.yaml`. The suggestion is a line in the summary and an entry in `suggestions` in the `--json` result.
 
@@ -112,8 +118,8 @@ Run `metafab init` again to adopt a skill added directly to a managed destinatio
 
 | Command | Behaviour |
 | --- | --- |
-| `metafab create <path> [--description D]` | Creates `.factory/<path>/SKILL.md` with valid frontmatter. The last path segment is the skill name |
-| `metafab pipeline add <workflow> [--after <workflow>] [--stop S]` | Adds an existing workflow to the pipeline, at the end or after `--after` |
+| `metafab create <path> [--description <text>]` | Creates `.factory/<path>/SKILL.md` with valid frontmatter. The last path segment is the skill name |
+| `metafab pipeline add <workflow> [--after <workflow>] [--stop <text>]` | Adds an existing workflow to the pipeline, at the end or after `--after` |
 | `metafab pipeline remove <workflow>` | Removes a workflow from the pipeline. The workflow file does not change |
 
 To rename a skill, move its directory and change `name` in its `SKILL.md`; for a workflow in the pipeline, also change its entry in `factory.yaml`. `metafab check` reports any of these left out.
@@ -176,6 +182,8 @@ The `upstream` key in `metafab.yaml` records the fab that the factory came from.
 
 With `--json`, a command writes one JSON object to standard output. Human-readable messages go to standard error. Every result contains `ok`, `command`, `exitCode` (the process exit code) and `problems`. A result for missing input (exit 2) contains `required` instead of `problems`.
 
+A help result has `command: "help"`, `exitCode: 0` and empty `problems`. `metafab --help` adds `commands`, a list of `{ command, usage, description }`. `metafab <command> --help` adds `help`: `{ command, usage, description, arguments, options }`, where each argument is `{ name, description, optional }` and each option is `{ flag, value, description }` (`value` only for an option that takes one, such as `<list>`); `options` ends with `--json` and `-h, --help`. `metafab pipeline --help` adds `help`: `{ command: "pipeline", subcommands }`, a list of `{ command, usage, description }`. The JSON help result has no `summary`.
+
 Example failed check:
 
 ```json
@@ -201,7 +209,7 @@ Example failed check:
 | --- | --- |
 | `0` | The command completed successfully |
 | `1` | Validation failed or an update produced conflicts |
-| `2` | Required input was unavailable in non-interactive mode |
+| `2` | Required input was unavailable: standard input was not a terminal, or it ended before the value was given |
 | `3` | Metafab could not fetch a source |
 | `4` | Metafab rejected a fab because its format, path, or integrity was invalid |
-| `5` | The command would overwrite output that Metafab does not own, including a fab repository edited outside `publish` |
+| `5` | The command would overwrite output that Metafab does not own, including a fab repository edited outside `publish`, or the nearest `.factory/` belongs to Factory.ai Droid |

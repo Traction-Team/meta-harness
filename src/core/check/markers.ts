@@ -1,5 +1,6 @@
-import { open, readdir } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import path from "node:path";
+import { readdirTyped } from "../../util/fs.js";
 import type { Problem } from "../../errors.js";
 import { toLF } from "../../util/text.js";
 import { cannotReadProblem } from "../build/skill.js";
@@ -44,7 +45,7 @@ async function walkFactoryFiles(root: string): Promise<FactoryWalk> {
   async function walk(directory: string, displayPath: string): Promise<void> {
     let entries;
     try {
-      entries = await readdir(directory, { withFileTypes: true });
+      entries = await readdirTyped(directory);
     } catch (error) {
       // A vanished directory is a race; an unreadable one is a real problem.
       if (!isAbsentError(error)) problems.push(cannotReadProblem(displayPath));

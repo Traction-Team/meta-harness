@@ -1,6 +1,6 @@
-import { lstat, mkdir, readdir, readlink, rm, symlink } from "node:fs/promises";
+import { lstat, mkdir, readlink, rm, symlink } from "node:fs/promises";
 import path from "node:path";
-import { copyFileWithMode } from "../../util/fs.js";
+import { copyFileWithMode, readdirTyped } from "../../util/fs.js";
 
 /** Files the fab carries for its own repository, never for the receiver. */
 export const FAB_ROOT_EXCLUDES: ReadonlySet<string> = new Set(["metafab.yaml", "README.md"]);
@@ -48,7 +48,7 @@ export async function copyFactoryTree(sourceDir: string, destinationDir: string)
   const copied: string[] = [];
 
   async function walk(current: string, relative: string): Promise<void> {
-    const entries = await readdir(current, { withFileTypes: true });
+    const entries = await readdirTyped(current);
     entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
 
     for (const entry of entries) {

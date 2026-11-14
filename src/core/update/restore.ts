@@ -3,7 +3,6 @@ import {
   lstat,
   mkdir,
   mkdtemp,
-  readdir,
   readFile,
   readlink,
   rename,
@@ -13,6 +12,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { readdirTyped } from "../../util/fs.js";
 
 /**
  * What `.factory/` held before an update wrote: every file's bytes and full
@@ -62,7 +62,7 @@ async function captureDirectory(
 ): Promise<Map<string, CapturedNode>> {
   const children = new Map<string, CapturedNode>();
 
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
+  for (const entry of await readdirTyped(dir)) {
     const target = path.join(dir, entry.name);
     const info = await lstat(target);
 
@@ -154,7 +154,7 @@ async function restoreDirectory(
   currentDir: string,
   record: ReadonlyMap<string, CapturedNode>,
 ): Promise<void> {
-  const entries = await readdir(currentDir, { withFileTypes: true });
+  const entries = await readdirTyped(currentDir);
   const present = new Set(entries.map((entry) => entry.name));
   const recorded = new Set(record.keys());
   const special = new Set<string>();

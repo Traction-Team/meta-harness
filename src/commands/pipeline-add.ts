@@ -27,9 +27,19 @@ function stringOption(value: unknown): string | undefined {
 export const pipelineAddCommand: CommandDefinition = {
   name: "pipeline add",
   description: "Add a workflow to the pipeline",
+  usage: "metafab pipeline add <workflow> [--after <workflow>] [--stop <text>]",
+  arguments: [{ name: "workflow", description: "An existing workflow" }],
   options: {
-    after: { type: "string" },
-    stop: { type: "string" },
+    after: {
+      type: "string",
+      value: "<workflow>",
+      description: "Insert after this workflow instead of at the end",
+    },
+    stop: {
+      type: "string",
+      value: "<text>",
+      description: "Who must act, and on what, before the next workflow starts",
+    },
   },
   async run(context) {
     if (context.positionals.length !== 1) {
@@ -39,7 +49,7 @@ export const pipelineAddCommand: CommandDefinition = {
     const workflow = context.positionals[0]!;
     const after = stringOption(context.options.after);
     const stop = stringOption(context.options.stop);
-    const { root } = await findFactory(context.cwd);
+    const { root } = await findFactory(context.cwd, { command: "pipeline add" });
     const result = await addWorkflow(root, workflow, {
       ...(after === undefined ? {} : { after }),
       ...(stop === undefined ? {} : { stop }),

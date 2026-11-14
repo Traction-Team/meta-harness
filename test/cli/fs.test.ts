@@ -1,8 +1,101 @@
-import { chmod, writeFile } from "node:fs/promises";
+import { chmod, lstat, readdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, test } from "vitest";
-import { compareTrees, copyTree, isDirectory, listFiles, normalizeProblemPath, pathExists, toPosixPath } from "../../src/util/fs.js";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { compareTrees, copyTree, isDirectory, listFiles, normalizeProblemPath, pathExists, readdirTyped, toPosixPath } from "../../src/util/fs.js";
 import { makeRepo } from "../helpers/makeRepo.js";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, readdir: vi.fn(actual.readdir), lstat: vi.fn(actual.lstat) };
+});
+
+beforeEach(async () => {
+  const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  vi.mocked(readdir).mockImplementation(actual.readdir as never);
+  vi.mocked(lstat).mockImplementation(actual.lstat as never);
+});
+
+/** A directory entry of no type, as DT_UNKNOWN reports it. */
+function untypedEntry(name: string): {
+  name: string;
+  isFile(): boolean;
+  isDirectory(): boolean;
+  isSymbolicLink(): boolean;
+} {
+  return {
+    name,
+    isFile: () => false,
+    isDirectory: () => false,
+    isSymbolicLink: () => false,
+  };
+}
+
+describe("readdirTyped", () => {
+  test("types an untyped file, directory and link from lstat", async () => {
+    const repo = await makeRepo({
+      "dir/file.txt": "file",
+      "dir/sub/keep.txt": "nested",
+      "dir/target.txt": "target",
+    });
+    await symlink("target.txt", repo.path("dir", "link"));
+
+    try {
+      vi.mocked(readdir).mockResolvedValue([
+        untypedEntry("file.txt"),
+        untypedEntry("sub"),
+        untypedEntry("link"),
+      ] as never);
+
+      const entries = await readdirTyped(repo.path("dir"));
+      const byName = new Map(entries.map((entry) => [entry.name, entry]));
+
+      expect(byName.get("file.txt")?.isFile()).toBe(true);
+      expect(byName.get("sub")?.isDirectory()).toBe(true);
+      expect(byName.get("link")?.isSymbolicLink()).toBe(true);
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
+  test("drops an entry that vanished before the lstat", async () => {
+    const repo = await makeRepo({ "kept.txt": "kept" });
+
+    try {
+      vi.mocked(readdir).mockResolvedValue([
+        untypedEntry("kept.txt"),
+        untypedEntry("gone.txt"),
+      ] as never);
+
+      const entries = await readdirTyped(repo.root);
+
+      expect(entries.map((entry) => entry.name)).toEqual(["kept.txt"]);
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
+  test("rethrows an lstat error other than ENOENT with its code unchanged", async () => {
+    const repo = await makeRepo({ "secret.txt": "secret" });
+
+    try {
+      vi.mocked(readdir).mockResolvedValue([untypedEntry("secret.txt")] as never);
+      const actual = await vi.importActual<typeof import("node:fs/promises")>(
+        "node:fs/promises",
+      );
+      vi.mocked(lstat).mockImplementation((async (target: string) => {
+        if (String(target).endsWith("secret.txt")) {
+          throw Object.assign(new Error("EACCES: permission denied, lstat"), { code: "EACCES" });
+        }
+        return actual.lstat(target);
+      }) as never);
+
+      await expect(readdirTyped(repo.root)).rejects.toMatchObject({ code: "EACCES" });
+    } finally {
+      await repo.cleanup();
+    }
+  });
+});
+
 
 describe("listFiles", () => {
   test("lists nested files with forward-slash relative paths", async () => {

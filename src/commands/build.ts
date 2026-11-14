@@ -5,6 +5,7 @@ import { loadConfig } from "../core/config/load.js";
 import { findFactory } from "../core/discovery.js";
 import { loadFactory } from "../core/factory/index.js";
 import type { HookChange } from "../core/hooks/index.js";
+import { hookChangeLines } from "../core/hooks/index.js";
 import { ExitCode } from "../errors.js";
 import type { Problem } from "../errors.js";
 import type { CommandResult } from "../output.js";
@@ -23,7 +24,7 @@ function changesSummary(
 ): string {
   const lines = [
     ...changed.map((change) => `${ACTION_MARK[change.action]} ${change.path}`),
-    ...hooks.map((change) => `${ACTION_MARK[change.action]} git hook ${change.hook}`),
+    ...hookChangeLines(hooks),
   ];
   if (lines.length === 0) return "Up to date.";
 
@@ -44,8 +45,9 @@ function failed(exitCode: ExitCode, problems: readonly Problem[]): CommandResult
 export const buildCommand: CommandDefinition = {
   name: "build",
   description: "Compile the factory for the configured agent tools",
+  usage: "metafab build",
   async run(context) {
-    const location = await findFactory(context.cwd);
+    const location = await findFactory(context.cwd, { command: "build" });
     const factory = await loadFactory(location.root);
     const config = await loadConfig(factory.dir);
 
