@@ -34,6 +34,7 @@ A team can create, edit, build, and check a factory in one repository.
 - [x] [1.014 Adoption and init polish](plans/1.014-adoption-polish.md): links into `.factory/`, real read errors, no partial `init`
 - [x] [1.015 Check markers and internals](plans/1.015-check-markers-and-tidy.md): conflict markers after a BOM or in non-UTF-8 files, one walk, no drift from `build`
 - [x] [1.016 Git hooks](plans/1.016-git-hooks.md): `git-hooks` setting, hooks rebuild after checkout, merge and rebase, `orca.yaml` suggestion, skill guidance
+- [ ] [1.099 Dry run of the Amp worker flow](plans/1.099-amp-flow-dry-run.md): throwaway plan to test PR #25, never merge
 
 ## Milestone 2: Sharing
 
