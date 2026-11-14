@@ -6,6 +6,7 @@ import { isAlias, isMap, isScalar, isSeq } from "yaml";
 import type { Document, Node, Pair, Scalar, YAMLMap, YAMLSeq } from "yaml";
 import type { Problem } from "../../errors.js";
 import { didYouMean } from "../../util/suggest.js";
+import { importSourceForGitUrl, parseSource, sourceWithoutCredentials } from "../sources/parse.js";
 import { classifySource } from "./source.js";
 import { TARGETS } from "./types.js";
 
@@ -30,7 +31,42 @@ const UPSTREAM = new Set<string>(UPSTREAM_KEYS);
 const TARGET_SET = new Set<string>(TARGETS);
 
 const GIT_URL =
-  /^(?:git@[^\s:]+:[^\s]+|(?:git\+)?ssh:\/\/[^\s]+|(?:git\+)?https:\/\/[^\s]+|file:\/\/[^\s]+)$/i;
+  /^(?:git@[^\s:]+:[^\s]+|(?:git\+)?ssh:\/\/[^\s]+|(?:git\+)?https:\/\/[^\s]+|(?:git\+)?file:\/\/[^\s]+)$/i;
+
+const FILE_URL = /^(?:git\+)?file:\/\//i;
+const DRIVE_PATH = /^[A-Za-z]:[\\/]/;
+
+/**
+ * True when a `file:` URL names a host after `//`. Git ignores that host and
+ * reads the path, so `publish` would succeed, but `parseGitFileUrl` refuses the
+ * source and the generated README would name an `import` that fails. A
+ * `file://` with nothing after it has no path rather than a host.
+ */
+function fileUrlNamesHost(value: string): boolean {
+  const match = FILE_URL.exec(value);
+  if (match === null) return false;
+  const after = value.slice(match[0].length);
+  if (after === "") return false;
+  return !after.startsWith("/") && !/^localhost\//i.test(after) && !DRIVE_PATH.test(after);
+}
+
+/**
+ * True when `publish.git` is a URL Git takes and the import line the generated
+ * README derives from it is one `import` accepts. The second half is the
+ * `file:` authority rule `parseGitFileUrl` applies: Git ignores the host of a
+ * `file://host/…` URL and reads the path, so `publish` would succeed while the
+ * published README named an `import` that fails. Parse the same source the
+ * README names, with the same code, instead of repeating the rule here.
+ */
+function isGitUrl(value: string, cwd: string): boolean {
+  if (!GIT_URL.test(value)) return false;
+  try {
+    parseSource(importSourceForGitUrl(sourceWithoutCredentials(value)), { cwd });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export interface ValidateDocumentOptions {
   file?: string;
@@ -257,13 +293,22 @@ function validatePublish(
 
   const git = entries.get("git");
   const gitText = git === undefined ? undefined : stringNodeValue(resolvedNode(git.value, doc));
-  if (gitText !== undefined && !GIT_URL.test(gitText)) {
-    report(
-      "error",
-      `"publish.git" is not a Git URL.`,
-      pairNode(git),
-      `Use git@host:path, ssh://, git+ssh://, https://, git+https:// or file://.`,
-    );
+  if (gitText !== undefined && !isGitUrl(gitText, repositoryRoot ?? process.cwd())) {
+    if (fileUrlNamesHost(gitText)) {
+      report(
+        "error",
+        `"publish.git" names a host in a file URL.`,
+        pairNode(git),
+        `Write the path with three slashes, such as file:///srv/fabs/fab.git.`,
+      );
+    } else {
+      report(
+        "error",
+        `"publish.git" is not a Git URL.`,
+        pairNode(git),
+        `Use git@host:path, ssh://, git+ssh://, https://, git+https://, file:// or git+file://.`,
+      );
+    }
   }
 
   const branch = entries.get("branch");

@@ -22,6 +22,10 @@ export type Resolved =
       tarball: string;
       integrity?: string;
       deprecated?: string;
+      /** The registry's reported unpacked size, when it gave one. */
+      unpackedSize?: number;
+      /** The registry's reported file count, when it gave one. */
+      fileCount?: number;
       versioned: true;
     }
   | {

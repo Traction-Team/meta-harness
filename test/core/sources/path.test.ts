@@ -1,11 +1,12 @@
 import { cp, link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { ExitCode, MetafabError } from "../../../src/errors.js";
 import { fetchFab, parseSource, resolve } from "../../../src/core/sources/index.js";
 import { pathExists } from "../../../src/util/fs.js";
+import { runGitIn } from "./git-fixture.js";
 
 const FIXTURES = fileURLToPath(new URL("../../fixtures/fabs/", import.meta.url));
 
@@ -81,6 +82,40 @@ describe("local path sources", () => {
       exitCode: ExitCode.FetchFailed,
       code: "fetch-failed",
     });
+  });
+
+  test("names the git+file:// form for a bare Git repository", async () => {
+    const repo = path.join(root, "fab.git");
+    await runGitIn(root, ["init", "-q", "--bare", repo]);
+
+    try {
+      await fetchSource(repo);
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      const failure = error as MetafabError;
+      expect(failure.exitCode).toBe(ExitCode.FetchFailed);
+      expect(failure.code).toBe("fetch-failed");
+      expect(failure.message).toContain("it is a bare Git repository");
+      expect(failure.message).toContain(`git+${pathToFileURL(repo).href}`);
+      return;
+    }
+    throw new Error("expected the fetch to fail");
+  });
+
+  test("keeps the missing .factory message for a directory that is not a repository", async () => {
+    const empty = path.join(root, "empty");
+    await mkdir(empty, { recursive: true });
+
+    try {
+      await fetchSource(empty);
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      const failure = error as MetafabError;
+      expect(failure.message).toContain("the .factory directory does not exist");
+      expect(failure.message).not.toContain("bare Git repository");
+      return;
+    }
+    throw new Error("expected the fetch to fail");
   });
 
   test("rejects a symlink that points outside the factory with exit 4", async () => {

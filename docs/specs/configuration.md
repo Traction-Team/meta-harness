@@ -56,7 +56,7 @@ Version 1 targets are `claude`, `codex`, `cursor`, `opencode`, and `copilot`. `c
 | Key           | Type                     | Required        | Target | Meaning                                                                                |
 | ------------- | ------------------------ | --------------- | ------ | -------------------------------------------------------------------------------------- |
 | `name`        | String                   | `name` or `git` | npm    | npm package name, such as `@seasb/fab-mark4`. Enables the npm target                   |
-| `git`         | Git URL                  | `name` or `git` | Git    | Fab repository URL, such as `git@github.com:seasb/fab-mark4.git`. Enables the Git target |
+| `git`         | Git URL                  | `name` or `git` | Git    | Fab repository URL: `git@host:path`, `ssh://`, `https://` or `file://`, each also accepted with a `git+` prefix (except `git@host:path`). Example `git@github.com:seasb/fab-mark4.git`. Enables the Git target |
 | `branch`      | String                   | No              | Git    | Fab repository branch. Defaults to the repository's default branch, or `main` when empty |
 | `version`     | Semantic version         | Yes             | Both   | Version to publish. See [Version policy](sharing.md#version-policy)                    |
 | `description` | String                   | No              | npm    | Package description. Defaults to `description` in `factory.yaml`                       |
@@ -89,7 +89,7 @@ Edit `metafab.yaml` directly, then run `metafab build`. No command overrides it.
 4. `agents` names an unknown target.
 5. `publish` is present without `version`, or without either `name` or `git`.
 6. `publish.name` is not a valid npm package name.
-7. `publish.git` is not a Git URL.
+7. `publish.git` is not a Git URL, or a `file://` URL that names a host rather than a path; the second says to write the path with three slashes, such as `file:///srv/fabs/fab.git`.
 8. `publish.branch` is present without `publish.git`.
 9. `publish.version` is not a semantic version.
 10. `publish.readme` names a file that does not exist.

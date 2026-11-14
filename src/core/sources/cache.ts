@@ -1,9 +1,11 @@
-import { createHash } from "node:crypto";
-import { rm } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { readdir, rename, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import { pathExists } from "../../util/fs.js";
-import { stripSourceCredentials } from "./redact.js";
+import { ExitCode, MetafabError } from "../../errors.js";
+import type { Problem } from "../../errors.js";
+import { pathExists, toPosixPath } from "../../util/fs.js";
+import { sourceWithoutCredentials } from "./parse.js";
 
 export interface CacheLayout {
   root: string;
@@ -14,9 +16,16 @@ export interface CacheLayout {
 }
 
 export interface GetOrCreateOptions<T> {
-  validate: () => Promise<T>;
-  create: () => Promise<void>;
+  /** The cache root, so a write failure can name what to make writable. */
+  root: string;
+  /** Validates the entry in the directory it is given and returns the final path. */
+  validate: (dir: string) => Promise<T>;
+  /** Builds the entry in the staging directory it is given. */
+  create: (staging: string) => Promise<void>;
 }
+
+const MAX_KEY_LENGTH = 120;
+const STALE_AGE_MS = 24 * 60 * 60 * 1000;
 
 export function cacheRoot(env: NodeJS.ProcessEnv = process.env): string {
   const override = env.METAFAB_CACHE?.trim();
@@ -31,8 +40,13 @@ function keySegment(value: string): string {
 }
 
 export function fabKey(...parts: string[]): string {
-  const value = parts.filter((part) => part !== "").join("-");
-  return keySegment(value);
+  const key = keySegment(parts.filter((part) => part !== "").join("-"));
+  if (key.length <= MAX_KEY_LENGTH) return key;
+  // A Git source carries its whole path into the name. Keep the readable head
+  // and add a digest of the whole key so a path longer than the filesystem
+  // allows still names one stable entry.
+  const digest = createHash("sha256").update(key).digest("hex").slice(0, 32);
+  return `${key.slice(0, 80)}-${digest}`;
 }
 
 export function cacheLayout(root: string = cacheRoot()): CacheLayout {
@@ -43,8 +57,9 @@ export function cacheLayout(root: string = cacheRoot()): CacheLayout {
     },
     gitMirror(url: string): string {
       // Key on the URL without credentials so a new token reuses the mirror
-      // instead of cloning the same repository again.
-      const hash = createHash("sha256").update(stripSourceCredentials(url)).digest("hex");
+      // instead of cloning the same repository again. A `file:` URL carries
+      // none, and its path may hold a `@` that is not userinfo.
+      const hash = createHash("sha256").update(sourceWithoutCredentials(url)).digest("hex");
       return path.join(root, "git", hash);
     },
     fabDir(key: string): string {
@@ -56,26 +71,149 @@ export function cacheLayout(root: string = cacheRoot()): CacheLayout {
   };
 }
 
+function errorCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" ? code : undefined;
+}
+
+async function removeQuietly(target: string): Promise<void> {
+  await rm(target, { recursive: true, force: true }).catch(() => undefined);
+}
+
+/**
+ * True when a rename failed because another command put the target in place
+ * first. Windows reports a directory rename over an existing one as EPERM or
+ * EBUSY, so those count only when the target is there.
+ */
+export async function isLostRaceError(error: unknown, target: string): Promise<boolean> {
+  const code = errorCode(error);
+  if (code === "EEXIST" || code === "ENOTEMPTY") return true;
+  if (code === "EPERM" || code === "EBUSY") return await pathExists(target);
+  return false;
+}
+
+/**
+ * Removes `<name>.tmp-*` and `<name>.old-*` siblings older than 24 hours. A
+ * concurrent command's clone is never touched: no clone takes a day. Best
+ * effort, because a cache it cannot clean is still usable.
+ */
+export async function sweepStale(parent: string, name: string, now: number = Date.now()): Promise<void> {
+  let entries: string[];
+  try {
+    entries = await readdir(parent);
+  } catch {
+    return;
+  }
+
+  const prefixes = [`${name}.tmp-`, `${name}.old-`];
+  for (const entry of entries) {
+    if (!prefixes.some((prefix) => entry.startsWith(prefix))) continue;
+    const candidate = path.join(parent, entry);
+    try {
+      const info = await stat(candidate);
+      if (now - info.mtimeMs <= STALE_AGE_MS) continue;
+    } catch {
+      continue;
+    }
+    await removeQuietly(candidate);
+  }
+}
+
+/**
+ * One `fetch-failed` problem naming the path: a cache Metafab cannot write
+ * stops the command before the repository changes, instead of surfacing a
+ * filesystem error as an internal bug.
+ */
+export function cacheWriteError(target: string, root: string, error: unknown): MetafabError {
+  const detail = errorCode(error) ?? (error instanceof Error ? error.message : String(error));
+  const message = `Cannot write the Metafab cache: ${detail}: ${target}`;
+  const problem: Problem = {
+    level: "error",
+    file: toPosixPath(target),
+    message,
+    fix: `Free disk space or make ${root} writable, or set METAFAB_CACHE to a writable directory, then run the command again`,
+  };
+  return new MetafabError(message, {
+    exitCode: ExitCode.FetchFailed,
+    code: "fetch-failed",
+    problems: [problem],
+    cause: error,
+  });
+}
+
+function isAbsentError(error: unknown): boolean {
+  const code = errorCode(error);
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
+/**
+ * Moves a complete entry that failed validation out of the way. The rename is
+ * atomic, so when two commands find the same corrupt entry only one moves it;
+ * the other's rename fails with ENOENT and it carries on to create. A sibling a
+ * command leaves behind is swept after 24 hours.
+ */
+async function discardEntry(target: string, root: string): Promise<void> {
+  const discarded = `${target}.old-${randomUUID()}`;
+  try {
+    await rename(target, discarded);
+  } catch (error) {
+    // Another command moved it first, so it is already gone.
+    if (isAbsentError(error)) return;
+    throw cacheWriteError(target, root, error);
+  }
+  await removeQuietly(discarded);
+}
+
 export async function getOrCreate<T>(target: string, options: GetOrCreateOptions<T>): Promise<T> {
+  // A complete entry that fails validation is wrong, not another command's
+  // partial work: renames are atomic. Another command may have replaced it
+  // since it was read, though, so look again before moving it: moving an entry
+  // that just became good would take the path away from its caller.
   if (await pathExists(target)) {
     try {
-      return await options.validate();
+      return await options.validate(target);
     } catch {
-      await rm(target, { recursive: true, force: true });
+      if (await pathExists(target)) {
+        try {
+          return await options.validate(target);
+        } catch {
+          await discardEntry(target, options.root);
+        }
+      }
     }
   }
 
+  await sweepStale(path.dirname(target), path.basename(target));
+
+  const staging = `${target}.tmp-${randomUUID()}`;
   try {
-    await options.create();
+    await options.create(staging);
   } catch (error) {
-    await rm(target, { recursive: true, force: true });
+    await removeQuietly(staging);
+    throw error;
+  }
+
+  let result: T;
+  try {
+    result = await options.validate(staging);
+  } catch (error) {
+    await removeQuietly(staging);
     throw error;
   }
 
   try {
-    return await options.validate();
+    await rename(staging, target);
   } catch (error) {
-    await rm(target, { recursive: true, force: true });
-    throw error;
+    if (await isLostRaceError(error, target)) {
+      // Another command renamed a complete entry into place first. Its entry
+      // is the one that won; use it rather than deleting it.
+      await removeQuietly(staging);
+      return await options.validate(target);
+    }
+    await removeQuietly(staging);
+    throw cacheWriteError(target, options.root, error);
   }
+
+  return result;
 }

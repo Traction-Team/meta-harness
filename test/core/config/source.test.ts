@@ -22,6 +22,7 @@ describe("classifySource", () => {
   test("classifies git+ sources as git", () => {
     expect(classifySource("git+https://github.com/seasb/fab-mark4.git")).toBe("git");
     expect(classifySource("git+ssh://git@github.com/seasb/fab-mark4.git")).toBe("git");
+    expect(classifySource("git+file:///srv/fab.git")).toBe("git");
   });
 
   test("classifies a plain https source as an unversioned tarball", () => {
@@ -49,6 +50,7 @@ describe("classifySource", () => {
       "github:seasb/fab-mark4#v1.2.0",
       "git+ssh://git@example.com/fab-acme.git",
       "git+https://example.com/fab-acme.git",
+      "git+file:///srv/fab-acme.git",
       "https://example.com/fab-acme.git",
       "https://example.com/fab-acme-1.0.0.tgz",
       "../platform/.factory",

@@ -1,6 +1,7 @@
 import { lstat, mkdir, mkdtemp, readdir, readlink, realpath, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import { copyFileWithMode } from "../../util/fs.js";
@@ -57,6 +58,23 @@ function tempCleanup(directory: string): () => Promise<void> {
   };
 }
 
+/**
+ * A path source that turns out to be a bare Git repository cannot be read as a
+ * working tree, but it is exactly what `git+file://` imports. Recognise the
+ * markers Git itself needs so the error can say which form to use.
+ */
+async function isBareRepository(directory: string): Promise<boolean> {
+  try {
+    const head = await stat(path.join(directory, "HEAD"));
+    if (!head.isFile()) return false;
+    const objects = await stat(path.join(directory, "objects"));
+    const refs = await stat(path.join(directory, "refs"));
+    return objects.isDirectory() && refs.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 export async function locateFactoryDir(specPath: string): Promise<string> {
   const candidate = path.basename(specPath) === ".factory" ? specPath : path.join(specPath, ".factory");
 
@@ -64,6 +82,11 @@ export async function locateFactoryDir(specPath: string): Promise<string> {
   try {
     entry = await lstat(candidate);
   } catch {
+    if (await isBareRepository(specPath)) {
+      throw fetchError(
+        `Cannot read local fab "${specPath}": it is a bare Git repository. Import it as git+${pathToFileURL(specPath).href}`,
+      );
+    }
     throw fetchError(`Cannot read local fab "${specPath}": the .factory directory does not exist`);
   }
 

@@ -22,6 +22,25 @@ export interface ExtractTarballOptions {
   maxFileSize?: number;
   maxTotalSize?: number;
   maxEntries?: number;
+  /**
+   * Turns a failure to write the destination into the caller's own error, such
+   * as a cache write failure. Without it, every destination failure is a
+   * tarball problem (exit 4), as it always was.
+   */
+  writeError?: (target: string, error: unknown) => MetafabError;
+}
+
+const CACHE_WRITE_CODES = new Set(["EACCES", "EPERM", "ENOSPC", "EROFS", "EDQUOT"]);
+
+/**
+ * True when a filesystem failure means the destination could not be written,
+ * rather than the archive being bad: permissions, a full disk or a read-only
+ * filesystem.
+ */
+export function isCacheWriteFailure(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) return false;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && CACHE_WRITE_CODES.has(code);
 }
 
 interface ArchiveEntry {
@@ -551,7 +570,9 @@ export async function extractTarball(
   try {
     entries = await readEntries(tarball, { maxEntries, maxTotalSize });
     if (options.flattenSingleDirectory === true) {
-      const top = await singleTopDirectory(entries, prefix, strip);
+      // `singleTopDirectory` strips the prefix itself, and `strip` already
+      // counts the prefix segments, so only the caller's own count goes in.
+      const top = await singleTopDirectory(entries, prefix, options.strip ?? 0);
       if (top !== undefined) strip += 1;
     }
   } catch (error) {
@@ -573,7 +594,12 @@ export async function extractTarball(
     });
   }
 
-  await mkdir(destination, { recursive: true });
+  try {
+    await mkdir(destination, { recursive: true });
+  } catch (error) {
+    if (options.writeError !== undefined) throw options.writeError(destination, error);
+    throw tarballError(tarball, error);
+  }
 
   const problems: Problem[] = [];
   const links: LinkTask[] = [];
@@ -710,7 +736,12 @@ export async function extractTarball(
       cause: failure,
     });
   }
-  if (failure !== undefined) throw tarballError(tarball, failure);
+  if (failure !== undefined) {
+    if (options.writeError !== undefined && isCacheWriteFailure(failure)) {
+      throw options.writeError(destination, failure);
+    }
+    throw tarballError(tarball, failure);
+  }
 
   const created = await createLinks(destination, links);
   // A link whose creation already failed keeps its creation message: the

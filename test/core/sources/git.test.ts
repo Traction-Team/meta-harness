@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { chmod, cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { ExitCode, MetafabError } from "../../../src/errors.js";
 import {
   cacheLayout,
@@ -26,6 +26,13 @@ import {
 import type { GitFixture } from "./git-fixture.js";
 
 const FIXTURES = fileURLToPath(new URL("../../fixtures/fabs/", import.meta.url));
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, rm: vi.fn(actual.rm), rename: vi.fn(actual.rename) };
+});
+
+let actualFs: typeof import("node:fs/promises");
 
 let fixture: GitFixture;
 let cache: string;
@@ -51,6 +58,7 @@ async function resolveGit(spec: GitSourceSpec): Promise<Awaited<ReturnType<typeo
 }
 
 beforeAll(async () => {
+  actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
   fixture = await createGitFixture();
 }, 60_000);
 
@@ -59,6 +67,8 @@ afterAll(async () => {
 }, 120_000);
 
 beforeEach(async () => {
+  vi.mocked(rm).mockImplementation(actualFs.rm as never);
+  vi.mocked(rename).mockImplementation(actualFs.rename as never);
   cache = await mkdtemp(path.join(tmpdir(), "metafab-git-cache-"));
 });
 
@@ -365,6 +375,48 @@ describe("git sources", { timeout: 60_000 }, () => {
     }
   });
 
+  test("records a POSIX file source whose path holds an @ unchanged", async () => {
+    // Regression guard for the whole recording path. The authority of a
+    // three-slash or `localhost` file URL ends at the first `/`, before the
+    // `@`, so `stripSourceCredentials` never saw this `@` as userinfo.
+    const root = await mkdtemp(path.join(tmpdir(), "metafab-git-at-"));
+    const repo = path.join(root, "bob@corp", "fab.git");
+    await mkdir(path.dirname(repo), { recursive: true });
+    try {
+      await runGitIn(root, ["clone", "-q", "--bare", fixture.repo, repo]);
+      const source = `git+file://${repo}`;
+      const parsed = parseSource(source, { cwd: process.cwd() });
+      if (parsed.kind !== "git") throw new Error("expected a git source");
+
+      const fetched = await fetchFab(await resolveGit(parsed), options());
+
+      expect(fetched.upstream.source).toBe(source);
+      expect(fetched.upstream.source).toContain("@corp");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("records a Windows drive file source whose path holds an @ unchanged", async () => {
+    // The two-slash drive form is the one where the authority is really the
+    // start of a path and stripping cut everything from the drive colon to the
+    // `@`. Its repository cannot exist here, so fetch from the fixture's POSIX
+    // URL and record the drive form: only `spec.source` reaches the recorded
+    // upstream and the fab key.
+    const spec = gitSpec(fixture.repo);
+    const resolved = await resolveGit(spec);
+    const driveSource = "git+file://C:\\Users\\bob@corp\\fab.git";
+
+    const fetched = await fetchFab(
+      { ...resolved, spec: { ...resolved.spec, source: driveSource } },
+      options(),
+    );
+
+    expect(fetched.upstream.source).toBe(driveSource);
+    expect(fetched.upstream.source).toContain("@corp");
+    expect(parseSource(fetched.upstream.source, { cwd: process.cwd() }).kind).toBe("git");
+  });
+
   test("redacts credentials in Git errors", async () => {
     const token = "secret-token-value";
     const spec = gitSpec(`https://${token}@127.0.0.1:1/fab.git`, {
@@ -652,6 +704,116 @@ describe("git sources", { timeout: 60_000 }, () => {
 
     expect(fetched.factoryDir).not.toBe(previous);
     expect(await pathExists(path.join(previous, "from-an-older-fetch"))).toBe(true);
+  });
+
+  test("sweeps a stale temporary clone and keeps a fresh one until it is old", async () => {
+    const mirror = cacheLayout(cache).gitMirror(fixture.repo);
+    await mkdir(path.dirname(mirror), { recursive: true });
+    const stale = `${mirror}.tmp-old`;
+    const fresh = `${mirror}.tmp-new`;
+    await mkdir(stale, { recursive: true });
+    await writeFile(path.join(stale, "junk"), "partial clone");
+    await mkdir(fresh, { recursive: true });
+    const old = new Date(Date.now() - 25 * 60 * 60 * 1000);
+    await utimes(stale, old, old);
+
+    const resolved = await resolveGit(gitSpec(fixture.repo));
+
+    expect(resolved.kind).toBe("git");
+    expect(await pathExists(stale)).toBe(false);
+    expect(await pathExists(fresh)).toBe(true);
+
+    await utimes(fresh, old, old);
+    await resolveGit(gitSpec(fixture.repo));
+    expect(await pathExists(fresh)).toBe(false);
+  });
+
+  test("returns the new mirror when the old backup cannot be removed", async () => {
+    const spec = gitSpec(fixture.repo);
+    await resolveGit(spec);
+    const mirror = cacheLayout(cache).gitMirror(fixture.repo);
+    const marker = path.join(mirror, "mirror-marker");
+    await writeFile(marker, "old");
+    // A malformed ref makes the fetch fail so a replacement clone swaps in.
+    await writeFile(path.join(mirror, "refs", "heads", "broken"), "not-a-sha\n");
+
+    vi.mocked(rm).mockImplementation(((target: string, options?: unknown) => {
+      if (String(target).includes(".old-")) {
+        return Promise.reject(
+          Object.assign(new Error("EBUSY: resource busy, rm"), { code: "EBUSY" }),
+        );
+      }
+      return (actualFs.rm as (target: string, options?: unknown) => Promise<void>)(
+        target,
+        options,
+      );
+    }) as never);
+
+    try {
+      const resolved = await resolveGit(spec);
+
+      expect(resolved.kind).toBe("git");
+      expect(await pathExists(marker)).toBe(false);
+      expect(await pathExists(path.join(mirror, "config"))).toBe(true);
+    } finally {
+      vi.mocked(rm).mockImplementation(actualFs.rm as never);
+    }
+  });
+
+  test("two cold resolves in parallel both succeed on one mirror", async () => {
+    const spec = gitSpec(fixture.repo);
+
+    const [first, second] = await Promise.all([resolveGit(spec), resolveGit(spec)]);
+
+    expect(first.kind).toBe("git");
+    expect(second.kind).toBe("git");
+    if (first.kind === "git" && second.kind === "git") {
+      expect(first.commit).toBe(second.commit);
+    }
+    const mirror = cacheLayout(cache).gitMirror(fixture.repo);
+    expect(await pathExists(path.join(mirror, "config"))).toBe(true);
+    const siblings = (await readdir(path.dirname(mirror))).filter(
+      (entry) => entry !== path.basename(mirror),
+    );
+    expect(siblings).toEqual([]);
+  });
+
+  test("two replacements of one mirror that overlap both succeed", async () => {
+    const spec = gitSpec(fixture.repo);
+    await resolveGit(spec);
+    const mirror = cacheLayout(cache).gitMirror(fixture.repo);
+    // A malformed ref makes the fetch fail while the mirror is still a usable
+    // bare repository, so both commands build a replacement clone.
+    await writeFile(path.join(mirror, "refs", "heads", "broken"), "not-a-sha\n");
+
+    // Both commands reach the rename that moves the old mirror aside; the
+    // first waits there, which keeps the mirror corrupt while the second
+    // fetches, so the second also takes the replacement path. One of the two
+    // renames then loses, with ENOENT, exactly as two real commands would.
+    let swaps = 0;
+    let release!: () => void;
+    const bothSwapping = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(rename).mockImplementation(((from: string, to: string) => {
+      if (String(from) === mirror && String(to).includes(".old-")) {
+        swaps += 1;
+        if (swaps === 2) release();
+        return bothSwapping.then(() => actualFs.rename(from, to));
+      }
+      return actualFs.rename(from, to);
+    }) as never);
+
+    const [first, second] = await Promise.all([resolveGit(spec), resolveGit(spec)]);
+
+    expect(first.kind).toBe("git");
+    expect(second.kind).toBe("git");
+    expect(swaps).toBe(2);
+    expect(await pathExists(path.join(mirror, "config"))).toBe(true);
+    const siblings = (await readdir(path.dirname(mirror))).filter(
+      (entry) => entry !== path.basename(mirror),
+    );
+    expect(siblings).toEqual([]);
   });
 
   test("does not run git hooks from the environment", async () => {
