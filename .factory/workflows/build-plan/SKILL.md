@@ -24,7 +24,7 @@ The run is always: check the branch → claim → task sub-agents → checks →
 Wherever this workflow starts a sub-agent, start a new Amp thread with `create_thread` instead, one at a time, and give it the same brief:
 
 - `executor`: `orb`. `intent`: `delegation`. `title`: `<plan number> <task n, fix n or review n>`.
-- `agent_mode`: `deepseek/deepseek-v4.1-flash` for task and fix threads (the `agent-coding` model), `openai/gpt-6.1-sol` for review threads (the `agent-review` model).
+- `model` (`agent_mode` in older Amp versions): `deepseek/deepseek-v4.1-flash` for task and fix threads (the `agent-coding` model), `openai/gpt-6.1-sol` for review threads (the `agent-review` model).
 - `prompt`: the brief, then the lines below.
 
 The new thread runs in its own orb, which starts on `main` with `.agents/setup` already run, and it cannot see your checkout. So `git push` the branch before each thread starts, and end every brief with:
@@ -37,7 +37,9 @@ When finished, send your report to <this thread's URL> with send_thread_message,
 and end with the same report as your final message.
 ```
 
-In a review brief, `Worktree:` is `your own checkout of <branch>`. Then end your turn: the report arrives as a message in this thread. Do not read the thread while it works. After a task or fix thread reports, run `git pull --ff-only` before the next step. If a thread stops without sending its report, read its final message with `read_thread`.
+In a review brief, `Worktree:` is `your own checkout of <branch>`. Then end your turn: the report arrives as a message in this thread. Do not read the thread while it works. After a task or fix thread reports, run `git pull --ff-only` before the next step. If a thread stops without sending its report, read its final message with `read_thread`. Each hand-off ends your turn, so one build spans several turns.
+
+This repository is owned by a GitHub organization, so Amp's CI and pull request subscriptions fail with "Only a workspace subscription can watch". Skip them, in this thread and in the threads you start, and check CI with `gh pr checks` before the handoff.
 
 ## 0. Check the branch
 
@@ -57,7 +59,7 @@ git branch -m <type>/<plan-file-stem>   # the type comes from the plan's title; 
 git branch --show-current                         # must print the new name
 ```
 
-**The Amp branch.** An Amp worker's orb starts on `main`. Its brief tells it to create the plan's branch first (`git fetch origin && git switch -c <type>/<plan-file-stem> <base>`); do that, then treat it as case 3. The orb ran `.agents/setup`, so dependencies, `dist/` and the skills are ready.
+**The Amp branch.** An Amp worker's orb starts on `main`. Its brief tells it to create the plan's branch first (`git fetch origin && git switch -c <type>/<plan-file-stem> <base>`), or to switch to one that already exists; do what it says, then take the case below that matches, usually case 3. The orb ran `.agents/setup`, so dependencies, `dist/` and the skills are ready.
 
 **The setup.** With Orca, `start-plan` created the worktree with `--setup run`. If the first command fails on missing dependencies (`ERR_MODULE_NOT_FOUND`, no `node_modules`), read the repo's hook with `orca repo list --json` (`hookSettings.scripts.setup`) and run it. Run `npm install` by hand only when the hook is empty or failed, and say which in the final report. `start-plan` proved `main` green before it started you, so do not run `npm run verify` as a baseline.
 
@@ -166,7 +168,7 @@ Write the landing bookkeeping now, as the last commit, so that a merge at any mo
 - Write one changelog entry from `.factory/templates/changelog.md`: `docs/changelog/YYYY-MM-DD-<pr-slug>.md`. Say what a user of `metafab` can do now that they could not before.
 - Record each *Found while building* note with `file-work`. A note the build already fixed needs no intake file; say so beside it.
 
-Run `git fetch origin && git merge origin/main` first (never rebase a pushed branch). A conflict in `docs/roadmap.md` is usually another plan's tick on a neighbouring line: keep both. Then run `node .factory/scripts/check.mjs`, commit as `docs: land <plan-slug>`, and push.
+First merge the pull request's base: `git fetch origin && git merge origin/<base>`, where `<base>` is `main`, or the branch below for a stacked plan, so unrelated `main` commits never enter a stacked pull request's diff (never rebase a pushed branch). If `git rev-parse --is-shallow-repository` prints `true`, run `git fetch --unshallow origin` before the merge. A conflict in `docs/roadmap.md` is usually another plan's tick on a neighbouring line: keep both. Then run `node .factory/scripts/check.mjs`, commit as `docs: land <plan-slug>`, and push.
 
 ## 9. Stop at the draft pull request with a TL;DR
 

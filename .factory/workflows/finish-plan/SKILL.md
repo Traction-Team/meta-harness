@@ -25,7 +25,7 @@ Use this section when the pull request is a draft.
 4. Send out-of-scope feedback to `file-work`, and add it to *Found while building*.
 5. Refresh the landing and the TL;DR (section C), push, and tell the developer in a few lines what changed.
 6. Repeat until the developer approves.
-7. When the developer says "looks good" or "done": run `git fetch && git merge origin/main` (never rebase a pushed branch; keep both ticks if `docs/roadmap.md` conflicts), then `npm run verify` and the `proves` command of every plan the pull request lists. Update the proof in the body.
+7. When the developer says "looks good" or "done": run `git fetch origin && git merge origin/<base>`, the pull request's base, which is `main` or the branch below for a stacked plan (unshallow first as build-plan step 8 says; never rebase a pushed branch; keep both ticks if `docs/roadmap.md` conflicts), then `npm run verify` and the `proves` command of every plan the pull request lists. Update the proof in the body.
 8. Push and run `gh pr ready`. Report the pull request link, say it is ready to merge, and name the next ready plan from `node .factory/scripts/next.mjs`.
 
 ## B. Review comments

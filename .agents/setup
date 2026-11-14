@@ -21,7 +21,17 @@ check_node() {
 }
 
 # npm ci keeps package-lock.json untouched; npm install can rewrite it.
+unshallow() {
+  # build-plan and finish-plan merge the pull request's base, which fails in a shallow clone.
+  if [[ "$(git rev-parse --is-shallow-repository)" == "true" ]]; then
+    git fetch --quiet --unshallow origin
+  else
+    echo "already a full clone"
+  fi
+}
+
 step "Check Node" check_node
+step "Unshallow the clone" unshallow
 step "Install dependencies" npm ci --no-audit --no-fund
 step "Build dist/" npm run build --silent
 # The factory skills in .agents/skills/ (which Amp reads) are generated, not committed.
