@@ -122,7 +122,7 @@ describe("check command", () => {
     const result = await runCli(["check"], { cwd: repo.root, tty: false });
 
     expect(result.code).toBe(ExitCode.Failed);
-    expect(result.stderr).toContain("No factory found");
+    expect(result.stderr).toContain("No .factory directory found");
     expect(result.stderr).toContain("fix: Run metafab init");
   });
 

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { lstat, readFile, readdir, readlink } from "node:fs/promises";
+import { lstat, readFile, readlink } from "node:fs/promises";
 import path from "node:path";
+import { readdirTyped } from "../../util/fs.js";
 import { toLF, usesCRLF } from "../../util/text.js";
 import { textContent } from "../build/skill.js";
 
@@ -76,7 +77,7 @@ export async function snapshotTree(dir: string): Promise<FileTree> {
   const entries: Record<string, FileEntry> = {};
 
   async function walk(directory: string, prefix: string): Promise<void> {
-    const children = await readdir(directory, { withFileTypes: true });
+    const children = await readdirTyped(directory);
     children.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
 
     for (const child of children) {
@@ -114,7 +115,7 @@ export async function snapshotDirectories(dir: string): Promise<string[]> {
   const directories: string[] = [];
 
   async function walk(directory: string, prefix: string): Promise<void> {
-    const children = await readdir(directory, { withFileTypes: true });
+    const children = await readdirTyped(directory);
     children.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
 
     for (const child of children) {

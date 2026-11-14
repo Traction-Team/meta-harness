@@ -1,18 +1,12 @@
 import { execFile } from "node:child_process";
 import { chmod, mkdtemp, readFile, rm, stat, symlink } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { promisify } from "node:util";
 import { beforeAll, describe, expect, test } from "vitest";
+import { buildCli, cliPath, repoRoot } from "./build.js";
 
 const execFileAsync = promisify(execFile);
-const require = createRequire(import.meta.url);
-
-const repoRoot = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
-const cliPath = path.join(repoRoot, "dist", "cli.js");
-const tscPath = path.join(path.dirname(require.resolve("typescript/package.json")), "bin", "tsc");
 
 const V1_COMMANDS = [
   "init",
@@ -49,9 +43,9 @@ function runCli(...args: string[]): Promise<{ stdout: string; stderr: string; co
 
 describe("spawned cli", () => {
   beforeAll(async () => {
-    await execFileAsync(process.execPath, [tscPath], { cwd: repoRoot, timeout: 120_000 });
+    await buildCli();
     await chmod(cliPath, 0o755);
-  }, 120_000);
+  }, 180_000);
 
   test("package.json bin.metafab points at the built entry", async () => {
     const pkg = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8")) as {

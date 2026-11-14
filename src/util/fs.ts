@@ -1,5 +1,51 @@
-import { chmod, copyFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdir, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
+
+/** A directory entry whose type is always known. */
+export interface DirEntry {
+  readonly name: string;
+  isFile(): boolean;
+  isDirectory(): boolean;
+  isSymbolicLink(): boolean;
+}
+
+/**
+ * Lists `directory` with `readdir(directory, { withFileTypes: true })`. An
+ * entry the filesystem reported with no type (every Dirent predicate false,
+ * DT_UNKNOWN) is typed from `lstat` instead. An entry that vanished before the
+ * `lstat` (ENOENT) is dropped. Any other `lstat` error (EACCES, EIO, ...) is
+ * thrown unchanged, exactly like an error from `readdir` itself, so the
+ * caller's existing handling for an unreadable directory applies: it never
+ * silently skips an entry it could not classify.
+ */
+export async function readdirTyped(directory: string): Promise<DirEntry[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const typed: DirEntry[] = [];
+
+  for (const entry of entries) {
+    if (entry.isFile() || entry.isDirectory() || entry.isSymbolicLink()) {
+      typed.push(entry);
+      continue;
+    }
+
+    let info;
+    try {
+      info = await lstat(path.join(directory, entry.name));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+
+    typed.push({
+      name: entry.name,
+      isFile: () => info.isFile(),
+      isDirectory: () => info.isDirectory(),
+      isSymbolicLink: () => info.isSymbolicLink(),
+    });
+  }
+
+  return typed;
+}
 
 export interface ListOptions {
   ignore?: (relativePath: string, isDirectory: boolean) => boolean;
@@ -44,7 +90,7 @@ export async function listFiles(root: string, options: ListOptions = {}): Promis
   const files: string[] = [];
 
   async function walk(directory: string, prefix: string): Promise<void> {
-    const entries = await readdir(directory, { withFileTypes: true });
+    const entries = await readdirTyped(directory);
     for (const entry of entries) {
       const relativePath = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
       if (options.ignore?.(relativePath, entry.isDirectory()) === true) continue;

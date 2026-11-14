@@ -21,12 +21,13 @@ function argumentError(message: string): MetafabError {
 export const mapCommand: CommandDefinition = {
   name: "map",
   description: "Show the pipeline, workflows, and skills",
+  usage: "metafab map",
   async run(context) {
     if (context.positionals.length !== 0) {
       throw argumentError("map takes no arguments.");
     }
 
-    const { root } = await findFactory(context.cwd);
+    const { root } = await findFactory(context.cwd, { command: "map" });
     const data = await mapFactory(root);
     const errors = data.problems.filter((problem) => problem.level === "error");
 

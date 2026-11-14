@@ -190,10 +190,10 @@ describe("metafab init", () => {
       ".claude/skills/release/SKILL.md": skill("release"),
     });
 
-    const result = await runCli(["init", "--agents", "claude", "--no-git-hooks"], {
+    const result = await runCli(["init", "--agents", "claude"], {
       cwd: repo.root,
       tty: true,
-      stdin: Readable.from(["y\n"]),
+      stdin: Readable.from(["y\ny\n"]),
     });
 
     expect(result.code).toBe(0);

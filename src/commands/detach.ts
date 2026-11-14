@@ -7,8 +7,9 @@ import type { CommandDefinition } from "./types.js";
 export const detachCommand: CommandDefinition = {
   name: "detach",
   description: "Remove upstream metadata without changing factory files",
+  usage: "metafab detach",
   async run(context) {
-    const location = await findFactory(context.cwd);
+    const location = await findFactory(context.cwd, { command: "detach" });
     const report = await runDetach({ root: location.root });
 
     const result: CommandResult = {

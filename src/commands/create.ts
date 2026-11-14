@@ -46,8 +46,16 @@ async function askDescription(context: CommandContext): Promise<string> {
 export const createCommand: CommandDefinition = {
   name: "create",
   description: "Create a skill in the factory",
+  usage: "metafab create <path> [--description <text>]",
+  arguments: [
+    { name: "path", description: "Where the skill goes in .factory/, such as workflows/review-slice" },
+  ],
   options: {
-    description: { type: "string" },
+    description: {
+      type: "string",
+      value: "<text>",
+      description: "The skill's description; asked for in a terminal when absent",
+    },
   },
   async run(context) {
     const input = context.positionals;
@@ -55,7 +63,7 @@ export const createCommand: CommandDefinition = {
       throw argumentError("create", "create requires one path, such as workflows/review-slice.");
     }
 
-    const { root } = await findFactory(context.cwd);
+    const { root } = await findFactory(context.cwd, { command: "create" });
     const plan = await planCreate(root, input[0]!);
     const given = descriptionOption(context.options.description);
     const description = validateDescription(given ?? (await askDescription(context)));

@@ -7,6 +7,7 @@ import { toLF } from "../../../src/util/text.js";
 import { makeRepo, writeRepoFiles } from "../../helpers/makeRepo.js";
 import type { RepoFiles, TempRepo } from "../../helpers/makeRepo.js";
 import { runCli } from "../../helpers/runCli.js";
+import { isolateGitConfig } from "../hooks/helpers.js";
 import { caseInsensitiveFilesystem } from "./case-probe.js";
 import {
   FAB_SOURCE,
@@ -21,10 +22,16 @@ import type { GitFab } from "./git-fab.js";
 
 const repos: TempRepo[] = [];
 const fabs: GitFab[] = [];
+let hookIsolation: Awaited<ReturnType<typeof isolateGitConfig>> | undefined;
 
 const caseInsensitive = await caseInsensitiveFilesystem();
 
 afterEach(async () => {
+  hookIsolation?.restore();
+  if (hookIsolation !== undefined) {
+    await rm(hookIsolation.dir, { recursive: true, force: true });
+    hookIsolation = undefined;
+  }
   await Promise.all([
     ...repos.splice(0).map((repo) => repo.cleanup()),
     ...fabs.splice(0).map((fab) => fab.cleanup()),
@@ -1304,6 +1311,61 @@ describe("update without a base", { timeout: 30_000 }, () => {
     expect(await readFile(repo.path(".factory", "AGENTS.md"), "utf8")).toBe(before.agents);
     expect(await metafabYaml(repo)).toBe(before.yaml);
     expect(await pathExists(repo.path(".factory", "AGENTS.md.upstream"))).toBe(false);
+  });
+});
+
+describe("update hook lines", { timeout: 30_000 }, () => {
+  const HOOKS = ["post-checkout", "post-merge", "post-rewrite"] as const;
+  const OLD_HOOK = "#!/bin/sh\n# metafab:start\necho old\n";
+
+  /** An imported project with `git-hooks: true`, old owned hooks, and a v1.1.0 upstream. */
+  async function projectWithOldHooks(): Promise<{ repo: TempRepo; fab: GitFab }> {
+    const { repo, fab } = await importedProject();
+    hookIsolation = await isolateGitConfig();
+    const config = await metafabYaml(repo);
+    await writeRepoFiles(repo.root, {
+      ".factory/metafab.yaml": `${config}git-hooks: true\n`,
+      ...Object.fromEntries(HOOKS.map((hook) => [`.git/hooks/${hook}`, OLD_HOOK])),
+    });
+    await publish(fab, { ".factory/AGENTS.md": AGENTS_V2 });
+    return { repo, fab };
+  }
+
+  test("prints a line for each hook the closing build rewrites", async () => {
+    const { repo, fab } = await projectWithOldHooks();
+
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root));
+
+    expect(result.code).toBe(0);
+    for (const hook of HOOKS) expect(result.stdout).toContain(`~ git hook ${hook}`);
+  });
+
+  test("reports the rewritten hooks in JSON", async () => {
+    const { repo, fab } = await projectWithOldHooks();
+
+    const result = await withFabEnvironment(fab, () => updateFab(repo.root, ["--json"]));
+
+    expect(result.code).toBe(0);
+    expect(parseJson(result).hooks).toEqual(
+      HOOKS.map((hook) => ({ hook, action: "updated" })),
+    );
+  });
+
+  test("reports no hooks for a dry run or --no-build", async () => {
+    const { repo, fab } = await projectWithOldHooks();
+
+    const dryRun = await withFabEnvironment(fab, () =>
+      updateFab(repo.root, ["--dry-run", "--json"]),
+    );
+    expect(dryRun.code).toBe(0);
+    expect(parseJson(dryRun).hooks).toEqual([]);
+
+    const noBuild = await withFabEnvironment(fab, () =>
+      updateFab(repo.root, ["--no-build", "--json"]),
+    );
+    expect(noBuild.code).toBe(0);
+    expect(parseJson(noBuild).hooks).toEqual([]);
+    expect(await readFile(repo.path(".git/hooks/post-merge"), "utf8")).toBe(OLD_HOOK);
   });
 });
 

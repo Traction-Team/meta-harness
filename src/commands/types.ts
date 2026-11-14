@@ -6,6 +6,16 @@ export interface CommandOptionDefinition {
   type: "string" | "boolean";
   short?: string;
   multiple?: boolean;
+  /** One line for --help. */
+  description: string;
+  /** Placeholder for a string option, such as "<list>". */
+  value?: string;
+}
+
+export interface CommandArgument {
+  name: string;
+  description: string;
+  optional?: boolean;
 }
 
 export type CommandOptions = Readonly<Record<string, CommandOptionDefinition>>;
@@ -33,6 +43,9 @@ export interface CommandContext {
 export interface CommandDefinition {
   name: string;
   description: string;
+  /** The usage line, identical to the command's cell in docs/specs/cli.md. */
+  usage: string;
+  arguments?: readonly CommandArgument[];
   /** Options this command accepts after its name. Global flags are handled by cli.ts. */
   options?: CommandOptions;
   run(context: CommandContext): Promise<CommandResult>;

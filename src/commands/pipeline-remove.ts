@@ -23,13 +23,17 @@ function argumentError(message: string): MetafabError {
 export const pipelineRemoveCommand: CommandDefinition = {
   name: "pipeline remove",
   description: "Remove a workflow from the pipeline",
+  usage: "metafab pipeline remove <workflow>",
+  arguments: [
+    { name: "workflow", description: "The workflow to take out of the pipeline; its file does not change" },
+  ],
   async run(context) {
     if (context.positionals.length !== 1) {
       throw argumentError("pipeline remove requires one workflow name.");
     }
 
     const workflow = context.positionals[0]!;
-    const { root } = await findFactory(context.cwd);
+    const { root } = await findFactory(context.cwd, { command: "pipeline remove" });
     const result = await removeWorkflow(root, workflow);
 
     const commandResult: CommandResult = {

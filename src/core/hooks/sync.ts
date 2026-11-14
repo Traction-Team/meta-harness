@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, readlink, stat, unlink, writeFile } from "node:fs/promises";
 import type { Stats } from "node:fs";
 import path from "node:path";
 import type { Problem } from "../../errors.js";
@@ -36,6 +36,38 @@ function foreignWarning(file: string, factoryRelDir: string, cliVersion: string)
     file,
     message: `${file} exists and was not written by Metafab`,
     fix: `Add this line to ${file}: ${hookCommand(factoryRelDir, cliVersion)}`,
+  };
+}
+
+function linkWarning(
+  file: string,
+  target: string,
+  factoryRelDir: string,
+  cliVersion: string,
+): Problem {
+  return {
+    level: "warning",
+    file,
+    message: `${file} is a symbolic link to ${target}, so Metafab did not change it`,
+    fix: `Add this line to ${target}: ${hookCommand(factoryRelDir, cliVersion)}, or replace the link with a regular file and run metafab build again`,
+  };
+}
+
+function danglingLinkWarning(file: string, target: string): Problem {
+  return {
+    level: "warning",
+    file,
+    message: `${file} is a symbolic link to ${target}, which does not exist, so Metafab did not change it`,
+    fix: "Remove the link, then run metafab build again",
+  };
+}
+
+function notRegularFileWarning(file: string): Problem {
+  return {
+    level: "warning",
+    file,
+    message: `${file} is not a regular file, so Metafab did not change it`,
+    fix: "Remove it, then run metafab build again",
   };
 }
 
@@ -85,25 +117,41 @@ async function gitOutput(args: string[], cwd: string): Promise<string | undefine
   }
 }
 
-type HookFile = { kind: "missing" } | { kind: "regular"; text: string } | { kind: "other" };
+type HookFile =
+  | { kind: "missing" }
+  | { kind: "regular"; text: string }
+  | { kind: "link"; target: string; dangling: boolean }
+  | { kind: "other" };
 
 /**
  * Reads a hook without following a symbolic link.
  *
- * A link, a directory or anything else that is not a regular file is reported
- * as `other`: Metafab never writes, chmods or deletes through a hook path, so
- * a file elsewhere in the system is left alone.
+ * A link is reported with the target text it stores and whether that target
+ * exists. Anything else that is not a regular file is reported as `other`:
+ * Metafab never writes, chmods or deletes through a hook path, so a file
+ * elsewhere in the system is left alone.
  */
-async function readHook(target: string): Promise<HookFile> {
+async function readHook(hookPath: string): Promise<HookFile> {
   let stats: Stats;
   try {
-    stats = await lstat(target);
+    stats = await lstat(hookPath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { kind: "missing" };
     throw error;
   }
+  if (stats.isSymbolicLink()) {
+    const target = await readlink(hookPath);
+    let dangling = false;
+    try {
+      await stat(hookPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      dangling = true;
+    }
+    return { kind: "link", target, dangling };
+  }
   if (!stats.isFile()) return { kind: "other" };
-  return { kind: "regular", text: await readFile(target, "utf8") };
+  return { kind: "regular", text: await readFile(hookPath, "utf8") };
 }
 
 function isOwned(text: string): boolean {
@@ -199,9 +247,22 @@ export async function syncGitHooks(
       }
 
       // A symbolic link, or anything else that is not a regular file, is not
-      // a hook Metafab wrote. Leave it and warn, like any other foreign hook.
+      // a hook Metafab wrote. Leave it and warn: a link may point at an older
+      // Metafab hook or at nothing at all, so the foreign-hook fix would be
+      // wrong.
+      if (state.kind === "link") {
+        if (enabled) {
+          warnings.push(
+            state.dangling
+              ? danglingLinkWarning(file, state.target)
+              : linkWarning(file, state.target, factoryRelDir, cliVersion),
+          );
+        }
+        continue;
+      }
+
       if (state.kind === "other") {
-        if (enabled) warnings.push(foreignWarning(file, factoryRelDir, cliVersion));
+        if (enabled) warnings.push(notRegularFileWarning(file));
         continue;
       }
 

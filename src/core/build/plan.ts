@@ -3,7 +3,6 @@ import {
   lstat,
   mkdir,
   readFile,
-  readdir,
   readlink,
   realpath,
   rm,
@@ -17,7 +16,10 @@ import { CLAUDE_SKILLS_DIRECTORY, AGENTS_SKILLS_DIRECTORY } from "../config/dest
 import { destinations } from "../config/destinations.js";
 import type { Problem } from "../../errors.js";
 import type { Factory } from "../factory/types.js";
+import { readdirTyped } from "../../util/fs.js";
+import type { DirEntry } from "../../util/fs.js";
 import { toLF } from "../../util/text.js";
+import { sameFile } from "../sources/containment.js";
 import {
   AGENTS_BLOCK_LINE_LIMIT,
   AGENTS_MARKERS,
@@ -283,9 +285,9 @@ async function readDirectoryIfExists(
   directory: string,
   relativePath: string,
   errors?: Problem[],
-): Promise<import("node:fs").Dirent[] | undefined> {
+): Promise<DirEntry[] | undefined> {
   try {
-    return await readdir(directory, { withFileTypes: true });
+    return await readdirTyped(directory);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT" || code === "ENOTDIR") return undefined;
@@ -435,8 +437,11 @@ async function claudeLinksToRootAgents(root: string, entry: RootEntry): Promise<
   }
 
   try {
-    const [claudeStat, agentsStat] = await Promise.all([stat(claudePath), stat(agentsPath)]);
-    if (claudeStat.dev === agentsStat.dev && claudeStat.ino === agentsStat.ino) return true;
+    const [claudeStat, agentsStat] = await Promise.all([
+      stat(claudePath, { bigint: true }),
+      stat(agentsPath, { bigint: true }),
+    ]);
+    if (sameFile(claudeStat, agentsStat)) return true;
   } catch {
     // Either side is missing; the link may still dangle towards AGENTS.md.
   }
@@ -653,9 +658,9 @@ async function deselectedSymlinkConflict(
   linkPath: string,
 ): Promise<Problem | { error: Problem } | undefined> {
   const target = absolute(root, directory);
-  let entries: import("node:fs").Dirent[];
+  let entries: DirEntry[];
   try {
-    entries = await readdir(target, { withFileTypes: true });
+    entries = await readdirTyped(target);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT" || code === "ENOTDIR") return undefined;
