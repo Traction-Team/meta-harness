@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, test } from "vitest";
+import { parseFactoryYaml } from "../../../src/core/factory/index.js";
 import { deriveFactoryName } from "../../../src/core/edit/index.js";
 import { pathExists } from "../../../src/util/fs.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
@@ -424,6 +425,67 @@ describe("pipeline with YAML aliases", () => {
     expect(removed.stderr).not.toContain("    at ");
 
     expect(await readFile(created.path(".factory/factory.yaml"), "utf8")).toBe(source);
+  });
+});
+
+describe("pipeline keeps requires", () => {
+  const REQUIRES_SOURCE = `format: 1
+name: mark4
+pipeline:
+  - y
+  - z
+requires:
+  - path: opencode.json
+    description: Defines the agent-coding sub-agent
+    template: .factory/templates/setup/opencode.json
+  - path: docs/roadmap.md
+    description: The roadmap the workflows read
+`;
+
+  async function requiresAfter(args: string[]): Promise<unknown> {
+    const created = await repo({ ".factory/factory.yaml": REQUIRES_SOURCE });
+
+    const result = await runCli(args, { cwd: created.root, tty: false });
+    expect(result.code, `${result.stdout}${result.stderr}`).toBe(0);
+
+    const parsed = parseFactoryYaml(
+      await readFile(created.path(".factory", "factory.yaml"), "utf8"),
+      ".factory/factory.yaml",
+    );
+    expect(parsed.problems).toEqual([]);
+    return (parsed.requires ?? []).map((requirement) => ({
+      path: requirement.path,
+      description: requirement.description,
+      template: requirement.template,
+    }));
+  }
+
+  test("pipeline add keeps every requirement", async () => {
+    expect(await requiresAfter(["pipeline", "add", "x", "--after", "y"])).toEqual([
+      {
+        path: "opencode.json",
+        description: "Defines the agent-coding sub-agent",
+        template: ".factory/templates/setup/opencode.json",
+      },
+      {
+        path: "docs/roadmap.md",
+        description: "The roadmap the workflows read",
+      },
+    ]);
+  });
+
+  test("pipeline remove keeps every requirement", async () => {
+    expect(await requiresAfter(["pipeline", "remove", "y"])).toEqual([
+      {
+        path: "opencode.json",
+        description: "Defines the agent-coding sub-agent",
+        template: ".factory/templates/setup/opencode.json",
+      },
+      {
+        path: "docs/roadmap.md",
+        description: "The roadmap the workflows read",
+      },
+    ]);
   });
 });
 

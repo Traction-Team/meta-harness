@@ -1,13 +1,31 @@
 import { describeUpdate, runUpdate } from "../core/update/index.js";
 import { findFactory } from "../core/discovery.js";
-import { ExitCode } from "../errors.js";
+import { ExitCode, MetafabError } from "../errors.js";
 import type { CommandResult } from "../output.js";
+import { normalizeProblemPath } from "../util/fs.js";
 import type { CommandDefinition } from "./types.js";
+
+function bothSetupFlags(): MetafabError {
+  const message = "Pass --setup or --no-setup, not both";
+  return new MetafabError(message, {
+    exitCode: ExitCode.Failed,
+    code: "usage-error",
+    problems: [
+      {
+        level: "error",
+        file: normalizeProblemPath("metafab"),
+        message,
+        fix: "Run metafab update [--setup | --no-setup]",
+      },
+    ],
+  });
+}
 
 export const updateCommand: CommandDefinition = {
   name: "update",
   description: "Merge or overwrite from the factory upstream",
-  usage: "metafab update [--to <version|range|ref>] [--dry-run] [--no-build]",
+  usage:
+    "metafab update [--to <version|range|ref>] [--dry-run] [--no-build] [--setup | --no-setup]",
   options: {
     to: {
       type: "string",
@@ -22,16 +40,30 @@ export const updateCommand: CommandDefinition = {
       type: "boolean",
       description: "Do not run metafab build afterwards",
     },
+    setup: {
+      type: "boolean",
+      description: "Create the files new required repository entries need",
+    },
+    "no-setup": {
+      type: "boolean",
+      description: "Leave the new required repository files uncreated",
+    },
   },
   async run(context) {
+    const setup = context.options.setup === true;
+    const noSetup = context.options["no-setup"] === true;
+    if (setup && noSetup) throw bothSetupFlags();
+
     const location = await findFactory(context.cwd, { command: "update" });
     const report = await runUpdate({
       root: location.root,
       ...(typeof context.options.to === "string" ? { to: context.options.to } : {}),
       dryRun: context.options["dry-run"] === true,
       noBuild: context.options["no-build"] === true,
+      ...(setup ? { setup: true } : noSetup ? { setup: false } : {}),
       // A terminal may answer a Git credential prompt; JSON output never waits.
       interactive: context.io.tty === true && context.options.json !== true,
+      io: context.io,
     });
 
     const conflicts = report.conflicts.length > 0;
@@ -54,6 +86,7 @@ export const updateCommand: CommandDefinition = {
       added: report.added,
       updated: report.updated,
       removed: report.removed,
+      requires: report.requires,
       notes: report.notes,
       built: report.built,
       changed: report.changed,

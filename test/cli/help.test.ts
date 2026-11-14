@@ -8,7 +8,7 @@ import type { TempRepo } from "../helpers/makeRepo.js";
 import { runCli } from "../helpers/runCli.js";
 
 const IMPORT_HELP = [
-  "Usage: metafab import <source> [--agents <list>] [--force] [--adopt]",
+  "Usage: metafab import <source> [--agents <list>] [--force] [--adopt] [--setup | --no-setup]",
   "",
   "Import a fab as the factory upstream",
   "",
@@ -19,6 +19,8 @@ const IMPORT_HELP = [
   "  --agents <list>  Agent tools to install for, when import creates metafab.yaml",
   "  --force          Replace local factory files that differ from the fab",
   "  --adopt          Move existing repository skills into .factory/skills/ without asking",
+  "  --setup          Create the missing required repository files from the fab's templates",
+  "  --no-setup       Leave the missing required repository files uncreated",
   "  --json           Write one JSON object to stdout",
   "  -h, --help       Show this help",
   "",
@@ -182,7 +184,7 @@ describe("command help", () => {
       expect(parsed.problems).toEqual([]);
       expect(parsed.help.command).toBe("import");
       expect(parsed.help.usage).toBe(
-        "metafab import <source> [--agents <list>] [--force] [--adopt]",
+        "metafab import <source> [--agents <list>] [--force] [--adopt] [--setup | --no-setup]",
       );
       expect(parsed.help.arguments).toEqual([
         {
@@ -205,6 +207,14 @@ describe("command help", () => {
         {
           flag: "--adopt",
           description: "Move existing repository skills into .factory/skills/ without asking",
+        },
+        {
+          flag: "--setup",
+          description: "Create the missing required repository files from the fab's templates",
+        },
+        {
+          flag: "--no-setup",
+          description: "Leave the missing required repository files uncreated",
         },
         { flag: "--json", description: "Write one JSON object to stdout" },
         { flag: "-h, --help", description: "Show this help" },

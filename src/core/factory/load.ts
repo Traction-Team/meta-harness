@@ -5,6 +5,7 @@ import { normalizeProblemPath } from "../../util/fs.js";
 import { toLF } from "../../util/text.js";
 import { discoverSkills } from "./discovery.js";
 import { parseFactoryYaml } from "./factory-yaml.js";
+import { requirementTemplateProblems } from "./requires.js";
 import type { Factory, Skill } from "./types.js";
 import { rule8PipelineWorkflows, validateFactory } from "./validate.js";
 
@@ -70,6 +71,11 @@ export async function loadFactory(root: string): Promise<Factory> {
     factory.problems.push(...parsed.problems);
     if (parsed.yaml === undefined && parsed.pipeline !== undefined) {
       factory.problems.push(...rule8PipelineWorkflows(parsed.pipeline, factory.skills));
+    }
+    if (parsed.requires !== undefined) {
+      factory.problems.push(
+        ...(await requirementTemplateProblems(factory, parsed.requires, factoryFile)),
+      );
     }
   }
 

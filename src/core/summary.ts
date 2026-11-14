@@ -1,6 +1,7 @@
 import { diffLines } from "diff";
 import { describePipelineChanges } from "./import/pipeline-changes.js";
 import type { FileEntry, FileTree } from "./import/file-tree.js";
+import type { RequirementResult } from "./requires/inspect.js";
 import { parseFrontmatter } from "../util/frontmatter.js";
 
 export const SUMMARY_FOOTER = "Nothing was committed. Review the changes with git diff.";
@@ -11,6 +12,7 @@ export type ChangeStatus = "A" | "M" | "D" | "C";
 export type SummaryGroupKey =
   | "code"
   | "session"
+  | "setup"
   | "workflows"
   | "skills"
   | "preserved"
@@ -52,6 +54,12 @@ export interface SummaryContext {
   preserved?: string[];
   /** Paths that contain conflict markers (`update` only). */
   conflicts?: string[];
+  /**
+   * The repository files the factory needs, in `factory.yaml` order (`import`
+   * and `update`). This group is not sorted: the factory author's order is the
+   * order the person reads.
+   */
+  requirements?: RequirementResult[];
   /** Extra lines shown before the footer. */
   notes?: string[];
 }
@@ -270,6 +278,7 @@ function groupOf(path: string, executable: boolean, directories: Set<string>): S
 const HEADINGS: Record<SummaryGroupKey, string> = {
   code: "Runs code on your machines: review first",
   session: "Changes every agent session",
+  setup: "Repository files the factory needs",
   workflows: "Workflows",
   skills: "Skills",
   preserved: "Local edits preserved",
@@ -278,10 +287,40 @@ const HEADINGS: Record<SummaryGroupKey, string> = {
 };
 
 /**
+ * One line for a required repository file. The description replaces the change
+ * counts, so `renderSummary` shows it as the detail.
+ */
+function requirementEntry(result: RequirementResult): SummaryEntry {
+  switch (result.state) {
+    case "created":
+      return {
+        status: "A",
+        path: result.path,
+        description: `created from ${result.template ?? ""}`,
+      };
+    case "present":
+      return {
+        path: result.path,
+        description:
+          result.template === undefined ? "present" : `present: ${result.description}`,
+      };
+    case "missing":
+      return { path: result.path, description: `missing: ${result.description}` };
+    case "declined":
+      return { path: result.path, description: "not created: declined" };
+    case "blocked":
+      return { path: result.path, description: `blocked: ${result.reason ?? ""}` };
+    case "failed":
+      return { path: result.path, description: `not created: ${result.reason ?? ""}` };
+  }
+}
+
+/**
  * Compare two factory snapshots and group the changes by the risk they carry.
  *
- * The groups follow the spec order: code, every-session files, workflows,
- * skills, other files, preserved local edits, and conflicts.
+ * The groups follow the spec order: code, every-session files, required
+ * repository files, workflows, skills, other files, preserved local edits, and
+ * conflicts.
  */
 export function summarise(before: FileTree, after: FileTree, ctx: SummaryContext): Summary {
   const conflicts = new Set(ctx.conflicts ?? []);
@@ -302,6 +341,7 @@ export function summarise(before: FileTree, after: FileTree, ctx: SummaryContext
   const entries: Record<SummaryGroupKey, SummaryEntry[]> = {
     code: [],
     session: [],
+    setup: [],
     workflows: [],
     skills: [],
     preserved: [],
@@ -342,6 +382,10 @@ export function summarise(before: FileTree, after: FileTree, ctx: SummaryContext
     entries[key].push(entry);
   }
 
+  for (const requirement of ctx.requirements ?? []) {
+    entries.setup.push(requirementEntry(requirement));
+  }
+
   for (const path of preserved) {
     entries.preserved.push({ path });
   }
@@ -357,6 +401,7 @@ export function summarise(before: FileTree, after: FileTree, ctx: SummaryContext
   const order: SummaryGroupKey[] = [
     "code",
     "session",
+    "setup",
     "workflows",
     "skills",
     "other",
@@ -367,7 +412,12 @@ export function summarise(before: FileTree, after: FileTree, ctx: SummaryContext
   for (const key of order) {
     const groupEntries = entries[key];
     if (groupEntries.length === 0) continue;
-    groupEntries.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+    // The setup group keeps `factory.yaml` order; every other group is sorted.
+    if (key !== "setup") {
+      groupEntries.sort((left, right) =>
+        left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+      );
+    }
     groups.push({
       key,
       heading: key === "conflicts" ? `${HEADINGS.conflicts}: ${groupEntries.length}` : HEADINGS[key],

@@ -6,6 +6,7 @@ import {
   summarise,
 } from "../../../src/core/summary.js";
 import type { Summary, SummaryContext, SummaryEntry } from "../../../src/core/summary.js";
+import type { RequirementResult } from "../../../src/core/requires/inspect.js";
 import { binaryFile, linkFile, makeTree, textFile } from "./trees.js";
 
 const CONTEXT: SummaryContext = { title: "@seasb/fab-mark4 1.2.0 -> 1.3.0" };
@@ -406,5 +407,79 @@ describe("summarise", () => {
     expect(renderSummary(summarise(makeTree({}), makeTree({}), CONTEXT))).toBe(
       `${CONTEXT.title}\n\n${SUMMARY_FOOTER}`,
     );
+  });
+
+  test("puts the setup group after session and before workflows, in factory.yaml order", () => {
+    const before = makeTree({});
+    const after = makeTree({
+      "AGENTS.md": textFile("# Agents\n"),
+      "workflows/build-slice/SKILL.md": textFile(skillFile("build-slice")),
+    });
+    const requirements: RequirementResult[] = [
+      { path: "orca.yaml", description: "Runs metafab build in each new Orca worktree", state: "present" },
+      {
+        path: "docs/roadmap.md",
+        description: "The roadmap that prioritise-roadmap writes",
+        state: "missing",
+      },
+    ];
+
+    const summary = summarise(before, after, { ...CONTEXT, requirements });
+
+    expect(summary.groups.map((group) => group.key)).toEqual(["session", "setup", "workflows"]);
+    expect(summary.groups[1]?.heading).toBe("Repository files the factory needs");
+    // Path order would put docs/roadmap.md first; the group keeps the factory's order.
+    expect(summary.groups[1]?.entries.map((entry) => entry.path)).toEqual([
+      "orca.yaml",
+      "docs/roadmap.md",
+    ]);
+  });
+
+  test("renders one line per requirement state", () => {
+    const requirements: RequirementResult[] = [
+      {
+        path: "opencode.json",
+        description: "Defines the agent-coding sub-agent",
+        template: ".factory/templates/setup/opencode.json",
+        state: "created",
+      },
+      {
+        path: "orca.yaml",
+        description: "Runs metafab build in each new Orca worktree",
+        template: ".factory/templates/orca.yaml",
+        state: "present",
+      },
+      { path: "settings.json", description: "Settings", state: "present" },
+      { path: "docs/factory.md", description: "The repository settings", state: "missing" },
+      {
+        path: "LICENSE",
+        description: "The licence",
+        template: ".factory/templates/LICENSE",
+        state: "declined",
+      },
+      {
+        path: "ops.yaml",
+        description: "Operations",
+        state: "blocked",
+        reason: "ops.yaml is a directory",
+      },
+      {
+        path: "run.sh",
+        description: "The setup script",
+        template: ".factory/templates/run.sh",
+        state: "failed",
+        reason: "EACCES",
+      },
+    ];
+
+    const rendered = lines(summarise(makeTree({}), makeTree({}), { ...CONTEXT, requirements }));
+
+    expectRow(rendered, "A opencode.json", "created from .factory/templates/setup/opencode.json");
+    expectRow(rendered, "orca.yaml", "present: Runs metafab build in each new Orca worktree");
+    expectRow(rendered, "settings.json", "present");
+    expectRow(rendered, "docs/factory.md", "missing: The repository settings");
+    expectRow(rendered, "LICENSE", "not created: declined");
+    expectRow(rendered, "ops.yaml", "blocked: ops.yaml is a directory");
+    expectRow(rendered, "run.sh", "not created: EACCES");
   });
 });

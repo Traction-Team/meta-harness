@@ -1,0 +1,12 @@
+format: 1
+name: requires-fab
+
+requires:
+  - path: opencode.json
+    description: Defines the agent-coding sub-agent that every workflow starts
+    template: .factory/templates/setup/opencode.json
+  - path: docs/factory.md
+    description: The repository settings the workflows read
+    template: .factory/templates/docs/factory.md
+  - path: orca.yaml
+    description: Runs metafab build in each new Orca worktree

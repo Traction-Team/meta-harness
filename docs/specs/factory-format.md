@@ -29,7 +29,7 @@ A factory adds a pipeline to plain Agent Skills. `factory.yaml` lists the workfl
 
 ```text
 .factory/
-  factory.yaml               factory name and pipeline
+  factory.yaml               factory name, pipeline and required repository files
   AGENTS.md                  standing project instructions
   workflows/<name>/SKILL.md  steps that move work
   skills/<name>/SKILL.md     reusable project knowledge
@@ -108,6 +108,8 @@ Metafab places this content at the start of the generated factory block in the r
 
 Metafab does not install templates or scripts. Workflows use them through repository-relative paths.
 
+A template named by a [`requires`](#required-repository-files) entry is also copied once into the repository by `import` or `update`, when its file is missing and a person agrees. It is never installed as a skill.
+
 Scripts run on a contributor's machine. Review script changes as code. The update summary lists executable changes first.
 
 ## `factory.yaml`
@@ -126,6 +128,13 @@ pipeline:
   - build-slice
   - review-slice:  { stop: The code owner approves the PR }
   - finish-slice
+
+requires:
+  - path: opencode.json
+    description: Defines the agent-coding sub-agent that every workflow starts
+    template: .factory/templates/setup/opencode.json
+  - path: docs/roadmap.md
+    description: The roadmap that prioritise-roadmap writes and start-plan reads
 ```
 
 ### Top-level fields
@@ -136,6 +145,7 @@ pipeline:
 | `name` | Yes | Factory name. It uses lowercase ASCII letters, digits, and hyphens |
 | `description` | No | One-line description |
 | `pipeline` | No | Ordered list of workflows |
+| `requires` | No | Repository files outside `.factory/` that the workflows need |
 
 These fields are required only when `factory.yaml` exists.
 
@@ -164,20 +174,37 @@ Pipeline rules:
 
 Version 1 uses the pipeline only to describe the flow in `AGENTS.md`. It does not locate, track, or start work. Metafab does not enforce `stop`; it only writes the stop instruction into generated output.
 
+### Required repository files
+
+A workflow can depend on a file that does not belong in `.factory/`, such as an agent tool's configuration or a document the scripts read. `requires` lists those files. Each entry has:
+
+| Key | Required | Meaning |
+| --- | --- | --- |
+| `path` | Yes | The file, relative to the directory that contains `.factory/`, with `/` separators |
+| `description` | Yes | One line that says what the file is for. `import`, `update` and `check` show it |
+| `template` | No | A file in `.factory/templates/`, written as a repository-relative path such as `.factory/templates/setup/opencode.json`. `import` and `update` can create a missing file from it |
+
+A requirement names a file, never a directory. Metafab copies a template byte for byte; it does not fill in values. Metafab never changes, replaces or deletes a file that exists, and never runs a script to create one.
+
+`build` ignores `requires`. `import` and `update` create missing files when a person agrees (see [Importing a fab](sharing.md#importing-a-fab)). `check` warns about each one that is missing, unless rule 12 or 13 already rejected the entry.
+
 ### YAML and frontmatter grammar
 
 Metafab parses YAML as YAML 1.2. YAML documents and skill frontmatter must be mappings and must not contain duplicate mapping keys.
 
 Aliases must not expand a document past 100 values. An alias counts as the anchor's use count times the count of the anchor's largest value, where the use count is one for the anchored node plus one for each alias to it. Aliases inside those values count the same way, so counts multiply through a chain of anchors instead of adding: two aliases to an anchor whose largest value counts 2 count 4, not 3. The error names the alias that crosses the limit. An alias that refers to its own anchor is also an error.
 
-`factory.yaml` accepts only `format`, `name`, `description`, and `pipeline`. Unknown fields are errors. Field values have these types:
+`factory.yaml` accepts only `format`, `name`, `description`, `pipeline`, and `requires`. Unknown fields are errors. Field values have these types:
 
 - `format` is the integer `1`.
 - `name` is a non-empty string that follows the factory name rule above.
 - `description` is an optional non-empty, single-line string.
 - `pipeline` is an optional list.
+- `requires` is an optional list. An empty list and a null value (`requires:` with nothing after it) both mean the factory requires no files.
 
 A string pipeline entry is a workflow name. A mapping pipeline entry must contain exactly one workflow name whose value is a mapping. In version 1 that option mapping can contain only `stop`, whose value is a non-empty, single-line string. Empty entries, unknown options, and duplicate workflow entries are errors.
+
+Each `requires` entry is a mapping with `path` and `description`, and optionally `template`. All three are non-empty, single-line strings. Other keys, a missing `path` or `description`, and a duplicate key are errors.
 
 Skill frontmatter follows the Agent Skills format and can contain tool-specific fields. Metafab applies these additional type rules:
 
@@ -199,6 +226,8 @@ A version 1 factory is valid when all the following statements are true:
 9. Pipeline entries use only the `stop` option. Reserved options are errors in version 1.
 10. No factory skill name starts with `metafab`.
 11. No `SKILL.md` sits directly in a reserved top-level directory: `workflows/`, `skills/`, `templates/`, `scripts/`, `scorers/`, `rules/` or `runtimes/` (see [Reserved names](#reserved-names)), such as `.factory/workflows/SKILL.md`. Those directories hold skills; they are not skills.
+12. Each `requires` path is a safe repository path outside Metafab's own files. It is relative and uses `/` separators. It has no empty, `.` or `..` segment, no trailing `/`, no `\`, `:`, `*`, `?`, `"`, `<`, `>`, `|` or control character, no segment that ends in a dot or a space, no Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`, `LPT1` to `LPT9`, with or without an extension), and no segment Git reads as `.git`. It is not one of these forbidden targets and not below one, nor a directory that holds one (`.claude`, `.agents`): `.factory`, `.claude/skills`, `.agents/skills`, and the root `AGENTS.md`, `CLAUDE.md`, `.gitignore` and `.gitattributes` (so `.gitignore/x`, `.claude/skills` itself and `.claude` itself are refused too, while `.claude/settings.json` is allowed). These comparisons ignore letter case. No two paths are equal when letter case is ignored, and no path is below another.
+13. Each `requires` template starts with `.factory/templates/`, follows the path rules of rule 12 for the part after that prefix, and names an existing regular file. Its real path, with every link resolved at the template itself and in any parent directory, is inside `.factory/`. Its name is not `SKILL.md` in any letter case, and no directory from `.factory/templates/` down to the template's own directory holds an entry named `SKILL.md` in any letter case, so the template is never part of an installed skill. Directories whose name starts with `.` are checked the same way, although `build` ignores them.
 
 `metafab check` reports each error with a file path, line number, and suggested fix.
 

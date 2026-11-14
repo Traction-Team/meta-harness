@@ -5,6 +5,8 @@ import type { Problem } from "../../errors.js";
 import { readdirTyped } from "../../util/fs.js";
 import { cliVersion } from "../../util/version.js";
 import { toLF } from "../../util/text.js";
+import { NeedsInput } from "../../input.js";
+import type { InputIO } from "../../input.js";
 import { applyBuild, planBuild } from "../build/index.js";
 import type { BuildChange } from "../build/index.js";
 import { scanFactoryFiles } from "../check/index.js";
@@ -12,7 +14,9 @@ import { loadConfig } from "../config/load.js";
 import { CONFIG_FILE } from "../config/parse.js";
 import type { Config, UpstreamEntry } from "../config/types.js";
 import { setUpstream } from "../config/writers.js";
+import { parseFactoryYaml } from "../factory/factory-yaml.js";
 import { loadFactory } from "../factory/load.js";
+import type { Requirement } from "../factory/types.js";
 import { hookChangeLines } from "../hooks/index.js";
 import type { HookChange } from "../hooks/index.js";
 import { localFilesForImport } from "../import/conflicts.js";
@@ -21,6 +25,15 @@ import type { FileEntry, FileTree } from "../import/file-tree.js";
 import { copyFactoryTree } from "../import/copy.js";
 import { mergePath } from "../merge.js";
 import type { MergeLabels, MergeResult } from "../merge.js";
+import { factoryRelative } from "../requires/paths.js";
+import { inspectRequirement } from "../requires/inspect.js";
+import type { RequirementResult } from "../requires/inspect.js";
+import {
+  createRequirements,
+  decideSetup,
+  declineRequirements,
+  setupRequired,
+} from "../requires/setup.js";
 import { fetchFab, resolve } from "../sources/index.js";
 import type { FetchedFab, SourceOptions } from "../sources/index.js";
 import { parseSource } from "../sources/parse.js";
@@ -56,6 +69,10 @@ export interface UpdateOptions {
   to?: string;
   dryRun?: boolean;
   noBuild?: boolean;
+  /** Create the files new requirements need: `true` for `--setup`, `false` for `--no-setup`. */
+  setup?: boolean;
+  /** Injected input and output, so tests answer without a terminal. */
+  io?: InputIO;
   /** Let Git prompt for credentials; the command enables it for a TTY. */
   interactive?: boolean;
   /** Injected source settings, used by tests for a local registry or transport. */
@@ -89,6 +106,8 @@ export interface UpdateReport {
   added: string[];
   updated: string[];
   removed: string[];
+  /** The requirements new in this update, in `factory.yaml` order. */
+  requires: RequirementResult[];
   /** Human notes for the review summary. */
   notes: string[];
   problems: Problem[];
@@ -766,6 +785,7 @@ function baseReport(
   | "added"
   | "updated"
   | "removed"
+  | "requires"
   | "notes"
   | "problems"
   | "built"
@@ -786,6 +806,7 @@ function baseReport(
     added: [],
     updated: [],
     removed: [],
+    requires: [],
     notes: [],
     problems: [],
     built: false,
@@ -823,6 +844,54 @@ function requestLabel(upstream: VersionedUpstream): string {
 /** True when two upstream entries record the same request and revision. */
 function sameUpstream(left: VersionedUpstream, right: VersionedUpstream): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+/** The requirements a `factory.yaml` text lists, or none when it has no text. */
+function requirementsIn(text: string | undefined): Requirement[] {
+  if (text === undefined) return [];
+  return parseFactoryYaml(text, ".factory/factory.yaml").requires ?? [];
+}
+
+/** The requirements whose folded path the previous `factory.yaml` did not list. */
+function newRequirements(
+  previous: readonly Requirement[],
+  merged: readonly Requirement[],
+): Requirement[] {
+  const known = new Set(previous.map((requirement) => requirement.path.toLowerCase()));
+  return merged.filter((requirement) => !known.has(requirement.path.toLowerCase()));
+}
+
+/**
+ * Inspects each requirement new upstream. A template the merge left in conflict
+ * is blocked instead: its file cannot be created from a conflicted template.
+ */
+async function inspectNewRequirements(
+  root: string,
+  previous: readonly Requirement[],
+  merged: readonly Requirement[],
+  conflicted: ReadonlySet<string>,
+): Promise<RequirementResult[]> {
+  const results: RequirementResult[] = [];
+
+  for (const requirement of newRequirements(previous, merged)) {
+    const relative =
+      requirement.template === undefined ? undefined : factoryRelative(requirement.template);
+    if (relative !== undefined && conflicted.has(relative)) {
+      results.push({
+        path: requirement.path,
+        description: requirement.description,
+        template: requirement.template,
+        state: "blocked",
+        reason: `its template ${requirement.template} has a conflict`,
+        clash: relative,
+      });
+      continue;
+    }
+
+    results.push(await inspectRequirement(root, requirement));
+  }
+
+  return results;
 }
 
 /**
@@ -966,6 +1035,37 @@ async function runVersioned(
 
     const notes = [...plan.notes];
     const problems: Problem[] = [];
+    const io = options.io ?? {};
+    const tty = io.tty ?? process.stdin.isTTY === true;
+
+    // A requirement new upstream is offered before the first write, so a
+    // missing terminal or a refusal leaves the repository exactly as it was.
+    // An old requirement that is still missing is check's to report, not a
+    // question the person already answered.
+    let mergedRequires: Requirement[] = [];
+    let requirements: RequirementResult[] = [];
+    let setupAgreed = false;
+    if (plan.conflicts.includes("factory.yaml")) {
+      notes.push(
+        "Required repository files not checked: resolve the conflict in factory.yaml first.",
+      );
+    } else {
+      mergedRequires = requirementsIn(plan.after["factory.yaml"]?.text);
+      requirements = await inspectNewRequirements(
+        root,
+        requirementsIn(before["factory.yaml"]?.text),
+        mergedRequires,
+        // Every side file is also pushed to `plan.conflicts`, so this one set
+        // covers a conflicted `factory.yaml` and a conflicted template alike.
+        new Set(plan.conflicts),
+      );
+      if (options.dryRun !== true) {
+        const decision = await decideSetup(requirements, options.setup, io, tty);
+        if (decision === "needs-input") throw new NeedsInput([setupRequired(requirements)]);
+        setupAgreed = decision;
+      }
+    }
+
     if (baseUnavailable) {
       const label = recordedLabel(previous);
       notes.push(
@@ -1032,6 +1132,18 @@ async function runVersioned(
       }
     }
 
+    // Creation happens outside the captured block: it writes outside
+    // `.factory/`, and a restore must not undo a file the person agreed to.
+    // Each entry's state before that says whether the file was already there.
+    const statesBeforeCreation = new Map(
+      requirements.map((result) => [result.path.toLowerCase(), result.state]),
+    );
+    if (options.dryRun !== true && requirements.length > 0) {
+      requirements = setupAgreed
+        ? await createRequirements(root, requirements, problems)
+        : declineRequirements(requirements);
+    }
+
     // The build runs outside the captured block: a build failure never rolls
     // back an update that is already complete.
     if (built) {
@@ -1072,11 +1184,28 @@ async function runVersioned(
     ].sort();
     const changes = changedPaths(alignedBefore, after, plan.conflicts);
 
+    // A template that changed upstream never changes the file it created: it is
+    // the person's file now. Say so, so the change is not mistaken for a no-op.
+    // A file this update created from the changed template is not one of those:
+    // it did not exist before the run, so nothing local was left alone.
+    for (const requirement of mergedRequires) {
+      if (requirement.template === undefined) continue;
+      if (!changes.updated.includes(factoryRelative(requirement.template))) continue;
+      const state =
+        statesBeforeCreation.get(requirement.path.toLowerCase()) ??
+        (await inspectRequirement(root, requirement)).state;
+      if (state !== "present") continue;
+      notes.push(
+        `Upstream changed ${requirement.template}, the template for ${requirement.path}; ${requirement.path} was not changed.`,
+      );
+    }
+
     const review = summarise(alignedBefore, after, {
       title: titleFor(previous, selectedEntry),
       ...(preserved.length === 0 ? {} : { preserved }),
       ...(plan.conflicts.length === 0 ? {} : { conflicts: plan.conflicts }),
       ...(notes.length === 0 ? {} : { notes }),
+      requirements,
     });
 
     return {
@@ -1092,6 +1221,7 @@ async function runVersioned(
       added: changes.added,
       updated: changes.updated,
       removed: changes.removed,
+      requires: requirements,
       notes,
       problems,
       built,
@@ -1148,10 +1278,30 @@ async function runUnversioned(
     if (clashes.length > 0) throw pathClashes(clashes);
 
     const notes = ["Replaced local edits can be restored from Git."];
+    const problems: Problem[] = [];
+    const io = options.io ?? {};
+    const tty = io.tty ?? process.stdin.isTTY === true;
     let changed: BuildChange[] = [];
     let hooks: HookChange[] = [];
-    const problems: Problem[] = [];
     const built = options.dryRun !== true && options.noBuild !== true;
+
+    // The copy replaces `.factory/` and keeps everything else, so a requirement
+    // new upstream is offered before the first write: a missing terminal or a
+    // refusal leaves `.factory/` unchanged. There are no conflicts here, so
+    // nothing can block an entry.
+    const mergedRequires = requirementsIn(theirs["factory.yaml"]?.text);
+    let requirements = await inspectNewRequirements(
+      root,
+      requirementsIn(before["factory.yaml"]?.text),
+      mergedRequires,
+      new Set(),
+    );
+    let setupAgreed = false;
+    if (options.dryRun !== true) {
+      const decision = await decideSetup(requirements, options.setup, io, tty);
+      if (decision === "needs-input") throw new NeedsInput([setupRequired(requirements)]);
+      setupAgreed = decision;
+    }
 
     if (options.dryRun === true) {
       notes.push("Dry run: nothing was written.");
@@ -1170,6 +1320,14 @@ async function runUnversioned(
       } finally {
         await capture.discard();
       }
+    }
+
+    // Creation happens outside the captured block, after the copy: a missing
+    // parent is made first, and an existing file is never replaced.
+    if (options.dryRun !== true && requirements.length > 0) {
+      requirements = setupAgreed
+        ? await createRequirements(root, requirements, problems)
+        : declineRequirements(requirements);
     }
 
     // The build runs outside the captured block: a build failure never rolls
@@ -1197,6 +1355,7 @@ async function runUnversioned(
     const review = summarise(before, after, {
       title: `${previous.source} (unversioned)`,
       notes,
+      requirements,
     });
 
     return {
@@ -1205,6 +1364,7 @@ async function runUnversioned(
       replaced,
       added,
       updated,
+      requires: requirements,
       notes,
       problems,
       built,

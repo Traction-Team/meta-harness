@@ -3,6 +3,7 @@ import { planBuild } from "../build/plan.js";
 import { dedupeReadErrors } from "../build/skill.js";
 import { loadConfig } from "../config/load.js";
 import { loadFactory } from "../factory/load.js";
+import { requirementWarnings } from "../requires/check.js";
 import { compareBuildOutput } from "./drift.js";
 import { scanFactoryFiles } from "./markers.js";
 
@@ -28,9 +29,9 @@ function problemKey(problem: Problem): string {
  * Validates the factory source, its configuration and the installed output.
  *
  * Problems come back in report order: factory problems, configuration
- * problems, build errors, conflict markers, `.upstream` files, build drift and
- * finally build warnings. Drift and warnings are skipped when an error leaves
- * the build planner without a valid model.
+ * problems, required-file warnings, build errors, conflict markers,
+ * `.upstream` files, build drift and finally build warnings. Drift and warnings
+ * are skipped when an error leaves the build planner without a valid model.
  */
 export async function runCheck(root: string, cliVersion: string): Promise<Problem[]> {
   const factory = await loadFactory(root);
@@ -48,6 +49,12 @@ export async function runCheck(root: string, cliVersion: string): Promise<Proble
 
   for (const problem of factory.problems) add(problem);
   for (const problem of config.problems) add(problem);
+
+  // Required-file warnings never change the exit code and never count as
+  // planner errors, so they never suppress the drift check.
+  if (factory.factoryYaml !== undefined) {
+    for (const problem of await requirementWarnings(factory)) add(problem);
+  }
 
   const plan = await planBuild(factory, config, cliVersion);
   for (const problem of plan.errors) add(problem);

@@ -92,5 +92,8 @@ Do not start from a template. Ask the person how work moves today, where people 
 - Add a stop wherever a person decides before work continues. Name who decides and what they approve.
 - Split reusable knowledge into skills rather than repeating it in workflows.
 - Start with four to eight workflows. Add more only when a step genuinely repeats.
+- List files outside `.factory/` that the workflows need under `requires` in `factory.yaml`, with a template in `.factory/templates/` when Metafab can create them.
+- Put per-repository values in a file a template creates, never in `.factory/`.
+- Put repository-specific standing instructions in the root `AGENTS.md` outside the factory block.
 
 A factory that matches how the team already works is easier to follow than one that invents a new process.
