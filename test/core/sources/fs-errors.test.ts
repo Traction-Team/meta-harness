@@ -262,14 +262,14 @@ describe("cache write failures", () => {
     test(`the npm tarball copy into the cache is exit 3 (${code})`, async () => {
       const resolved = await resolve(parseSource("fab-fs@1.0.0"), npmOptions());
       copyFileFailure = { match: (_from, to) => to.includes(".tmp-"), code };
+      const tarball = cacheLayout(cache).npmTarball("fab-fs", "1.0.0");
 
       await expectCacheWriteFailure(
         code,
         () => fetchFab(resolved, npmOptions()),
-        (file) => {
-          expect(file.startsWith(toPosixPath(path.join(cache, "npm", "fab-fs")))).toBe(true);
-          expect(file).toMatch(/\.tgz\.tmp-/);
-        },
+        // The copy writes the staging file, which `getOrCreate` removes, so the
+        // problem names the cache path the tarball belongs at.
+        (file) => expect(file).toBe(toPosixPath(tarball)),
       );
     });
   }

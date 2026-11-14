@@ -388,8 +388,14 @@ async function packedTarballSize(packDir: string): Promise<number | undefined> {
   }
 }
 
+/**
+ * Writes the packed tarball to `staging`, the temporary entry `getOrCreate`
+ * gives it, and names `target`, its final place, in an error: the staging file
+ * is removed before the person reads the message.
+ */
 async function downloadTarball(
   source: ResolvedNpm,
+  staging: string,
   target: string,
   root: string,
   options: NpmOptions,
@@ -438,14 +444,14 @@ async function downloadTarball(
     const size = (await stat(packed)).size;
     if (size > maxBytes) throw tarballTooLarge(source, size, maxBytes);
 
-    const directory = path.dirname(target);
+    const directory = path.dirname(staging);
     try {
       await mkdir(directory, { recursive: true });
     } catch (error) {
       throw cacheWriteError(directory, root, error);
     }
     try {
-      await copyFile(packed, target);
+      await copyFile(packed, staging);
     } catch (error) {
       throw cacheWriteError(target, root, error);
     }
@@ -473,7 +479,7 @@ async function fetchNpmTarball(
       verifyIntegrity(target, data, source.integrity);
       return target;
     },
-    create: (staging) => downloadTarball(source, staging, layout.root, options),
+    create: (staging) => downloadTarball(source, staging, target, layout.root, options),
   });
 }
 
