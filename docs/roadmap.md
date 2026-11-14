@@ -92,10 +92,10 @@ A team keeps its factory's working documents and scores in a shared store outsid
 1.002 and 1.003 can run in parallel. 1.007 can run in parallel with 1.004 to 1.006. 1.013 needs nothing unmerged and can run beside 1.005 and 1.006. 1.008 can start once 1.002 and 1.003 are done. 1.014 and 1.015 need nothing unmerged and share no paths with 1.009 to 1.011, so they can run beside them. 1.017 should land between waves, because it changes how every worktree gets its skills. 1.018 shares no paths with 1.017, so the two can run side by side after 1.016. On 12 Nov 1.012 was split into 1.020 to 1.024. 1.019 and 1.021 can run side by side; 1.020 waits for 1.019 because both change `src/core/build/plan.ts`. 1.023 needs 1.020 and 1.021. 1.022 and 1.024 can run side by side after 1.023; 1.024 should land between waves, because it replaces `.factory/` and every worktree's skills. 1.012 publishes the package, and 1.025 turns on hooks here once it is on npm.
 
 ```text
-1.023 ── 2.001 ── 2.002 ──┐
-1.020 ────────────────────┴─ 2.003 ── 2.004 ─┬─ 2.005 ── 2.006 ─┬─ 2.009
-                                              ├─ 2.007 ── 2.008 ─┘
-                                              └─ 2.010
+1.012 + 1.023 ── 2.001 ── 2.002 ──┐
+1.020 ────────────────────────────┴─ 2.003 ── 2.004 ─┬─ 2.005 ── 2.006 ─┬─ 2.009
+                                                     ├─ 2.007 ── 2.008 ─┘
+                                                     └─ 2.010
 ```
 
 Milestone 4 is mostly a chain, because each plan builds on the model the one before it adds. After 2.004 merges, 2.007 shares no paths with 2.005 and 2.006 and can run beside them. 2.003 registers every later command as a stub, so each later plan owns only its own command files. 2.010 touches only backend and configuration code, so it can run beside 2.005 to 2.009. Release 2.0.0 after 2.009 and 2.010.

@@ -291,7 +291,9 @@ Pull also writes a document whose path differs only in letter case from a local 
 
 ### Status
 
-`metafab store status` reads the state file and the local files, and lists the store once. It reports each document that is `modified`, `new` (a local file with no state entry and no document), `unrecorded` (a local file with no state entry whose path the store holds; status fetches the current version and says whether the next pull records it, when equal, or writes a conflict copy), `deleted` (a state entry with no local file), `behind` (clean, but the store has a newer version), `conflict` (has a conflict copy), or `archived` (the local file remains, but the document is archived). It reports tracked files in store folders, and counts the documents outside the sync windows on one line. With `--offline` it reads the index instead of listing the store, and says the result may be stale.
+`metafab store status` reads the state file and the local files, and lists the store once. It reports each document that is `modified`, `new` (a local file with no state entry and no document), `unrecorded` (a local file with no state entry whose path the store holds; status fetches the current version and says whether the next pull records it, when equal, or writes a conflict copy), `deleted` (a state entry with no local file), `behind` (clean, but the store has a newer version), `conflict` (has a conflict copy), or `archived` (the local file remains, but the document is archived). It reports tracked files in store folders, and counts the documents outside the sync windows on one line.
+
+Each path is reported once. When several states apply, the first in this order names it: `conflict`, `deleted`, `modified`, `unrecorded`, `new`, `archived`, `outside` (a clean, unpinned file outside its [sync window](#sync-windows), which the next pull removes), `behind`. The others still apply and are listed with it, so a modified file whose document was archived is reported as `modified (archived in the store)`, and `--json` gives each path one `state` and a `also` list. With `--offline` it reads the index instead of listing the store, and says the result may be stale.
 
 ### Push
 
@@ -449,7 +451,7 @@ A document subject for a path that is not in the store is refused, and so is a v
 
 | Command | Behaviour |
 | --- | --- |
-| `score <subject> (--file <json> \| --name <n> (--value <x> \| --label <l>) [--scale <min>..<max>] [--rationale <text>] [--model <m>])` | Records one score. `--file` holds a whole score object without `id`, `subject` or `origin`; flags override its fields. The CLI checks the score before it sends it. A document subject without `@v<n>` whose local file has unsaved changes, is new, or was deleted is refused, with the fix `Push it first, or name the version with @v<n>`, because the score would name a version nobody read |
+| `score <subject> (--file <json> \| --name <n> (--value <x> \| --label <l>) [--scale <min>..<max>] [--rationale <text>] [--model <m>])` | Records one score. `--file` holds a whole score object without `id`, `subject`, `version`, `revision` or `origin`, which the CLI sets from the subject it resolves; a file that has one is refused. Flags override its other fields. The CLI checks the score before it sends it. A document subject without `@v<n>` whose local file has unsaved changes, is new, or was deleted is refused, with the fix `Push it first, or name the version with @v<n>`, because the score would name a version nobody read |
 | `scores [<subject> \| <folder>] [--name <n>] [--since <date>] [--limit <n>] [--json]` | Lists scores, newest first: the time, the name, the value on its scale or the label, the subject at its version or revision, and the scorer. A folder lists the scores of the documents under it |
 
 [Scorers](#scorers) record scores through `metafab scorer record`, which builds the score from a judge's result.

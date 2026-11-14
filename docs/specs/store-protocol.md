@@ -24,14 +24,14 @@ An error response has a status code and this body:
 
 | Status | `code` | Meaning | The CLI |
 | --- | --- | --- | --- |
-| 400 | `bad-request` | The request is malformed | Exit 1; a client bug |
+| 400 | `bad-request` | The request is malformed: the body is not JSON, a field has the wrong JSON type, or a query value is not valid (such as `limit=abc`) | Exit 1; a client bug |
 | 401 | `unauthenticated` | No token, or the token is not valid | Exit 6, suggests `metafab store login` |
 | 403 | `forbidden` | The token cannot do this | Exit 6 |
 | 404 | `not-found` | The store, document or version does not exist | Depends on the command |
 | 409 | `conflict` | A base version is stale. `details.conflicts` lists them | Conflict copies, exit 1 |
 | 409 | `archived` | A save names an archived document. `details.paths` lists them | Exit 1, suggests `restore` |
 | 413 | `too-large` | The request is over a limit. `details.limit` names it | Exit 1 |
-| 422 | `invalid` | A document or score breaks a rule. `details.problems` lists them | Exit 1 |
+| 422 | `invalid` | A document or score breaks a rule, or the request has an unknown field. `details.problems` lists them | Exit 1 |
 | 426 | `upgrade-required` | The server no longer supports this protocol version | Exit 6, suggests upgrading `@seasb/metafab` |
 | 429 | `rate-limited` | Too many requests. `Retry-After` gives seconds | Retries |
 | 5xx | any | A server failure | Retries reads; exit 6 |
@@ -172,7 +172,7 @@ Records scores in one atomic request. Request: `{ "scores": [<score without reco
 1. A document subject without `version` is pinned to the current version. A document subject whose path is not in the store, or whose version is past the newest, is 422. An archived document's versions are accepted.
 2. A `pr`, `branch`, `commit` or `file` subject without `revision` is 422. The server does not resolve revisions.
 3. A subject that is not in its canonical form ([Subjects](store.md#subjects)) is 422.
-4. A score whose `id` the server already holds is not recorded again; the response returns the stored score.
+4. A score whose `id` the server already holds is not recorded again, and is not checked again: the response returns the stored score, even when the retried payload differs. An `id` repeated within one request is recorded once. Rules 1 to 3 apply only to new scores.
 
 Response 200: `{ "scores": [<score>…] }`, in request order.
 
