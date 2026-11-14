@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-14
+updated: 2026-11-15
 ---
 
 # Metafab v1 roadmap
@@ -53,11 +53,22 @@ A team can publish a factory as a fab and other teams can import and update it.
 - [x] [1.021 Source hardening](plans/1.021-source-hardening.md): `git+file://` sources, safe cache and mirror swaps, cache write errors exit 3, npm size checked before download
 - [ ] [1.023 Factory requirements](plans/1.023-factory-requires.md): `requires:` in `factory.yaml`; `import` and `update` offer to create missing repository files from templates, `check` warns
 - [ ] [1.022 Verification](plans/1.022-verification.md): agent tools, Windows, git hooks under Git for Windows, the CI recipe against `mark4-like`, the error message and `--json` contract, recorded in `docs/verification.md`
-- [ ] [1.024 First fab](plans/1.024-first-fab.md): the Dragonfly factory generalised as `@seasb/fab-orca`, and this repository imports it
+- [ ] [1.024 First fab](plans/1.024-first-fab.md): the Dragonfly factory generalised as `@seasb/fab-basic`, and this repository imports it
 - [ ] [1.012 Release v1](plans/1.012-release.md): package `README.md`, release workflow with provenance, `@seasb/metafab@1.0.0`
 - [ ] [1.025 Git hooks on here](plans/1.025-git-hooks-on.md): `@seasb/metafab` as a devDependency and `git-hooks: true` in this repository, once 1.0.0 is on npm
 
-## Milestone 4: Store (version 2, draft plans)
+## Milestone 4: Environments (version 2)
+
+A team compiles one factory for each developer's environment: the factory declares variables such as `harness` and `workspace`, each developer selects values in Git config, and `build` installs only the instructions that apply, with `when`, `switch` and `import` directives and conditional skills. What to build: [Environments](specs/environments.md). 2.011 to 2.014 and 2.016 are approved (2026-11-15); 2.015 stays a draft until its prerequisites land. Start them after 1.012 releases v1.
+
+- [ ] [2.011 Environment declarations and selection](plans/2.011-environment-selection.md): `format: 2`, `env` in `factory.yaml`, selection from `--env`, `FACTORY_ENV_*` and Git config, `metafab env`, `env set`, `env unset`
+- [ ] [2.012 Conditional blocks and skills](plans/2.012-conditional-blocks.md): `when` and `switch` directives, labels for partial matches, `skills:` conditions, `check` validates every branch
+- [ ] [2.013 Imports and partials](plans/2.013-imports.md): `factory:import`, shared partials in `.factory/partials/`, path rules and import loops
+- [ ] [2.014 Preview and authoring guidance](plans/2.014-preview-and-guidance.md): `build --out`, the `metafab` skill's Environments section, the workflow guidance rule
+- [ ] [2.016 Prerelease 2.0.0-next.1](plans/2.016-prerelease-next.md): the release workflow publishes a prerelease version under the npm dist-tag `next` and never moves `latest`; `@seasb/metafab@2.0.0-next.1`
+- [ ] [2.015 This repository's factory uses environments](plans/2.015-dogfood-environments.md): fab-basic 0.2.0 declares `harness` and `workspace` with partials for sub-agents and workers; this repository updates to it, pins 2.0.0-next.1, and `.agents/setup` selects Amp and orbs
+
+## Milestone 5: Store (version 2, draft plans)
 
 A team keeps its factory's working documents and scores in a shared store outside Git, with a local mirror for agents. What to build: [Store](specs/store.md) and [Store protocol](specs/store-protocol.md). These plans are drafts awaiting approval; start them after 1.012 releases v1.
 
@@ -92,13 +103,20 @@ A team keeps its factory's working documents and scores in a shared store outsid
 1.002 and 1.003 can run in parallel. 1.007 can run in parallel with 1.004 to 1.006. 1.013 needs nothing unmerged and can run beside 1.005 and 1.006. 1.008 can start once 1.002 and 1.003 are done. 1.014 and 1.015 need nothing unmerged and share no paths with 1.009 to 1.011, so they can run beside them. 1.017 should land between waves, because it changes how every worktree gets its skills. 1.018 shares no paths with 1.017, so the two can run side by side after 1.016. On 12 Nov 1.012 was split into 1.020 to 1.024. 1.019 and 1.021 can run side by side; 1.020 waits for 1.019 because both change `src/core/build/plan.ts`. 1.023 needs 1.020 and 1.021. 1.022 and 1.024 can run side by side after 1.023; 1.024 should land between waves, because it replaces `.factory/` and every worktree's skills. 1.012 publishes the package, and 1.025 turns on hooks here once it is on npm.
 
 ```text
-1.012 + 1.023 ── 2.001 ── 2.002 ──┐
-1.020 ────────────────────────────┴─ 2.003 ── 2.004 ─┬─ 2.005 ── 2.006 ─┬─ 2.009
-                                                     ├─ 2.007 ── 2.008 ─┘
-                                                     └─ 2.010
+1.012 + 1.023 ── 2.011 ── 2.012 ── 2.013 ── 2.014 ── 2.016 ── 2.015
+                               PR #25 ── 1.024 + 1.025 ───────┘
 ```
 
-Milestone 4 is mostly a chain, because each plan builds on the model the one before it adds. After 2.004 merges, 2.007 shares no paths with 2.005 and 2.006 and can run beside them. 2.003 registers every later command as a stub, so each later plan owns only its own command files. 2.010 touches only backend and configuration code, so it can run beside 2.005 to 2.009. Release 2.0.0 after 2.009 and 2.010.
+Milestone 4 is a chain: each plan extends the parser, renderer or command the one before it adds. 2.016 publishes `@seasb/metafab@2.0.0-next.1` under the `next` dist-tag once 2.014 has merged; it changes only the release workflow, its tests and the version, so it shares no paths with 2.011 to 2.014. 2.015 also waits for 2.016 (fab-basic 0.2.0 and this repository pin the prerelease), 1.024 (which imports fab-basic, carrying PR #25's Amp flow as hand-written variants; PR #25 merges before 1.024 is built) and 1.025 (whose devDependency 2.015 moves, so the hooks read format 2). 2.015's factory rewrite happens in fab-basic, outside this repository, before its pull request here. 2.011 introduces `format: 2`, so it comes before the store plans too.
+
+```text
+1.012 + 1.023 ── 2.011 ── 2.001 ── 2.002 ──┐
+1.020 ─────────────────────────────────────┴─ 2.003 ── 2.004 ─┬─ 2.005 ── 2.006 ─┬─ 2.009
+                                                              ├─ 2.007 ── 2.008 ─┘
+                                                              └─ 2.010
+```
+
+Milestone 5 is mostly a chain, because each plan builds on the model the one before it adds. 2.001 needs only 2.011 from Milestone 4, but it changes the same factory files as 2.012 and 2.013 (`factory-yaml.ts`, `types.ts`, `validate.ts`, `load.ts`), so it never runs beside them; in roadmap order it starts after 2.014. After 2.004 merges, 2.007 shares no paths with 2.005 and 2.006 and can run beside them. 2.003 registers every later command as a stub, so each later plan owns only its own command files. 2.010 touches only backend and configuration code, so it can run beside 2.005 to 2.009. Release 2.0.0 after 2.009 and 2.010.
 
 ## Open questions
 
@@ -111,6 +129,7 @@ Answer these before or during the named plan. Spec-level questions are linked to
 | Multiple upstream fabs; pipeline branches; trusted publishers; fleet updates | After v1 | Deferred |
 | Approve the version 2 store direction: `metafab store` (Metastore Cloud is the hosted backend), trunk-only documents with origin (not branch-aware records), `format: 2` with `documents` and scorers, a new exit code 6, and remote, git and local backends | 2.001 to 2.010, [spec](specs/store.md) | Approve as written; branch-aware records stay a [draft](specs/next/branch-aware-records.md) |
 | Should backends enforce document rules, so two pushes at once cannot save duplicate unique values? | After 2.009, [spec](specs/store.md#open-questions) | Later, as a protocol capability |
+| Approve the environments direction: [spec amendments](specs/environments.md) of 15 Nov (variable names start with a letter; outside a Git repository global and system config still count; labels leave out variables with every value; `build --out` refuses skill destinations; a block and its enclosing conditions span at most 1024 combinations; whitespace is optional around condition symbols), `env set` and `env unset` rebuild, and no compile of every selection in `check` | 2.011 to 2.014, [spec](specs/environments.md) | Approve as written |
 | Which environment variables identify each agent tool for `origin.agent`? | [2.002](plans/2.002-store-model-and-local-backend.md#open-questions) | Documented variables only; `METAFAB_AGENT` otherwise |
 
 ## Decisions
@@ -119,7 +138,11 @@ Record answered questions here with the date and the commit that applied them.
 
 | Date | Decision | Applied in |
 | --- | --- | --- |
-| 2026-11-12 | Split 1.012 into 1.020 to 1.024 and the npm release. The first fab generalises the Dragonfly factory as `@seasb/fab-orca` instead of porting Mark IV, and this repository imports it | [1.012](plans/1.012-release.md), [1.024](plans/1.024-first-fab.md) |
+| 2026-11-15 | The first fab is `@seasb/fab-basic` (`github:seasb/fab-basic`), not `fab-orca`: a factory named after one harness or runner conflicts with environments, and the fab describes a process | [1.024](plans/1.024-first-fab.md#decisions), [1.012](plans/1.012-release.md) |
+| 2026-11-15 | PR #25 (Amp orbs and Amp workers) merges before 1.024 is built; 1.024 carries its Amp flow into fab-basic as hand-written variants, and 2.015 turns them into `switch` blocks in fab-basic, never as local edits here | [1.024](plans/1.024-first-fab.md#decisions), [2.015](plans/2.015-dogfood-environments.md#decisions) |
+| 2026-11-15 | Harness values are `opencode`, `claude` and `amp`. Claude Code sub-agents live in `.claude/agents/`, shipped by fab-basic as setup templates under `requires`; partials never hard-code sub-agent names but use the `sub-agent-*` settings in `docs/factory.md` | [2.015](plans/2.015-dogfood-environments.md#decisions) |
+| 2026-11-15 | After 2.014, publish `@seasb/metafab@2.0.0-next.1` under the npm dist-tag `next`; fab-basic 0.2.0 and this repository (the 1.025 devDependency) pin it until 2.0.0 ships. 1.012's release workflow needs a `--tag next` change first | [2.015](plans/2.015-dogfood-environments.md#decisions), [2.016](plans/2.016-prerelease-next.md) |
+| 2026-11-12 | Split 1.012 into 1.020 to 1.024 and the npm release. The first fab generalises the Dragonfly factory as `@seasb/fab-basic` instead of porting Mark IV, and this repository imports it | [1.012](plans/1.012-release.md), [1.024](plans/1.024-first-fab.md) |
 | 2026-11-12 | Factory discovery stops at the Git top level, and outside Git checks only the current directory. Keep the name `.factory/`; a `.factory/` with Factory.ai Droid's files and no `factory.yaml` is refused with exit 5 | [1.020](plans/1.020-cli-fixes.md) |
 | 2026-11-12 | A factory declares the repository files it needs under `requires:` in `factory.yaml`. `import` and `update` offer to create missing ones from templates and never overwrite; `check` warns. No scripts run on import in v1. Per-repository values live in a repository-owned settings file the fab's template creates | [1.023](plans/1.023-factory-requires.md) |
 | 2026-11-12 | `metafab <command> --help` prints the command's usage, arguments and options; `git+file://` is a Git source | [1.020](plans/1.020-cli-fixes.md), [1.021](plans/1.021-source-hardening.md) |

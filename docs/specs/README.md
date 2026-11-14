@@ -31,6 +31,7 @@ These specifications are drafts for approval. They are the acceptance standard f
 | --- | --- |
 | [Store](store.md) | Documents and scores in a shared store outside Git: document folders and their rules, the mirror, sync, scores, scorers, the remote, git and local backends, and `metafab store` and `metafab scorer` |
 | [Store protocol](store-protocol.md) | The HTTP API a remote store implements, such as Metastore Cloud |
+| [Environments](environments.md) | One factory compiled for each developer's environment: `env` variables, selection from Git config, `when`, `switch` and `import` directives, conditional skills, and `metafab env` |
 
 ## Architecture
 

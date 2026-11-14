@@ -331,7 +331,7 @@ metafab store drop feat/abandoned
 metafab store trail --anchor pr:42 --depth 4
 ```
 
-Every command reads context from Git by default and prints JSON with `--json`. The built-in `metafab` skill teaches agents these commands, and [Bundling](bundling.md) can install store-specific skills for the developer's environment.
+Every command reads context from Git by default and prints JSON with `--json`. The built-in `metafab` skill teaches agents these commands, and [Environments](../environments.md) can install store-specific skills for the developer's environment.
 
 ## Security and privacy
 
