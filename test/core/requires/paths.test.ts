@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   FACTORY_TEMPLATES_PREFIX,
+  FORBIDDEN_REQUIREMENT_DIRECTORIES,
   FORBIDDEN_REQUIREMENT_TARGETS,
   factoryRelative,
   requirementPathProblem,
@@ -42,6 +43,10 @@ describe("requirementPathProblem", () => {
     [".claude/skills/x/SKILL.md", "is a file Metafab writes"],
     [".CLAUDE/Skills/x", "is a file Metafab writes"],
     [".agents/skills", "is a file Metafab writes"],
+    [".claude", "is a directory that holds a file Metafab writes"],
+    [".CLAUDE", "is a directory that holds a file Metafab writes"],
+    [".agents", "is a directory that holds a file Metafab writes"],
+    [".AGENTS", "is a directory that holds a file Metafab writes"],
     ["AGENTS.md", "is a file Metafab writes"],
     ["agents.md", "is a file Metafab writes"],
     ["AGENTS.md/x", "is a file Metafab writes"],
@@ -61,10 +66,21 @@ describe("requirementPathProblem", () => {
     "orca.yaml",
     "docs/AGENTS.md",
     "docs/.gitignore.md",
+    ".claude/settings.json",
+    ".agents/settings.json",
     "a.b/c",
     "nested/very/deep/file.txt",
   ])("accepts %s", (value) => {
     expect(requirementPathProblem(value)).toBeUndefined();
+  });
+
+  test("refuses the directory that holds a forbidden target, but not a path below it", () => {
+    for (const directory of FORBIDDEN_REQUIREMENT_DIRECTORIES) {
+      expect(requirementPathProblem(directory)).toBeDefined();
+      expect(requirementPathProblem(directory.toUpperCase())).toBeDefined();
+      expect(requirementPathProblem(`${directory}/settings.json`)).toBeUndefined();
+      expect(requirementPathProblem(`${directory}/skills/x`)).toBeDefined();
+    }
   });
 
   test("refuses every forbidden target and every path below it", () => {

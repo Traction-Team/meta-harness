@@ -265,6 +265,10 @@ describe("rule 12", () => {
     [".Factory/x", "is inside .factory/"],
     [".claude/skills/x/SKILL.md", "is a file Metafab writes"],
     [".claude/skills", "is a file Metafab writes"],
+    [".claude", "is a directory that holds a file Metafab writes"],
+    [".CLAUDE", "is a directory that holds a file Metafab writes"],
+    [".agents", "is a directory that holds a file Metafab writes"],
+    [".AGENTS", "is a directory that holds a file Metafab writes"],
     ["AGENTS.md", "is a file Metafab writes"],
     ["agents.md", "is a file Metafab writes"],
     [".gitattributes", "is a file Metafab writes"],
@@ -280,9 +284,12 @@ describe("rule 12", () => {
     );
   });
 
-  test.each(["docs/factory.md", ".github/x.yml"])("accepts %s", (path) => {
-    expect(rule12RequirementPath(FILE, requirement(path))).toEqual([]);
-  });
+  test.each(["docs/factory.md", ".github/x.yml", ".claude/settings.json"])(
+    "accepts %s",
+    (path) => {
+      expect(rule12RequirementPath(FILE, requirement(path))).toEqual([]);
+    },
+  );
 
   test("reports a repeat that differs only in case", () => {
     const problems = rule12UniqueRequirements(FILE, [

@@ -18,6 +18,14 @@ export const FORBIDDEN_REQUIREMENT_TARGETS = [
   ".gitattributes",
 ] as const;
 
+/**
+ * Directories that hold a target of `FORBIDDEN_REQUIREMENT_TARGETS`, so the
+ * directory itself is refused: `build` needs it to stay a directory, and a
+ * requirement with a template there would create it as a file. A path below one
+ * is still allowed, such as `.claude/settings.json`.
+ */
+export const FORBIDDEN_REQUIREMENT_DIRECTORIES = [".claude", ".agents"] as const;
+
 /** Characters no `requires` path may hold: Windows refuses them in a name. */
 const FORBIDDEN_CHARACTER = /[\\:*?"<>|\u0000-\u001f\u007f]/;
 
@@ -68,6 +76,9 @@ export function requirementPathProblem(value: string): string | undefined {
   const folded = value.toLowerCase();
   if (folded === ".factory" || folded.startsWith(".factory/")) return "is inside .factory/";
   if (isForbiddenTarget(folded)) return "is a file Metafab writes";
+  if (FORBIDDEN_REQUIREMENT_DIRECTORIES.some((directory) => folded === directory)) {
+    return "is a directory that holds a file Metafab writes";
+  }
 
   return undefined;
 }
