@@ -1,10 +1,11 @@
-import { chmod } from "node:fs/promises";
+import { chmod, symlink } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
 import type { Problem } from "../../../src/errors.js";
 import { loadFactory } from "../../../src/core/factory/index.js";
 import { requirementWarnings } from "../../../src/core/requires/check.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
 
+const cannotLink = process.platform === "win32";
 const cannotTestPermissions = process.platform === "win32" || process.getuid?.() === 0;
 
 const WITH_TEMPLATE = [
@@ -323,6 +324,35 @@ describe("requirementWarnings", () => {
         fix: "Move OpenCode.json away, then create opencode.json",
       },
     ]);
+  });
+
+  test.skipIf(cannotLink)("offers a rename for a case-variant link at the path", async () => {
+    const repo = await makeRepo({
+      ".factory/factory.yaml": [
+        "format: 1",
+        "name: demo",
+        "requires:",
+        "  - path: opencode.json",
+        "    description: A file the workflows read",
+        "",
+      ].join("\n"),
+    });
+    try {
+      await symlink(repo.path("config", "opencode.json"), repo.path("OpenCode.json"));
+
+      expect(await requirementWarnings(await loadFactory(repo.root))).toEqual([
+        {
+          level: "warning",
+          file: ".factory/factory.yaml",
+          line: 4,
+          message:
+            "Required file opencode.json cannot be created: OpenCode.json differs only in letter case",
+          fix: "Rename OpenCode.json to match opencode.json, or move it away, then create opencode.json",
+        },
+      ]);
+    } finally {
+      await repo.cleanup();
+    }
   });
 
   test("reports nothing without a factory.yaml", async () => {

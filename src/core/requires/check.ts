@@ -13,17 +13,20 @@ function expectedSpelling(requiredPath: string, clash: string): string {
 
 /**
  * Whether renaming the clashing entry gives the required path what it needs: a
- * directory at a parent can become the parent, and a regular file at the path
- * itself can become the file. Renaming anything else leaves the path blocked
- * (a file at a parent, a directory at the path), so the fix says to move it.
+ * directory at a parent can become the parent, and any entry that is not a
+ * directory at the path itself can become the file, because a link (even a
+ * dangling one), a socket and a FIFO count as present. Renaming anything else
+ * leaves the path blocked (a file at a parent, a directory at the path), so the
+ * fix says to move it.
  */
 function renameHelps(
   requiredPath: string,
   clash: string,
   kind: RequirementClashKind | undefined,
 ): boolean {
+  if (kind === undefined) return false;
   const atPath = clash.split("/").length === requiredPath.split("/").length;
-  return atPath ? kind === "file" : kind === "directory";
+  return atPath ? kind !== "directory" : kind === "directory";
 }
 
 /**
