@@ -29,8 +29,8 @@ These specifications are drafts for approval. They are the acceptance standard f
 
 | File | Scope |
 | --- | --- |
-| [Metastore](metastore.md) | Documents and scores in a shared store outside Git: document folders and their rules, the mirror, sync, scores, scorers, backends, and `metafab metastore` and `metafab scorer` |
-| [Metastore protocol](metastore-protocol.md) | The HTTP API a remote metastore implements, such as Metastore Cloud |
+| [Store](store.md) | Documents and scores in a shared store outside Git: document folders and their rules, the mirror, sync, scores, scorers, the remote, git and local backends, and `metafab store` and `metafab scorer` |
+| [Store protocol](store-protocol.md) | The HTTP API a remote store implements, such as Metastore Cloud |
 
 ## Architecture
 

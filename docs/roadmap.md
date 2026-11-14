@@ -57,19 +57,20 @@ A team can publish a factory as a fab and other teams can import and update it.
 - [ ] [1.012 Release v1](plans/1.012-release.md): package `README.md`, release workflow with provenance, `@seasb/metafab@1.0.0`
 - [ ] [1.025 Git hooks on here](plans/1.025-git-hooks-on.md): `@seasb/metafab` as a devDependency and `git-hooks: true` in this repository, once 1.0.0 is on npm
 
-## Milestone 4: Metastore (version 2, draft plans)
+## Milestone 4: Store (version 2, draft plans)
 
-A team keeps its factory's working documents and scores in a shared metastore outside Git, with a local mirror for agents. What to build: [Metastore](specs/metastore.md) and [Metastore protocol](specs/metastore-protocol.md). These plans are drafts awaiting approval; start them after 1.012 releases v1.
+A team keeps its factory's working documents and scores in a shared store outside Git, with a local mirror for agents. What to build: [Store](specs/store.md) and [Store protocol](specs/store-protocol.md). These plans are drafts awaiting approval; start them after 1.012 releases v1.
 
 - [ ] [2.001 Document folders](plans/2.001-document-folders.md): `format: 2`, `documents` in `factory.yaml`, JSON Schema, `unique` and `references`, checked by `metafab check`
-- [ ] [2.002 Metastore model and local backend](plans/2.002-metastore-model-and-local-backend.md): `metastore` in `metafab.yaml`, document content and hashes, origin, the backend interface, the local backend, the contract suite
+- [ ] [2.002 Store model and local backend](plans/2.002-store-model-and-local-backend.md): `store` in `metafab.yaml`, document content and hashes, origin, the backend interface, the local backend, the contract suite
 - [ ] [2.003 Remote backend and login](plans/2.003-remote-backend-and-login.md): the protocol client, credentials, `login` and `logout`, exit code 6, the protocol test server, `npm run test:contract`, command groups
 - [ ] [2.004 Pull and status](plans/2.004-pull-and-status.md): the gitignored mirror, state and index, conflict copies, `pull`, `status`, `show`, `log`, `.gitignore` lines
 - [ ] [2.005 Push and conflicts](plans/2.005-push-and-conflicts.md): atomic `push` with document rules, `--resolved`, `diff`, `mv`, `archive`, `restore`
 - [ ] [2.006 Sync windows and ls](plans/2.006-sync-windows-and-ls.md): windows, units, pins, `unpin`, `ls`, `check` reads the index
 - [ ] [2.007 Scores](plans/2.007-scores.md): `score` and `scores`, subjects pinned to a version or commit
 - [ ] [2.008 Scorers](plans/2.008-scorers.md): `.factory/scorers/<name>.md`, `scorer list`, `prompt`, `record`
-- [ ] [2.009 Import, hooks and skill](plans/2.009-import-hooks-and-skill.md): `metastore import` from Git, `post-checkout` pulls new worktrees, the skill's Metastore section
+- [ ] [2.009 Import, hooks and skill](plans/2.009-import-hooks-and-skill.md): `store import` from Git, `post-checkout` pulls new worktrees, the skill's Store section
+- [ ] [2.010 Git backend](plans/2.010-git-backend.md): `backend: git` keeps the store on `refs/metafab/store` in this repository, or on a branch of a separate one; no server and no login
 - [ ] Release 2.0.0 (needs a plan)
 - [ ] This repository keeps plans, intake and changelog in Metastore Cloud, and its workflows run scorers (needs a plan; after Metastore Cloud's first release, built in `seasb/metafab-metastore` from [its draft](specs/next/metastore-cloud.md))
 
@@ -93,10 +94,11 @@ A team keeps its factory's working documents and scores in a shared metastore ou
 ```text
 1.023 ── 2.001 ── 2.002 ──┐
 1.020 ────────────────────┴─ 2.003 ── 2.004 ─┬─ 2.005 ── 2.006 ─┬─ 2.009
-                                              └─ 2.007 ── 2.008 ─┘
+                                              ├─ 2.007 ── 2.008 ─┘
+                                              └─ 2.010
 ```
 
-Milestone 4 is mostly a chain, because each plan builds on the model the one before it adds. After 2.004 merges, 2.007 shares no paths with 2.005 and 2.006 and can run beside them. 2.003 registers every later command as a stub, so each later plan owns only its own command files.
+Milestone 4 is mostly a chain, because each plan builds on the model the one before it adds. After 2.004 merges, 2.007 shares no paths with 2.005 and 2.006 and can run beside them. 2.003 registers every later command as a stub, so each later plan owns only its own command files. 2.010 touches only backend and configuration code, so it can run beside 2.005 to 2.009. Release 2.0.0 after 2.009 and 2.010.
 
 ## Open questions
 
@@ -107,9 +109,9 @@ Answer these before or during the named plan. Spec-level questions are linked to
 | Field-level frontmatter merge | [1.010](plans/1.010-update-diff-detach.md#open-questions), [spec](specs/sharing.md#open-questions) | Line merge in v1 |
 | Duplicate skills in Cursor and Copilot | [1.022](plans/1.022-verification.md), [spec](specs/README.md#open-questions) | Test during verification |
 | Multiple upstream fabs; pipeline branches; trusted publishers; fleet updates | After v1 | Deferred |
-| Approve the version 2 metastore direction: trunk-only documents with origin (not branch-aware records), `format: 2` with `documents` and scorers, a new exit code 6, and a local backend beside the remote one | 2.001 to 2.009, [spec](specs/metastore.md) | Approve as written; branch-aware records stay a [draft](specs/next/metastore.md) |
-| Should backends enforce document rules, so two pushes at once cannot save duplicate unique values? | After 2.009, [spec](specs/metastore.md#open-questions) | Later, as a protocol capability |
-| Which environment variables identify each agent tool for `origin.agent`? | [2.002](plans/2.002-metastore-model-and-local-backend.md#open-questions) | Documented variables only; `METAFAB_AGENT` otherwise |
+| Approve the version 2 store direction: `metafab store` (Metastore Cloud is the hosted backend), trunk-only documents with origin (not branch-aware records), `format: 2` with `documents` and scorers, a new exit code 6, and remote, git and local backends | 2.001 to 2.010, [spec](specs/store.md) | Approve as written; branch-aware records stay a [draft](specs/next/branch-aware-records.md) |
+| Should backends enforce document rules, so two pushes at once cannot save duplicate unique values? | After 2.009, [spec](specs/store.md#open-questions) | Later, as a protocol capability |
+| Which environment variables identify each agent tool for `origin.agent`? | [2.002](plans/2.002-store-model-and-local-backend.md#open-questions) | Documented variables only; `METAFAB_AGENT` otherwise |
 
 ## Decisions
 

@@ -1,12 +1,12 @@
-# Metastore protocol
+# Store protocol
 
-> **Version 2.** Status: draft for approval, written 14 Nov 2026. Protocol version **1**. The `remote` backend in [Metastore](metastore.md) speaks it; Plan 2.003 implements the client.
+> **Version 2.** Status: draft for approval, written 14 Nov 2026. Protocol version **1**. The `remote` backend in [Store](store.md) speaks it; Plan 2.003 implements the client.
 
-This is the HTTP API that a remote metastore implements. Metastore Cloud implements it, and so can any team's own server. The CLI is the reference client. A server that implements it passes the contract test suite in this repository ([Conformance](#conformance)).
+This is the HTTP API that a remote store implements. Metastore Cloud implements it, and so can any team's own server. The CLI is the reference client. A server that implements it passes the contract test suite in this repository ([Conformance](#conformance)).
 
 ## Conventions
 
-- **Base URL.** The `url` in `metafab.yaml` is the metastore's base URL, such as `https://metastore.metafab.dev/seasb/meta-harness`. One base URL is one metastore. Every route below is relative to it and starts with `/v1/`.
+- **Base URL.** The `url` in `metafab.yaml` is the store's base URL, such as `https://metastore.metafab.dev/seasb/meta-harness`. One base URL is one store. Every route below is relative to it and starts with `/v1/`.
 - **Encoding.** Requests and responses are JSON in UTF-8 (`Content-Type: application/json`), except blob uploads and downloads.
 - **Authentication.** Every request to the base URL carries `Authorization: Bearer <token>`, except that `GET /v1/info` may be sent without one so that `login` can learn where to create a token. A server decides what a token may read and write. A client sends the token only to the base URL's origin: never to a blob upload URL, which carries its own `headers`, and never across a redirect to another origin.
 - **Paths in queries.** Store paths contain `/` and spaces, so they travel in the query string or the body, never in the route.
@@ -25,9 +25,9 @@ An error response has a status code and this body:
 | Status | `code` | Meaning | The CLI |
 | --- | --- | --- | --- |
 | 400 | `bad-request` | The request is malformed | Exit 1; a client bug |
-| 401 | `unauthenticated` | No token, or the token is not valid | Exit 6, suggests `metafab metastore login` |
+| 401 | `unauthenticated` | No token, or the token is not valid | Exit 6, suggests `metafab store login` |
 | 403 | `forbidden` | The token cannot do this | Exit 6 |
-| 404 | `not-found` | The metastore, document or version does not exist | Depends on the command |
+| 404 | `not-found` | The store, document or version does not exist | Depends on the command |
 | 409 | `conflict` | A base version is stale. `details.conflicts` lists them | Conflict copies, exit 1 |
 | 409 | `archived` | A save names an archived document. `details.paths` lists them | Exit 1, suggests `restore` |
 | 413 | `too-large` | The request is over a limit. `details.limit` names it | Exit 1 |
@@ -50,7 +50,7 @@ Scores carry their own `id`. A server ignores a score whose `id` it already hold
 
 ### Origin
 
-As defined in [Metastore: Origin](metastore.md#origin). Every field is optional; unknown fields are stored and returned.
+As defined in [Store: Origin](store.md#origin). Every field is optional; unknown fields are stored and returned.
 
 ```json
 { "repo": "github.com/seasb/meta-harness", "branch": "feat/2.004-pull", "commit": "a1b2…", "dirty": false,
@@ -83,18 +83,18 @@ As defined in [Metastore: Origin](metastore.md#origin). Every field is optional;
 
 ### Score
 
-The fields in [Metastore: Scores](metastore.md#scores), with `recordedAt` and `recordedBy` added by the server. `recordedBy` has the shape of `savedBy`.
+The fields in [Store: Scores](store.md#scores), with `recordedAt` and `recordedBy` added by the server. `recordedBy` has the shape of `savedBy`.
 
 ## Routes
 
 ### `GET /v1/info`
 
-Checks the token and describes the metastore. `login` calls it.
+Checks the token and describes the store. `login` calls it.
 
 ```json
 {
   "protocol": 1,
-  "metastore": { "id": "ms_01J…", "name": "seasb/meta-harness" },
+  "store": { "id": "ms_01J…", "name": "seasb/meta-harness" },
   "identity": { "id": "usr_123", "name": "Sebastian" },
   "tokenUrl": "https://metastore.metafab.dev/settings/tokens",
   "capabilities": [],
@@ -157,7 +157,7 @@ Rules:
 1. `baseVersion` is the version the client last read: 0 for a new path. For `restore`, it is the archived version.
 2. A path appears at most once in a request.
 3. A `save` of a text document has `properties` and `body` and no `blob`. A `save` of a `file` document has `blob` and no `properties` or `body`. The format follows from the path's extension.
-4. The server checks every item before it applies any. It answers 409 `conflict` when any base version is not the current version, with `details.conflicts`: `[{ "path", "baseVersion", "currentVersion", "currentState" }]`. It answers 409 `archived` for a `save` to an archived path. It answers 422 `invalid` for an item that breaks a [path rule](metastore.md#paths), a [property rule](metastore.md#properties) or a limit, for a `save` whose path differs only in letter case from another document's path, and for an unknown blob. `archive` of an archived document and `restore` of an active one are 422.
+4. The server checks every item before it applies any. It answers 409 `conflict` when any base version is not the current version, with `details.conflicts`: `[{ "path", "baseVersion", "currentVersion", "currentState" }]`. It answers 409 `archived` for a `save` to an archived path. It answers 422 `invalid` for an item that breaks a [path rule](store.md#paths), a [property rule](store.md#properties) or a limit, for a `save` whose path differs only in letter case from another document's path, and for an unknown blob. `archive` of an archived document and `restore` of an active one are 422.
 5. A `save` whose properties, body and blob equal the current version's creates no version.
 6. Every version created in one request has the same `message`, `origin`, `savedAt` and `savedBy`.
 
@@ -169,9 +169,9 @@ Properties are equal when they are equal as JSON values, ignoring the order of k
 
 Records scores in one atomic request. Request: `{ "scores": [<score without recordedAt or recordedBy>…] }`.
 
-1. A document subject without `version` is pinned to the current version. A document subject whose path is not in the metastore, or whose version is past the newest, is 422. An archived document's versions are accepted.
+1. A document subject without `version` is pinned to the current version. A document subject whose path is not in the store, or whose version is past the newest, is 422. An archived document's versions are accepted.
 2. A `pr`, `branch`, `commit` or `file` subject without `revision` is 422. The server does not resolve revisions.
-3. A subject that is not in its canonical form ([Subjects](metastore.md#subjects)) is 422.
+3. A subject that is not in its canonical form ([Subjects](store.md#subjects)) is 422.
 4. A score whose `id` the server already holds is not recorded again; the response returns the stored score.
 
 Response 200: `{ "scores": [<score>…] }`, in request order.
@@ -201,4 +201,4 @@ The protocol version is the number in the route prefix. A server may add respons
 
 ## Conformance
 
-`test/core/metastore/contract/` in this repository is a test suite written against the backend interface. It runs against the local backend, and against a remote backend that talks to the in-process test server in `test/helpers/metastore-server/`. Each test works under its own path prefix and score names, so the suite can share a metastore with earlier runs. A server implementation proves conformance by running the suite against the base URL of a test metastore that the token can write, with `METAFAB_CONTRACT_URL` and `METAFAB_CONTRACT_TOKEN` set: `npm run test:contract` in a checkout of this repository, which Plan 2.003 adds. The suite writes documents and scores, so never point it at a metastore in use. Without those variables, `npm run test:contract` runs only against the built-in backends, and `npm test` includes that run.
+`test/core/store/contract/` in this repository is a test suite written against the backend interface. It runs against the local backend, and against a remote backend that talks to the in-process test server in `test/helpers/store-server/`. Each test works under its own path prefix and score names, so the suite can share a store with earlier runs. A server implementation proves conformance by running the suite against the base URL of a test store that the token can write, with `METAFAB_CONTRACT_URL` and `METAFAB_CONTRACT_TOKEN` set: `npm run test:contract` in a checkout of this repository, which Plan 2.003 adds. The suite writes documents and scores, so never point it at a store in use. Without those variables, `npm run test:contract` runs only against the built-in backends, and `npm test` includes that run.
