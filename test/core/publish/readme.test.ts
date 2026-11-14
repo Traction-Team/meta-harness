@@ -1,6 +1,7 @@
 import { rm } from "node:fs/promises";
 import { afterEach, describe, expect, test } from "vitest";
 import { resolveReadme } from "../../../src/core/publish/index.js";
+import { parseSource } from "../../../src/core/sources/index.js";
 import { loadRepo, makePublishRepo } from "./fixtures.js";
 import type { PublishRepoOptions } from "./fixtures.js";
 import type { TempRepo } from "../../helpers/makeRepo.js";
@@ -96,7 +97,9 @@ describe("resolveReadme", () => {
 
   test("does not write credentials from a file URL in publish.git", async () => {
     // A `file:` URL that names an authority is not a path, so its userinfo is
-    // a credential and must not reach the published README.
+    // a credential and must not reach the published README. The whole userinfo
+    // goes: `import` accepts `localhost` after `git+file://` but no host with a
+    // username before it, and this line is what a person runs.
     const target = await repo({
       publish: [
         "publish:",
@@ -110,9 +113,9 @@ describe("resolveReadme", () => {
     const readme = await resolve(target);
 
     expect(readme).not.toContain("ghp_secret");
-    expect(readme).toContain(
-      "npx @seasb/metafab import git+file://user@localhost/srv/fab.git",
-    );
+    const source = "git+file://localhost/srv/fab.git";
+    expect(readme).toContain(`npx @seasb/metafab import ${source}`);
+    expect(parseSource(source, { cwd: target.root }).kind).toBe("git");
   });
 
   test("names the import form of the Git URL in the generated import command", async () => {

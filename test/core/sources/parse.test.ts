@@ -455,14 +455,19 @@ describe("sourceWithoutCredentials", () => {
     }
   });
 
-  test("drops credentials from a file URL that names an authority", () => {
+  test("drops all of the userinfo from a file URL that names an authority", () => {
     // Not a path: `localhost` is a host, so the userinfo is a credential and
-    // must not reach a recorded source or a published README.
+    // must not reach a recorded source or a published README. The username
+    // goes too: `parseGitFileUrl` accepts no host but an empty one, `localhost`
+    // or a drive, so a bare username would leave a source `import` refuses.
     expect(sourceWithoutCredentials("git+file://user:pw@localhost/x.git")).toBe(
-      "git+file://user@localhost/x.git",
+      "git+file://localhost/x.git",
     );
-    expect(sourceWithoutCredentials("file://user:ghp_secret@localhost/srv/fab.git")).not.toContain(
-      "ghp_secret",
+    expect(sourceWithoutCredentials("git+file://user@localhost/x.git")).toBe(
+      "git+file://localhost/x.git",
+    );
+    expect(sourceWithoutCredentials("file://user:ghp_secret@localhost/srv/fab.git")).toBe(
+      "file://localhost/srv/fab.git",
     );
   });
 
