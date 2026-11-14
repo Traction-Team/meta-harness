@@ -73,6 +73,18 @@ export async function decideSetup(
 }
 
 /**
+ * Marks each file the person chose not to create. A requirement without a
+ * template stays `missing`: nobody was asked about it, and `check` reports it.
+ */
+export function declineRequirements(results: RequirementResult[]): RequirementResult[] {
+  return results.map((result) =>
+    result.state === "missing" && result.template !== undefined
+      ? { ...result, state: "declined" as const }
+      : result,
+  );
+}
+
+/**
  * Creates each agreed file from its template. The template's bytes are copied
  * unchanged, so CRLF, a BOM and binary content survive; the new file is 0755
  * when the template has any executable bit and 0644 otherwise. Each path is

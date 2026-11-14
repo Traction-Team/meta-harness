@@ -25,6 +25,14 @@ import type { HookChange } from "../hooks/index.js";
 import { assertGitattributesWritable, ensureGitattributes } from "../init/gitattributes.js";
 import { selectTargets } from "../init/targets.js";
 import type { TargetPrompt } from "../init/targets.js";
+import { inspectRequirement } from "../requires/inspect.js";
+import type { RequirementResult } from "../requires/inspect.js";
+import {
+  createRequirements,
+  decideSetup,
+  declineRequirements,
+  setupRequired,
+} from "../requires/setup.js";
 import {
   assertFactoryDirectoryUsable,
   preflightBuild,
@@ -53,6 +61,8 @@ export interface ImportOptions {
   force?: boolean;
   /** Consent to adopt existing repository skills without asking. */
   adopt?: boolean;
+  /** Create the missing required files: `true` for `--setup`, `false` for `--no-setup`. */
+  setup?: boolean;
   /** Injected input and output; production uses the process streams. */
   io?: InputIO;
   /** Injected agent-target prompt, so tests do not need a terminal. */
@@ -61,6 +71,11 @@ export interface ImportOptions {
   interactive?: boolean;
   /** Injected source settings, used by tests for a local registry or transport. */
   sourceOptions?: SourceOptions;
+  /**
+   * @internal Test seam: runs after the setup consent and before the agreed
+   * files are created, so a test can make one appear in between.
+   */
+  beforeCreate?: () => Promise<void>;
 }
 
 export interface ImportReport {
@@ -74,6 +89,8 @@ export interface ImportReport {
   gitattributes: string[];
   /** Skills moved from a destination into `.factory/skills/`. */
   moved: AdoptionMove[];
+  /** The repository files the factory requires, in `factory.yaml` order. */
+  requires: RequirementResult[];
   /** Fab paths copied into `.factory/`. */
   copied: string[];
   /** Files created, updated, or removed by the closing build. */
@@ -128,6 +145,7 @@ function declinedReport(
   root: string,
   upstream: UpstreamEntry,
   review: Summary,
+  requires: RequirementResult[],
 ): ImportReport {
   return {
     root,
@@ -136,6 +154,7 @@ function declinedReport(
     updated: [],
     gitattributes: [],
     moved: [],
+    requires,
     copied: [],
     changed: [],
     hooks: [],
@@ -209,9 +228,34 @@ export async function runImport(options: ImportOptions): Promise<ImportReport> {
     if (ambiguities.length > 0) throw importConflicts([...ambiguities, ...conflicts]);
     if (conflicts.length > 0 && options.force !== true) throw importConflicts(conflicts);
 
+    // The fetch validated the fab, so rules 12 and 13 hold for these entries.
+    // Inspection only reads: nothing outside `.factory/` changes before the
+    // consent below is complete.
+    const fetchedFactory = await loadFactory(path.dirname(fetched.factoryDir));
+    const inspected: RequirementResult[] = [];
+    for (const requirement of fetchedFactory.factoryYaml?.requires ?? []) {
+      inspected.push(await inspectRequirement(root, requirement));
+    }
+
+    // Consent is collected before the first write. Adoption is asked first so
+    // a declined adoption still changes nothing; the setup question follows it
+    // in the same readline session.
+    const adoptionNeeded = plan.moves.length > 0 && options.adopt !== true;
+    // Only a missing file with a template can be created, so only that needs
+    // an answer. A template-less or blocked entry is never asked about.
+    const setupNeedsFlag =
+      options.setup === undefined &&
+      inspected.some((result) => result.state === "missing" && result.template !== undefined);
+    if (!tty) {
+      if (adoptionNeeded && setupNeedsFlag) {
+        throw new NeedsInput([adoptionRequired(plan), setupRequired(inspected)]);
+      }
+      if (adoptionNeeded) throw new NeedsInput([adoptionRequired(plan)]);
+      if (setupNeedsFlag) throw new NeedsInput([setupRequired(inspected)]);
+    }
+
     let declined = false;
-    if (plan.moves.length > 0 && options.adopt !== true) {
-      if (!tty) throw new NeedsInput([adoptionRequired(plan)]);
+    if (adoptionNeeded) {
       const accepted = await confirm(
         { name: "adopt", flag: "--adopt", description: ADOPTION_QUESTION },
         {},
@@ -225,8 +269,12 @@ export async function runImport(options: ImportOptions): Promise<ImportReport> {
         root,
         fetched.upstream,
         summarise(emptyTree(), emptyTree(), { title: importTitle(fetched.upstream) }),
+        inspected,
       );
     }
+
+    const setupAgreed = await decideSetup(inspected, options.setup, io, tty);
+    if (setupAgreed === "needs-input") throw new NeedsInput([setupRequired(inspected)]);
 
     const configExists = hasFactory && (await pathExists(path.join(factoryDir, CONFIG_FILENAME)));
     await preflightBuild(root, existingConfig, selection, configExists, plan.moves);
@@ -262,11 +310,24 @@ export async function runImport(options: ImportOptions): Promise<ImportReport> {
     await setUpstream(factoryDir, fetched.upstream);
     const after = await snapshotFactory(root);
 
+    // The factory is copied and recorded, so a file that cannot be created is a
+    // warning and the import continues. Creation happens after the copy (the
+    // template is read from the fab's committed bytes in `.factory/`) and
+    // before the build, which ignores `requires`.
+    await options.beforeCreate?.();
+    const creationProblems: Problem[] = [];
+    const requirements =
+      setupAgreed === true
+        ? await createRequirements(root, inspected, creationProblems)
+        : declineRequirements(inspected);
+
     const builtFactory = await loadFactory(root);
     const config = await readConfig(factoryDir, "import");
-    const warnings = [...builtFactory.problems, ...config.problems].filter(
-      (problem) => problem.level === "warning",
-    );
+    const warnings = [
+      ...builtFactory.problems,
+      ...config.problems,
+      ...creationProblems,
+    ].filter((problem) => problem.level === "warning");
     const buildPlan = await planBuild(builtFactory, config, cliVersion());
 
     if (buildPlan.conflicts.length > 0) {
@@ -296,11 +357,15 @@ export async function runImport(options: ImportOptions): Promise<ImportReport> {
       updated,
       gitattributes: [...gitattributes.added],
       moved: plan.moves.map((move) => ({ ...move, from: [...move.from] })),
+      requires: requirements,
       copied,
       changed: build.changed,
       hooks: build.hooks,
       problems: [...warnings, ...buildPlan.warnings, ...build.hookWarnings],
-      review: summarise(before, after, { title: importTitle(fetched.upstream) }),
+      review: summarise(before, after, {
+        title: importTitle(fetched.upstream),
+        requirements,
+      }),
       declined: false,
     };
   } finally {
