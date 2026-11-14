@@ -109,6 +109,81 @@ describe("requirementWarnings", () => {
     }
   });
 
+  test("says nothing about an entry rule 12 or rule 13 already rejected", async () => {
+    const unsafePath = [
+      "format: 1",
+      "name: demo",
+      "requires:",
+      "  - path: .claude",
+      "    description: The agent tool's directory",
+      "    template: .factory/templates/setup/opencode.json",
+      "",
+    ].join("\n");
+    expect(
+      await warnings({ ".factory/templates/setup/opencode.json": "{}\n" }, unsafePath),
+    ).toEqual([]);
+
+    const skillTemplate = [
+      "format: 1",
+      "name: demo",
+      "requires:",
+      "  - path: opencode.json",
+      "    description: Defines the agent-coding sub-agent",
+      "    template: .factory/templates/setup/SKILL.md",
+      "",
+    ].join("\n");
+    expect(
+      await warnings({ ".factory/templates/setup/SKILL.md": "# Setup\n" }, skillTemplate),
+    ).toEqual([]);
+
+    const missingTemplate = [
+      "format: 1",
+      "name: demo",
+      "requires:",
+      "  - path: opencode.json",
+      "    description: Defines the agent-coding sub-agent",
+      "    template: .factory/templates/setup/missing.json",
+      "",
+    ].join("\n");
+    expect(await warnings({}, missingTemplate)).toEqual([]);
+  });
+
+  test("a case-variant clash gives a rename fix for the file and for a parent", async () => {
+    const one = (requirementPath: string): string =>
+      [
+        "format: 1",
+        "name: demo",
+        "requires:",
+        `  - path: ${requirementPath}`,
+        "    description: A file the workflows read",
+        "",
+      ].join("\n");
+
+    expect(await warnings({ "OpenCode.json": "{}\n" }, one("opencode.json"))).toEqual([
+      {
+        level: "warning",
+        file: ".factory/factory.yaml",
+        line: 4,
+        message:
+          "Required file opencode.json cannot be created: OpenCode.json differs only in letter case",
+        fix: "Rename OpenCode.json to match opencode.json, or move it away, then create opencode.json",
+      },
+    ]);
+
+    expect(
+      await warnings({ "docs/other.md": "# Other\n" }, one("Docs/roadmap.md")),
+    ).toEqual([
+      {
+        level: "warning",
+        file: ".factory/factory.yaml",
+        line: 4,
+        message:
+          "Required file Docs/roadmap.md cannot be created: docs differs only in letter case",
+        fix: "Rename docs to match Docs, or move it away, then create Docs/roadmap.md",
+      },
+    ]);
+  });
+
   test("reports nothing without a factory.yaml", async () => {
     const repo = await makeRepo({});
     const factory = await loadFactory(repo.root);
