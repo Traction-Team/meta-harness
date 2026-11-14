@@ -21,3 +21,5 @@ The last cold review of PR #22 returned *merge* with these left open after two f
 ## What we know
 
 Fix 1 by narrowing `isHelpToken` to `-h`, `--help` and clusters made only of `h` (what `parseArgs` reads as `help: true`), and keep or drop the safety net to match. Fix 2 by also checking every compiled `.js` for `src/**/*.ts`, or by building into a per-run temporary `outDir`. Fix 3 is moot with a per-run `outDir`.
+
+Also found while building: `src/commands/not-implemented.ts` is dead code (nothing imports it) and can be deleted by the next plan that owns `src/commands/`.
