@@ -117,6 +117,7 @@ describe("inspectRequirement", () => {
       state: "blocked",
       reason: "OpenCode.json differs only in letter case",
       clash: "OpenCode.json",
+      clashKind: "file",
     });
   });
 
@@ -129,7 +130,22 @@ describe("inspectRequirement", () => {
       state: "blocked",
       reason: "Docs differs only in letter case",
       clash: "Docs",
+      clashKind: "directory",
     });
+  });
+
+  test("reports the kind of the case variant in the way", async () => {
+    const repo = await makeRepo({
+      "Docs": "not a directory\n",
+      "OpenCode.json/inside.md": "body\n",
+    });
+
+    expect(
+      (await inspectRequirement(repo.root, requirement("docs/roadmap.md"))).clashKind,
+    ).toBe("file");
+    expect(
+      (await inspectRequirement(repo.root, requirement("opencode.json"))).clashKind,
+    ).toBe("directory");
   });
 
   test.skipIf(cannotTestPermissions)("reports a parent it cannot read", async () => {

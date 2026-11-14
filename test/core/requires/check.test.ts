@@ -1,5 +1,6 @@
 import { chmod } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
+import type { Problem } from "../../../src/errors.js";
 import { loadFactory } from "../../../src/core/factory/index.js";
 import { requirementWarnings } from "../../../src/core/requires/check.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
@@ -26,6 +27,23 @@ async function warnings(
   const factory = await loadFactory(repo.root);
   try {
     return await requirementWarnings(factory);
+  } finally {
+    await repo.cleanup();
+  }
+}
+
+/** The warnings, and the problems `loadFactory` found for the same tree. */
+async function warningsAndProblems(
+  files: Record<string, string>,
+  factoryYaml: string,
+): Promise<{
+  warnings: Awaited<ReturnType<typeof requirementWarnings>>;
+  problems: Problem[];
+}> {
+  const repo = await makeRepo({ ".factory/factory.yaml": factoryYaml, ...files });
+  const factory = await loadFactory(repo.root);
+  try {
+    return { warnings: await requirementWarnings(factory), problems: factory.problems };
   } finally {
     await repo.cleanup();
   }
@@ -119,9 +137,18 @@ describe("requirementWarnings", () => {
       "    template: .factory/templates/setup/opencode.json",
       "",
     ].join("\n");
-    expect(
-      await warnings({ ".factory/templates/setup/opencode.json": "{}\n" }, unsafePath),
-    ).toEqual([]);
+    const unsafe = await warningsAndProblems(
+      { ".factory/templates/setup/opencode.json": "{}\n" },
+      unsafePath,
+    );
+    expect(unsafe.warnings).toEqual([]);
+    expect(unsafe.problems).toContainEqual({
+      level: "error",
+      file: ".factory/factory.yaml",
+      line: 4,
+      message: 'Required path ".claude" is a directory that holds a file Metafab writes',
+      fix: "Use a repository-relative file path outside .factory/, such as docs/factory.md",
+    });
 
     const skillTemplate = [
       "format: 1",
@@ -132,9 +159,19 @@ describe("requirementWarnings", () => {
       "    template: .factory/templates/setup/SKILL.md",
       "",
     ].join("\n");
-    expect(
-      await warnings({ ".factory/templates/setup/SKILL.md": "# Setup\n" }, skillTemplate),
-    ).toEqual([]);
+    const skill = await warningsAndProblems(
+      { ".factory/templates/setup/SKILL.md": "# Setup\n" },
+      skillTemplate,
+    );
+    expect(skill.warnings).toEqual([]);
+    expect(skill.problems).toContainEqual({
+      level: "error",
+      file: ".factory/factory.yaml",
+      line: 4,
+      message:
+        'Template ".factory/templates/setup/SKILL.md" is part of a skill, so it would be installed',
+      fix: "Move it out of the skill directory",
+    });
 
     const missingTemplate = [
       "format: 1",
@@ -145,7 +182,73 @@ describe("requirementWarnings", () => {
       "    template: .factory/templates/setup/missing.json",
       "",
     ].join("\n");
-    expect(await warnings({}, missingTemplate)).toEqual([]);
+    const missing = await warningsAndProblems({}, missingTemplate);
+    expect(missing.warnings).toEqual([]);
+    expect(missing.problems).toContainEqual({
+      level: "error",
+      file: ".factory/factory.yaml",
+      line: 4,
+      message: 'Template ".factory/templates/setup/missing.json" does not exist',
+      fix: "Add the file or correct the path",
+    });
+  });
+
+  test("says nothing twice about a repeat or a nested entry rule 12 rejected", async () => {
+    const repeated = [
+      "format: 1",
+      "name: demo",
+      "requires:",
+      "  - path: opencode.json",
+      "    description: The first entry",
+      "  - path: OpenCode.json",
+      "    description: The second entry",
+      "",
+    ].join("\n");
+    const repeat = await warningsAndProblems({}, repeated);
+    expect(repeat.problems).toContainEqual({
+      level: "error",
+      file: ".factory/factory.yaml",
+      line: 6,
+      message: 'Required path "OpenCode.json" repeats "opencode.json"',
+      fix: "Remove one of the entries",
+    });
+    expect(repeat.warnings).toEqual([
+      {
+        level: "warning",
+        file: ".factory/factory.yaml",
+        line: 4,
+        message: "Required file opencode.json is missing: The first entry",
+        fix: "Create opencode.json",
+      },
+    ]);
+
+    const nested = [
+      "format: 1",
+      "name: demo",
+      "requires:",
+      "  - path: docs",
+      "    description: The docs directory as a file",
+      "  - path: docs/roadmap.md",
+      "    description: The roadmap the workflows read",
+      "",
+    ].join("\n");
+    const nesting = await warningsAndProblems({}, nested);
+    expect(nesting.problems).toContainEqual({
+      level: "error",
+      file: ".factory/factory.yaml",
+      line: 6,
+      message: 'Required path "docs/roadmap.md" is inside required path "docs"',
+      fix: "Remove one of the entries",
+    });
+    expect(nesting.warnings).toEqual([
+      {
+        level: "warning",
+        file: ".factory/factory.yaml",
+        line: 4,
+        message: "Required file docs is missing: The docs directory as a file",
+        fix: "Create docs",
+      },
+    ]);
   });
 
   test("a case-variant clash gives a rename fix for the file and for a parent", async () => {
@@ -180,6 +283,44 @@ describe("requirementWarnings", () => {
         message:
           "Required file Docs/roadmap.md cannot be created: docs differs only in letter case",
         fix: "Rename docs to match Docs, or move it away, then create Docs/roadmap.md",
+      },
+    ]);
+  });
+
+  test("offers no rename when the case variant is the wrong kind of entry", async () => {
+    const one = (requirementPath: string): string =>
+      [
+        "format: 1",
+        "name: demo",
+        "requires:",
+        `  - path: ${requirementPath}`,
+        "    description: A file the workflows read",
+        "",
+      ].join("\n");
+
+    // A file at a parent: renaming Docs gives a file where a directory is needed.
+    expect(await warnings({ Docs: "not a directory\n" }, one("docs/roadmap.md"))).toEqual([
+      {
+        level: "warning",
+        file: ".factory/factory.yaml",
+        line: 4,
+        message:
+          "Required file docs/roadmap.md cannot be created: Docs differs only in letter case",
+        fix: "Move Docs away, then create docs/roadmap.md",
+      },
+    ]);
+
+    // A directory at the path: renaming it gives a directory where a file is needed.
+    expect(
+      await warnings({ "OpenCode.json/inside.md": "body\n" }, one("opencode.json")),
+    ).toEqual([
+      {
+        level: "warning",
+        file: ".factory/factory.yaml",
+        line: 4,
+        message:
+          "Required file opencode.json cannot be created: OpenCode.json differs only in letter case",
+        fix: "Move OpenCode.json away, then create opencode.json",
       },
     ]);
   });
