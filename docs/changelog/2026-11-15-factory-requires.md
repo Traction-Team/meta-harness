@@ -11,4 +11,4 @@ plan: docs/plans/1.023-factory-requires.md
 
 ## Still to come
 
-Plan 1.024 (the first fab) uses `requires` for its settings file. The remaining review edge cases are in `docs/intake/2026-11-15-requires-review-leftovers.md`.
+Plan 1.024 (the first fab) uses `requires` for its settings file.
