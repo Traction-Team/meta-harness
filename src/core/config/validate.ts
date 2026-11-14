@@ -6,6 +6,7 @@ import { isAlias, isMap, isScalar, isSeq } from "yaml";
 import type { Document, Node, Pair, Scalar, YAMLMap, YAMLSeq } from "yaml";
 import type { Problem } from "../../errors.js";
 import { didYouMean } from "../../util/suggest.js";
+import { importSourceForGitUrl, parseSource, sourceWithoutCredentials } from "../sources/parse.js";
 import { classifySource } from "./source.js";
 import { TARGETS } from "./types.js";
 
@@ -31,6 +32,24 @@ const TARGET_SET = new Set<string>(TARGETS);
 
 const GIT_URL =
   /^(?:git@[^\s:]+:[^\s]+|(?:git\+)?ssh:\/\/[^\s]+|(?:git\+)?https:\/\/[^\s]+|(?:git\+)?file:\/\/[^\s]+)$/i;
+
+/**
+ * True when `publish.git` is a URL Git takes and the import line the generated
+ * README derives from it is one `import` accepts. The second half is the
+ * `file:` authority rule `parseGitFileUrl` applies: Git ignores the host of a
+ * `file://host/…` URL and reads the path, so `publish` would succeed while the
+ * published README named an `import` that fails. Parse the same source the
+ * README names, with the same code, instead of repeating the rule here.
+ */
+function isGitUrl(value: string, cwd: string): boolean {
+  if (!GIT_URL.test(value)) return false;
+  try {
+    parseSource(importSourceForGitUrl(sourceWithoutCredentials(value)), { cwd });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export interface ValidateDocumentOptions {
   file?: string;
@@ -257,7 +276,7 @@ function validatePublish(
 
   const git = entries.get("git");
   const gitText = git === undefined ? undefined : stringNodeValue(resolvedNode(git.value, doc));
-  if (gitText !== undefined && !GIT_URL.test(gitText)) {
+  if (gitText !== undefined && !isGitUrl(gitText, repositoryRoot ?? process.cwd())) {
     report(
       "error",
       `"publish.git" is not a Git URL.`,
