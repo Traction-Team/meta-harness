@@ -309,7 +309,7 @@ The command performs these steps:
 8. When the merge has no conflicts, run `metafab build` unless `--no-build` is present. Do not build conflicted source.
 9. Print a review summary.
 
-Only a requirement that is new in this update is offered: a requirement that was already listed and is still missing is `check`'s to report. The consent, the flags and the exit code without a terminal are the same as for `import`; without a terminal and a flag, `update` exits with code 2 and `.factory/` is unchanged. A dry run never asks and never writes: it reports the new requirements as missing and creates nothing. When `factory.yaml` or a new requirement's template has a conflict, `update` creates nothing for it and says so. A requirement removed upstream leaves its file alone. When upstream changed the template of a requirement whose file exists, the summary notes it: `Upstream changed <template>, the template for <path>; <path> was not changed.`
+Only a requirement that is new in this update is offered: a requirement that was already listed and is still missing is `check`'s to report. The consent, the flags and the exit code without a terminal are the same as for `import`; without a terminal and a flag, `update` exits with code 2 and `.factory/` is unchanged. A dry run never asks and never writes: it reports the new requirements as missing and creates nothing. When `factory.yaml` or a new requirement's template has a conflict, `update` creates nothing for it and says so. A requirement removed upstream leaves its file alone. When upstream changed the template of a requirement whose file existed before the update, the summary notes it: `Upstream changed <template>, the template for <path>; <path> was not changed.`
 
 Downloads use `~/.metafab/cache/`.
 

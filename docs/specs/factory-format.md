@@ -186,7 +186,7 @@ A workflow can depend on a file that does not belong in `.factory/`, such as an 
 
 A requirement names a file, never a directory. Metafab copies a template byte for byte; it does not fill in values. Metafab never changes, replaces or deletes a file that exists, and never runs a script to create one.
 
-`build` ignores `requires`. `import` and `update` create missing files when a person agrees (see [Importing a fab](sharing.md#importing-a-fab)). `check` warns about each one that is missing.
+`build` ignores `requires`. `import` and `update` create missing files when a person agrees (see [Importing a fab](sharing.md#importing-a-fab)). `check` warns about each one that is missing, unless rule 12 or 13 already rejected the entry.
 
 ### YAML and frontmatter grammar
 
