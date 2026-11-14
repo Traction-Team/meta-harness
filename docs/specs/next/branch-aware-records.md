@@ -1,10 +1,12 @@
-# Store (draft)
+# Branch-aware records (draft)
 
 > Draft for a later version. Not the acceptance standard. See [Next iterations](README.md).
+>
+> **Superseded in part, 14 Nov 2026.** The trunk-only [Store](../store.md) (version 2) now covers documents, scores, origin, backends and the commands, following what Dragonfly built and ran. This draft keeps the ideas it does not cover: records that are visible only on a branch until it merges, links between branches, the trail, and agent memory. Where this draft and the store spec disagree, the store spec wins. Read [Backends](#backends) and [Interface](#interface) below as history; a later version would add these features to the [store protocol](../store-protocol.md) as capabilities, and to `metafab store` as commands. Metastore, named below as our hosted product, is now Metastore Cloud.
 
-The store records metadata about work, such as scores, memory, and decisions, and follows that metadata through branches, pull requests, and merges. Metafab provides it as `metafab store` commands. A factory's workflows write to it and read from it.
+This draft records metadata about work, such as scores, memory, and decisions, and follows that metadata through branches, pull requests, and merges. A factory's workflows write to it and read from it.
 
-The commands work with more than one store implementation, called a **backend**. Metastore, our hosted product, is one backend. A team can also keep records in the repository itself, or in its own database through an adapter. See [Backends](#backends).
+The commands work with more than one store implementation, called a **backend**. Metastore Cloud, our hosted product, is one backend. A team can also keep records in the repository itself, or in its own database through an adapter. See [Backends](#backends).
 
 ## Problem
 
@@ -296,7 +298,7 @@ A backend has two parts:
 
 | Backend | Log | Index | Use |
 | --- | --- | --- | --- |
-| **Metastore** (primary) | Postgres, behind an HTTP API | The same Postgres | Our hosted product, or self-hosted. Fast queries, multi-user, GitHub checks, dashboards |
+| **Metastore Cloud** (primary; historical name `backend: metastore`, now `backend: remote`) | Postgres, behind an HTTP API | The same Postgres | Our hosted product, or self-hosted. Fast queries, multi-user, GitHub checks, dashboards |
 | **Git ref** (alternative) | One file per record on a shared ref, such as `refs/metafab/store`, pushed and fetched with the repository | A local SQLite database that `metafab` keeps in `.git/` | No server. Works offline |
 | **Adapter** | A team's own database | Supplied by the adapter, or the local SQLite index | Teams with their own infrastructure |
 
@@ -306,7 +308,7 @@ The team chooses the backend in `metafab.yaml`, because every developer must wri
 
 ```yaml
 store:
-  backend: metastore
+  backend: remote          # historical example; was "metastore" in this draft
   url: https://metastore.example.com/seasb/meta-harness
 ```
 
@@ -333,7 +335,7 @@ Every command reads context from Git by default and prints JSON with `--json`. T
 
 ## Security and privacy
 
-- Records can contain code, transcripts, and memory. In Metastore, access follows the team's repository permissions. In the Git ref backend, anyone who can fetch the repository can read every record, including unmerged branch memory: visibility rules filter queries, they do not restrict access.
+- Records can contain code, transcripts, and memory. In Metastore Cloud, access follows the team's repository permissions. In the Git ref backend, anyone who can fetch the repository can read every record, including unmerged branch memory: visibility rules filter queries, they do not restrict access.
 - Records with `visibility: author` are never pushed.
 - The CLI redacts known secret shapes before writing.
 - Deleting a record removes its content and keeps a tombstone, so history stays consistent.
