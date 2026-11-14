@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { chmod, cp, mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -29,7 +29,7 @@ const FIXTURES = fileURLToPath(new URL("../../fixtures/fabs/", import.meta.url))
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
-  return { ...actual, rm: vi.fn(actual.rm) };
+  return { ...actual, rm: vi.fn(actual.rm), rename: vi.fn(actual.rename) };
 });
 
 let actualFs: typeof import("node:fs/promises");
@@ -68,6 +68,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   vi.mocked(rm).mockImplementation(actualFs.rm as never);
+  vi.mocked(rename).mockImplementation(actualFs.rename as never);
   cache = await mkdtemp(path.join(tmpdir(), "metafab-git-cache-"));
 });
 
@@ -770,6 +771,44 @@ describe("git sources", { timeout: 60_000 }, () => {
       expect(first.commit).toBe(second.commit);
     }
     const mirror = cacheLayout(cache).gitMirror(fixture.repo);
+    expect(await pathExists(path.join(mirror, "config"))).toBe(true);
+    const siblings = (await readdir(path.dirname(mirror))).filter(
+      (entry) => entry !== path.basename(mirror),
+    );
+    expect(siblings).toEqual([]);
+  });
+
+  test("two replacements of one mirror that overlap both succeed", async () => {
+    const spec = gitSpec(fixture.repo);
+    await resolveGit(spec);
+    const mirror = cacheLayout(cache).gitMirror(fixture.repo);
+    // A malformed ref makes the fetch fail while the mirror is still a usable
+    // bare repository, so both commands build a replacement clone.
+    await writeFile(path.join(mirror, "refs", "heads", "broken"), "not-a-sha\n");
+
+    // Both commands reach the rename that moves the old mirror aside; the
+    // first waits there, which keeps the mirror corrupt while the second
+    // fetches, so the second also takes the replacement path. One of the two
+    // renames then loses, with ENOENT, exactly as two real commands would.
+    let swaps = 0;
+    let release!: () => void;
+    const bothSwapping = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(rename).mockImplementation(((from: string, to: string) => {
+      if (String(from) === mirror && String(to).includes(".old-")) {
+        swaps += 1;
+        if (swaps === 2) release();
+        return bothSwapping.then(() => actualFs.rename(from, to));
+      }
+      return actualFs.rename(from, to);
+    }) as never);
+
+    const [first, second] = await Promise.all([resolveGit(spec), resolveGit(spec)]);
+
+    expect(first.kind).toBe("git");
+    expect(second.kind).toBe("git");
+    expect(swaps).toBe(2);
     expect(await pathExists(path.join(mirror, "config"))).toBe(true);
     const siblings = (await readdir(path.dirname(mirror))).filter(
       (entry) => entry !== path.basename(mirror),
