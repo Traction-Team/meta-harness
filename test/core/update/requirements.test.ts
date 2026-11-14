@@ -283,6 +283,43 @@ describe("update requires, versioned", { timeout: 30_000 }, () => {
     expect(await readFile(repo.path("opencode.json"), "utf8")).toBe(OPENCODE_V1);
   });
 
+  test("a requirement created in this update is not called unchanged", async () => {
+    const shared = (file: string): string =>
+      requirement(file, "A setup file both requirements use", ".factory/templates/setup/opencode.json");
+
+    const { repo, fab } = await importedFrom(
+      {
+        ".factory/factory.yaml": factoryYaml([shared("a.json")]),
+        ".factory/templates/setup/opencode.json": OPENCODE_V1,
+        ".factory/AGENTS.md": "# Agents\n",
+      },
+      ["--setup"],
+    );
+    expect(await readFile(repo.path("a.json"), "utf8")).toBe(OPENCODE_V1);
+
+    // The template a.json was created from changes, and a second requirement
+    // that uses it appears. b.json is created from the new template in this
+    // update, so it was not left unchanged: only a.json was.
+    await publish(fab, {
+      ".factory/factory.yaml": factoryYaml([shared("a.json"), shared("b.json")]),
+      ".factory/templates/setup/opencode.json": OPENCODE_V2,
+    });
+
+    const result = await withFabEnvironment(fab, () =>
+      updateFab(repo.root, ["--setup", "--no-build", "--json"]),
+    );
+
+    expect(result.code).toBe(0);
+    expect(states(result)).toEqual([["b.json", "created"]]);
+    expect(await readFile(repo.path("b.json"), "utf8")).toBe(OPENCODE_V2);
+    expect(await readFile(repo.path("a.json"), "utf8")).toBe(OPENCODE_V1);
+    expect(
+      (parse(result).notes as string[]).filter((note) => note.endsWith("was not changed.")),
+    ).toEqual([
+      "Upstream changed .factory/templates/setup/opencode.json, the template for a.json; a.json was not changed.",
+    ]);
+  });
+
   test("a requirement removed upstream leaves its file alone", async () => {
     const { repo, fab } = await importedFrom({
       ".factory/factory.yaml": factoryYaml([opencodeRequirement()]),

@@ -1055,7 +1055,9 @@ async function runVersioned(
         root,
         requirementsIn(before["factory.yaml"]?.text),
         mergedRequires,
-        new Set([...plan.conflicts, ...plan.sideFiles]),
+        // Every side file is also pushed to `plan.conflicts`, so this one set
+        // covers a conflicted `factory.yaml` and a conflicted template alike.
+        new Set(plan.conflicts),
       );
       if (options.dryRun !== true) {
         const decision = await decideSetup(requirements, options.setup, io, tty);
@@ -1132,6 +1134,10 @@ async function runVersioned(
 
     // Creation happens outside the captured block: it writes outside
     // `.factory/`, and a restore must not undo a file the person agreed to.
+    // Each entry's state before that says whether the file was already there.
+    const statesBeforeCreation = new Map(
+      requirements.map((result) => [result.path.toLowerCase(), result.state]),
+    );
     if (options.dryRun !== true && requirements.length > 0) {
       requirements = setupAgreed
         ? await createRequirements(root, requirements, problems)
@@ -1180,11 +1186,15 @@ async function runVersioned(
 
     // A template that changed upstream never changes the file it created: it is
     // the person's file now. Say so, so the change is not mistaken for a no-op.
+    // A file this update created from the changed template is not one of those:
+    // it did not exist before the run, so nothing local was left alone.
     for (const requirement of mergedRequires) {
       if (requirement.template === undefined) continue;
       if (!changes.updated.includes(factoryRelative(requirement.template))) continue;
-      const current = await inspectRequirement(root, requirement);
-      if (current.state !== "present") continue;
+      const state =
+        statesBeforeCreation.get(requirement.path.toLowerCase()) ??
+        (await inspectRequirement(root, requirement)).state;
+      if (state !== "present") continue;
       notes.push(
         `Upstream changed ${requirement.template}, the template for ${requirement.path}; ${requirement.path} was not changed.`,
       );
