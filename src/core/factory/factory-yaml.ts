@@ -1,10 +1,11 @@
 import { isAlias, isMap, isScalar, isSeq } from "yaml";
 import type { Document, Pair } from "yaml";
 import type { Problem } from "../../errors.js";
+import { didYouMean } from "../../util/suggest.js";
 import { isSingleLine } from "../../util/text.js";
 import { aliasProblems, parseYaml } from "../../util/yaml.js";
 import type { YamlDocument } from "../../util/yaml.js";
-import type { FactoryYaml, PipelineEntry } from "./types.js";
+import type { FactoryYaml, PipelineEntry, Requirement } from "./types.js";
 import {
   isFormatOne,
   KNOWN_FACTORY_FIELDS,
@@ -19,6 +20,7 @@ import {
 export interface FactoryYamlParseResult {
   yaml?: FactoryYaml;
   pipeline?: PipelineEntry[];
+  requires?: Requirement[];
   problems: Problem[];
 }
 
@@ -189,6 +191,129 @@ function parsePipelineEntry(
   return stop === undefined ? { workflow, line } : { workflow, stop, line };
 }
 
+const REQUIREMENT_KEYS = ["path", "description", "template"] as const;
+
+type RequirementKey = (typeof REQUIREMENT_KEYS)[number];
+
+function requirementString(
+  key: RequirementKey,
+  node: unknown,
+  line: number,
+  file: string,
+  problems: Problem[],
+): string | undefined {
+  if (
+    !isScalar(node) ||
+    typeof node.value !== "string" ||
+    node.value === "" ||
+    !isSingleLine(node.value)
+  ) {
+    problems.push({
+      level: "error",
+      file,
+      line,
+      message: `"${key}" in a requires entry must be a non-empty, single-line string`,
+      fix: `Write the ${key} on one line`,
+    });
+    return undefined;
+  }
+
+  return node.value;
+}
+
+function parseRequirement(
+  itemNode: unknown,
+  parsed: Extract<ReturnType<typeof parseYaml>, { ok: true }>,
+  file: string,
+  problems: Problem[],
+): Requirement | undefined {
+  const line = parsed.lineOf(itemNode);
+  const item = resolveNode(itemNode, parsed.document);
+
+  if (!isMap(item)) {
+    problems.push({
+      level: "error",
+      file,
+      line,
+      message: "requires entry must be a mapping",
+      fix: "Use - path: <file>\n  description: <text>",
+    });
+    return undefined;
+  }
+
+  const fields = new Map<RequirementKey, { node: unknown; line: number }>();
+
+  for (const pair of item.items as Pair<unknown, unknown>[]) {
+    const key = scalarString(pair.key);
+    const keyLine = parsed.lineOf(pair.key);
+
+    if (key === undefined) {
+      problems.push({
+        level: "error",
+        file,
+        line: keyLine,
+        message: "requires entry keys must be strings",
+        fix: "Use path, description or template",
+      });
+      continue;
+    }
+
+    if (!(REQUIREMENT_KEYS as readonly string[]).includes(key)) {
+      problems.push({
+        level: "error",
+        file,
+        line: keyLine,
+        message: `Unknown key "${key}" in a requires entry`,
+        fix:
+          didYouMean(key, REQUIREMENT_KEYS) ??
+          "Remove the key or use path, description or template",
+      });
+      continue;
+    }
+
+    fields.set(key as RequirementKey, {
+      node: resolveNode(pair.value, parsed.document),
+      line: keyLine,
+    });
+  }
+
+  let complete = true;
+  for (const key of REQUIREMENT_KEYS) {
+    if (key === "template") continue;
+    if (fields.has(key)) continue;
+    const fix = key === "path" ? "Add a path: <file> key" : "Add a one-line description";
+    problems.push({
+      level: "error",
+      file,
+      line,
+      message: `requires entry is missing "${key}"`,
+      fix,
+    });
+    complete = false;
+  }
+
+  const pathField = fields.get("path");
+  const descriptionField = fields.get("description");
+  const templateField = fields.get("template");
+
+  const path = pathField === undefined
+    ? undefined
+    : requirementString("path", pathField.node, pathField.line, file, problems);
+  const description = descriptionField === undefined
+    ? undefined
+    : requirementString("description", descriptionField.node, descriptionField.line, file, problems);
+  const template = templateField === undefined
+    ? undefined
+    : requirementString("template", templateField.node, templateField.line, file, problems);
+
+  if (!complete || path === undefined || description === undefined) return undefined;
+  if (templateField !== undefined && template === undefined) return undefined;
+
+  return template === undefined
+    ? { path, description, line }
+    : { path, description, template, line };
+}
+
 export function parseFactoryYaml(text: string, file: string): FactoryYamlParseResult {
   const parsed = parseYaml(text);
   if (!parsed.ok) {
@@ -235,6 +360,7 @@ export function parseFactoryYaml(text: string, file: string): FactoryYamlParseRe
   const nameField = field("name", parsed);
   const descriptionField = field("description", parsed);
   const pipelineField = field("pipeline", parsed);
+  const requiresField = field("requires", parsed);
 
   problems.push(
     ...rule7FactoryYaml(file, {
@@ -281,6 +407,29 @@ export function parseFactoryYaml(text: string, file: string): FactoryYamlParseRe
     }
   }
 
+  const requires: Requirement[] = [];
+  if (requiresField !== undefined) {
+    const requiresNode = requiresField.node;
+    // `requires:` with nothing after it means the factory requires no files.
+    const isNullValue = isScalar(requiresNode) && requiresNode.value === null;
+    if (!isNullValue) {
+      if (!isSeq(requiresNode)) {
+        problems.push({
+          level: "error",
+          file,
+          line: requiresField.line,
+          message: '"requires" must be a list',
+          fix: "Write each required file as a - path: entry",
+        });
+      } else {
+        for (const item of requiresNode.items) {
+          const requirement = parseRequirement(item, parsed, file, problems);
+          if (requirement !== undefined) requires.push(requirement);
+        }
+      }
+    }
+  }
+
   const yaml: FactoryYaml | undefined =
     formatField !== undefined && isFormatOne(formatField) && name !== undefined
       ? {
@@ -288,9 +437,10 @@ export function parseFactoryYaml(text: string, file: string): FactoryYamlParseRe
           name,
           ...(description === undefined ? {} : { description }),
           pipeline,
+          requires,
           doc: parsed.document,
         }
       : undefined;
 
-  return { yaml, pipeline, problems };
+  return { yaml, pipeline, requires, problems };
 }

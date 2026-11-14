@@ -15,12 +15,24 @@ export interface FactoryYaml {
   name: string;
   description?: string;
   pipeline: PipelineEntry[];
+  /** Repository files the workflows need outside `.factory/`; empty when none. */
+  requires: Requirement[];
   doc: Document.Parsed;
 }
 
 export interface PipelineEntry {
   workflow: string;
   stop?: string;
+  line: number;
+}
+
+export interface Requirement {
+  /** Repository-relative, `/`-separated. */
+  path: string;
+  description: string;
+  /** Repository-relative, starts with `.factory/templates/`. */
+  template?: string;
+  /** Line of the entry in `factory.yaml`. */
   line: number;
 }
 

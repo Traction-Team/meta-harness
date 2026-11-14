@@ -144,7 +144,7 @@ describe("YAML aliases", () => {
         file: FILE,
         line: 3,
         message: 'Unknown field "x-build" in factory.yaml',
-        fix: "Remove the field or use a known name: format, name, description, pipeline",
+        fix: "Remove the field or use a known name: format, name, description, pipeline, requires",
       },
     ]);
     expect(result.problems.some((problem) => problem.message.includes("must be a workflow name"))).toBe(
@@ -233,7 +233,7 @@ describe("fallback fixes", () => {
         file: FILE,
         line: 3,
         message: 'Unknown field "zzz" in factory.yaml',
-        fix: "Remove the field or use a known name: format, name, description, pipeline",
+        fix: "Remove the field or use a known name: format, name, description, pipeline, requires",
       },
     ]);
   });

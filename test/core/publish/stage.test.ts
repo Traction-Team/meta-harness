@@ -146,6 +146,35 @@ describe("stageFab", () => {
     ]);
   });
 
+  test("fails when publish.exclude removes a required template", async () => {
+    const target = await repo({
+      files: {
+        ".factory/factory.yaml": [
+          "format: 1",
+          "name: demo",
+          "requires:",
+          "  - path: opencode.json",
+          "    description: Defines the agent-coding sub-agent",
+          "    template: .factory/templates/setup/opencode.json",
+          "",
+        ].join("\n"),
+        ".factory/templates/setup/opencode.json": "{}\n",
+      },
+    });
+    const { factory } = await loadRepo(target);
+
+    const error = (await stageFab(factory, { exclude: ["templates/setup/**"] }).catch(
+      (failure: unknown) => failure,
+    )) as MetafabError;
+
+    expect(error).toBeInstanceOf(MetafabError);
+    expect(error.code).toBe("publish-invalid-fab");
+    expect(error.exitCode).toBe(4);
+    expect(error.problems?.map((problem) => problem.message)).toContain(
+      'Template ".factory/templates/setup/opencode.json" does not exist',
+    );
+  });
+
   test("fails when an excluded workflow is still in the pipeline", async () => {
     const target = await repo();
     const { factory } = await loadRepo(target);

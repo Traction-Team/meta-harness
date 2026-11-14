@@ -2,10 +2,11 @@ import { isScalar } from "yaml";
 import type { Problem } from "../../errors.js";
 import { isSingleLine } from "../../util/text.js";
 import { didYouMean } from "../../util/suggest.js";
+import { requirementPathProblem } from "../requires/paths.js";
 import { descriptionLine, nameLine } from "./lines.js";
-import type { Factory, PipelineEntry, Skill } from "./types.js";
+import type { Factory, PipelineEntry, Requirement, Skill } from "./types.js";
 
-export const KNOWN_FACTORY_FIELDS = ["format", "name", "description", "pipeline"] as const;
+export const KNOWN_FACTORY_FIELDS = ["format", "name", "description", "pipeline", "requires"] as const;
 export const RESERVED_PIPELINE_OPTIONS = ["stage", "find", "where"] as const;
 export const RESERVED_CONTAINERS = [
   "workflows",
@@ -294,6 +295,72 @@ export function rule9PipelineOptions(file: string, key: string, line: number): P
   ];
 }
 
+/** Rule 12: a required path is safe to create in any repository. */
+export function rule12RequirementPath(file: string, requirement: Requirement): Problem[] {
+  const phrase = requirementPathProblem(requirement.path);
+  if (phrase === undefined) return [];
+
+  return [
+    {
+      level: "error",
+      file,
+      line: requirement.line,
+      message: `Required path "${requirement.path}" ${phrase}`,
+      fix: "Use a repository-relative file path outside .factory/, such as docs/factory.md",
+    },
+  ];
+}
+
+/**
+ * Rule 12, uniqueness: no two required paths are equal when letter case is
+ * ignored, and none is below another. The entry listed later is the one
+ * reported, because it is the one that repeats or nests.
+ */
+export function rule12UniqueRequirements(file: string, requirements: Requirement[]): Problem[] {
+  const problems: Problem[] = [];
+
+  for (let index = 0; index < requirements.length; index += 1) {
+    const later = requirements[index]!;
+    const folded = later.path.toLowerCase();
+
+    for (let earlierIndex = 0; earlierIndex < index; earlierIndex += 1) {
+      const earlier = requirements[earlierIndex]!;
+      const earlierFolded = earlier.path.toLowerCase();
+
+      if (folded === earlierFolded) {
+        problems.push({
+          level: "error",
+          file,
+          line: later.line,
+          message: `Required path "${later.path}" repeats "${earlier.path}"`,
+          fix: "Remove one of the entries",
+        });
+        break;
+      }
+
+      const [container, contained]: [Requirement | undefined, Requirement | undefined] =
+        folded.startsWith(`${earlierFolded}/`)
+          ? [earlier, later]
+          : earlierFolded.startsWith(`${folded}/`)
+            ? [later, earlier]
+            : [undefined, undefined];
+
+      if (container === undefined || contained === undefined) continue;
+
+      problems.push({
+        level: "error",
+        file,
+        line: later.line,
+        message: `Required path "${contained.path}" is inside required path "${container.path}"`,
+        fix: "Remove one of the entries",
+      });
+      break;
+    }
+  }
+
+  return problems;
+}
+
 export function rule10ReservedPrefix(skill: Skill): Problem[] {
   const name = skill.frontmatter.name;
   if (typeof name !== "string" || !name.startsWith(RESERVED_PREFIX)) return [];
@@ -425,6 +492,12 @@ export function validateFactory(factory: Factory): Problem[] {
 
   if (factory.factoryYaml !== undefined) {
     problems.push(...rule8PipelineWorkflows(factory.factoryYaml.pipeline, factory.skills));
+    for (const requirement of factory.factoryYaml.requires) {
+      problems.push(...rule12RequirementPath(".factory/factory.yaml", requirement));
+    }
+    problems.push(
+      ...rule12UniqueRequirements(".factory/factory.yaml", factory.factoryYaml.requires),
+    );
   }
 
   return problems;
