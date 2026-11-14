@@ -33,6 +33,23 @@ const TARGET_SET = new Set<string>(TARGETS);
 const GIT_URL =
   /^(?:git@[^\s:]+:[^\s]+|(?:git\+)?ssh:\/\/[^\s]+|(?:git\+)?https:\/\/[^\s]+|(?:git\+)?file:\/\/[^\s]+)$/i;
 
+const FILE_URL = /^(?:git\+)?file:\/\//i;
+const DRIVE_PATH = /^[A-Za-z]:[\\/]/;
+
+/**
+ * True when a `file:` URL names a host after `//`. Git ignores that host and
+ * reads the path, so `publish` would succeed, but `parseGitFileUrl` refuses the
+ * source and the generated README would name an `import` that fails. A
+ * `file://` with nothing after it has no path rather than a host.
+ */
+function fileUrlNamesHost(value: string): boolean {
+  const match = FILE_URL.exec(value);
+  if (match === null) return false;
+  const after = value.slice(match[0].length);
+  if (after === "") return false;
+  return !after.startsWith("/") && !/^localhost\//i.test(after) && !DRIVE_PATH.test(after);
+}
+
 /**
  * True when `publish.git` is a URL Git takes and the import line the generated
  * README derives from it is one `import` accepts. The second half is the
@@ -277,12 +294,21 @@ function validatePublish(
   const git = entries.get("git");
   const gitText = git === undefined ? undefined : stringNodeValue(resolvedNode(git.value, doc));
   if (gitText !== undefined && !isGitUrl(gitText, repositoryRoot ?? process.cwd())) {
-    report(
-      "error",
-      `"publish.git" is not a Git URL.`,
-      pairNode(git),
-      `Use git@host:path, ssh://, git+ssh://, https://, git+https://, file:// or git+file://.`,
-    );
+    if (fileUrlNamesHost(gitText)) {
+      report(
+        "error",
+        `"publish.git" names a host in a file URL.`,
+        pairNode(git),
+        `Write the path with three slashes, such as file:///srv/fabs/fab.git.`,
+      );
+    } else {
+      report(
+        "error",
+        `"publish.git" is not a Git URL.`,
+        pairNode(git),
+        `Use git@host:path, ssh://, git+ssh://, https://, git+https://, file:// or git+file://.`,
+      );
+    }
   }
 
   const branch = entries.get("branch");

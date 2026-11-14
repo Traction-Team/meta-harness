@@ -89,7 +89,7 @@ Edit `metafab.yaml` directly, then run `metafab build`. No command overrides it.
 4. `agents` names an unknown target.
 5. `publish` is present without `version`, or without either `name` or `git`.
 6. `publish.name` is not a valid npm package name.
-7. `publish.git` is not a Git URL, or a `file://` URL that names a host rather than a path.
+7. `publish.git` is not a Git URL, or a `file://` URL that names a host rather than a path; the second says to write the path with three slashes, such as `file:///srv/fabs/fab.git`.
 8. `publish.branch` is present without `publish.git`.
 9. `publish.version` is not a semantic version.
 10. `publish.readme` names a file that does not exist.
