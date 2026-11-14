@@ -90,15 +90,20 @@ export function declineRequirements(results: RequirementResult[]): RequirementRe
  * Reading follows a link in any parent directory, so a `.factory/templates/`
  * entry that is a link to an outside directory would copy bytes from outside
  * `.factory/`. Rule 13 refuses such a tree, but `update` copies from the merged
- * tree before its build validates it, so creation checks too.
+ * tree before its build validates it, so creation checks too. Anything that is
+ * not a regular file is refused for the same reason: `readFile` on a directory
+ * fails with `EISDIR`, and on a FIFO or a socket it waits for a peer.
  */
 async function templateRefusal(root: string, template: string): Promise<string | undefined> {
+  const refusal = `its template ${template} is not a regular file inside .factory/`;
   const factory = await realpath(path.join(root, ".factory")).catch(() => undefined);
   const resolved = await realpath(path.join(root, ...template.split("/"))).catch(() => undefined);
   if (factory === undefined || resolved === undefined || !isInsideAbsolute(factory, resolved)) {
-    return `its template ${template} is not a regular file inside .factory/`;
+    return refusal;
   }
-  return undefined;
+
+  const info = await stat(resolved).catch(() => undefined);
+  return info !== undefined && info.isFile() ? undefined : refusal;
 }
 
 /**

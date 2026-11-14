@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process";
 import { chmod, mkdir, readFile, stat, symlink } from "node:fs/promises";
 import { Readable } from "node:stream";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, test } from "vitest";
 import type { Problem } from "../../../src/errors.js";
 import {
@@ -15,6 +17,8 @@ import { makeRepo } from "../../helpers/makeRepo.js";
 import type { TempRepo } from "../../helpers/makeRepo.js";
 
 const cannotCheckMode = process.platform === "win32";
+const cannotLink = process.platform === "win32";
+const run = promisify(execFile);
 
 function result(
   path: string,
@@ -245,7 +249,7 @@ describe("createRequirements", () => {
     expect(await createRequirements(created.root, [blocked])).toEqual([blocked]);
   });
 
-  test.skipIf(cannotCheckMode)(
+  test.skipIf(cannotLink)(
     "refuses a template reached through a directory link outside .factory/",
     async () => {
       const created = await repo({ "outside/opencode.json": "{}\n" });
@@ -278,6 +282,67 @@ describe("createRequirements", () => {
             "Could not create opencode.json: its template .factory/templates/link/opencode.json is not a regular file inside .factory/",
           fix: "Replace .factory/templates/link/opencode.json with a file inside .factory/templates/",
         },
+      ]);
+    },
+  );
+
+  test("refuses a template that is a directory, without reading it", async () => {
+    const created = await repo({ ".factory/templates/setup/opencode.json": "{}\n" });
+
+    const problems: Problem[] = [];
+    const results = await createRequirements(
+      created.root,
+      [result("opencode.json", "missing", ".factory/templates/setup")],
+      problems,
+    );
+
+    expect(results).toEqual([
+      {
+        path: "opencode.json",
+        description: "The opencode.json file",
+        template: ".factory/templates/setup",
+        state: "failed",
+        reason: "its template .factory/templates/setup is not a regular file inside .factory/",
+      },
+    ]);
+    expect(await pathExists(created.path("opencode.json"))).toBe(false);
+    expect(problems).toEqual([
+      {
+        level: "warning",
+        file: "opencode.json",
+        message:
+          "Could not create opencode.json: its template .factory/templates/setup is not a regular file inside .factory/",
+        fix: "Replace .factory/templates/setup with a file inside .factory/templates/",
+      },
+    ]);
+  });
+
+  test.skipIf(cannotLink)(
+    "refuses a template that is a FIFO, without waiting for a writer",
+    { timeout: 5_000 },
+    async () => {
+      const created = await repo({ ".factory/templates/setup/opencode.json": "{}\n" });
+      await run("mkfifo", [created.path(".factory", "templates", "fifo")]);
+
+      const problems: Problem[] = [];
+      const results = await createRequirements(
+        created.root,
+        [result("opencode.json", "missing", ".factory/templates/fifo")],
+        problems,
+      );
+
+      expect(results).toEqual([
+        {
+          path: "opencode.json",
+          description: "The opencode.json file",
+          template: ".factory/templates/fifo",
+          state: "failed",
+          reason: "its template .factory/templates/fifo is not a regular file inside .factory/",
+        },
+      ]);
+      expect(await pathExists(created.path("opencode.json"))).toBe(false);
+      expect(problems.map((problem) => problem.fix)).toEqual([
+        "Replace .factory/templates/fifo with a file inside .factory/templates/",
       ]);
     },
   );
