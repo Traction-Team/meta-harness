@@ -199,6 +199,25 @@ describe("cache write failures", () => {
       );
     });
 
+    test(`the getOrCreate rename that discards a corrupt entry is exit 3 (${code})`, async () => {
+      const target = path.join(cache, "fabs", "corrupt");
+      await mkdir(target, { recursive: true });
+      renameFailure = { match: (from, to) => from === target && to.includes(".old-"), code };
+
+      await expectCacheWriteFailure(
+        code,
+        () =>
+          getOrCreate(target, {
+            root: cache,
+            validate: async (): Promise<string> => {
+              throw new Error("corrupt entry");
+            },
+            create: async () => undefined,
+          }),
+        (file) => expect(file).toBe(toPosixPath(target)),
+      );
+    });
+
     test(`the first replaceMirror rename is exit 3 (${code})`, async () => {
       await gitResolve();
       const mirror = cacheLayout(cache).gitMirror(fixture.repo);
