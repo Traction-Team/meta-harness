@@ -390,6 +390,18 @@ describe("gitTransportUrl and importSourceForGitUrl", () => {
       ["https://example.com/fab.git", "https://example.com/fab.git", "git+https://example.com/fab.git"],
       ["ssh://git@example.com/fab.git", "ssh://git@example.com/fab.git", "ssh://git@example.com/fab.git"],
       ["file:///srv/fab.git", "file:///srv/fab.git", "git+file:///srv/fab.git"],
+      // Git reads `#` literally in a file path, but a source splits it off as
+      // the ref, so the import form encodes it.
+      [
+        "file:///srv/my#fab.git",
+        "file:///srv/my#fab.git",
+        "git+file:///srv/my%23fab.git",
+      ],
+      [
+        "git+file:///srv/my#fab.git",
+        "file:///srv/my#fab.git",
+        "git+file:///srv/my%23fab.git",
+      ],
       // A Windows drive path reaches Git in the three-slash form it reads.
       [
         "git+file://C:\\fabs\\fab.git",

@@ -392,13 +392,18 @@ export function sourceWithoutCredentials(source: string): string {
 
 /**
  * The source `import` accepts for a URL Git accepts: `https://` and `file://`
- * gain `git+`. Every other form is returned unchanged, and only the scheme
- * text changes.
+ * gain `git+`. A `#` in a `file:` path becomes `%23`, because Git reads it
+ * literally in a path while a source splits it off as the ref: the repository
+ * `/srv/my#fab.git` would otherwise be imported as `/srv/my` at ref `fab.git`.
+ * Every other form is returned unchanged, and only the scheme text changes.
  */
 export function importSourceForGitUrl(url: string): string {
   const match = SCHEME.exec(url);
   if (match === null) return url;
   const scheme = (match[1] as string).toLowerCase();
-  if (scheme.startsWith("git+") || (scheme !== "https" && scheme !== "file")) return url;
-  return `git+${scheme}://${url.slice(match[0].length)}`;
+  const bare = scheme.replace(/^git\+/, "");
+  if (scheme !== "https" && bare !== "file") return url;
+  const rest = url.slice(match[0].length);
+  const path = bare === "file" ? rest.replace(/#/g, "%23") : rest;
+  return scheme.startsWith("git+") ? `${scheme}://${path}` : `git+${scheme}://${path}`;
 }

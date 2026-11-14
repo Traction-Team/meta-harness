@@ -118,6 +118,29 @@ describe("resolveReadme", () => {
     expect(parseSource(source, { cwd: target.root }).kind).toBe("git");
   });
 
+  test("encodes a # in a file path so the import line names the same repository", async () => {
+    // Git reads `#` literally in a file path, but a source splits it off as the
+    // ref: `import git+file:///srv/my#fab.git` would clone `/srv/my` at ref
+    // `fab.git`, not the repository `/srv/my#fab.git` that publish wrote.
+    const target = await repo({
+      publish: [
+        "publish:",
+        "  git: file:///srv/my#fab.git",
+        "  version: 1.2.0",
+        "",
+      ].join("\n"),
+    });
+    await rm(target.path(".factory", "README.md"));
+
+    const source = "git+file:///srv/my%23fab.git";
+    expect(await resolve(target)).toContain(`npx @seasb/metafab import ${source}`);
+    expect(parseSource(source, { cwd: target.root })).toEqual({
+      kind: "git",
+      url: "file:///srv/my%23fab.git",
+      source,
+    });
+  });
+
   test("names the import form of the Git URL in the generated import command", async () => {
     // `import` reads a plain https URL as a tarball, so the README of a fab
     // published to a Git repository must name the `git+` form.
