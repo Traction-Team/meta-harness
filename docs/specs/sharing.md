@@ -16,7 +16,7 @@ Sharing follows these rules:
 4. `publish` never changes the project repository. A Git publish commits and pushes only to the configured fab repository.
 5. `update` uses a three-way merge for versioned sources. An update from an unversioned source replaces upstream-owned files and can discard edits to them. Git is the review and undo mechanism.
 6. npm and Git act only as transport.
-7. Metafab unpacks packages itself and never runs package scripts.
+7. Metafab unpacks packages itself and never runs package scripts. `import` and `update` never run factory scripts either: they create a [required file](#creating-required-files) only by copying its template.
 
 A repository does not need a `package.json` to use a fab. It needs Node.js only to run the Metafab CLI.
 
@@ -166,9 +166,13 @@ Use semantic versions as follows:
 | --- | --- |
 | Remove or rename a workflow or skill | Major |
 | Add a workflow, skill, template, or script, or change the pipeline | Minor |
+| Add a requires entry | Minor |
 | Change existing text without changing names | Patch |
+| Change a required file's template text | Patch |
 
 Renaming a skill is a major change because receiving teams can refer to or invoke it by name.
+
+A new `requires` entry is minor because `update` offers to create its file and asks first. A changed template never changes an existing file, so it is a patch.
 
 A published version cannot be changed:
 
@@ -230,7 +234,7 @@ HTTPS tarballs and local paths are **unversioned** sources. Metafab cannot downl
 ## Importing a fab
 
 ```sh
-metafab import <source> [--agents <list>] [--force] [--adopt]
+metafab import <source> [--agents <list>] [--force] [--adopt] [--setup | --no-setup]
 ```
 
 The command performs these steps:
@@ -238,14 +242,15 @@ The command performs these steps:
 1. Resolve the source to an exact version or revision.
 2. Download the source and verify its integrity when the source provides a hash.
 3. Validate the fab and its factory.
-4. Select the initial targets from `--agents` or with the same target-selection behaviour as `init`. Scan those destinations, compare existing skills with the incoming fab, report conflicts, and collect any consent required by the [existing-skill adoption](cli.md#adopt-existing-skills) rules. Complete this preflight before changing the repository.
+4. Select the initial targets from `--agents` or with the same target-selection behaviour as `init`. Scan those destinations, compare existing skills with the incoming fab, report conflicts, and collect any consent required by the [existing-skill adoption](cli.md#adopt-existing-skills) rules and by the [setup](#creating-required-files) rules. Complete this preflight before changing the repository.
 5. Check that the build output can be written. Stop if the repository holds a file, link or directory at a path Metafab does not own.
 6. When the repository has no `.factory/`, create `.factory/metafab.yaml` and add the Metafab lines to `.gitattributes`. Do not create placeholder `factory.yaml` or `AGENTS.md` files.
 7. Move adopted skills into `.factory/skills/` as local additions and add each selected destination to the managed `.gitignore` block. A migrated skill that overlaps the incoming fab follows the normal conflict rule below.
 8. Copy the factory into `.factory/`, except `metafab.yaml` and `README.md`.
 9. Write the [upstream entry](#upstream-entry) to `metafab.yaml`.
-10. Run `metafab build`.
-11. Print a review summary.
+10. Create the missing [required files](#creating-required-files) the person agreed to in step 4.
+11. Run `metafab build`.
+12. Print a review summary.
 
 A failure in steps 1 to 5 leaves the repository unchanged.
 
@@ -268,10 +273,22 @@ A factory can have only one upstream fab. If `metafab.yaml` already contains an 
 
 With `--force`, the realignment happens before the copy: the local entry is renamed to the fab's spelling, a local-only file beneath it moves with it, and nothing is deleted. The result is the same on every filesystem. A local file where the fab has a directory is still replaced by that directory.
 
+### Creating required files
+
+A fab's `factory.yaml` can list repository files its workflows need under [`requires`](factory-format.md#required-repository-files). During the preflight, `import` looks at each one in the repository:
+
+- **Present.** A file or a link (even a dangling one) exists at the path, or any other entry that is not a directory, such as a socket. Metafab never changes it.
+- **Blocked.** The path cannot be created without changing other content: a directory is at the path, a parent is a file or a symbolic link, or the path or a parent differs only in letter case from an existing entry. A case variant is reported the same way on every filesystem. Metafab never changes the entry in the way.
+- **Missing.** Nothing is at the path. With a template it can be created; without one, a person creates it.
+
+When at least one missing file has a template, `import` lists those files on standard error, one `<path>  <description>` line each in `factory.yaml` order, and asks "Create the missing files from the fab's templates? Existing files are never changed." in a terminal, with yes as the default. `--setup` answers yes and `--no-setup` answers no without asking; passing both is a usage error. Without a terminal and without either flag, `import` exits with code 2 before changing anything, and the required value names `--setup`. When adoption consent is also missing, both required values are reported together.
+
+After the copy and the upstream entry, `import` creates each agreed file: missing parent directories first, then the file with the template's bytes, 0755 when the template has any executable bit and 0644 otherwise. It creates the file exclusively, so a file that appeared since the preflight is left alone and reported as present. A file that cannot be created (for example, a permission error) is a warning naming the path and the fix `Copy <template> to <path>`; the import continues and exits 0. Declining leaves those files missing; `check` then warns about them.
+
 ## Updating a fab
 
 ```sh
-metafab update [--to <version|range|ref>] [--dry-run] [--no-build]
+metafab update [--to <version|range|ref>] [--dry-run] [--no-build] [--setup | --no-setup]
 ```
 
 For a versioned source, the update uses three versions of each file:
@@ -285,10 +302,14 @@ The command performs these steps:
 1. Resolve `--to`, or select a newer version as the requested range or [Git ref](#git-refs) allows.
 2. When the selected version is the recorded one, do not change factory files. If `--to` names a different range or ref, the upstream entry records it even though no newer version exists, because the next update follows it, and the output says so.
 3. Download the base and new upstream versions.
-4. Merge each path into `.factory/`, except `metafab.yaml`.
-5. Update the resolved version and revision fields in the upstream entry, including when the merge has conflicts. The selected new upstream is the base for future updates after those conflicts are resolved.
-6. When the merge has no conflicts, run `metafab build` unless `--no-build` is present. Do not build conflicted source.
-7. Print a review summary.
+4. Plan the merge of each path, without writing. When the merged `factory.yaml` adds a requirement the current one does not have, report it and collect consent to create the missing ones, as `import` does in its step 4. Nothing is written before this step ends.
+5. Merge each path into `.factory/`, except `metafab.yaml`.
+6. Update the resolved version and revision fields in the upstream entry, including when the merge has conflicts. The selected new upstream is the base for future updates after those conflicts are resolved.
+7. Create the missing [required files](#creating-required-files) the person agreed to in step 4.
+8. When the merge has no conflicts, run `metafab build` unless `--no-build` is present. Do not build conflicted source.
+9. Print a review summary.
+
+Only a requirement that is new in this update is offered: a requirement that was already listed and is still missing is `check`'s to report. The consent, the flags and the exit code without a terminal are the same as for `import`; without a terminal and a flag, `update` exits with code 2 and `.factory/` is unchanged. A dry run never asks and never writes: it reports the new requirements as missing and creates nothing. When `factory.yaml` or a new requirement's template has a conflict, `update` creates nothing for it and says so. A requirement removed upstream leaves its file alone. When upstream changed the template of a requirement whose file exists, the summary notes it: `Upstream changed <template>, the template for <path>; <path> was not changed.`
 
 Downloads use `~/.metafab/cache/`.
 
@@ -337,9 +358,11 @@ After a conflicted update, `metafab check` fails while either condition remains:
 For an HTTPS tarball or a local path, `update` does not merge. This operation is intentionally destructive for files that also exist in the source:
 
 1. Download or read the current source.
-2. Copy every source file into `.factory/`, replacing the local file. Files that exist only locally are kept.
-3. Run `metafab build` unless `--no-build` is present.
-4. Print a review summary.
+2. When the source's `factory.yaml` adds a requirement the current one does not have, report it and collect consent to create the missing ones, as for a versioned source. Nothing is written before this step ends.
+3. Copy every source file into `.factory/`, replacing the local file. Files that exist only locally are kept.
+4. Create the missing [required files](#creating-required-files) the person agreed to in step 2. A file outside `.factory/` is never replaced, even here.
+5. Run `metafab build` unless `--no-build` is present.
+6. Print a review summary.
 
 Local edits to replaced files are lost from the working tree. Use `git diff` to review the result, and restore the edits you want to keep from Git. `--to` is not accepted for an unversioned source.
 
@@ -359,6 +382,11 @@ Runs code on your machines: review first
 Changes every agent session
   M AGENTS.md                              +6 -0
   M factory.yaml                           pipeline: finish-slice added after review-slice
+
+Repository files the factory needs
+  A opencode.json                          created from .factory/templates/setup/opencode.json
+  docs/roadmap.md                          missing: The roadmap that prioritise-roadmap writes and start-plan reads
+  orca.yaml                                present: Runs metafab build in each new Orca worktree; when it exists, add the build step to scripts.setup
 
 Workflows
   A workflows/finish-slice                 Finish slice
@@ -380,11 +408,14 @@ The summary uses this order:
 
 1. Files under `scripts/`, executable files, and non-Markdown files in skill directories
 2. `AGENTS.md` and `factory.yaml`
-3. Workflows
-4. Skills
-5. Other files, such as templates
-6. Preserved local edits
-7. Conflicts
+3. Repository files the factory needs
+4. Workflows
+5. Skills
+6. Other files, such as templates
+7. Preserved local edits
+8. Conflicts
+
+`import` lists every requirement; `update` lists only the requirements that are new in the update. Each line is `A <path> created from <template>`, `<path> present: <description>` when the requirement has a template (the template was not used, so the description is how the person learns what the existing file needs), `<path> present` when it has none, `<path> missing: <description>`, `<path> not created: declined`, `<path> blocked: <reason>`, or `<path> not created: <error>`.
 
 The summary also calls out:
 

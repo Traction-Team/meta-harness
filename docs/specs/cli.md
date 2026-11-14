@@ -35,7 +35,7 @@ All commands follow these rules:
 4. Every command supports `--json`.
 5. A command never prompts when standard input is not a terminal.
 6. Missing non-interactive input produces exit code 2 and a machine-readable list of required values.
-7. `import` and `update` never run package scripts.
+7. `import` and `update` never run package scripts or factory scripts. They create a required file only by copying its template.
 8. Repeated `init`, `build`, `map`, and `check` commands are safe.
 9. `metafab <command> --help` (or `-h`) prints the command's usage line, its one-line description, its arguments and its options, and exits 0. It does not read the factory, run Git, use the network or prompt. With `--json` it writes the same as one JSON object. `metafab pipeline --help` lists the `pipeline` subcommands. `metafab --help` lists the commands, and `metafab --help <command>` is the same as `metafab <command> --help`.
 10. When standard input ends before a prompt is answered, the value is missing input: the command exits with code 2 and the machine-readable list of required values, and writes nothing. Every prompt comes before the command's first write.
@@ -148,15 +148,18 @@ With `--json`, `map` also includes each skill's path and frontmatter.
 
 ### Validate a factory
 
-`metafab check` validates:
+`metafab check` validates the following, and reports their problems in this order:
 
-- The [factory format](factory-format.md#validation)
-- Installed skill copies
-- The generated `AGENTS.md` block
-- The installed `metafab` skill
-- [`metafab.yaml`](configuration.md#validation)
-- Unresolved Git conflict markers
-- Remaining `.upstream` conflict files
+1. The [factory format](factory-format.md#validation)
+2. [`metafab.yaml`](configuration.md#validation)
+3. [Required repository files](factory-format.md#required-repository-files): each missing or blocked one is a warning
+4. Problems that stop `build` from planning its output
+5. Unresolved Git conflict markers
+6. Remaining `.upstream` conflict files
+7. Installed skill copies, the generated `AGENTS.md` block and the installed `metafab` skill
+8. Warnings from planning the build output
+
+When items 1 to 4 include an error, items 7 and 8 are not checked, and `check` says so with one warning.
 
 Each problem includes a path, line number, and suggested fix. Errors return exit code 1. Warnings do not change the exit code.
 
@@ -164,7 +167,7 @@ Each problem includes a path, line number, and suggested fix. Errors return exit
 
 | Command | Behaviour |
 | --- | --- |
-| `metafab import <source> [--agents <list>] [--force] [--adopt] [--setup \| --no-setup]` | Copies a fab into `.factory/`, records it as the upstream, adopts existing repository skills when required, builds it, and prints a review summary. In a repository without a factory, it creates local configuration without creating source placeholders |
+| `metafab import <source> [--agents <list>] [--force] [--adopt] [--setup \| --no-setup]` | Copies a fab into `.factory/`, records it as the upstream, adopts existing repository skills when required, builds it, creates missing required files the person agrees to, and prints a review summary. In a repository without a factory, it creates local configuration without creating source placeholders |
 | `metafab update [--to <version\|range\|ref>] [--dry-run] [--no-build] [--setup \| --no-setup]` | Merges a newer upstream version into `.factory/`, or overwrites from an unversioned source. The source comes from the `upstream` key in `metafab.yaml` |
 | `metafab diff [<path>]` | Shows local edits since the recorded upstream version |
 | `metafab detach` | Removes upstream metadata without changing factory files |
