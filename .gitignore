@@ -2,6 +2,7 @@
 *.log
 node_modules/
 dist/
+.amp/portals/*
 
 # metafab:start
 .claude/skills/

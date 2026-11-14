@@ -390,6 +390,18 @@ describe("gitTransportUrl and importSourceForGitUrl", () => {
       ["https://example.com/fab.git", "https://example.com/fab.git", "git+https://example.com/fab.git"],
       ["ssh://git@example.com/fab.git", "ssh://git@example.com/fab.git", "ssh://git@example.com/fab.git"],
       ["file:///srv/fab.git", "file:///srv/fab.git", "git+file:///srv/fab.git"],
+      // Git reads `#` literally in a file path, but a source splits it off as
+      // the ref, so the import form encodes it.
+      [
+        "file:///srv/my#fab.git",
+        "file:///srv/my#fab.git",
+        "git+file:///srv/my%23fab.git",
+      ],
+      [
+        "git+file:///srv/my#fab.git",
+        "file:///srv/my#fab.git",
+        "git+file:///srv/my%23fab.git",
+      ],
       // A Windows drive path reaches Git in the three-slash form it reads.
       [
         "git+file://C:\\fabs\\fab.git",
@@ -455,14 +467,19 @@ describe("sourceWithoutCredentials", () => {
     }
   });
 
-  test("drops credentials from a file URL that names an authority", () => {
+  test("drops all of the userinfo from a file URL that names an authority", () => {
     // Not a path: `localhost` is a host, so the userinfo is a credential and
-    // must not reach a recorded source or a published README.
+    // must not reach a recorded source or a published README. The username
+    // goes too: `parseGitFileUrl` accepts no host but an empty one, `localhost`
+    // or a drive, so a bare username would leave a source `import` refuses.
     expect(sourceWithoutCredentials("git+file://user:pw@localhost/x.git")).toBe(
-      "git+file://user@localhost/x.git",
+      "git+file://localhost/x.git",
     );
-    expect(sourceWithoutCredentials("file://user:ghp_secret@localhost/srv/fab.git")).not.toContain(
-      "ghp_secret",
+    expect(sourceWithoutCredentials("git+file://user@localhost/x.git")).toBe(
+      "git+file://localhost/x.git",
+    );
+    expect(sourceWithoutCredentials("file://user:ghp_secret@localhost/srv/fab.git")).toBe(
+      "file://localhost/srv/fab.git",
     );
   });
 

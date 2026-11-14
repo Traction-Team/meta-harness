@@ -352,29 +352,58 @@ export function gitTransportUrl(url: string): string {
 // "authority" really the start of a path, so only here is a `@` not userinfo.
 const FILE_DRIVE_AUTHORITY = /^(?:git\+)?file:\/\/[A-Za-z]:[\\/]/i;
 
+const FILE_URL = /^(?:git\+)?file:\/\//i;
+
+/**
+ * A `file:` URL that names an authority (`file://localhost/…`, and the form
+ * `file://user:pw@localhost/…` that carries credentials) loses the whole
+ * userinfo, not only the password: `parseGitFileUrl` accepts no host but an
+ * empty one, `localhost` or a drive, so a username left in place would make
+ * the recorded source, and the `import` line in a published README, fail to
+ * parse. The `@` kept for ssh is not useful here, and the username is not
+ * something to write down either.
+ */
+function stripFileUserinfo(source: string): string {
+  const file = FILE_URL.exec(source);
+  if (file === null) return source;
+  const start = file[0].length;
+  const slash = source.indexOf("/", start);
+  const end = slash === -1 ? source.length : slash;
+  const at = source.lastIndexOf("@", end - 1);
+  if (at < start) return source;
+  return source.slice(0, start) + source.slice(at + 1);
+}
+
 /**
  * The source to record or key on: the value without credentials, except for a
  * `file:` URL written with a Windows drive right after `//`
  * (`file://C:\Users\bob@corp\fab.git`). There the authority is really the
  * start of a path, so stripping would cut the `@` in the path as if it were
- * userinfo and the recorded source would no longer parse. Every other form
- * keeps `stripSourceCredentials`: in `file:///…` and `file://localhost/…` the
- * authority ends at the first `/`, before any `@`, and a `file://` URL that
- * does name an authority carries credentials that must not be written down.
+ * userinfo and the recorded source would no longer parse. A `file:` URL that
+ * does name an authority (`file://user:pw@localhost/…`) loses all of its
+ * userinfo, so the recorded source stays a `file:` URL `import` accepts. Every
+ * other form keeps `stripSourceCredentials`.
  */
 export function sourceWithoutCredentials(source: string): string {
-  return FILE_DRIVE_AUTHORITY.test(source) ? source : stripSourceCredentials(source);
+  if (FILE_DRIVE_AUTHORITY.test(source)) return source;
+  if (FILE_URL.test(source)) return stripFileUserinfo(source);
+  return stripSourceCredentials(source);
 }
 
 /**
  * The source `import` accepts for a URL Git accepts: `https://` and `file://`
- * gain `git+`. Every other form is returned unchanged, and only the scheme
- * text changes.
+ * gain `git+`. A `#` in a `file:` path becomes `%23`, because Git reads it
+ * literally in a path while a source splits it off as the ref: the repository
+ * `/srv/my#fab.git` would otherwise be imported as `/srv/my` at ref `fab.git`.
+ * Every other form is returned unchanged, and only the scheme text changes.
  */
 export function importSourceForGitUrl(url: string): string {
   const match = SCHEME.exec(url);
   if (match === null) return url;
   const scheme = (match[1] as string).toLowerCase();
-  if (scheme.startsWith("git+") || (scheme !== "https" && scheme !== "file")) return url;
-  return `git+${scheme}://${url.slice(match[0].length)}`;
+  const bare = scheme.replace(/^git\+/, "");
+  if (scheme !== "https" && bare !== "file") return url;
+  const rest = url.slice(match[0].length);
+  const path = bare === "file" ? rest.replace(/#/g, "%23") : rest;
+  return scheme.startsWith("git+") ? `${scheme}://${path}` : `git+${scheme}://${path}`;
 }

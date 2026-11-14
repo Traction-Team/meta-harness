@@ -1,6 +1,7 @@
 import { rm } from "node:fs/promises";
 import { afterEach, describe, expect, test } from "vitest";
 import { resolveReadme } from "../../../src/core/publish/index.js";
+import { parseSource } from "../../../src/core/sources/index.js";
 import { loadRepo, makePublishRepo } from "./fixtures.js";
 import type { PublishRepoOptions } from "./fixtures.js";
 import type { TempRepo } from "../../helpers/makeRepo.js";
@@ -96,7 +97,9 @@ describe("resolveReadme", () => {
 
   test("does not write credentials from a file URL in publish.git", async () => {
     // A `file:` URL that names an authority is not a path, so its userinfo is
-    // a credential and must not reach the published README.
+    // a credential and must not reach the published README. The whole userinfo
+    // goes: `import` accepts `localhost` after `git+file://` but no host with a
+    // username before it, and this line is what a person runs.
     const target = await repo({
       publish: [
         "publish:",
@@ -110,9 +113,32 @@ describe("resolveReadme", () => {
     const readme = await resolve(target);
 
     expect(readme).not.toContain("ghp_secret");
-    expect(readme).toContain(
-      "npx @seasb/metafab import git+file://user@localhost/srv/fab.git",
-    );
+    const source = "git+file://localhost/srv/fab.git";
+    expect(readme).toContain(`npx @seasb/metafab import ${source}`);
+    expect(parseSource(source, { cwd: target.root }).kind).toBe("git");
+  });
+
+  test("encodes a # in a file path so the import line names the same repository", async () => {
+    // Git reads `#` literally in a file path, but a source splits it off as the
+    // ref: `import git+file:///srv/my#fab.git` would clone `/srv/my` at ref
+    // `fab.git`, not the repository `/srv/my#fab.git` that publish wrote.
+    const target = await repo({
+      publish: [
+        "publish:",
+        "  git: file:///srv/my#fab.git",
+        "  version: 1.2.0",
+        "",
+      ].join("\n"),
+    });
+    await rm(target.path(".factory", "README.md"));
+
+    const source = "git+file:///srv/my%23fab.git";
+    expect(await resolve(target)).toContain(`npx @seasb/metafab import ${source}`);
+    expect(parseSource(source, { cwd: target.root })).toEqual({
+      kind: "git",
+      url: "file:///srv/my%23fab.git",
+      source,
+    });
   });
 
   test("names the import form of the Git URL in the generated import command", async () => {

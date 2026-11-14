@@ -319,6 +319,20 @@ async function isUsableMirror(mirror: string, options: GitOptions): Promise<bool
   return origin.ok && origin.stdout.trim() !== "";
 }
 
+function isAbsentError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
+/**
+ * Swaps a fresh clone for a mirror whose fetch failed. Two commands can run
+ * this at once, and the mirror is the thing they synchronise on: the rename
+ * that moves the old mirror aside is atomic, so at most one command moves it
+ * and the other sees ENOENT and installs its clone the way a first clone does.
+ * The brief moment when the mirror is absent between the two renames is not
+ * closed here: a third command in that window fails its fetch and rebuilds,
+ * which the same swap logic handles on its next attempt.
+ */
 async function replaceMirror(
   url: string,
   mirror: string,
@@ -332,6 +346,14 @@ async function replaceMirror(
   try {
     await rename(mirror, backup);
   } catch (error) {
+    if (isAbsentError(error)) {
+      // Another command moved the mirror aside first: it has finished its swap
+      // or is halfway through one. Install this clone the way a first clone
+      // does, so a mirror that is already back in place wins and the rest of
+      // the command uses it instead of failing on a cache it cannot write.
+      await installMirror(replacement, mirror, layout, options);
+      return mirror;
+    }
     await rm(replacement, { recursive: true, force: true }).catch(() => undefined);
     throw cacheWriteError(mirror, layout.root, error);
   }
@@ -339,6 +361,16 @@ async function replaceMirror(
   try {
     await rename(replacement, mirror);
   } catch (error) {
+    if (await isLostRaceError(error, mirror)) {
+      // Another command's swap put a mirror back between our two renames. Its
+      // mirror is the newest one, so use it and drop ours; the backup we moved
+      // aside is the corrupt mirror both commands were replacing.
+      await rm(replacement, { recursive: true, force: true }).catch(() => undefined);
+      if (await isUsableMirror(mirror, options)) {
+        await rm(backup, { recursive: true, force: true }).catch(() => undefined);
+        return mirror;
+      }
+    }
     // Put the old mirror back where it was: a swap that did not happen must
     // not cost the caller the mirror it had.
     await rename(backup, mirror).catch(() => undefined);

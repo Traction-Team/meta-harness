@@ -199,6 +199,25 @@ describe("cache write failures", () => {
       );
     });
 
+    test(`the getOrCreate rename that discards a corrupt entry is exit 3 (${code})`, async () => {
+      const target = path.join(cache, "fabs", "corrupt");
+      await mkdir(target, { recursive: true });
+      renameFailure = { match: (from, to) => from === target && to.includes(".old-"), code };
+
+      await expectCacheWriteFailure(
+        code,
+        () =>
+          getOrCreate(target, {
+            root: cache,
+            validate: async (): Promise<string> => {
+              throw new Error("corrupt entry");
+            },
+            create: async () => undefined,
+          }),
+        (file) => expect(file).toBe(toPosixPath(target)),
+      );
+    });
+
     test(`the first replaceMirror rename is exit 3 (${code})`, async () => {
       await gitResolve();
       const mirror = cacheLayout(cache).gitMirror(fixture.repo);
@@ -262,14 +281,14 @@ describe("cache write failures", () => {
     test(`the npm tarball copy into the cache is exit 3 (${code})`, async () => {
       const resolved = await resolve(parseSource("fab-fs@1.0.0"), npmOptions());
       copyFileFailure = { match: (_from, to) => to.includes(".tmp-"), code };
+      const tarball = cacheLayout(cache).npmTarball("fab-fs", "1.0.0");
 
       await expectCacheWriteFailure(
         code,
         () => fetchFab(resolved, npmOptions()),
-        (file) => {
-          expect(file.startsWith(toPosixPath(path.join(cache, "npm", "fab-fs")))).toBe(true);
-          expect(file).toMatch(/\.tgz\.tmp-/);
-        },
+        // The copy writes the staging file, which `getOrCreate` removes, so the
+        // problem names the cache path the tarball belongs at.
+        (file) => expect(file).toBe(toPosixPath(tarball)),
       );
     });
   }

@@ -23,6 +23,16 @@ The design comes from [Mark IV](../../prototype/mk4/), but v1 excludes its monit
 | [CLI](cli.md) | Commands, JSON output, and exit codes |
 | [Configuration](configuration.md) | Every key in `.factory/metafab.yaml` |
 
+### Version 2 (draft)
+
+These specifications are drafts for approval. They are the acceptance standard for the version 2 plans (`2.xxx`) only. Each plan lists the edits it makes to the version 1 specifications above.
+
+| File | Scope |
+| --- | --- |
+| [Store](store.md) | Documents and scores in a shared store outside Git: document folders and their rules, the mirror, sync, scores, scorers, the remote, git and local backends, and `metafab store` and `metafab scorer` |
+| [Store protocol](store-protocol.md) | The HTTP API a remote store implements, such as Metastore Cloud |
+| [Environments](environments.md) | One factory compiled for each developer's environment: `env` variables, selection from Git config, `when`, `switch` and `import` directives, conditional skills, and `metafab env` |
+
 ## Architecture
 
 Metafab uses three layers.

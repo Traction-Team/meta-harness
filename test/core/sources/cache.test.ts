@@ -180,7 +180,9 @@ describe("getOrCreate", () => {
       });
 
       expect(result).toBe("good");
-      expect(validations).toBe(2);
+      // The corrupt entry is validated, looked at again, and validated a second
+      // time; only then is it moved aside. The staging entry is the third.
+      expect(validations).toBe(3);
       expect(await readFile(path.join(target, "value"), "utf8")).toBe("good");
     } finally {
       await rm(base, { recursive: true, force: true });
@@ -270,6 +272,94 @@ describe("getOrCreate", () => {
 
       expect(firstResult).toBe("good");
       expect(second).toBe("good");
+      expect(await readFile(path.join(target, "value"), "utf8")).toBe("good");
+      expect(await tempSiblings(base)).toEqual([]);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps the entry another command installed while a bad one was validated", async () => {
+    const base = await tempDir();
+    try {
+      const target = path.join(base, "entry");
+      await mkdir(target, { recursive: true });
+      await writeFile(path.join(target, "value"), "corrupt");
+
+      // The first command reads the corrupt entry and hangs inside validate.
+      // The second replaces the entry while the first is still in there; the
+      // first must not delete the good entry it now finds.
+      let entered!: () => void;
+      const enteredValidate = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let hang = true;
+      let creates = 0;
+
+      const options = {
+        root: base,
+        validate: async (dir: string) => {
+          const value = await readFile(path.join(dir, "value"), "utf8");
+          if (hang) {
+            hang = false;
+            entered();
+            await gate;
+          }
+          if (value !== "good") throw new Error("corrupt entry");
+          return value;
+        },
+        create: async (staging: string) => {
+          creates += 1;
+          await mkdir(staging, { recursive: true });
+          await writeFile(path.join(staging, "value"), "good");
+        },
+      };
+
+      const first = getOrCreate(target, options);
+      await enteredValidate;
+      const second = await getOrCreate(target, options);
+      release();
+
+      expect(await first).toBe("good");
+      expect(second).toBe("good");
+      expect(creates).toBe(1);
+      expect(await readFile(path.join(target, "value"), "utf8")).toBe("good");
+      expect(await tempSiblings(base)).toEqual([]);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("creates the entry when the corrupt target vanishes before it is moved", async () => {
+    const base = await tempDir();
+    try {
+      const target = path.join(base, "entry");
+      await mkdir(target, { recursive: true });
+      await writeFile(path.join(target, "value"), "corrupt");
+
+      let validations = 0;
+      const result = await getOrCreate(target, {
+        root: base,
+        validate: async (dir) => {
+          validations += 1;
+          const value = await readFile(path.join(dir, "value"), "utf8");
+          // Another command moves the bad entry aside between our second look
+          // and our own move.
+          if (validations === 2) await rm(target, { recursive: true, force: true });
+          if (value !== "good") throw new Error("corrupt entry");
+          return value;
+        },
+        create: async (staging) => {
+          await mkdir(staging, { recursive: true });
+          await writeFile(path.join(staging, "value"), "good");
+        },
+      });
+
+      expect(result).toBe("good");
       expect(await readFile(path.join(target, "value"), "utf8")).toBe("good");
       expect(await tempSiblings(base)).toEqual([]);
     } finally {

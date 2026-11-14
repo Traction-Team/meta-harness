@@ -11,4 +11,4 @@ plan: docs/plans/1.021-source-hardening.md
 
 ## Still to come
 
-Follow-ups filed to intake: the publish summary label for a Windows drive `publish.git`, and the `upstream.source` validation message for an unsupported scheme.
+Follow-ups filed to intake: the publish summary label for a Windows drive `publish.git`, the `upstream.source` validation message for an unsupported scheme, and a few small `publish.git` and `git+file://` edge cases.

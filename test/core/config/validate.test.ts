@@ -157,6 +157,17 @@ describe("rule 7: Git URLs", () => {
     "git+https://github.com/seasb/fab-mark4.git",
     "file:///tmp/fab-mark4.git",
     "git+file:///tmp/fab-mark4.git",
+    // Git reads `#` literally in a file path, so the README encodes it to keep
+    // it out of the ref.
+    "file:///srv/my#fab-mark4.git",
+    "git+file:///srv/my#fab-mark4.git",
+    "file://localhost/tmp/fab-mark4.git",
+    "git+file://localhost/tmp/fab-mark4.git",
+    // Its userinfo is a credential: the README drops it, leaving `localhost`,
+    // which `import` accepts.
+    "file://user:token@localhost/tmp/fab-mark4.git",
+    "file:///C:/fabs/fab-mark4.git",
+    `file://C:\\fabs\\fab-mark4.git`,
   ])("accepts %s", (url) => {
     const config = parseConfig(`publish:\n  git: ${url}\n  version: 1.2.0\n`);
 
@@ -172,6 +183,23 @@ describe("rule 7: Git URLs", () => {
       "Use git@host:path, ssh://, git+ssh://, https://, git+https://, file:// or git+file://.",
     );
   });
+
+  test.each(["file://machine/tmp/fab.git", "git+file://machine/tmp/fab.git"])(
+    "rejects %s, a file URL that names a host",
+    (url) => {
+      // Git ignores the host of a file URL and reads the path, so publish would
+      // succeed; the generated README would then name an `import` that refuses
+      // the host. The URL is refused where it is written instead, with a fix
+      // that says how a path is written rather than repeating "use file://".
+      const config = parseConfig(`publish:\n  git: ${url}\n  version: 1.2.0\n`);
+
+      expect(config.problems).toHaveLength(1);
+      expect(config.problems[0]?.message).toBe(`"publish.git" names a host in a file URL.`);
+      expect(config.problems[0]?.fix).toBe(
+        "Write the path with three slashes, such as file:///srv/fabs/fab.git.",
+      );
+    },
+  );
 });
 
 describe("rule 9: semantic versions", () => {
