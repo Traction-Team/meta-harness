@@ -28,7 +28,7 @@ In this repository `metafab` is `node dist/cli.js`: run `npm run build` first.
 - **One plan, one pull request.** Change only the paths in the plan's `owns`; widen `owns` in the plan when you must, and say why.
 - Conventional Commits with no scope: `feat`, `fix`, `refactor`, `docs`, `chore`, `test`, `ci`, `build`. Branches are `<type>/<slug>`. A plan's branch carries its number: `<type>/<plan file name without .md>`, such as `feat/1.005-check`.
 - Code reaches `main` only through a pull request. Docs-only changes (`docs/`, `.factory/` except `.factory/scripts/`, and the root `AGENTS.md` block that `.factory/` generates) may be committed straight to `main`; see "Publishing docs changes".
-- Sub-agents run as `subagent_type: "agent-coding"`, defined in `opencode.json`, even when the Agent tool does not list it.
+- Coding sub-agents run as `subagent_type: "agent-coding"` and review sub-agents as `subagent_type: "agent-review"`, both defined in `opencode.json`, even when the Agent tool does not list them. In Amp, each sub-agent is a separate thread on the same models; `build-plan` says how.
 - Run child processes with `execFile` and an argument list, never through a shell.
 - Tests use temporary directories and local fixtures (a local registry, local bare Git repositories). No test reaches the network.
 
@@ -42,8 +42,8 @@ Delivery work runs through these workflows. Each is installed as a skill. When a
 | `prioritise-roadmap` | "What's next", re-ordering the roadmap, reviewing intake or open questions |
 | `plan-feature` | "Plan <thing>", a roadmap line with no plan, or a bug too big for a bug plan |
 | `review-plan` | After writing plans, always in a new sub-agent. "Cold review this plan", "poke holes in this plan" |
-| `start-plan` | On `main`: "start the next plan", "pull the next chunk", "keep going", "what's ready". The orchestrator: one Orca worktree and OpenCode worker per plan |
-| `build-plan` | On a feature branch, usually as a worker in an Orca worktree: "build docs/plans/<plan>.md". Stops at a merge-safe draft pull request (landing included) and a TL;DR |
+| `start-plan` | On `main`: "start the next plan", "pull the next chunk", "keep going", "what's ready". The orchestrator: one worker per plan, as a new Amp thread in its own orb, or an Orca worktree and OpenCode worker |
+| `build-plan` | On a feature branch, usually as a worker in its own Amp thread or Orca worktree: "build docs/plans/<plan>.md". Stops at a merge-safe draft pull request (landing included) and a TL;DR |
 | `review-branch` | After any implementation, always in a new sub-agent. "Cold review this branch" |
 | `finish-plan` | On a plan's branch, after the TL;DR: testing feedback, "looks good", review comments, "land it" |
 
