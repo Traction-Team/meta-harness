@@ -28,6 +28,18 @@
         "webfetch": "allow",
         "task": "allow"
       }
+    },
+    "agent-review": {
+      "description": "Runs a cold review on the default review model, a different model family from the coding agent. Use for every review-branch and review-plan run.",
+      "mode": "subagent",
+      "model": "openai/gpt-6.1-sol",
+      "color": "warning",
+      "permission": {
+        "edit": "deny",
+        "bash": "allow",
+        "webfetch": "allow",
+        "task": "deny"
+      }
     }
   }
 }

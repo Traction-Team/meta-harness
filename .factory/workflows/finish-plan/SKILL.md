@@ -7,7 +7,7 @@ description: Completes the developer-led stages of a plan after build-plan hands
 
 The developer decides when the plan's pull request is complete. Manage the process around that decision. Give each fix to a sub-agent with a precise brief. Do not make fixes directly in this session.
 
-Run in the plan's worktree or Amp thread, where `build-plan` left it, usually in the same session. Dispatch sub-agents as `build-plan` describes: in Amp, a new Task sub-agent each; elsewhere, every fix and review sub-agent with `subagent_type: "agent-coding"`, which exists even when the Agent tool does not list it, and `general-purpose` is only the fallback when an `agent-coding` call fails.
+Run in the plan's worktree or Amp thread, where `build-plan` left it, usually in the same session. Dispatch sub-agents as `build-plan` describes: in Amp, a new thread each (*Sub-agents in Amp*); elsewhere, fixes with `subagent_type: "agent-coding"` and reviews with `subagent_type: "agent-review"`, which exist even when the Agent tool does not list them. `general-purpose` is only the fallback when one of those calls fails.
 
 **Never** merge the pull request. **Never** resolve a review thread. Mark the pull request ready only after the developer says the work is complete.
 

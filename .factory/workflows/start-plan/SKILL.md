@@ -80,7 +80,7 @@ You are the worker for docs/plans/<plan>.md (<label>), in your own Amp orb.
 Create the plan's branch first: git fetch origin && git switch -c <type>/<plan-file-stem> <base>
 Then load the build-plan workflow and build docs/plans/<plan>.md on that branch.
 <Stacked on <branch> (#<pr>).> main was proved green at <sha>; do not re-run the baseline.
-Dispatch sub-agents with the Task tool. Do the work in this thread; do not create other threads.
+Start every sub-agent as its own thread, as build-plan's *Sub-agents in Amp* says; create no other threads.
 End with build-plan's TL;DR as your final message.
 ```
 

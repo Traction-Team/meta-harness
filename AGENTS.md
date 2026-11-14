@@ -31,7 +31,7 @@ In this repository `metafab` is `node dist/cli.js`: run `npm run build` first.
 - **One plan, one pull request.** Change only the paths in the plan's `owns`; widen `owns` in the plan when you must, and say why.
 - Conventional Commits with no scope: `feat`, `fix`, `refactor`, `docs`, `chore`, `test`, `ci`, `build`. Branches are `<type>/<slug>`. A plan's branch carries its number: `<type>/<plan file name without .md>`, such as `feat/1.005-check`.
 - Code reaches `main` only through a pull request. Docs-only changes (`docs/`, `.factory/` except `.factory/scripts/`, and the root `AGENTS.md` block that `.factory/` generates) may be committed straight to `main`; see "Publishing docs changes".
-- Sub-agents run as `subagent_type: "agent-coding"`, defined in `opencode.json`, even when the Agent tool does not list it. In Amp, use the Task tool instead: it has no sub-agent types.
+- Coding sub-agents run as `subagent_type: "agent-coding"` and review sub-agents as `subagent_type: "agent-review"`, both defined in `opencode.json`, even when the Agent tool does not list them. In Amp, each sub-agent is a separate thread on the same models; `build-plan` says how.
 - Run child processes with `execFile` and an argument list, never through a shell.
 - Tests use temporary directories and local fixtures (a local registry, local bare Git repositories). No test reaches the network.
 

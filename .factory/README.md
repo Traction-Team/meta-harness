@@ -97,14 +97,14 @@ A plan is claimed by its draft pull request. The body's first line, `**Plan:** d
 **In Amp** (the orchestrator runs in an Amp thread):
 
 - **Thread.** One new Amp thread per plan, each in its own orb, started with `create_thread`. A fresh orb checks out `main` and runs `.agents/setup` (`npm ci`, build `dist/`, `node dist/cli.js build`), so the skills are installed and nothing needs setting up by hand. The brief tells the worker to create `<type>/<plan-file-stem>` from its base, then run `build-plan`.
-- **Sub-agents.** The worker dispatches every task, fix and review to a Task sub-agent. Amp sub-agents run on the thread's model.
+- **Sub-agents.** The worker hands every task, fix and review to a new thread of its own: tasks and fixes on DeepSeek V4.1 Flash, reviews on GPT-6.1 Sol. Each thread checks out the plan's branch in its own orb, pushes its commits, and sends its report back to the worker with `send_thread_message`.
 - **Clean up.** There is no worktree to remove; the orb belongs to the worker thread, which the person can archive after the merge.
 
 **With Orca and OpenCode:**
 
 - **Worktree.** `orca worktree create --repo id:<MetaFab repo id> --base-branch origin/main --no-parent --setup run --agent opencode`. Orca names the branch `<git user>/<flattened name>`; the worker renames it to `<type>/<plan-file-stem>`, such as `feat/1.005-check`, before the claim. Without Orca, `git worktree add` is the fallback, and the Orca board cannot see that worktree.
 - **Session.** The worker is an OpenCode session that reads a short brief and runs `build-plan`. The orchestrator never follows it: it does not read the worker's terminal or open its worktree.
-- **Sub-agents.** The worker stays thin and dispatches every task, fix and review to the `agent-coding` sub-agent that `opencode.json` defines, on a cheaper coding model. The heavy build context ends with each sub-agent.
+- **Sub-agents.** The worker stays thin and dispatches every task and fix to the `agent-coding` sub-agent that `opencode.json` defines, on a cheaper coding model, and every cold review to `agent-review`, on GPT-6.1 Sol. The heavy build context ends with each sub-agent.
 - **Clean up.** The orchestrator does not watch the pull requests. It stops once the workers are started. On its next run it reads origin with `gh`, removes the worktree of each merged plan with `orca worktree rm`, and cuts the next wave.
 
 The landing bookkeeping stays on the branch: `build-plan` writes it before the handoff, and `finish-plan` keeps it current, so the branch is safe to merge the moment the developer is happy and the orchestrator writes nothing on `main`. A developer who reviews and merges without saying a word still leaves `main` correct.
