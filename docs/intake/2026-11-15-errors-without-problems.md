@@ -20,7 +20,11 @@ The sweep found one site:
 
 The same class of site, found while reading every error site for the plan's review table (they need a row each there too):
 
-- `invalidSource` in `src/core/sources/parse.ts:39`: an unsupported or malformed source exits 1 with no problems, although [Supported sources](../specs/sharing.md#supported-sources) lists the forms it accepts.
+- The source fetchers, which throw with no problems: `fetchError` in `src/core/sources/path.ts:27`, `src/core/sources/npm.ts:68`, `src/core/sources/npm-cli.ts:53`, `src/core/sources/https.ts:36`, and the two Git fetch failures at `src/core/sources/git.ts:179` and `:195`. Each exits 3 with only Git's or npm's own text.
+- The invalid-fab paths with no problems: `tarballError` at `src/core/sources/extract.ts:542`, the npm tarball limits at `src/core/sources/npm.ts:337`, `:346`, `:357` and `:368`, and the oversize download at `src/core/sources/https.ts:193`. Each exits 4 with only the reason.
+- A few local failures: `invalidSource` in `src/core/sources/parse.ts:40` (exit 1), the publish Git helper at `src/core/publish/git-target.ts:72`, the npm publish helper at `src/core/publish/npm-target.ts:38`, the staging helper at `src/core/publish/stage.ts:69`, and the missing `publish.version` at `src/core/publish/publish.ts:77`.
+
+That is 16 sites in all. [The verification record](../verification.md#error-messages-and-exit-codes) gives each one's row, message and exit code. Problems that are present but carry no `fix` are a separate class in [Problems without a fix line](2026-11-15-problems-without-fixes.md).
 
 ## What we know
 
