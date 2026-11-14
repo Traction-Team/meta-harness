@@ -56,7 +56,7 @@ Version 1 targets are `claude`, `codex`, `cursor`, `opencode`, and `copilot`. `c
 | Key           | Type                     | Required        | Target | Meaning                                                                                |
 | ------------- | ------------------------ | --------------- | ------ | -------------------------------------------------------------------------------------- |
 | `name`        | String                   | `name` or `git` | npm    | npm package name, such as `@seasb/fab-mark4`. Enables the npm target                   |
-| `git`         | Git URL                  | `name` or `git` | Git    | Fab repository URL, such as `git@github.com:seasb/fab-mark4.git`. Enables the Git target |
+| `git`         | Git URL                  | `name` or `git` | Git    | Fab repository URL: `git@host:path`, `ssh://`, `https://` or `file://`, each also accepted with a `git+` prefix (except `git@host:path`). Example `git@github.com:seasb/fab-mark4.git`. Enables the Git target |
 | `branch`      | String                   | No              | Git    | Fab repository branch. Defaults to the repository's default branch, or `main` when empty |
 | `version`     | Semantic version         | Yes             | Both   | Version to publish. See [Version policy](sharing.md#version-policy)                    |
 | `description` | String                   | No              | npm    | Package description. Defaults to `description` in `factory.yaml`                       |

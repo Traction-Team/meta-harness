@@ -90,7 +90,57 @@ describe("resolveReadme", () => {
     expect(readme).not.toContain("ghp_secretvalue");
     expect(readme).not.toContain("x-access-token");
     expect(readme).toContain(
-      "npx @seasb/metafab import https://github.com/acme/fab-demo.git",
+      "npx @seasb/metafab import git+https://github.com/acme/fab-demo.git",
     );
+  });
+
+  test("does not write credentials from a file URL in publish.git", async () => {
+    // A `file:` URL that names an authority is not a path, so its userinfo is
+    // a credential and must not reach the published README.
+    const target = await repo({
+      publish: [
+        "publish:",
+        "  git: file://user:ghp_secret@localhost/srv/fab.git",
+        "  version: 1.0.0",
+        "",
+      ].join("\n"),
+    });
+    await rm(target.path(".factory", "README.md"));
+
+    const readme = await resolve(target);
+
+    expect(readme).not.toContain("ghp_secret");
+    expect(readme).toContain(
+      "npx @seasb/metafab import git+file://user@localhost/srv/fab.git",
+    );
+  });
+
+  test("names the import form of the Git URL in the generated import command", async () => {
+    // `import` reads a plain https URL as a tarball, so the README of a fab
+    // published to a Git repository must name the `git+` form.
+    const cases: Array<[url: string, source: string]> = [
+      ["https://example.com/fab.git", "git+https://example.com/fab.git"],
+      ["file:///srv/fabs/fab-demo.git", "git+file:///srv/fabs/fab-demo.git"],
+      // These already are the form `import` reads.
+      ["git+https://example.com/fab.git", "git+https://example.com/fab.git"],
+      ["git+ssh://git@example.com/fab.git", "git+ssh://git@example.com/fab.git"],
+      ["git@github.com:acme/fab-demo.git", "git@github.com:acme/fab-demo.git"],
+    ];
+
+    for (const [url, source] of cases) {
+      const target = await repo({
+        publish: [
+          "publish:",
+          `  git: ${JSON.stringify(url)}`,
+          "  version: 1.2.0",
+          "",
+        ].join("\n"),
+      });
+      await rm(target.path(".factory", "README.md"));
+
+      expect(await resolve(target), url).toContain(
+        `npx @seasb/metafab import ${source}`,
+      );
+    }
   });
 });

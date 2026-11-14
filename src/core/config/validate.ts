@@ -30,7 +30,7 @@ const UPSTREAM = new Set<string>(UPSTREAM_KEYS);
 const TARGET_SET = new Set<string>(TARGETS);
 
 const GIT_URL =
-  /^(?:git@[^\s:]+:[^\s]+|(?:git\+)?ssh:\/\/[^\s]+|(?:git\+)?https:\/\/[^\s]+|file:\/\/[^\s]+)$/i;
+  /^(?:git@[^\s:]+:[^\s]+|(?:git\+)?ssh:\/\/[^\s]+|(?:git\+)?https:\/\/[^\s]+|(?:git\+)?file:\/\/[^\s]+)$/i;
 
 export interface ValidateDocumentOptions {
   file?: string;
@@ -262,7 +262,7 @@ function validatePublish(
       "error",
       `"publish.git" is not a Git URL.`,
       pairNode(git),
-      `Use git@host:path, ssh://, git+ssh://, https://, git+https:// or file://.`,
+      `Use git@host:path, ssh://, git+ssh://, https://, git+https://, file:// or git+file://.`,
     );
   }
 

@@ -27,7 +27,7 @@ export async function resolveRecorded(
     case "npm":
       return resolveNpm(
         { kind: "npm", name: upstream.source },
-        { ...options, to: upstream.version },
+        { ...options, to: upstream.version, recorded: true },
       );
     case "git":
       return resolveGit(gitSpecOf(upstream, options.cwd), {

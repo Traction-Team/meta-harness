@@ -10,6 +10,7 @@ import { loadRepo, makePublishRepo } from "./fixtures.js";
 import type { RepoFiles, TempRepo } from "../../helpers/makeRepo.js";
 import {
   commitMessage,
+  fileUrl,
   gitPublishSection,
   handCommit,
   listRemoteRefs,
@@ -128,6 +129,22 @@ describe("the Git target", { timeout: 30_000 }, () => {
       "refs/heads/trunk",
       "refs/tags/v1.0.0",
       "refs/tags/v1.1.0",
+    ]);
+  });
+
+  it("publishes when publish.git is written in the import form", async () => {
+    const bare = track(await makeBareFabRepo());
+
+    // `check` accepts `git+file://`, and people paste the import form, so the
+    // Git target must strip `git+` before Git sees the URL.
+    const result = await publish(`git+${fileUrl(bare.repo)}`, VERSION);
+
+    expect(result.targets).toEqual([
+      { target: "git", status: "published", detail: expect.stringContaining(VERSION) },
+    ]);
+    expect(await listRemoteRefs(bare.repo)).toEqual([
+      "refs/heads/main",
+      "refs/tags/v1.2.0",
     ]);
   });
 

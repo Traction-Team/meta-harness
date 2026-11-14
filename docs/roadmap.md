@@ -50,7 +50,7 @@ A team can publish a factory as a fab and other teams can import and update it.
 - [x] [1.018 Sharing edge cases and shared helpers](plans/1.018-sharing-polish.md): CRLF and restore-on-failure in `update`, `import --force` case clashes, `diff` with no edits, one copy of each shared helper
 - [x] [1.019 Exact file identity on Windows](plans/1.019-fix-windows-file-identity.md): `bigint` `dev`/`ino` in containment and the `CLAUDE.md` link check; fixes the flaky Windows CI test
 - [x] [1.020 CLI fixes](plans/1.020-cli-fixes.md): discovery stays in the Git repository and refuses Droid's `.factory/`, `<command> --help`, one prompt reader per run, `DT_UNKNOWN` walkers, hook warnings and hook lines
-- [ ] [1.021 Source hardening](plans/1.021-source-hardening.md): `git+file://` sources, safe cache and mirror swaps, cache write errors exit 3, npm size checked before download
+- [x] [1.021 Source hardening](plans/1.021-source-hardening.md): `git+file://` sources, safe cache and mirror swaps, cache write errors exit 3, npm size checked before download
 - [ ] [1.023 Factory requirements](plans/1.023-factory-requires.md): `requires:` in `factory.yaml`; `import` and `update` offer to create missing repository files from templates, `check` warns
 - [ ] [1.022 Verification](plans/1.022-verification.md): agent tools, Windows, git hooks under Git for Windows, the CI recipe against `mark4-like`, the error message and `--json` contract, recorded in `docs/verification.md`
 - [ ] [1.024 First fab](plans/1.024-first-fab.md): the Dragonfly factory generalised as `@seasb/fab-orca`, and this repository imports it

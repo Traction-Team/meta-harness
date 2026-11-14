@@ -27,6 +27,11 @@ export interface Registry {
   publishFab(options: FabPackageOptions): Promise<void>;
   deprecate(name: string, version: string, message: string): Promise<void>;
   stripIntegrity(name: string): Promise<void>;
+  /** Rewrites `dist.unpackedSize` and `dist.fileCount`; `undefined` removes a field. */
+  setDistSizes(
+    name: string,
+    sizes: { unpackedSize?: number | undefined; fileCount?: number | undefined },
+  ): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -267,6 +272,23 @@ export async function startRegistry(options: StartRegistryOptions = {}): Promise
       };
       for (const version of Object.values(metadata.versions ?? {})) {
         if (version.dist !== undefined) delete version.dist.integrity;
+      }
+      await writeFile(metadataPath, JSON.stringify(metadata, null, 2));
+    },
+    async setDistSizes(
+      name: string,
+      sizes: { unpackedSize?: number | undefined; fileCount?: number | undefined },
+    ): Promise<void> {
+      const metadataPath = path.join(storage, ...name.split("/"), "package.json");
+      const metadata = JSON.parse(await readFile(metadataPath, "utf8")) as {
+        versions?: Record<string, { dist?: Record<string, unknown> }>;
+      };
+      for (const version of Object.values(metadata.versions ?? {})) {
+        if (version.dist === undefined) continue;
+        for (const [field, value] of Object.entries(sizes)) {
+          if (value === undefined) delete version.dist[field];
+          else version.dist[field] = value;
+        }
       }
       await writeFile(metadataPath, JSON.stringify(metadata, null, 2));
     },

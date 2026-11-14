@@ -8,6 +8,7 @@ import type { Problem } from "../../errors.js";
 import { copyTree, listFiles } from "../../util/fs.js";
 import type { PublishConfig } from "../config/types.js";
 import { disabledHooksConfig, gitEnvironment, gitMessage, VERBATIM_TEXT_ATTRIBUTES } from "../sources/git-process.js";
+import { gitTransportUrl } from "../sources/parse.js";
 import { redact, stripSourceCredentials } from "../sources/redact.js";
 import type { PublishOptions } from "./types.js";
 
@@ -223,7 +224,10 @@ function gitUrl(publish: PublishConfig): string {
       ],
     });
   }
-  return publish.git;
+  // `check` accepts the import form, so `publish.git` may be written as
+  // `git+https://`, `git+ssh://` or `git+file://`. Git has no `git+` transport
+  // and would fail with `remote-git+https is not a git command`.
+  return gitTransportUrl(publish.git);
 }
 
 async function cloneFab(url: string, parent: string, context: GitContext): Promise<string> {
