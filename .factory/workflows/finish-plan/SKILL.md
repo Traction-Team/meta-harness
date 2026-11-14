@@ -1,13 +1,13 @@
 ---
 name: finish-plan
-description: Completes the developer-led stages of a plan after build-plan hands over a merge-safe draft pull request with a TL;DR. It applies feedback through agent-coding sub-agents in the plan's worktree, keeps the landing commit (plan merged, roadmap ticked, changelog) and the TL;DR current with every change, brings the branch up to date with main, runs final checks, and marks the pull request ready when the developer approves it. It also handles review comments. Use it for testing feedback, "looks good" or "done", pull request review comments, or "land it".
+description: Completes the developer-led stages of a plan after build-plan hands over a merge-safe draft pull request with a TL;DR. It applies feedback through sub-agents in the plan's worktree or Amp thread, keeps the landing commit (plan merged, roadmap ticked, changelog) and the TL;DR current with every change, brings the branch up to date with main, runs final checks, and marks the pull request ready when the developer approves it. It also handles review comments. Use it for testing feedback, "looks good" or "done", pull request review comments, or "land it".
 ---
 
 # finish-plan
 
 The developer decides when the plan's pull request is complete. Manage the process around that decision. Give each fix to a sub-agent with a precise brief. Do not make fixes directly in this session.
 
-Run in the plan's worktree, where `build-plan` left it, usually in the same session. Dispatch every fix and review sub-agent with `subagent_type: "agent-coding"`, as `build-plan` describes: it exists even when the Agent tool does not list it, and `general-purpose` is only the fallback when an `agent-coding` call fails.
+Run in the plan's worktree or Amp thread, where `build-plan` left it, usually in the same session. Dispatch sub-agents as `build-plan` describes: in Amp, a new Task sub-agent each; elsewhere, every fix and review sub-agent with `subagent_type: "agent-coding"`, which exists even when the Agent tool does not list it, and `general-purpose` is only the fallback when an `agent-coding` call fails.
 
 **Never** merge the pull request. **Never** resolve a review thread. Mark the pull request ready only after the developer says the work is complete.
 

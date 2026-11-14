@@ -1,15 +1,15 @@
 ---
 name: build-plan
-description: Builds one plan on the current feature branch, usually as the OpenCode worker start-plan started in an Orca worktree. It renames the Orca branch, claims the plan with a draft pull request, or adds it to the branch's open pull request, delegates implementation tasks to agent-coding sub-agents, runs npm run verify, always runs the review-branch workflow in a fresh sub-agent, triages its findings and sends accepted ones to a fix sub-agent, re-reviews the fix commits, records proof, and writes the landing commit (plan merged, roadmap ticked, changelog), so the branch is safe to merge as it stands. It stops with a draft pull request and a TL;DR handoff for the developer. On main it does not build; it sends the person to start-plan. Use it for "build docs/plans/<plan>.md". It never marks a pull request ready and never merges.
+description: Builds one plan on the current feature branch, usually as the worker start-plan started (an Amp thread in its own orb, or an OpenCode worker in an Orca worktree). It renames the Orca branch, claims the plan with a draft pull request, or adds it to the branch's open pull request, delegates implementation tasks to agent-coding sub-agents, runs npm run verify, always runs the review-branch workflow in a fresh sub-agent, triages its findings and sends accepted ones to a fix sub-agent, re-reviews the fix commits, records proof, and writes the landing commit (plan merged, roadmap ticked, changelog), so the branch is safe to merge as it stands. It stops with a draft pull request and a TL;DR handoff for the developer. On main it does not build; it sends the person to start-plan. Use it for "build docs/plans/<plan>.md". It never marks a pull request ready and never merges.
 ---
 
 # build-plan
 
 Manage one plan. Delegate implementation and review to sub-agents. Pass concise reports between sub-agents, not complete transcripts. You own the task order, checks, and pull request.
 
-You are usually a **worker**: `start-plan` started you in your own Orca worktree with a short brief. Stay thin. Do not read the source, the specs in depth, or the diff in full yourself; the sub-agents hold that context and it ends with them. Read the diff from git only when a later step needs it.
+You are usually a **worker**: `start-plan` started you with a short brief, either as an Amp thread in your own orb or as an OpenCode session in your own Orca worktree. Stay thin. Do not read the source, the specs in depth, or the diff in full yourself; the sub-agents hold that context and it ends with them. Read the diff from git only when a later step needs it.
 
-**Sub-agents run as `agent-coding`.** Dispatch every task, fix and review sub-agent with `subagent_type: "agent-coding"`. The repo's `opencode.json` defines it, on a cheaper coding model than yours. It exists even when the Agent tool does not list it: the OpenCode bridge plugin replaces the tool description with Claude Code's fixed list (`general-purpose`, `Explore`, `Plan`...). Pass `agent-coding` anyway. Never fall back to `general-purpose`, which runs on your own model, unless an `agent-coding` call fails; then say so in the final report.
+**Sub-agents.** In Amp (`AMP_THREAD_ID` is set), dispatch every task, fix and review sub-agent with the Task tool, which has no `subagent_type`; wherever this workflow says an `agent-coding` sub-agent, start a new Task sub-agent instead (`run_in_background: false` means the default `wait` mode). Never create a separate thread for a task. Elsewhere, sub-agents run as `agent-coding`: dispatch every task, fix and review sub-agent with `subagent_type: "agent-coding"`. The repo's `opencode.json` defines it, on a cheaper coding model than yours. It exists even when the Agent tool does not list it: the OpenCode bridge plugin replaces the tool description with Claude Code's fixed list (`general-purpose`, `Explore`, `Plan`...). Pass `agent-coding` anyway. Never fall back to `general-purpose`, which runs on your own model, unless an `agent-coding` call fails; then say so in the final report.
 
 The current feature branch is where the plan is built. A plan usually gets its own pull request, but when the branch already has one, the plan joins it. Never build on `main`.
 
@@ -37,11 +37,13 @@ git branch -m <type>/<plan-file-stem>   # the type comes from the plan's title; 
 git branch --show-current                         # must print the new name
 ```
 
-**The setup.** `start-plan` created the worktree with `--setup run`. If the first command fails on missing dependencies (`ERR_MODULE_NOT_FOUND`, no `node_modules`), read the repo's hook with `orca repo list --json` (`hookSettings.scripts.setup`) and run it. Run `npm install` by hand only when the hook is empty or failed, and say which in the final report. `start-plan` proved `main` green before it started you, so do not run `npm run verify` as a baseline.
+**The Amp branch.** An Amp worker's orb starts on `main`. Its brief tells it to create the plan's branch first (`git fetch origin && git switch -c <type>/<plan-file-stem> <base>`); do that, then treat it as case 3. The orb ran `.agents/setup`, so dependencies, `dist/` and the skills are ready.
+
+**The setup.** With Orca, `start-plan` created the worktree with `--setup run`. If the first command fails on missing dependencies (`ERR_MODULE_NOT_FOUND`, no `node_modules`), read the repo's hook with `orca repo list --json` (`hookSettings.scripts.setup`) and run it. Run `npm install` by hand only when the hook is empty or failed, and say which in the final report. `start-plan` proved `main` green before it started you, so do not run `npm run verify` as a baseline.
 
 Then take the first case that matches:
 
-1. **On `main` or a detached HEAD: stop.** Do not branch, claim, commit, or build. Tell the person in two or three lines that build-plan builds on a feature branch, and offer `start-plan` (the plan exists and is ready) or `plan-feature` (no plan yet). Continue only if the person then explicitly asks to build in this session anyway: create the branch as `start-plan` names it (`git switch -c <type>/<plan-file-stem> origin/main`) and go to case 3.
+1. **On `main` or a detached HEAD: stop.** Do not branch, claim, commit, or build. Tell the person in two or three lines that build-plan builds on a feature branch, and offer `start-plan` (the plan exists and is ready) or `plan-feature` (no plan yet). Continue only if the person or `start-plan`'s brief explicitly asks to build in this session anyway: create the branch as `start-plan` names it (`git switch -c <type>/<plan-file-stem> origin/main`) and go to case 3.
 2. **Another branch's open pull request claims this plan:** stop. Report the pull request and branch that own it.
 3. **On a feature branch with no open pull request:** build here. Claim the plan with a new draft pull request (step 1a).
 4. **On a feature branch whose pull request already lists this plan:** resume. Read the build log and go to the first task not done.
@@ -156,14 +158,14 @@ The developer switches between several worker sessions and reads each one cold. 
 
 ```text
 ## <plan number and name>: ready for your review
-#<pr> (draft) · <branch> · <worktree path>
+#<pr> (draft) · <branch> · <worktree path, or this thread in Amp>
 
 **What the plan was for:** one or two sentences: the problem and what metafab could not do before.
 **What it does now:** two to four bullets a metafab user would notice.
 **How it was proved:** the proves result, npm run verify, and the review verdict (n fixed, n declined).
 **Needs your eye:** decisions you made that the plan did not, spec changes, uncertainties, open
 questions you answered. Write "nothing" if there is nothing.
-**Try it:** two to four commands, runnable from this worktree.
+**Try it:** two to four commands, runnable from a checkout of this branch.
 **Setup notes:** only if something unexpected happened (hand-run npm install, general-purpose fallback).
 
 The landing bookkeeping is already on the branch, so it is safe to merge as it is. Give feedback

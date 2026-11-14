@@ -55,7 +55,7 @@ For the body, follow the template: the specs it implements, design, steps as che
 
 The review is not optional. Do not ask the person to approve the plans until a `review-plan` sub-agent has returned a verdict on them.
 
-Start one **new** `agent-coding` sub-agent (`subagent_type: "agent-coding"`, `run_in_background: false`). Do not review the plans yourself. Give it only this prompt:
+Start one **new** `agent-coding` sub-agent (`subagent_type: "agent-coding"`, `run_in_background: false`); in Amp, a new Task sub-agent. Do not review the plans yourself. Give it only this prompt:
 
 ```text
 Load the review-plan workflow and follow it. Return its report as your final message.
