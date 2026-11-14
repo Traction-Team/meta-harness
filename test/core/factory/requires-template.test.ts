@@ -185,6 +185,31 @@ describe("rule 13", () => {
     }
   });
 
+  test.skipIf(cannotLink)("rejects a template reached through a directory link", async () => {
+    const created = await makeRepo({
+      [FILE]: factoryYaml(TEMPLATE_ENTRY),
+      "outside/opencode.json": "{}\n",
+    });
+    try {
+      await mkdir(created.path(".factory", "templates"), { recursive: true });
+      await symlink(
+        created.path("outside"),
+        created.path(".factory", "templates", "setup"),
+      );
+
+      expect((await loadFactory(created.root)).problems).toContainEqual({
+        level: "error",
+        file: FILE,
+        line: 4,
+        message:
+          'Template ".factory/templates/setup/opencode.json" is not a regular file inside .factory/',
+        fix: "Replace it with a file",
+      });
+    } finally {
+      await created.cleanup();
+    }
+  });
+
   test.skipIf(cannotLink)("rejects a link that resolves outside .factory/", async () => {
     const created = await makeRepo({
       [FILE]: factoryYaml(TEMPLATE_ENTRY),

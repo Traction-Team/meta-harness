@@ -1,6 +1,7 @@
-import { chmod, readFile, stat } from "node:fs/promises";
+import { chmod, mkdir, readFile, stat, symlink } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { afterEach, describe, expect, test } from "vitest";
+import type { Problem } from "../../../src/errors.js";
 import {
   createRequirements,
   decideSetup,
@@ -9,6 +10,7 @@ import {
   setupRequired,
 } from "../../../src/core/requires/setup.js";
 import type { RequirementResult } from "../../../src/core/requires/inspect.js";
+import { pathExists } from "../../../src/util/fs.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
 import type { TempRepo } from "../../helpers/makeRepo.js";
 
@@ -242,4 +244,41 @@ describe("createRequirements", () => {
 
     expect(await createRequirements(created.root, [blocked])).toEqual([blocked]);
   });
+
+  test.skipIf(cannotCheckMode)(
+    "refuses a template reached through a directory link outside .factory/",
+    async () => {
+      const created = await repo({ "outside/opencode.json": "{}\n" });
+      await mkdir(created.path(".factory", "templates"), { recursive: true });
+      await symlink(created.path("outside"), created.path(".factory", "templates", "link"));
+
+      const problems: Problem[] = [];
+      const results = await createRequirements(
+        created.root,
+        [result("opencode.json", "missing", ".factory/templates/link/opencode.json")],
+        problems,
+      );
+
+      expect(results).toEqual([
+        {
+          path: "opencode.json",
+          description: "The opencode.json file",
+          template: ".factory/templates/link/opencode.json",
+          state: "failed",
+          reason:
+            "its template .factory/templates/link/opencode.json is not a regular file inside .factory/",
+        },
+      ]);
+      expect(await pathExists(created.path("opencode.json"))).toBe(false);
+      expect(problems).toEqual([
+        {
+          level: "warning",
+          file: "opencode.json",
+          message:
+            "Could not create opencode.json: its template .factory/templates/link/opencode.json is not a regular file inside .factory/",
+          fix: "Replace .factory/templates/link/opencode.json with a file inside .factory/templates/",
+        },
+      ]);
+    },
+  );
 });

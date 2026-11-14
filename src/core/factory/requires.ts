@@ -147,24 +147,31 @@ export async function requirementTemplateProblems(
       );
     };
 
-    if (info.isSymbolicLink()) {
-      let resolved: string;
-      try {
-        resolved = await realpath(absolute);
-      } catch {
-        notRegular();
-        continue;
-      }
-      if (factoryReal === undefined || !isInsideAbsolute(factoryReal, resolved)) {
-        notRegular();
-        continue;
-      }
-      const target = await stat(resolved).catch(() => undefined);
-      if (target === undefined || !target.isFile()) notRegular();
+    // A link at the template itself is followed below. So is a link in any
+    // parent: `lstat` resolves intermediate links, so a directory link under
+    // `.factory/templates/` would make a file outside `.factory/` look like a
+    // regular template. The real path of every template must stay inside the
+    // factory, whatever spelling led there.
+    if (!info.isSymbolicLink() && !info.isFile()) {
+      notRegular();
       continue;
     }
 
-    if (!info.isFile()) notRegular();
+    let resolved: string;
+    try {
+      resolved = await realpath(absolute);
+    } catch {
+      // A dangling link has nothing to resolve.
+      notRegular();
+      continue;
+    }
+    if (factoryReal === undefined || !isInsideAbsolute(factoryReal, resolved)) {
+      notRegular();
+      continue;
+    }
+
+    const target = await stat(resolved).catch(() => undefined);
+    if (target === undefined || !target.isFile()) notRegular();
   }
 
   return problems;
