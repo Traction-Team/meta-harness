@@ -21,21 +21,33 @@ export interface LocalPaths {
 }
 
 /**
- * Local paths indexed the way the filesystem compares them: ignoring case,
- * with each directory mapped to a key beneath it. The entries keep the
- * spelling and the file path of the local tree, so a problem names the local
- * entry.
+ * Local paths indexed the way the filesystem compares them: ignoring case, with
+ * every spelling kept. A case-sensitive filesystem can hold two entries that
+ * fold to one name, and both callers must see both rather than silently
+ * choosing one.
  */
-interface LocalIndex {
-  files: Map<string, { key: string; local: LocalFile }>;
-  directories: Map<string, { key: string; local: string }>;
+export interface Indexed<T> {
+  key: string;
+  value: T;
+}
+
+/** One list of entries per folded name, each entry keeping its local spelling. */
+export function indexOf<T>(entries: Iterable<[string, T]>): Map<string, Indexed<T>[]> {
+  const index = new Map<string, Indexed<T>[]>();
+  for (const [key, value] of entries) {
+    const folded = key.toLowerCase();
+    const indexed = index.get(folded);
+    if (indexed === undefined) index.set(folded, [{ key, value }]);
+    else indexed.push({ key, value });
+  }
+  return index;
 }
 
 function absolute(root: string, relativePath: string): string {
   return path.join(root, ...relativePath.split("/"));
 }
 
-function ancestors(relativePath: string): string[] {
+export function ancestors(relativePath: string): string[] {
   const parts = relativePath.split("/");
   const prefixes: string[] = [];
   for (let index = 1; index < parts.length; index += 1) {
@@ -62,12 +74,46 @@ function blocked(file: string): Problem {
   };
 }
 
-function differentSpelling(file: string, incoming: string): Problem {
+/** The one wording for a local entry that differs only in case from an incoming path. */
+export function differentSpelling(
+  file: string,
+  incoming: string,
+  command: "import" | "update",
+): Problem {
+  const importing = command === "import";
   return {
     level: "error",
     file,
-    message: `The incoming fab writes ${incoming}, which differs only in case from ${file}`,
-    fix: "Keep the local file, or run metafab import --force to replace it",
+    message: importing
+      ? `The incoming fab writes ${incoming}, which differs only in case from ${file}`
+      : `The update writes ${incoming}, which differs only in case from ${file}`,
+    fix: importing
+      ? "Keep the local file, or run metafab import --force to replace it"
+      : "Move the local entry away, then run metafab update again",
+  };
+}
+
+/**
+ * The problem for an incoming path that several local spellings fold to.
+ *
+ * The clash preflight and the realignment both refuse this case, so the text is
+ * built here once and both paths report it identically.
+ */
+export function ambiguousSpellingProblem(
+  files: readonly string[],
+  incoming: string,
+  command: "import" | "update",
+): Problem {
+  const importing = command === "import";
+  return {
+    level: "error",
+    file: files[0] ?? incoming,
+    message: importing
+      ? `The incoming fab writes ${incoming}, but these local entries differ only in case: ${files.join(", ")}`
+      : `The update writes ${incoming}, but these local entries differ only in case: ${files.join(", ")}`,
+    fix: importing
+      ? "Move all but one of the local entries away, then run metafab import again"
+      : "Move all but one of the local entries away, then run metafab update again",
   };
 }
 
@@ -139,21 +185,22 @@ export async function localFilesForImport(
   return paths;
 }
 
-function indexOf(local: LocalPaths): LocalIndex {
-  const files = new Map<string, { key: string; local: LocalFile }>();
-  const directories = new Map<string, { key: string; local: string }>();
+function localIndex(local: LocalPaths): {
+  files: Map<string, Indexed<LocalFile>[]>;
+  directories: Map<string, Indexed<string>[]>;
+} {
+  return {
+    files: indexOf(local.files.entries()),
+    directories: indexOf(local.directories.entries()),
+  };
+}
 
-  for (const [key, file] of local.directories) {
-    const folded = key.toLowerCase();
-    if (!directories.has(folded)) directories.set(folded, { key, local: file });
-  }
-
-  for (const [key, localFile] of local.files) {
-    const folded = key.toLowerCase();
-    if (!files.has(folded)) files.set(folded, { key, local: localFile });
-  }
-
-  return { files, directories };
+/** The problems an import preflight finds, split by whether `--force` helps. */
+export interface ImportConflicts {
+  /** Replacements `--force` may make. */
+  conflicts: Problem[];
+  /** Paths `--force` cannot resolve, because several local spellings fold to one incoming path. */
+  ambiguities: Problem[];
 }
 
 /**
@@ -172,72 +219,128 @@ function indexOf(local: LocalPaths): LocalIndex {
  * depth is refused. Without that, an incoming `templates/` would slip past a
  * local `Templates/` on a case-insensitive filesystem and split in two on a
  * case-sensitive one.
+ *
+ * A clash is reported once per clashing component, not once per incoming file
+ * beneath it: a local `Templates/` against three incoming files gives one
+ * problem that names `templates`.
+ *
+ * Two local entries that fold to one incoming component are an ambiguity, not
+ * a conflict: only a case-sensitive filesystem can hold both, and no rename can
+ * choose between them safely. `--force` never overrides an ambiguity.
  */
 export async function findImportConflicts(
   incomingDir: string,
   local: LocalPaths,
-): Promise<Problem[]> {
+): Promise<ImportConflicts> {
   const [incoming, incomingDirectories] = await Promise.all([
     snapshotTree(incomingDir),
     snapshotDirectories(incomingDir),
   ]);
-  const index = indexOf(local);
-  const problems: Problem[] = [];
+  const index = localIndex(local);
+  const conflicts: Problem[] = [];
+  const ambiguities: Problem[] = [];
   const reported = new Set<string>();
 
-  function report(problem: Problem): void {
+  function report(into: Problem[], problem: Problem): void {
     const id = `${problem.file}\u0000${problem.message}`;
     if (reported.has(id)) return;
     reported.add(id);
-    problems.push(problem);
+    into.push(problem);
+  }
+
+  /** One problem for a component that several local spellings fold to. */
+  function ambiguity(files: readonly string[], incoming: string): void {
+    report(ambiguities, ambiguousSpellingProblem(files, incoming, "import"));
   }
 
   /**
    * Reports the first local entry on the path itself, or among its ancestors,
    * that the incoming entry would replace. Case-only clashes name the local
-   * entry and the incoming path; an exact spelling that changes the kind of
-   * entry is reported as blocked.
+   * entry and the incoming component; an exact spelling that changes the kind
+   * of entry is reported as blocked.
    */
   function checkLocalPath(relativePath: string, incomingDirectory: boolean): void {
     const folded = relativePath.toLowerCase();
 
-    const existingFile = index.files.get(folded);
-    if (existingFile !== undefined) {
+    const existingFiles = index.files.get(folded);
+    if (existingFiles !== undefined && existingFiles.length > 0) {
+      if (existingFiles.length > 1) {
+        ambiguity(
+          existingFiles.map((entry) => entry.value.file),
+          relativePath,
+        );
+        return;
+      }
+
+      const existingFile = existingFiles[0]!;
       if (existingFile.key !== relativePath) {
-        report(differentSpelling(existingFile.local.file, relativePath));
+        report(conflicts, differentSpelling(existingFile.value.file, relativePath, "import"));
       } else if (incomingDirectory) {
-        report(blocked(existingFile.local.file));
-      } else if (existingFile.local.entry.hash !== incoming[relativePath]!.hash) {
-        report(replaced(existingFile.local.file));
+        report(conflicts, blocked(existingFile.value.file));
+      } else if (existingFile.value.entry.hash !== incoming[relativePath]!.hash) {
+        report(conflicts, replaced(existingFile.value.file));
       }
       return;
     }
 
     for (const prefix of ancestors(relativePath)) {
       const foldedPrefix = prefix.toLowerCase();
-      const ancestorFile = index.files.get(foldedPrefix);
-      if (ancestorFile !== undefined) {
+      const ancestorFiles = index.files.get(foldedPrefix);
+      if (ancestorFiles !== undefined) {
+        if (ancestorFiles.length > 1) {
+          ambiguity(
+            ancestorFiles.map((entry) => entry.value.file),
+            prefix,
+          );
+          return;
+        }
+
+        const ancestorFile = ancestorFiles[0]!;
         report(
+          conflicts,
           ancestorFile.key === prefix
-            ? blocked(ancestorFile.local.file)
-            : differentSpelling(ancestorFile.local.file, relativePath),
+            ? blocked(ancestorFile.value.file)
+            : differentSpelling(ancestorFile.value.file, prefix, "import"),
         );
         return;
       }
 
-      const ancestorDirectory = index.directories.get(foldedPrefix);
-      if (ancestorDirectory !== undefined && ancestorDirectory.key !== prefix) {
-        report(differentSpelling(ancestorDirectory.local, relativePath));
-        return;
+      const ancestorDirectories = index.directories.get(foldedPrefix);
+      if (ancestorDirectories !== undefined) {
+        if (ancestorDirectories.length > 1) {
+          ambiguity(
+            ancestorDirectories.map((entry) => entry.value),
+            prefix,
+          );
+          return;
+        }
+
+        const ancestorDirectory = ancestorDirectories[0]!;
+        if (ancestorDirectory.key !== prefix) {
+          report(
+            conflicts,
+            differentSpelling(ancestorDirectory.value, prefix, "import"),
+          );
+          return;
+        }
       }
     }
 
-    const existingDirectory = index.directories.get(folded);
-    if (existingDirectory === undefined) return;
+    const existingDirectories = index.directories.get(folded);
+    if (existingDirectories === undefined) return;
+    if (existingDirectories.length > 1) {
+      ambiguity(
+        existingDirectories.map((entry) => entry.value),
+        relativePath,
+      );
+      return;
+    }
+
+    const existingDirectory = existingDirectories[0]!;
     if (existingDirectory.key !== relativePath) {
-      report(differentSpelling(existingDirectory.local, relativePath));
+      report(conflicts, differentSpelling(existingDirectory.value, relativePath, "import"));
     } else if (!incomingDirectory) {
-      report(blocked(existingDirectory.local));
+      report(conflicts, blocked(existingDirectory.value));
     }
   }
 
@@ -251,5 +354,5 @@ export async function findImportConflicts(
     checkLocalPath(relativePath, true);
   }
 
-  return problems;
+  return { conflicts, ambiguities };
 }

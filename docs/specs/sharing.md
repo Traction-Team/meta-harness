@@ -256,7 +256,9 @@ Fab validation rejects:
 
 A factory can have only one upstream fab. If `metafab.yaml` already contains an upstream entry, use `update` or `detach`.
 
-`import` stops when the incoming fab would replace or remove different local content, and lists all conflicts. That is a different file, a link, a directory, or a local path that differs only in letter case. A case-only clash is refused on every filesystem, so `import` behaves the same everywhere. `--force` permits those replacements.
+`import` stops when the incoming fab would replace or remove different local content, and lists all conflicts. That is a different file, a link, a directory, or a local path that differs only in letter case. A case-only clash is refused on every filesystem, so `import` behaves the same everywhere. `--force` permits those replacements, including a case-only clash with a single local entry, which it renames to the fab's spelling. It never resolves two local entries that differ only in case from one incoming path.
+
+With `--force`, the realignment happens before the copy: the local entry is renamed to the fab's spelling, a local-only file beneath it moves with it, and nothing is deleted. The result is the same on every filesystem. A local file where the fab has a directory is still replaced by that directory.
 
 ## Updating a fab
 
@@ -307,9 +309,13 @@ Metafab applies these rules to every path present in base, yours, or theirs:
 
 Metafab does not merge binary files line by line. For a binary conflict, it keeps yours and writes theirs to `<file>.upstream`.
 
-Metafab compares text files with CRLF line endings treated as LF. A change of line endings alone is not a change.
+A conflict where either side is a symbolic link is never merged as text. Metafab keeps yours and writes upstream's link target, or upstream's file bytes when upstream is a file, to `<file>.upstream`. The summary says `Conflict in <path>: upstream is a link to <target>; its target is in <path>.upstream.` or, when yours is the link and upstream is a file, `Conflict in <path>: your entry is a link to <target>; upstream's file is in <path>.upstream.`
+
+Metafab compares text files with CRLF line endings treated as LF. A change of line endings alone is not a change. When every line of the local copy ends in CRLF, `update` writes a clean merge, a file taken from upstream, and a conflict-marker file with CRLF; otherwise it writes LF. A `<file>.upstream` side file holds upstream's bytes unchanged.
 
 If the base version is unavailable, every path where both sides have different content is a conflict. A file only upstream has is written to `<file>.upstream`, and a file only you have is kept and reported. For example, a Git base is unavailable when its commit was removed by a force push, and an npm base is unavailable when its version was unpublished or removed. A base download that fails for any other reason, such as an unreachable source, rejected credentials, or a cache or filesystem problem, stops the update before it changes a file and reports that problem and its exit code.
+
+Before the first write, `update` records what `.factory/` holds: every file's bytes and permission bits, every link's target, and every directory, empty ones included, with its exact spelling. An entry that is none of these, such as a socket or a named pipe, is not factory content: the record does not hold it, so a restore never creates one and leaves it alone unless it sits on a recorded path, where the recorded entry is restored over it. A planned write onto such a path replaces it as it would replace any other file. A failure while writing, realigning path spelling, or recording the upstream restores `.factory/` to that record, leaves the upstream record unchanged, and exits 1 with code `update-write-failed`. The message reports the original failure and says `.factory/` was restored. The build that runs after the writes is outside this block: a build failure does not undo a complete update. If the restore itself fails, the message says `.factory/` may be partly updated, and the fix is `Restore .factory/ from Git (git status shows what changed), then run metafab update again`. A dry run writes nothing and records nothing.
 
 After a conflicted update, `metafab check` fails while either condition remains:
 
@@ -387,6 +393,8 @@ metafab diff [<path>]
 This command downloads the version recorded in the upstream entry and compares `.factory/` with it. For an unversioned source, it compares with the current source.
 
 Use the optional path to limit the comparison. Teams can use this diff when proposing a local change to the upstream fab.
+
+When `.factory/` matches its upstream, `diff` prints `No local edits since <source> <version>.` For an unversioned source it omits the version: `No local edits since <source>.` With a path limit it prints `No local edits in <path> since ...` with the same source and version.
 
 ## Detaching from an upstream
 

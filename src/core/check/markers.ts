@@ -75,7 +75,7 @@ async function walkFactoryFiles(root: string): Promise<FactoryWalk> {
 }
 
 type ReadResult =
-  | { kind: "text"; text: string }
+  | { kind: "text"; text: string; alternate?: string }
   | { kind: "binary" }
   | { kind: "missing" }
   | { kind: "unreadable"; problem: Problem };
@@ -116,6 +116,11 @@ function detectEncoding(probe: Buffer): Encoding {
  * only test is a NUL byte in that probe. A file that is not valid UTF-8 is
  * still text, decoded leniently so a marker in another ASCII-compatible
  * encoding is found.
+ *
+ * A UTF-16 BOM in a file that is not UTF-16 (a Latin-1 file can start with the
+ * bytes `ÿþ` or `þÿ`) would hide an ASCII marker from the UTF-16 decode. Both
+ * decodes are returned in that case, and the scan reports the lowest line
+ * either finds. UTF-32 and BOM-less UTF-16 stay binary.
  */
 async function readTextFile(target: string, displayPath: string): Promise<ReadResult> {
   let handle;
@@ -133,8 +138,12 @@ async function readTextFile(target: string, displayPath: string): Promise<ReadRe
     if (encoding === "binary") return { kind: "binary" };
 
     const data = await handle.readFile();
-    if (encoding === "utf-16le") return { kind: "text", text: utf16le.decode(data) };
-    if (encoding === "utf-16be") return { kind: "text", text: utf16be.decode(data) };
+    if (encoding === "utf-16le") {
+      return { kind: "text", text: utf16le.decode(data), alternate: utf8.decode(data) };
+    }
+    if (encoding === "utf-16be") {
+      return { kind: "text", text: utf16be.decode(data), alternate: utf8.decode(data) };
+    }
 
     return { kind: "text", text: utf8.decode(data) };
   } catch (error) {
@@ -191,7 +200,11 @@ async function scanConflictMarkers(walk: FactoryWalk): Promise<Problem[]> {
     }
     if (result.kind !== "text") continue;
 
-    const line = conflictMarkerLine(toLF(result.text).split("\n"));
+    let line = conflictMarkerLine(toLF(result.text).split("\n"));
+    if (result.alternate !== undefined) {
+      const alternative = conflictMarkerLine(toLF(result.alternate).split("\n"));
+      if (alternative !== -1 && (line === -1 || alternative < line)) line = alternative;
+    }
     if (line === -1) continue;
 
     problems.push({

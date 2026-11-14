@@ -18,6 +18,7 @@ import { destinations } from "../config/destinations.js";
 import type { Problem } from "../../errors.js";
 import type { Factory } from "../factory/types.js";
 import { toLF } from "../../util/text.js";
+import { sameFile } from "../sources/containment.js";
 import {
   AGENTS_BLOCK_LINE_LIMIT,
   AGENTS_MARKERS,
@@ -435,8 +436,11 @@ async function claudeLinksToRootAgents(root: string, entry: RootEntry): Promise<
   }
 
   try {
-    const [claudeStat, agentsStat] = await Promise.all([stat(claudePath), stat(agentsPath)]);
-    if (claudeStat.dev === agentsStat.dev && claudeStat.ino === agentsStat.ino) return true;
+    const [claudeStat, agentsStat] = await Promise.all([
+      stat(claudePath, { bigint: true }),
+      stat(agentsPath, { bigint: true }),
+    ]);
+    if (sameFile(claudeStat, agentsStat)) return true;
   } catch {
     // Either side is missing; the link may still dangle towards AGENTS.md.
   }

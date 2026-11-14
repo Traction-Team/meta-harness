@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { containmentRootAbsolute, isInsideAbsolute } from "../../../src/core/sources/containment.js";
+import { containmentRootAbsolute, isInsideAbsolute, sameFile } from "../../../src/core/sources/containment.js";
 
 let destination: string;
 
@@ -57,5 +57,19 @@ describe("containment root", () => {
     );
 
     expect(root).toBe(await realpath(destination));
+  });
+});
+
+describe("same file", () => {
+  test("compares 64-bit device and inode values exactly", () => {
+    const dev = 1n;
+    const ino = 2n ** 53n;
+
+    expect(sameFile({ dev, ino }, { dev, ino })).toBe(true);
+
+    // A double cannot tell these apart: both read as 9007199254740992.
+    expect(Number(ino)).toBe(Number(ino + 1n));
+    expect(sameFile({ dev, ino }, { dev, ino: ino + 1n })).toBe(false);
+    expect(sameFile({ dev, ino }, { dev: dev + 1n, ino })).toBe(false);
   });
 });

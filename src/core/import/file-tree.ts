@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
-import { toLF } from "../../util/text.js";
+import { toLF, usesCRLF } from "../../util/text.js";
 import { textContent } from "../build/skill.js";
 
 export interface FileEntry {
@@ -16,6 +16,10 @@ export interface FileEntry {
   data?: Uint8Array;
   /** The target of a symbolic link, when the entry is a link rather than a file. */
   link?: string;
+  /** True when the text uses CRLF on every line, so a write can keep it. */
+  crlf?: true;
+  /** The file's original bytes when they differ from the LF text, so a write can keep them. */
+  raw?: Buffer;
 }
 
 /** A snapshot of a factory directory: relative POSIX path to entry. */
@@ -49,7 +53,12 @@ async function entryOf(target: string, link: string | undefined): Promise<FileEn
     return { hash: hashOf(data), mode, binary: true, data };
   }
   const text = toLF(decoded);
-  return { hash: hashOf(text), mode, binary: false, text };
+  const entry: FileEntry = { hash: hashOf(text), mode, binary: false, text };
+  // Keep the original bytes only when normalising changed them, which is a
+  // CRLF or mixed-ending file, so a write can reproduce the file as it was.
+  if (text !== decoded) entry.raw = data;
+  if (usesCRLF(decoded)) entry.crlf = true;
+  return entry;
 }
 
 /**

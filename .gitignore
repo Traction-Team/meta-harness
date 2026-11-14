@@ -3,3 +3,8 @@
 node_modules/
 dist/
 .amp/portals/*
+
+# metafab:start
+.claude/skills/
+.agents/skills/
+# metafab:end

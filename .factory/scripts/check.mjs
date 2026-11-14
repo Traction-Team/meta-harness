@@ -4,15 +4,14 @@
  *
  *   node .factory/scripts/check.mjs
  *
- * - Every skill's frontmatter `name` matches its folder, it has a one-line `description`, and names are unique and lowercase-hyphenated.
- * - Every pipeline entry in `.factory/factory.yaml` names a workflow, at most once.
- * - The skill links in `.claude/skills/` and `.agents/skills/` and the root `AGENTS.md` block match what `link.mjs` writes.
  * - Every plan with frontmatter is one pull request: a Conventional Commit `title`, a known `status` and `kind`, `needs` / `builds-on` / `retires` that exist, `owns` and `proves` when ready or building, and `pr` when merged.
  * - `docs/roadmap.md` has an `updated` date and links only to files that exist.
  * - Every intake note has a title, a known `kind` and `status`, a `filed` date, and a `revisit` date when parked; every changelog entry has a title, a `date` and a `pr`.
+ *
+ * Skills, the pipeline, and the installed output are validated by `metafab check`, not here.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   CHANGELOG_DIR,
@@ -24,53 +23,16 @@ import {
   PR_TITLE,
   ROADMAP_FILE,
   ROOT,
-  applyBlock,
-  desiredLinks,
   fileSource,
-  linkState,
   listPlans,
-  listSkills,
   loadPlan,
   parseFrontmatter,
   parseRoadmap,
-  readPipeline,
 } from './lib.mjs';
 
 const errors = [];
 const err = (where, msg) => errors.push(`${where}: ${msg}`);
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-
-// Skills
-const skills = listSkills();
-for (const s of skills) {
-  const where = `.factory/${s.rel}/SKILL.md`;
-  if (!s.hasFrontmatter) err(where, 'no frontmatter');
-  if (s.data.name !== s.name) err(where, `name is "${s.data.name ?? ''}", expected "${s.name}"`);
-  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(s.name)) err(where, 'skill names use lowercase letters, digits and single hyphens');
-  if (!s.data.description) err(where, 'description is required');
-  else if (typeof s.data.description !== 'string' || s.data.description.includes('\n')) err(where, 'description must be one line');
-}
-const links = desiredLinks(skills);
-for (const p of links.problems) err('.factory', p);
-
-// Pipeline
-const workflows = new Set(skills.filter((s) => s.isWorkflow).map((s) => s.name));
-const seenInPipeline = new Set();
-for (const e of readPipeline()) {
-  const where = `.factory/factory.yaml:${e.line}`;
-  if (!e.workflow) err(where, `cannot read pipeline entry "${e.raw}"; write "- name" or "- name: { stop: text }"`);
-  else if (!workflows.has(e.workflow)) err(where, `names workflow "${e.workflow}", which is not in .factory/workflows/`);
-  else if (seenInPipeline.has(e.workflow)) err(where, `"${e.workflow}" appears twice`);
-  if (e.workflow) seenInPipeline.add(e.workflow);
-}
-
-// Installed links and the AGENTS.md block
-for (const { path, target } of links.links) {
-  const state = linkState(join(ROOT, path));
-  if (state.kind !== 'link' || state.target !== target) err(path, `should link to ${target}. Run node .factory/scripts/link.mjs`);
-}
-const agents = existsSync(join(ROOT, 'AGENTS.md')) ? readFileSync(join(ROOT, 'AGENTS.md'), 'utf8') : undefined;
-if (agents === undefined || applyBlock(agents) !== agents) err('AGENTS.md', 'the factory block is missing or stale. Run node .factory/scripts/link.mjs');
 
 // Plans
 const source = fileSource();
@@ -156,4 +118,4 @@ if (errors.length) {
   process.exit(1);
 }
 const withFrontmatter = [...plans.values()].filter((p) => p.hasFrontmatter).length;
-console.log(`✓ factory check passed (${skills.length} skills, ${withFrontmatter} of ${plans.size} plans${roadmapText === undefined ? ', no roadmap yet' : ', roadmap'})`);
+console.log(`✓ factory check passed (${withFrontmatter} of ${plans.size} plans${roadmapText === undefined ? ', no roadmap yet' : ', roadmap'})`);

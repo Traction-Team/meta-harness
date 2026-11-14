@@ -126,6 +126,15 @@ function loopProblem(linkPath: string): Problem {
   };
 }
 
+function outsideProblem(linkPath: string): Problem {
+  return {
+    level: "error",
+    file: linkPath,
+    message: `Symlink ${linkPath} points outside .factory/ after the move`,
+    fix: "Point it inside .factory/, or remove the symlink",
+  };
+}
+
 function unreadable(relativePath: string): Problem {
   return {
     level: "error",
@@ -238,6 +247,11 @@ function candidateSkillProblems(name: string, parsed: ParsedFrontmatter): Proble
  * reports as a loop. The check runs on the spelled path and on the real path,
  * so a directory symlink inside `.factory/` or a filename that differs only in
  * case cannot hide the same place on disk.
+ *
+ * The containment check also runs on the real path: a link can spell a path
+ * inside `.factory/` and still leave it through a symlinked directory there.
+ * Only the moved location matters, so the real path is resolved through the
+ * directories that exist before the move.
  */
 async function linkProblem(
   root: string,
@@ -255,22 +269,27 @@ async function linkProblem(
   const destinationLink = absolute(root, `${to}/${relative}`);
   const destinationTarget = path.resolve(path.dirname(destinationLink), target);
   if (!isInside(absolute(root, FACTORY_DIRECTORY), destinationTarget)) {
-    return {
-      level: "error",
-      file: linkPath,
-      message: `Symlink ${linkPath} points outside .factory/ after the move`,
-      fix: "Point it inside .factory/, or remove the symlink",
-    };
+    return outsideProblem(linkPath);
+  }
+
+  // The lexical check above misses a target that reaches outside through a
+  // directory symlink inside `.factory/`. Compare the real paths as well,
+  // resolved through the directories that exist before the move.
+  const realTarget = await realPathOf(destinationTarget);
+  const realFactory = await realPathOf(absolute(root, FACTORY_DIRECTORY));
+  if (
+    realTarget !== undefined &&
+    realFactory !== undefined &&
+    !isInside(realFactory, realTarget)
+  ) {
+    return outsideProblem(linkPath);
   }
 
   const destinationSkill = absolute(root, to);
   if (isInside(destinationTarget, destinationSkill)) return loopProblem(linkPath);
 
-  // The lexical check above misses a target that reaches the skill through a
-  // directory symlink inside `.factory/`, or that differs from its name only in
-  // case on a case-insensitive filesystem. Compare real paths as well, resolved
-  // through the directories that exist before the move.
-  const realTarget = await realPathOf(destinationTarget);
+  // A filename that differs only in case can reach the skill on a
+  // case-insensitive filesystem.
   const realSkill = await realPathOf(destinationSkill);
   if (realTarget !== undefined && realSkill !== undefined && isInside(realTarget, realSkill)) {
     return loopProblem(linkPath);
@@ -342,12 +361,16 @@ async function treeProblems(root: string, from: string, to: string): Promise<Pro
  *
  * A link whose target sits elsewhere in `.factory/` is accepted by
  * `treeProblems` and must pass here as well, so the factory directory joins the
- * roots a link may resolve into. Build never passes `linkRoots`.
+ * roots a link may resolve into. So does the current directory of every other
+ * skill adopted in the same run: a link into a sibling skill resolves into that
+ * skill's current directory now, and into `.factory/skills/` after both moves.
+ * Build never passes `linkRoots`.
  */
 async function checkSkillTree(
   root: string,
   name: string,
   from: string,
+  adoptedDirs: readonly string[],
 ): Promise<Problem | undefined> {
   const relocation = await treeProblems(root, from, `${FACTORY_SKILLS_DIRECTORY}/${name}`);
   if (relocation !== undefined) return relocation;
@@ -357,9 +380,13 @@ async function checkSkillTree(
   const factoryExists = (await lstatIfExists(factoryDirectory)) !== undefined;
   const compiled = await compileSkill(
     { dir: skillDir, name, sourcePath: from },
-    factoryExists
-      ? { factoryDir: skillDir, linkRoots: [factoryDirectory] }
-      : { factoryDir: skillDir },
+    {
+      factoryDir: skillDir,
+      linkRoots: [
+        ...(factoryExists ? [factoryDirectory] : []),
+        ...adoptedDirs.map((directory) => absolute(root, directory)),
+      ],
+    },
   );
   return compiled.problems[0];
 }
@@ -411,7 +438,7 @@ async function checkSkill(
   const problem = problems[0];
   if (problem !== undefined) return { ...problem, file: skillFile };
 
-  return checkSkillTree(root, name, from);
+  return undefined;
 }
 
 async function scanDestination(
@@ -699,6 +726,23 @@ export async function planAdoption(
     }
 
     plan.moves.push({ name, from: sources, to: `${FACTORY_SKILLS_DIRECTORY}/${name}` });
+  }
+
+  // The tree check runs once the moves are known, because a link into a
+  // sibling skill adopted in the same run has to pass: its target is valid
+  // after both moves. Dropping a blocked move removes its directory from the
+  // roots the rest may resolve into, so repeat until nothing more is blocked.
+  for (;;) {
+    const adoptedDirs = plan.moves.flatMap((move) => move.from);
+    const blocked = new Map<AdoptionMove, Problem>();
+    for (const move of plan.moves) {
+      const primary = move.from[0]!;
+      const problem = await checkSkillTree(absoluteRoot, move.name, primary, adoptedDirs);
+      if (problem !== undefined) blocked.set(move, problem);
+    }
+    if (blocked.size === 0) break;
+    plan.blockers.push(...blocked.values());
+    plan.moves = plan.moves.filter((move) => !blocked.has(move));
   }
 
   if (plan.moves.length > 0) plan.blockers.push(...(await destinationProblems(absoluteRoot)));

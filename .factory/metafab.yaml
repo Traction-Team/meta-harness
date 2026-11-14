@@ -1,0 +1,2 @@
+agents: [claude, codex, opencode]
+git-hooks: false

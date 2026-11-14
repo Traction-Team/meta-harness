@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,37 +11,13 @@ import type { UpstreamEntry } from "../config/types.js";
 import { pathExists } from "../../util/fs.js";
 import { cacheLayout, cacheRoot, fabKey, getOrCreate } from "./cache.js";
 import type { CacheLayout } from "./cache.js";
-import { withEnv } from "./env.js";
 import { extractTarball } from "./extract.js";
+import { disabledHooksConfig, gitEnvironment, gitMessage, VERBATIM_TEXT_ATTRIBUTES } from "./git-process.js";
 import { redact, stripSourceCredentials } from "./redact.js";
 import type { FetchedFab, GitRef, GitSourceSpec, Resolved } from "./types.js";
 import { dropPayloadFiles, validateFab } from "./validate.js";
 
 const execFileAsync = promisify(execFile);
-
-let hooksDirectory: string | undefined;
-
-/**
- * Git runs `core.hooksPath` hooks from a repository it clones, and a fab
- * repository's hooks are code from the fab, so they must never run.
- * `core.hooksPath=/dev/null` is the usual shorthand, but it only works because
- * of a Git special case; an empty directory is a real directory on every
- * platform, so no hook can be found there.
- */
-function disabledHooksConfig(): string {
-  if (hooksDirectory === undefined) {
-    const directory = mkdtempSync(path.join(tmpdir(), "metafab-hooks-"));
-    hooksDirectory = directory;
-    process.once("exit", () => {
-      try {
-        rmSync(directory, { recursive: true, force: true });
-      } catch {
-        // best effort: the temporary directory is empty
-      }
-    });
-  }
-  return `core.hooksPath=${hooksDirectory}`;
-}
 
 function gitConfigArgs(): string[] {
   return ["-c", disabledHooksConfig()];
@@ -61,9 +36,10 @@ function gitConfigArgs(): string[] {
  * reads the attribute files in a different order. Line ending conversion is
  * not the only rewrite `git archive` does: `export-subst` expands `$Format$`
  * placeholders and `export-ignore` drops files, so those two are disabled too.
+ *
+ * @internal Exported so a test can pin the fetch cache key.
  */
-const VERBATIM_ATTRIBUTES =
-  "* -text -eol -filter -ident -working-tree-encoding -export-subst -export-ignore\n";
+export const VERBATIM_ATTRIBUTES = `* ${VERBATIM_TEXT_ATTRIBUTES} -export-subst -export-ignore\n`;
 
 /**
  * The config `git archive` must run with. The line-ending settings stop the
@@ -103,8 +79,10 @@ const VERBATIM_EXPORT = [
  * export format carries a new segment and never reuses the old entry. The
  * segment is derived from the export format itself, so editing it cannot
  * leave a stale entry behind.
+ *
+ * @internal Exported so a test can pin the fetch cache key.
  */
-const FAB_FETCH_FORMAT = `git-verbatim-${createHash("sha256")
+export const FAB_FETCH_FORMAT = `git-verbatim-${createHash("sha256")
   .update(VERBATIM_EXPORT)
   .digest("hex")
   .slice(0, 12)}`;
@@ -182,13 +160,6 @@ interface Selection {
   requested?: string;
 }
 
-function gitEnvironment(options: GitOptions): NodeJS.ProcessEnv {
-  return withEnv(
-    options.env ?? process.env,
-    options.interactive === true ? {} : { GIT_TERMINAL_PROMPT: "0" },
-  );
-}
-
 function gitOptions(options: GitOptions): {
   env: NodeJS.ProcessEnv;
   encoding: "utf8";
@@ -196,20 +167,11 @@ function gitOptions(options: GitOptions): {
   windowsHide: true;
 } {
   return {
-    env: gitEnvironment(options),
+    env: gitEnvironment(options.env, options.interactive),
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
     windowsHide: true,
   };
-}
-
-function gitMessage(failure: GitFailure): string {
-  const raw = (failure.stderr ?? "").trim() || (failure.stdout ?? "").trim() || failure.message || "";
-  const lines = raw
-    .split("\n")
-    .map((line) => line.trimEnd())
-    .filter((line) => line !== "");
-  return lines.join("\n") || "git failed";
 }
 
 function fetchError(message: string, cause?: unknown): MetafabError {

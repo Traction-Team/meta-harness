@@ -24,3 +24,5 @@ check_node() {
 step "Check Node" check_node
 step "Install dependencies" npm ci --no-audit --no-fund
 step "Build dist/" npm run build --silent
+# The factory skills in .agents/skills/ (which Amp reads) are generated, not committed.
+step "Install factory skills" node dist/cli.js build

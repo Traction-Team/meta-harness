@@ -2,7 +2,7 @@ import { mkdir, readdir, rename } from "node:fs/promises";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { FileEntry, FileTree } from "../import/file-tree.js";
-import { ambiguousSpellingProblem } from "./clashes.js";
+import { ambiguousSpellingProblem } from "../import/conflicts.js";
 
 /** Factory-relative paths an update writes, in the source's spelling. */
 export interface IncomingSpelling {
@@ -45,7 +45,7 @@ function ambiguousSpelling(relativePath: string, candidates: readonly string[]):
     {
       exitCode: ExitCode.Failed,
       code: "update-path-conflict",
-      problems: [ambiguousSpellingProblem(candidates, relativePath)],
+      problems: [ambiguousSpellingProblem(candidates, relativePath, "update")],
     },
   );
 }
@@ -94,7 +94,18 @@ export async function alignFactorySpelling(
 
     for (const [index, part] of parts.entries()) {
       const last = index === parts.length - 1;
-      const choice = chooseName(await readdir(current), part);
+      let entries: string[];
+      try {
+        entries = await readdir(current);
+      } catch (error) {
+        // A local entry on the path is not a directory, so the copy replaces
+        // it (import) or the write cannot land here. Neither is a rename: skip
+        // the rest of this incoming path and leave the entry to its owner.
+        if ((error as NodeJS.ErrnoException).code === "ENOTDIR") break;
+        throw error;
+      }
+
+      const choice = chooseName(entries, part);
       const relative = [...walked, part].join("/");
 
       if (choice.kind === "ambiguous") {

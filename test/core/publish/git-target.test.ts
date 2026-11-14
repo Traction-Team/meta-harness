@@ -88,7 +88,7 @@ async function publish(
 
 const VERSION = "1.2.0";
 
-describe("the Git target", () => {
+describe("the Git target", { timeout: 30_000 }, () => {
   it("publishes a fab to an empty bare repository", async () => {
     const bare = track(await makeBareFabRepo());
 

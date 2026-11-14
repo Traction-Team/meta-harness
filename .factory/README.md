@@ -2,16 +2,27 @@
 
 How work moves from idea to merged code in this repository. It was copied from the Dragonfly factory and adapted to building the Metafab CLI.
 
-The factory is written in the [Metafab v1 factory format](../docs/specs/factory-format.md), so it doubles as our first real fixture: once `metafab build` exists ([plan 1.004](../docs/plans/1.004-build.md)), it replaces `scripts/link.mjs`.
+The factory is written in the [Metafab v1 factory format](../docs/specs/factory-format.md), so it doubles as our first real fixture: `metafab build` installs it.
 
 ## Installing it
 
-Until Metafab can build itself, `node .factory/scripts/link.mjs` stands in for `metafab build`:
+This repository builds its factory from its own checkout:
 
-- **Skills.** Every skill under `.factory/` is linked into `.claude/skills/<name>` and `.agents/skills/<name>` as a relative symlink. The links are committed, so a fresh clone works with no setup.
-- **`AGENTS.md`.** The block between `<!-- factory:start -->` and `<!-- factory:end -->` in root `AGENTS.md` is generated from `.factory/AGENTS.md` and the pipeline in `.factory/factory.yaml`, in the shape the [build spec](../docs/specs/building.md#root-agentsmd) defines. It is committed.
+```bash
+npm install
+npm run build
+node dist/cli.js build
+```
 
-After you add, rename or remove a workflow or skill, or edit `.factory/AGENTS.md` or `factory.yaml`, run `link.mjs` and commit the result. `check.mjs` fails when the links or the block are stale.
+`build` writes the installed skills as generated copies in `.claude/skills/<name>` and `.agents/skills/<name>`. Git ignores them, so a fresh clone has none until it builds. It also writes the block between `<!-- factory:start -->` and `<!-- factory:end -->` in root `AGENTS.md` from `.factory/AGENTS.md` and the pipeline in `.factory/factory.yaml`, in the shape the [build spec](../docs/specs/building.md#root-agentsmd) defines. That block is committed.
+
+`metafab` is `node dist/cli.js` here until `@seasb/metafab` is on npm ([plan 1.012](../docs/plans/1.012-release.md)). Run `npm link` once if you want a `metafab` on `PATH`.
+
+Hooks are off for now (`git-hooks: false` in `.factory/metafab.yaml`). They look for `metafab` in `node_modules/.bin`, on `PATH` and through `npx`, and this checkout's CLI is none of those until 1.012, so a hook would fail in every fresh checkout. After a checkout, merge or rebase that changes `.factory/`, run `node dist/cli.js build` yourself, or `npm run factory` for the build and both checks. Plan 1.012 turns the hooks on.
+
+A new worktree builds through the `setup` script in `orca.yaml`, which runs the same three commands. That only works once the per-repository setup command in Orca's repository settings (today `npm install`) is cleared, because it overrides the committed `orca.yaml`; clear it once per machine. Until then, run `npm run build && node dist/cli.js build` in the new worktree by hand. CI's `factory` job runs the same recipe, then `git diff --exit-code` on the committed integration files and both checks, as the [build spec](../docs/specs/building.md#repeatability) requires.
+
+After you add, rename or remove a workflow or skill, or edit `.factory/AGENTS.md` or `factory.yaml`, run `node dist/cli.js build` and commit the result. `metafab check` fails when a file that `build` would write is out of date.
 
 Restart any agent session after a change: Claude Code and Codex read `AGENTS.md` and the skill list once, at session start.
 
@@ -61,16 +72,16 @@ People keep five decisions: what is next, the plan, each wave, "done", and the m
 .factory/
   README.md                    this file
   factory.yaml                 factory name and pipeline (Metafab format 1)
-  AGENTS.md                    standing instructions, put into root AGENTS.md by link.mjs
+  metafab.yaml                 targets and hook setting (Metafab format 1)
+  AGENTS.md                    standing instructions, the source of the root AGENTS.md block
   workflows/<name>/SKILL.md    how work moves; installed as skills
   templates/                   plan.md, plan-bug.md, pr-body.md, intake.md, changelog.md
-  scripts/                     dependency-free Node: link, check, next
+  scripts/                     dependency-free Node: check, next
 ```
 
 | Script | Does |
 |---|---|
-| `link.mjs` | Stand-in for `metafab build`: links every skill into `.claude/skills/` and `.agents/skills/` and regenerates the root `AGENTS.md` block |
-| `check.mjs` | Validates skills and the pipeline, that links and the block are current, plans with frontmatter (title, status, kind, `needs`, `owns`, `proves`), roadmap links, intake notes and changelog entries |
+| `check.mjs` | Validates plans with frontmatter (title, status, kind, `needs`, `owns`, `proves`), roadmap links, intake notes and changelog entries. Skills, the pipeline and the installed output are checked by `metafab check` |
 | `next.mjs` | Ready plans in roadmap order, skipping claimed ones and `owns` collisions with open PRs. `--ref origin/main`, `--json` |
 
 ## Claims

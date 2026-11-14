@@ -8,6 +8,7 @@ import type { Config, UpstreamEntry } from "../config/types.js";
 import type { FileEntry, FileTree } from "../import/file-tree.js";
 import type { FetchedFab, SourceOptions } from "../sources/index.js";
 import { fetchRecordedBase } from "./fetch.js";
+import { recordedLabel } from "./select.js";
 import { factoryTree, localFactoryTree, sameEntry } from "./trees.js";
 
 /** How a factory path differs from the recorded upstream. */
@@ -206,13 +207,19 @@ function describeFile(file: DiffFile): string {
 /**
  * Human-readable report for `diff`.
  *
- * With nothing to show the summary is a blank line: an empty summary would be
- * replaced by the generic `diff: ok` status line, and `diff` prints no diff
- * when the factory matches its upstream.
+ * With nothing to show, the line names the upstream the factory matched, so a
+ * reader learns the comparison ran. With a path limit it names the prefix.
  */
 export function describeDiff(report: DiffReport): string {
-  if (report.files.length === 0) return "\n";
-  return report.files.map(describeFile).join("\n");
+  if (report.files.length !== 0) return report.files.map(describeFile).join("\n");
+
+  const source = report.upstream.source;
+  const since =
+    report.upstream.kind === "unversioned"
+      ? `${source}.`
+      : `${source} ${recordedLabel(report.upstream)}.`;
+  if (report.prefix === undefined) return `No local edits since ${since}`;
+  return `No local edits in ${report.prefix} since ${since}`;
 }
 
 /** The JSON shape of one compared file: `{ path, status, patch? }`. */
