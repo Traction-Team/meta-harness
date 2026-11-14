@@ -168,7 +168,7 @@ Each problem includes a path, line number, and suggested fix. Errors return exit
 | Command | Behaviour |
 | --- | --- |
 | `metafab import <source> [--agents <list>] [--force] [--adopt] [--setup \| --no-setup]` | Copies a fab into `.factory/`, records it as the upstream, adopts existing repository skills when required, builds it, creates missing required files the person agrees to, and prints a review summary. In a repository without a factory, it creates local configuration without creating source placeholders |
-| `metafab update [--to <version\|range\|ref>] [--dry-run] [--no-build] [--setup \| --no-setup]` | Merges a newer upstream version into `.factory/`, or overwrites from an unversioned source. The source comes from the `upstream` key in `metafab.yaml` |
+| `metafab update [--to <version\|range\|ref>] [--dry-run] [--no-build] [--setup \| --no-setup]` | Merges a newer upstream version into `.factory/`, or overwrites from an unversioned source, and creates missing required files that are new upstream when the person agrees. The source comes from the `upstream` key in `metafab.yaml` |
 | `metafab diff [<path>]` | Shows local edits since the recorded upstream version |
 | `metafab detach` | Removes upstream metadata without changing factory files |
 | `metafab publish [--dry-run] [--tag <tag>]` | Packages `.factory/` as a fab and publishes it to npm, a Git fab repository, or both |
