@@ -142,15 +142,45 @@ export function cacheWriteError(target: string, root: string, error: unknown): M
   });
 }
 
+function isAbsentError(error: unknown): boolean {
+  const code = errorCode(error);
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
+/**
+ * Moves a complete entry that failed validation out of the way. The rename is
+ * atomic, so when two commands find the same corrupt entry only one moves it;
+ * the other's rename fails with ENOENT and it carries on to create. A sibling a
+ * command leaves behind is swept after 24 hours.
+ */
+async function discardEntry(target: string, root: string): Promise<void> {
+  const discarded = `${target}.old-${randomUUID()}`;
+  try {
+    await rename(target, discarded);
+  } catch (error) {
+    // Another command moved it first, so it is already gone.
+    if (isAbsentError(error)) return;
+    throw cacheWriteError(target, root, error);
+  }
+  await removeQuietly(discarded);
+}
+
 export async function getOrCreate<T>(target: string, options: GetOrCreateOptions<T>): Promise<T> {
-  // A complete entry that fails validation is the one case where removing the
-  // target is safe: renames are atomic, so it is never another command's
-  // partial work.
+  // A complete entry that fails validation is wrong, not another command's
+  // partial work: renames are atomic. Another command may have replaced it
+  // since it was read, though, so look again before moving it: moving an entry
+  // that just became good would take the path away from its caller.
   if (await pathExists(target)) {
     try {
       return await options.validate(target);
     } catch {
-      await removeQuietly(target);
+      if (await pathExists(target)) {
+        try {
+          return await options.validate(target);
+        } catch {
+          await discardEntry(target, options.root);
+        }
+      }
     }
   }
 
