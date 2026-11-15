@@ -1,6 +1,6 @@
 # @seasb/metafab
 
-Metafab records a software factory in a repository. `.factory/` holds the skills, workflows and templates that define how a team works, `metafab build` installs them for the agent tools in use, `metafab check` validates them, and `metafab publish` shares the factory as a fab that another repository can import and update.
+Metafab records a software factory in a repository. `.factory/` holds the skills, workflows and templates that define how a team works, `metafab build` installs them for the agent tools in use, `metafab check` validates them, and `metafab publish` shares the factory as a fab that another repository can import and update. A fab is a Git repository by default, or an npm package such as `@seasb/fab-basic`.
 
 It requires Node.js 20 or later. Git is required only for Git-based fab sources.
 
@@ -20,7 +20,7 @@ Use the scoped package name with `npx`. The unscoped `metafab` package is unrela
 In a repository, create a factory from a published fab:
 
 ```sh
-npx @seasb/metafab import @seasb/fab-basic --agents claude,codex --setup
+npx @seasb/metafab import github:Traction-Team/fab-basic --agents claude,codex --setup
 git add .factory AGENTS.md .gitignore .gitattributes opencode.json orca.yaml docs/
 git commit -m "Add the fab-basic factory"
 ```
