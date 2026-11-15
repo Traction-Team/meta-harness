@@ -9,7 +9,7 @@ You are in this case when `OPENCODE=1` is set (`printenv OPENCODE`). The opencod
 A sub-agent works in this checkout, so its commits are already on the branch: it commits and does not push.
 
 <!-- factory:case claude -->
-Start a sub-agent with the Agent tool, choosing the sub-agent whose name is the `sub-agent-coding` value for a task or fix, `sub-agent-review` for a review and `sub-agent-planning` for planning. `.claude/agents/` defines all three and pins no model, so each runs on this session's model. When one of them is missing, `metafab update --setup` creates it from the fab template.
+Start a sub-agent with the Agent tool, choosing the sub-agent whose name is the `sub-agent-coding` value for a task or fix, `sub-agent-review` for a review and `sub-agent-planning` for planning. `.claude/agents/` defines all three and pins no model, so each runs on this session's model. When one of them is missing, copy it from the fab's template in `.factory/templates/setup/claude-agents/`: `metafab update --setup` creates only the requirements a version adds, so it does not restore a file the factory already declares.
 
 You are in this case when `CLAUDECODE=1` is set (`printenv CLAUDECODE`). Fall back to `general-purpose` only when a named call fails with an unknown-agent error, and say so in one line.
 

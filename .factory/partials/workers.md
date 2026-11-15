@@ -33,7 +33,7 @@ From the JSON, keep `result.path` and `result.agentTerminalHandle` (an older run
 <!-- factory:case orb -->
 Create each worker with `create_thread`, all of them in one turn:
 
-- `executor`: `orb`. Leave `project` unset (it defaults to this one) and the model unset, so the worker keeps this thread's mode.
+- `executor`: `orb`. Leave `project` unset (it defaults to this one) and `model` unset, so the worker runs on the model the user chose for new threads.
 - `intent`: `parallel-work`. `title`: `<label> <plan-file-stem>`, such as `A1 1.020-cli-fixes`.
 - `prompt`: the brief below.
 
@@ -49,6 +49,8 @@ End with build-plan's TL;DR as your final message.
 ```
 
 `<base>` is `origin/<trunk>`, or `origin/<branch below>` for a stacked plan. The plan's stem is its file name without `.md`; take the type from the plan's title.
+
+`create_thread` nests each worker under this thread. Once the workers are started, move each one to the top level with `update_thread` (`thread`: the worker's thread, `parent_thread: null`; it is in the `amp` module, through `code_exec`), one call per worker, so every plan sits in the thread list on its own. Leave the workers' own sub-agent threads nested under their worker.
 
 Do not ask the workers to reply to this thread and do not wait for them: each worker's TL;DR is in its own thread, where the developer reviews it. Keep each thread URL; step 6 reports them.
 
