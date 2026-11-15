@@ -185,13 +185,16 @@ async function entryIdentity(target: string): Promise<EntryIdentity | "absent" |
 
 /**
  * True when two reads are the same directory entry. A replaced entry has a new
- * identity, because the rename that installs it moves a different inode in and
- * the entry it replaces stays allocated until then, so an entry that did not
- * change needs no second walk. The values are `bigint` because an NTFS file
- * index can exceed `Number.MAX_SAFE_INTEGER`, where two different entries
- * could compare equal as numbers. An inode of 0, which some network
- * filesystems report, cannot tell two entries apart, so it is never the same
- * entry.
+ * identity: the rename that installs it moves a different inode in, and it is
+ * a new entry, so its `ctimeNs` is new as well. The entry it replaces usually
+ * stays allocated while the replacement is validated, which keeps that inode
+ * from being reused; `sweepStale` can remove it first, when a rename has left
+ * it older than `STALE_AGE_MS`, and identity then rests on `ctimeNs` alone. So
+ * an entry that did not change needs no second walk. The values are `bigint`
+ * because an NTFS file index can exceed `Number.MAX_SAFE_INTEGER`, where two
+ * different entries could compare equal as numbers. An inode of 0, which some
+ * network filesystems report, cannot tell two entries apart, so it is never the
+ * same entry.
  */
 function sameEntry(left: EntryIdentity, right: EntryIdentity): boolean {
   return (
@@ -278,8 +281,10 @@ export async function getOrCreate<T>(target: string, options: GetOrCreateOptions
 
     return result;
   } finally {
-    // The discarded entry stays allocated until its replacement is in place,
-    // so the replacement cannot reuse its inode.
+    // The discarded entry usually stays allocated until its replacement is in
+    // place, so the replacement cannot reuse its inode. A rename keeps the
+    // directory's mtime, though, so `sweepStale` removes it at once when it was
+    // already older than its stale age, and identity then rests on `ctimeNs`.
     if (discarded !== undefined) await removeQuietly(discarded);
   }
 }
