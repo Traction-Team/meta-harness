@@ -244,6 +244,7 @@ The skill tells an agent how to:
 
 - Find and edit factory source files
 - Create workflows and skills
+- Write one factory for several environments: `env`, `when`, `switch`, `import` and partials, conditional skills, harness-neutral descriptions, `metafab env`, and `build --env ... --out` previews
 - Add workflows to the pipeline
 - Run `metafab build` after an edit
 - Keep installed skills current after a clone, a pull, a branch switch, or a new worktree: Git hooks, worktree setup scripts such as `orca.yaml`, cloud agent setup steps, and the CI recipe
