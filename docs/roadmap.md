@@ -62,7 +62,7 @@ A team can publish a factory as a fab and other teams can import and update it.
 Fixes to 1.0 found by the reviews and verification of Milestone 3. They ship in 2.0, not as 1.0.x patches (decided 2026-11-15). The first three share files with 2.011 to 2.014, so they run after 2.011 merges and before 2.012.
 
 - [x] [1.026 Error and JSON contract](plans/1.026-error-and-json-contract.md): every error has a `fix:` line, every `--json` result has `problems`, problem files use `/` on Windows; the types refuse a new site
-- [ ] [1.027 CLI and source fixes](plans/1.027-cli-and-source-fixes.md): `-help` is an unknown option, a private test build per file, the publish label, `upstream.source` schemes, `#` in `publish.git`, `git+file://localhost/`, kept local files in the import summary
+- [x] [1.027 CLI and source fixes](plans/1.027-cli-and-source-fixes.md): `-help` is an unknown option, a private test build per file, the publish label, `upstream.source` schemes, `#` in `publish.git`, `git+file://localhost/`, kept local files in the import summary
 - [ ] [1.028 Worktree hooks find metafab](plans/1.028-worktree-hooks-find-metafab.md): the hook tries the main worktree's `node_modules/.bin/metafab` before `PATH`, so `git worktree add` builds the new worktree
 - [x] [1.029 Orb setup unshallow](plans/1.029-orb-setup-unshallow.md): `.agents/setup` unshallows last and warns instead of stopping when GitHub credentials are not ready
 
