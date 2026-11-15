@@ -76,8 +76,9 @@ jobs:
           cache: npm
       - run: npm ci
       # The hosted runners have 2 vCPUs, so Vitest's default is one worker. The
-      # tests wait on git and npm processes, not the CPU, so run more.
-      - run: npx vitest run --maxWorkers=3
+      # tests wait on git and npm processes, not the CPU, so run more. Workers
+      # share the CPU, so a test without its own timeout gets 30 s, not 5 s.
+      - run: npx vitest run --maxWorkers=3 --testTimeout=30000
 
   hooks:
     needs: factory
