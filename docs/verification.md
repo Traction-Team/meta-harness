@@ -43,6 +43,8 @@ The checks below ran on 2026-11-15 against the CLI built from `chore/1.022-verif
 
 The CI evidence would be the `hooks` job for W1 and the recipe test for W2 and W3. It did not run: GitHub Actions did not start any job on the pull request (see *CI recipe and hooks* for the run URL). These rows are `not run`, and the Windows branches are unverified. The local macOS evidence is in the rows below. W4 is a person's check during `finish-plan`.
 
+Run [43661843108](https://github.com/Traction-Team/meta-harness/actions/runs/43661843108) did start the jobs, and its `hooks` job passed D1–G3 on `windows-latest`; the results are in *CI recipe and hooks* below. The `verify` job on `windows-latest` failed in four tests: two recipe tests, because the test copied a CRLF fixture checkout into the team repositories; the `import` contract case, because its problems name a native absolute path (filed as [NPW](intake/2026-11-15-import-problem-files-use-native-windows-paths.md)); and the requirements mode assertion, which expected a POSIX mode. The two test defects are fixed in this PR, so W2 and W3 wait for the next run's row.
+
 | Check | Git for Windows / Node | OS | Date | Steps | Result | Notes / finding |
 | --- | --- | --- | --- | --- | --- | --- |
 | Hook rebuilds a new worktree through a global install | — | windows-latest | 2026-11-15 | W1 | not run | CI `hooks` job step G2, and the Windows branch is unverified: GitHub Actions did not start the job, account billing (run https://github.com/Traction-Team/meta-harness/actions/runs/43656797008), 2026-11-15. G1–G3 were simulated locally on macOS and passed |
@@ -57,8 +59,12 @@ The CI evidence would be the `hooks` job for W1 and the recipe test for W2 and W
 | Spec CI recipe (LF checkout, `mark4-like`) | `test/cli/ci-recipe.test.ts` | 2026-11-15 | pass | 8 cases pass locally on macOS; the `verify` job on all three operating systems did not run (see the last two rows) |
 | Spec CI recipe (CRLF with `eol=lf` lines) | `test/cli/ci-recipe.test.ts` | 2026-11-15 | pass | locally on macOS |
 | Spec CI recipe (CRLF without `eol=lf` lines) | `test/cli/ci-recipe.test.ts` | 2026-11-15 | pass | locally on macOS |
+| Spec CI recipe, Windows `verify` | CI `verify` job, windows-latest, Node 20 and 22 | 2026-11-15 | fail | Run [43661843108](https://github.com/Traction-Team/meta-harness/actions/runs/43661843108): "the recipe passes in an LF checkout" and "a global core.autocrlf=true does not change the LF case" failed with `expected 'crlf' to be 'lf'`. `actions/checkout` gave this repository's `mark4-like` fixture CRLF, and the test copied it as-is, so the team repositories committed CRLF. Not a Metafab defect: the test now writes copied text fixtures as LF. The next run's row is the evidence |
 | Hooks: D1–D4, project dependency | CI `hooks` job | 2026-11-15 | not run | GitHub Actions did not start the job: account billing (run https://github.com/Traction-Team/meta-harness/actions/runs/43656797008), 2026-11-15. D1–D4 were simulated locally on macOS and passed |
 | Hooks: G1–G3, global install | CI `hooks` job | 2026-11-15 | not run | GitHub Actions did not start the job: account billing (run https://github.com/Traction-Team/meta-harness/actions/runs/43656797008), 2026-11-15. G1–G3 were simulated locally on macOS and passed |
+| Hooks: D1–D4, G1–G3, Windows | CI `hooks` job, windows-latest | 2026-11-15 | pass | Run [43661843108](https://github.com/Traction-Team/meta-harness/actions/runs/43661843108): D2 rebuilt `.claude/skills/` through `node_modules/.bin/metafab`, D3 did not build a new worktree from a project dependency, D4 reached the stub `npx`, G2 built a new worktree through the global shim, and G3 reached the stub after the uninstall |
+| Hooks: D1–D4 and G1–G2, Linux and macOS | CI `hooks` job, ubuntu-latest and macos-latest | 2026-11-15 | pass | Run [43661843108](https://github.com/Traction-Team/meta-harness/actions/runs/43661843108): D1–D4 and G1–G2 passed on both |
+| Hooks: G3, Linux and macOS | CI `hooks` job, ubuntu-latest and macos-latest | 2026-11-15 | fail | Run [43661843108](https://github.com/Traction-Team/meta-harness/actions/runs/43661843108): the step put npm's global prefix first on `PATH`, and on Linux and macOS that is Node's own directory, so the real `npx` ran (`npm error 404 '@seasb/metafab@0.1.0' is not in this registry`) instead of the stub. The CI script, not Metafab: fixed in this PR by installing into a prefix of the job's own. The next run's row is the evidence |
 | Real `npx` fallback | — | 2026-11-15 | not run | `@seasb/metafab@<version>` is not on npm until 1.0, and after 1.0 the check needs the network |
 | CI runs only on ready pull requests and on `main` | `.github/workflows/ci.yml` | 2026-11-15 | pending | The trigger skips draft pull requests and cancels a superseded pull-request run, so the jobs run when the pull request is marked ready. Developer request: the Actions budget was going too fast. The evidence is the run started by marking the pull request ready |
 
@@ -361,9 +367,9 @@ The message column quotes the code. `${…}` marks an interpolated value, and `m
 
 ## JSON and terminal
 
-The contract sweep (`test/cli/contract.test.ts`) ran on 2026-11-15. Every case ran the command twice: once with `--json`, `tty: false` and a `stdin` stream that records any read, and once without `--json` with the same `stdin` and no terminal. Each row below records one of the 22 command cases; with the guard test that every name in `COMMANDS` has a case, the file has 23 tests.
+The contract sweep (`test/cli/contract.test.ts`) ran on 2026-11-15. Every case ran the command twice: once with `--json`, `tty: false` and a `stdin` stream that records any read, and once without `--json` with the same `stdin` and no terminal. Each row below records one of the 23 command cases; with the guard test that every name in `COMMANDS` has a case and the two extra Windows-only cases, the file has 26 tests.
 
-The two `test.fails` rows are defects pinned until their intake note is fixed: `map` omits `problems` from its success result, and `import` of a missing path prints no `fix:` line. Every other error case prints both `problems` with a `fix` in JSON and a `  fix: ` line on stderr, and every case leaves `stdin` unread.
+The three `test.fails` rows are defects pinned until their intake note is fixed: `map` omits `problems` from its success result, `import` of a missing path prints no `fix:` line, and on Windows `import` of an invalid fab names a `\`-separated file. Every other error case prints both `problems` with a `fix` in JSON and a `  fix: ` line on stderr, and every case leaves `stdin` unread.
 
 | Command | Case | One JSON object | `exitCode` matches | Reads stdin without a terminal | Verdict | Finding |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -379,6 +385,7 @@ The two `test.fails` rows are defects pinned until their intake note is fixed: `
 | `check` | a stale installed skill exits 1 | yes | yes | no | ok | — |
 | `import` | a path source imports (exit 0) | yes | yes | no | ok | exit 0 observed; the spec leaves the non-interactive code open (plan, open question 4) |
 | `import` | an invalid fab exits 4 | yes | yes | no | ok | — |
+| `import` (Windows) | an invalid fab exits 4 reports a `/`-separated `file` | yes | yes | no | filed | [NPW](intake/2026-11-15-import-problem-files-use-native-windows-paths.md): on `windows-latest` in run [43661843108](https://github.com/Traction-Team/meta-harness/actions/runs/43661843108) the problem's `file` was `D:\a\…/.factory/skills/broken/SKILL.md`, so rule 4 fails there; a Windows-only `test.fails` case pins it and POSIX still asserts the rule in full |
 | `import` | a path that does not exist exits 3 | yes | yes | no | filed | [EWP](intake/2026-11-15-errors-without-problems.md) |
 | `update` | a factory with no upstream exits 1 with a fix | yes | yes | no | ok | — |
 | `diff` | a factory with no upstream exits 1 with a fix | yes | yes | no | ok | — |

@@ -84,6 +84,8 @@ Metafab has no watch mode and installs no agent session hooks.
 | `post-merge` | `git merge` and `git pull` |
 | `post-rewrite` | `git rebase`. Not `git commit --amend` |
 
+On Windows, Git for Windows runs the hooks with its bundled `sh`, which finds npm's extensionless `metafab` shim.
+
 Metafab owns a hook file when it contains the line `# metafab:start`. It owns the whole file, and rewrites it when its content differs from what `build` would write, for example after a CLI upgrade, or sets its mode to 0755 when its content matches and its mode is not 0755. `build` follows these rules:
 
 1. With `git-hooks: true`, it creates each missing hook as a POSIX shell script with mode 0755.
