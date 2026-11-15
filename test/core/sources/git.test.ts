@@ -200,6 +200,7 @@ describe("git sources", { timeout: 60_000 }, () => {
   });
 
   test("fails with exit 3 when a ref does not exist", async () => {
+    const source = `file://${fixture.repo}`;
     try {
       await resolveGit(gitSpec(fixture.repo, { ref: { type: "name", name: "does-not-exist" } }));
     } catch (error) {
@@ -208,6 +209,14 @@ describe("git sources", { timeout: 60_000 }, () => {
       expect(failure.exitCode).toBe(ExitCode.FetchFailed);
       expect(failure.code).toBe("fetch-not-found");
       expect(failure.message).toContain("does-not-exist");
+      expect(failure.problems).toEqual([
+        {
+          level: "error",
+          file: source.replace(/\\/g, "/"),
+          message: failure.message,
+          fix: `Check that the tag, branch or commit exists in the repository (git ls-remote ${source}), or import the source without a ref`,
+        },
+      ]);
       return;
     }
     throw new Error("expected resolution to fail");

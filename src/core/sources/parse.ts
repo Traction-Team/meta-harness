@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import validateNpmPackageName from "validate-npm-package-name";
 import { ExitCode, MetafabError } from "../../errors.js";
+import { sourceProblemFile } from "./problems.js";
 import { redact, stripSourceCredentials } from "./redact.js";
 import type { GitRef, SourceSpec } from "./types.js";
 
@@ -37,9 +38,18 @@ function isScpGit(value: string): boolean {
 }
 
 function invalidSource(input: string, reason: string): MetafabError {
-  return new MetafabError(`Invalid source "${redact(input)}": ${reason}`, {
+  const message = `Invalid source "${redact(input)}": ${reason}`;
+  return new MetafabError(message, {
     exitCode: ExitCode.Failed,
     code: "invalid-source",
+    problems: [
+      {
+        level: "error",
+        file: sourceProblemFile(input),
+        message,
+        fix: `Use ${SUPPORTED_SOURCES}`,
+      },
+    ],
   });
 }
 
@@ -195,7 +205,7 @@ function unsupportedScheme(input: string, rawScheme: string): MetafabError {
   return new MetafabError(message, {
     exitCode: ExitCode.Failed,
     code: "invalid-source",
-    problems: [{ level: "error", file: shown, message, fix }],
+    problems: [{ level: "error", file: sourceProblemFile(shown), message, fix }],
   });
 }
 

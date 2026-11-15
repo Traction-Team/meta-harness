@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as tar from "tar";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
-import { ExitCode } from "../../../src/errors.js";
+import { ExitCode, MetafabError } from "../../../src/errors.js";
 import {
   fetchFab,
   MAX_HTTPS_REDIRECTS,
@@ -189,12 +189,29 @@ describe("https tarball sources", { timeout: 60_000 }, () => {
     await expect(fetched.cleanup?.()).resolves.toBeUndefined();
   });
 
-  test("fails with exit 3 for an HTTP error", async () => {
-    const resolved = await resolve(specFor("/missing.tgz"));
-    await expect(fetchFab(resolved)).rejects.toMatchObject({
-      exitCode: ExitCode.FetchFailed,
-      code: "fetch-failed",
-    });
+  test("fails with exit 3 and a fix for an HTTP error", async () => {
+    const spec = specFor("/missing.tgz");
+    const resolved = await resolve(spec);
+
+    try {
+      await fetchFab(resolved);
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      const failure = error as MetafabError;
+      expect(failure.exitCode).toBe(ExitCode.FetchFailed);
+      expect(failure.code).toBe("fetch-failed");
+      expect(failure.problems).toEqual([
+        {
+          level: "error",
+          file: spec.url,
+          message: failure.message,
+          fix: "Check the URL and your network connection, then run the command again",
+        },
+      ]);
+      expect(failure.problems?.[0]?.file).not.toContain("\\");
+      return;
+    }
+    throw new Error("expected the fetch to fail");
   });
 
   test("fails with exit 4 when the download exceeds the size cap", async () => {

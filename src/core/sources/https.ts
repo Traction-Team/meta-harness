@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
 import { extractTarball } from "./extract.js";
+import { FAB_SIZE_FIX, sourceProblemFile } from "./problems.js";
 import { redact, stripSourceCredentials } from "./redact.js";
 import type { FetchedFab, Resolved } from "./types.js";
 import { dropPayloadFiles, validateFab } from "./validate.js";
@@ -32,10 +33,20 @@ interface ReadResult {
   value?: Uint8Array;
 }
 
-function fetchError(message: string, cause?: unknown): MetafabError {
-  return new MetafabError(redact(message), {
+const HTTPS_FETCH_FIX = "Check the URL and your network connection, then run the command again";
+const REDIRECT_FIX = "Use the final https:// URL of the tarball";
+
+function fetchError(
+  label: string,
+  message: string,
+  fix: string = HTTPS_FETCH_FIX,
+  cause?: unknown,
+): MetafabError {
+  const text = redact(message);
+  return new MetafabError(text, {
     exitCode: ExitCode.FetchFailed,
     code: "fetch-failed",
+    problems: [{ level: "error", file: sourceProblemFile(label), message: text, fix }],
     cause,
   });
 }
@@ -71,16 +82,24 @@ export function redirectTarget(current: string, location: string): string {
     from = new URL(current);
     next = new URL(location, current);
   } catch {
-    throw fetchError(`Cannot download ${current}: the redirect location is not a valid URL`);
+    throw fetchError(
+      current,
+      `Cannot download ${current}: the redirect location is not a valid URL`,
+      REDIRECT_FIX,
+    );
   }
   if (next.protocol !== "http:" && next.protocol !== "https:") {
     throw fetchError(
+      current,
       `Cannot download ${current}: a redirect to ${next.protocol} is not allowed`,
+      REDIRECT_FIX,
     );
   }
   if (from.protocol === "https:" && next.protocol !== "https:") {
     throw fetchError(
+      current,
       `Cannot download ${current}: a redirect from https to ${next.protocol}//${next.host} is not allowed`,
+      REDIRECT_FIX,
     );
   }
   return next.toString();
@@ -162,17 +181,17 @@ export async function fetchHttps(
         response = await fetchFn(currentUrl, { signal: controller.signal, redirect: "manual" });
       } catch (error) {
         if (controller.signal.aborted) throw error;
-        throw fetchError(`Cannot download ${url}: ${describe(error)}`, error);
+        throw fetchError(url, `Cannot download ${url}: ${describe(error)}`, HTTPS_FETCH_FIX, error);
       }
 
       if (response.status < 300 || response.status >= 400) break;
 
       const location = response.headers.get("location");
       if (location === null) {
-        throw fetchError(`Cannot download ${url}: the redirect has no Location header`);
+        throw fetchError(url, `Cannot download ${url}: the redirect has no Location header`);
       }
       if (redirects >= MAX_HTTPS_REDIRECTS) {
-        throw fetchError(`Cannot download ${url}: more than ${MAX_HTTPS_REDIRECTS} redirects`);
+        throw fetchError(url, `Cannot download ${url}: more than ${MAX_HTTPS_REDIRECTS} redirects`);
       }
       await response.body?.cancel().catch(() => undefined);
       currentUrl = redirectTarget(currentUrl, location);
@@ -183,30 +202,34 @@ export async function fetchHttps(
 
     if (!response.ok) {
       const status = response.statusText === "" ? `${response.status}` : `${response.status} ${response.statusText}`;
-      throw fetchError(`Cannot download ${url}: HTTP ${status}`);
+      throw fetchError(url, `Cannot download ${url}: HTTP ${status}`);
     }
 
     try {
       data = await readBody(response, maxBytes, idleTimeoutMs, () => controller.abort());
     } catch (error) {
       if (error instanceof DownloadTooLarge) {
-        throw new MetafabError(
-          `Cannot download ${redact(url)}: the tarball is larger than ${maxBytes} bytes`,
-          { exitCode: ExitCode.InvalidFab, code: "invalid-fab" },
-        );
+        const message = `Cannot download ${redact(url)}: the tarball is larger than ${maxBytes} bytes`;
+        throw new MetafabError(message, {
+          exitCode: ExitCode.InvalidFab,
+          code: "invalid-fab",
+          problems: [{ level: "error", file: sourceProblemFile(url), message, fix: FAB_SIZE_FIX }],
+        });
       }
       if (controller.signal.aborted) throw error;
-      throw fetchError(`Cannot download ${url}: ${describe(error)}`, error);
+      throw fetchError(url, `Cannot download ${url}: ${describe(error)}`, HTTPS_FETCH_FIX, error);
     }
   } catch (error) {
     if (error instanceof DownloadIdle) {
       throw fetchError(
+        url,
         `Cannot download ${url}: no data received for ${idleTimeoutMs} ms`,
+        HTTPS_FETCH_FIX,
         error,
       );
     }
     if (controller.signal.aborted) {
-      throw fetchError(`Cannot download ${url}: no response after ${responseTimeoutMs} ms`, error);
+      throw fetchError(url, `Cannot download ${url}: no response after ${responseTimeoutMs} ms`, HTTPS_FETCH_FIX, error);
     }
     throw error;
   } finally {

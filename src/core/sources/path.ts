@@ -7,6 +7,7 @@ import type { Problem } from "../../errors.js";
 import { copyFileWithMode } from "../../util/fs.js";
 import { isInsideAbsolute } from "./containment.js";
 import { MAX_FAB_ENTRIES, MAX_FAB_FILE_SIZE, MAX_FAB_TOTAL_SIZE } from "./extract.js";
+import { FAB_ENTRY_FIX, FAB_LINK_FIX, FAB_SIZE_FIX, LINK_CREATE_FIX, sourceProblemFile } from "./problems.js";
 import { redact, stripSourceCredentials } from "./redact.js";
 import type { FetchedFab, Resolved } from "./types.js";
 import { dropPayloadFiles, validateFab } from "./validate.js";
@@ -23,11 +24,15 @@ interface LinkTask {
   target: string;
 }
 
-function fetchError(message: string, cause?: unknown): MetafabError {
-  return new MetafabError(redact(message), {
+const LOCAL_FETCH_FIX =
+  "Run metafab import with the directory that contains .factory/, or a Git, npm or HTTPS source";
+
+function fetchError(label: string, message: string, fix: string): MetafabError {
+  const text = redact(message);
+  return new MetafabError(text, {
     exitCode: ExitCode.FetchFailed,
     code: "fetch-failed",
-    cause,
+    problems: [{ level: "error", file: sourceProblemFile(label), message: text, fix }],
   });
 }
 
@@ -39,8 +44,9 @@ function invalidFab(sourceLabel: string, problems: Problem[]): MetafabError {
   });
 }
 
-function problemFile(sourceLabel: string, relativePath: string): string {
-  return `${redact(sourceLabel).replace(/\/+$/, "")}/.factory/${relativePath}`;
+/** A problem file under the fab's `.factory/`, `/`-separated on every platform. */
+function problemFile(sourceLabel: string, relativePath = ""): string {
+  return sourceProblemFile(sourceLabel, relativePath === "" ? ".factory" : `.factory/${relativePath}`);
 }
 
 /**
@@ -83,25 +89,37 @@ export async function locateFactoryDir(specPath: string): Promise<string> {
     entry = await lstat(candidate);
   } catch {
     if (await isBareRepository(specPath)) {
+      const fileUrl = pathToFileURL(specPath).href;
       throw fetchError(
-        `Cannot read local fab "${specPath}": it is a bare Git repository. Import it as git+${pathToFileURL(specPath).href}`,
+        specPath,
+        `Cannot read local fab "${specPath}": it is a bare Git repository. Import it as git+${fileUrl}`,
+        `Run metafab import git+${fileUrl}`,
       );
     }
-    throw fetchError(`Cannot read local fab "${specPath}": the .factory directory does not exist`);
+    throw fetchError(
+      specPath,
+      `Cannot read local fab "${specPath}": the .factory directory does not exist`,
+      LOCAL_FETCH_FIX,
+    );
   }
 
   if (entry.isSymbolicLink()) {
     throw invalidFab(specPath, [
       {
         level: "error",
-        file: problemFile(specPath, ""),
+        file: problemFile(specPath),
         line: 1,
         message: "links are not allowed in a fab",
+        fix: FAB_LINK_FIX,
       },
     ]);
   }
   if (!entry.isDirectory()) {
-    throw fetchError(`Cannot read local fab "${specPath}": ${candidate} is not a directory`);
+    throw fetchError(
+      specPath,
+      `Cannot read local fab "${specPath}": ${candidate} is not a directory`,
+      LOCAL_FETCH_FIX,
+    );
   }
 
   return candidate;
@@ -170,6 +188,7 @@ async function createLinks(
           file: problemFile(sourceLabel, link.path),
           line: 1,
           message: `links could not be created: ${error instanceof Error ? error.message : String(error)}`,
+          fix: LINK_CREATE_FIX,
         });
         failed.add(link.path);
         progress = true;
@@ -186,6 +205,7 @@ async function createLinks(
             file: problemFile(sourceLabel, link.path),
             line: 1,
             message: `links could not be created: ${error instanceof Error ? error.message : String(error)}`,
+            fix: LINK_CREATE_FIX,
           });
           failed.add(link.path);
         }
@@ -216,6 +236,7 @@ async function verifyLinks(
         file: problemFile(sourceLabel, link.path),
         line: 1,
         message: "links whose target does not exist are not allowed",
+        fix: FAB_LINK_FIX,
       });
       continue;
     }
@@ -225,6 +246,7 @@ async function verifyLinks(
         file: problemFile(sourceLabel, link.path),
         line: 1,
         message: "links that point outside .factory are not allowed",
+        fix: FAB_LINK_FIX,
       });
     }
   }
@@ -259,6 +281,7 @@ async function copyFactory(
       file: problemFile(sourceLabel, relativePath),
       line: 1,
       message: `fabs with more than ${maxEntries} files, directories and links are not allowed`,
+      fix: FAB_SIZE_FIX,
     });
     stopped = true;
     return false;
@@ -285,6 +308,7 @@ async function copyFactory(
             file: problemFile(sourceLabel, relativePath),
             line: 1,
             message: "links that point outside .factory are not allowed",
+            fix: FAB_LINK_FIX,
           });
           continue;
         }
@@ -305,6 +329,7 @@ async function copyFactory(
           file: problemFile(sourceLabel, relativePath),
           line: 1,
           message: "device files and FIFOs are not allowed in a fab",
+          fix: FAB_ENTRY_FIX,
         });
         continue;
       }
@@ -317,6 +342,7 @@ async function copyFactory(
           file: problemFile(sourceLabel, relativePath),
           line: 1,
           message: `files larger than ${MAX_FAB_FILE_SIZE} bytes are not allowed in a fab`,
+          fix: FAB_SIZE_FIX,
         });
         continue;
       }
@@ -328,6 +354,7 @@ async function copyFactory(
           file: problemFile(sourceLabel, relativePath),
           line: 1,
           message: `files larger than ${maxTotalSize} bytes in total are not allowed in a fab`,
+          fix: FAB_SIZE_FIX,
         });
         stopped = true;
         return;

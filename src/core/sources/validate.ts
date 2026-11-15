@@ -5,15 +5,12 @@ import type { Problem } from "../../errors.js";
 import { isDirectory } from "../../util/fs.js";
 import { parseYaml } from "../../util/yaml.js";
 import { loadFactory } from "../factory/index.js";
+import { sourceProblemFile } from "./problems.js";
 import { redact } from "./redact.js";
 import type { ValidateFabOptions, ValidatedFab } from "./types.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function prefixedFile(sourceLabel: string, file: string): string {
-  return `${redact(sourceLabel).replace(/\/+$/, "")}/${file.replace(/^\.\//, "")}`;
 }
 
 function invalidFab(sourceLabel: string, problems: Problem[]): MetafabError {
@@ -28,7 +25,7 @@ function invalidFormat(sourceLabel: string, file: string, value: unknown): Metaf
   return invalidFab(sourceLabel, [
     {
       level: "error",
-      file: prefixedFile(sourceLabel, file),
+      file: sourceProblemFile(sourceLabel, file),
       line: 1,
       message: `Unknown factory format ${JSON.stringify(value)}`,
       fix: "Use format 1 or 2, or upgrade @seasb/metafab",
@@ -107,7 +104,7 @@ export async function validateFab(root: string, options: ValidateFabOptions): Pr
     throw invalidFab(sourceLabel, [
       {
         level: "error",
-        file: prefixedFile(sourceLabel, ".factory"),
+        file: sourceProblemFile(sourceLabel, ".factory"),
         line: 1,
         message: "A fab must contain a .factory directory",
         fix: "Add .factory/ to the fab",
@@ -120,7 +117,7 @@ export async function validateFab(root: string, options: ValidateFabOptions): Pr
   const factory = await loadFactory(absoluteRoot);
   const problems = factory.problems.map((problem) => ({
     ...problem,
-    file: prefixedFile(sourceLabel, problem.file),
+    file: sourceProblemFile(sourceLabel, problem.file),
   }));
 
   if (problems.some((problem) => problem.level === "error")) {

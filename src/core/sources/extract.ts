@@ -7,6 +7,14 @@ import type { ReadEntry } from "tar";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import { containmentRootAbsolute, isInsideAbsolute } from "./containment.js";
+import {
+  FAB_DOWNLOAD_FIX,
+  FAB_ENTRY_FIX,
+  FAB_LINK_FIX,
+  FAB_SIZE_FIX,
+  LINK_CREATE_FIX,
+  sourceProblemFile,
+} from "./problems.js";
 
 export const MAX_FAB_FILE_SIZE = 1024 * 1024;
 export const MAX_FAB_TOTAL_SIZE = 64 * 1024 * 1024;
@@ -14,6 +22,14 @@ export const MAX_FAB_ENTRIES = 10_000;
 
 const BLOCK_SIZE = 512;
 const FACTORY_DIRECTORY = ".factory";
+
+/**
+ * An error problem about one archive entry. The `file` is the path inside the
+ * archive, so it is already `/`-separated.
+ */
+function archiveProblem(file: string, message: string, fix: string = FAB_ENTRY_FIX): Problem {
+  return { level: "error", file, message, fix };
+}
 
 export interface ExtractTarballOptions {
   strip?: number;
@@ -92,12 +108,15 @@ function factoryCollisionReason(entryPath: string): string | undefined {
   return undefined;
 }
 
-function entryProblem(entry: ReadEntry, maxFileSize: number): string | undefined {
+function entryProblem(entry: ReadEntry, maxFileSize: number): { message: string; fix: string } | undefined {
   if (entry.type === "BlockDevice" || entry.type === "CharacterDevice" || entry.type === "FIFO") {
-    return "device files and FIFOs are not allowed in a fab";
+    return { message: "device files and FIFOs are not allowed in a fab", fix: FAB_ENTRY_FIX };
   }
   if (FILE_TYPES.has(entry.type) && entry.size > maxFileSize) {
-    return `files larger than ${maxFileSize} bytes are not allowed in a fab`;
+    return {
+      message: `files larger than ${maxFileSize} bytes are not allowed in a fab`,
+      fix: FAB_SIZE_FIX,
+    };
   }
   return undefined;
 }
@@ -323,11 +342,9 @@ function pathCollisionProblems(
         : "file";
     const previous = categories.get(entryPath);
     if (previous !== undefined && !(previous === "directory" && category === "directory")) {
-      problems.push({
-        level: "error",
-        file: entry.path,
-        message: `duplicate archive entry "${entryPath}" would replace earlier content`,
-      });
+      problems.push(
+        archiveProblem(entry.path, `duplicate archive entry "${entryPath}" would replace earlier content`),
+      );
       continue;
     }
     if (previous === undefined) categories.set(entryPath, category);
@@ -345,11 +362,9 @@ function pathCollisionProblems(
   for (const [entryPath, category] of categories) {
     if (category === "directory") continue;
     if (directories.has(entryPath)) {
-      problems.push({
-        level: "error",
-        file: entryPath,
-        message: "an entry whose path is an existing directory is not allowed",
-      });
+      problems.push(
+        archiveProblem(entryPath, "an entry whose path is an existing directory is not allowed"),
+      );
     }
   }
 
@@ -400,11 +415,7 @@ async function linkTargetType(target: string): Promise<"dir" | "file"> {
 
 function linkProblem(task: LinkTask, error: unknown): Problem {
   const message = error instanceof Error ? error.message : String(error);
-  return {
-    level: "error",
-    file: task.path,
-    message: `links could not be created: ${message}`,
-  };
+  return archiveProblem(task.path, `links could not be created: ${message}`, LINK_CREATE_FIX);
 }
 
 async function createSymbolicLink(
@@ -481,20 +492,14 @@ async function createLinks(destination: string, tasks: LinkTask[]): Promise<Link
     try {
       resolved = await realpath(source);
     } catch {
-      problems.push({
-        level: "error",
-        file: task.path,
-        message: "links whose target does not exist are not allowed",
-      });
+      problems.push(archiveProblem(task.path, "links whose target does not exist are not allowed", FAB_LINK_FIX));
       failed.add(task.path);
       continue;
     }
     if (!isInsideAbsolute(await containmentRootAbsolute(target, destination), resolved)) {
-      problems.push({
-        level: "error",
-        file: task.path,
-        message: "links that point outside the extraction root are not allowed",
-      });
+      problems.push(
+        archiveProblem(task.path, "links that point outside the extraction root are not allowed", FAB_LINK_FIX),
+      );
       failed.add(task.path);
       continue;
     }
@@ -518,19 +523,13 @@ async function verifyLinks(destination: string, tasks: LinkTask[]): Promise<Prob
     try {
       resolved = await realpath(target);
     } catch {
-      problems.push({
-        level: "error",
-        file: task.path,
-        message: "links whose target does not exist are not allowed",
-      });
+      problems.push(archiveProblem(task.path, "links whose target does not exist are not allowed", FAB_LINK_FIX));
       continue;
     }
     if (!isInsideAbsolute(await containmentRootAbsolute(target, destination), resolved)) {
-      problems.push({
-        level: "error",
-        file: task.path,
-        message: "links that point outside the extraction root are not allowed",
-      });
+      problems.push(
+        archiveProblem(task.path, "links that point outside the extraction root are not allowed", FAB_LINK_FIX),
+      );
     }
   }
 
@@ -539,9 +538,11 @@ async function verifyLinks(destination: string, tasks: LinkTask[]): Promise<Prob
 
 function tarballError(tarball: string, cause: unknown): MetafabError {
   const message = cause instanceof Error ? cause.message : String(cause);
-  return new MetafabError(`Cannot extract ${tarball}: ${message}`, {
+  const text = `Cannot extract ${tarball}: ${message}`;
+  return new MetafabError(text, {
     exitCode: ExitCode.InvalidFab,
     code: "invalid-fab",
+    problems: [archiveProblem(sourceProblemFile(tarball), text, FAB_DOWNLOAD_FIX)],
     cause,
   });
 }
@@ -550,7 +551,7 @@ function unsafeArchive(message: string, cause?: unknown): MetafabError {
   return new MetafabError("The archive is not a safe fab", {
     exitCode: ExitCode.InvalidFab,
     code: "invalid-fab",
-    problems: [{ level: "error", file: ".", message }],
+    problems: [archiveProblem(".", message, FAB_SIZE_FIX)],
     ...(cause === undefined ? {} : { cause }),
   });
 }
@@ -607,12 +608,12 @@ export async function extractTarball(
     const rawEntry = entry as ReadEntry;
     const reason = unsafePathReason(entryPath);
     if (reason !== undefined) {
-      problems.push({ level: "error", file: entryPath, message: reason });
+      problems.push(archiveProblem(entryPath, reason));
       return false;
     }
     const collision = factoryCollisionReason(entryPath);
     if (collision !== undefined) {
-      problems.push({ level: "error", file: entryPath, message: collision });
+      problems.push(archiveProblem(entryPath, collision));
       return false;
     }
 
@@ -626,29 +627,21 @@ export async function extractTarball(
         ? ""
         : String(rawEntry.linkpath);
       if (entryFinalPath === "" || entryFinalPath === "." || entryFinalPath.startsWith("../")) {
-        problems.push({
-          level: "error",
-          file: entryPath,
-          message: "links are not allowed at the extraction root",
-        });
+        problems.push(archiveProblem(entryPath, "links are not allowed at the extraction root", FAB_LINK_FIX));
         return false;
       }
       if (writtenThroughLink(entryFinalPath, linkDirectories)) {
-        problems.push({
-          level: "error",
-          file: entryPath,
-          message: "entries written through a symbolic link are not allowed",
-        });
+        problems.push(
+          archiveProblem(entryPath, "entries written through a symbolic link are not allowed", FAB_LINK_FIX),
+        );
         return false;
       }
       if (rawEntry.type === "SymbolicLink") {
         const target = symlinkTarget(entryFinalPath, linkpath);
         if (target === undefined) {
-          problems.push({
-            level: "error",
-            file: entryPath,
-            message: "links that point outside the extraction root are not allowed",
-          });
+          problems.push(
+            archiveProblem(entryPath, "links that point outside the extraction root are not allowed", FAB_LINK_FIX),
+          );
           return false;
         }
         links.push({ kind: "symbolic", target: linkpath, path: entryFinalPath });
@@ -656,11 +649,9 @@ export async function extractTarball(
       }
       const target = hardLinkTarget(entryFinalPath, linkpath, strip);
       if (target === undefined) {
-        problems.push({
-          level: "error",
-          file: entryPath,
-          message: "links that point outside the extraction root are not allowed",
-        });
+        problems.push(
+          archiveProblem(entryPath, "links that point outside the extraction root are not allowed", FAB_LINK_FIX),
+        );
         return false;
       }
       links.push({ kind: "hard", target, path: entryFinalPath });
@@ -669,23 +660,17 @@ export async function extractTarball(
 
     const problem = entryProblem(rawEntry, maxFileSize);
     if (problem !== undefined) {
-      problems.push({ level: "error", file: entryPath, message: problem });
+      problems.push(archiveProblem(entryPath, problem.message, problem.fix));
       return false;
     }
     if (!isAllowedType(rawEntry)) {
-      problems.push({
-        level: "error",
-        file: entryPath,
-        message: `unsupported archive entry type "${rawEntry.type}"`,
-      });
+      problems.push(archiveProblem(entryPath, `unsupported archive entry type "${rawEntry.type}"`));
       return false;
     }
     if (writtenThroughLink(entryFinalPath, linkDirectories)) {
-      problems.push({
-        level: "error",
-        file: entryPath,
-        message: "entries written through a symbolic link are not allowed",
-      });
+      problems.push(
+        archiveProblem(entryPath, "entries written through a symbolic link are not allowed", FAB_LINK_FIX),
+      );
       return false;
     }
     if (entryFinalPath === "" || entryFinalPath === ".") return false;

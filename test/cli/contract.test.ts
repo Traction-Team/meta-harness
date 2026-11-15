@@ -254,8 +254,6 @@ const CASES: readonly ContractCase[] = [
   {
     command: "import",
     name: "a path that does not exist exits 3",
-    // intake: docs/intake/2026-11-15-errors-without-problems.md
-    intake: "docs/intake/2026-11-15-errors-without-problems.md",
     args: (cwd) => ["import", path.join(cwd, "missing-fab")],
     prepare: () => newDirectory(),
     exitCode: ExitCode.FetchFailed,
