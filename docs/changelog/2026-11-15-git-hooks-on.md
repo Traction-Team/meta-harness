@@ -11,4 +11,4 @@ This repository now depends on `@seasb/metafab@^1.0.0` and has `git-hooks: true`
 
 ## Still to come
 
-Letting a new worktree's hook use the main checkout's `node_modules` is filed in [intake](../intake/2026-11-15-new-worktree-hook-finds-no-metafab.md).
+Letting a new worktree's hook use the main checkout's `node_modules` is planned in [Plan 1.028](../plans/1.028-worktree-hooks-find-metafab.md).
