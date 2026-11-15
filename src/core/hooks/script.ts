@@ -20,15 +20,18 @@ function generatedComment(cliVersion: string): string {
  * `hookCommand` with `; `, so the two forms never drift.
  *
  * The main-worktree step is lazy: `git worktree list` runs only when the
- * factory root has no dependency of its own. `[ -n "$main" ]` stops a failed or
- * empty lookup from testing the file system root.
+ * factory root has no dependency of its own. The `sed` script takes the path
+ * from the first record and stops at that record's second line: a bare
+ * repository has `bare` there, so it prints nothing. `[ -n "$main" ]` stops a
+ * failed, empty or bare lookup from testing the file system root.
  */
 function cliLookup(factoryRelDir: string, cliVersion: string, args: string): string[] {
   const mainCli = `"$main/${factoryRelDir}/node_modules/.bin/metafab"`;
+  const mainWorktree = "sed -n '1{s/^worktree //;h;d;};/^bare$/q;g;p;q'";
 
   return [
     `if [ -x node_modules/.bin/metafab ]; then node_modules/.bin/metafab ${args}`,
-    `elif main=$(git -c core.quotePath=false worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p') && [ -n "$main" ] && [ -x ${mainCli} ]; then ${mainCli} ${args}`,
+    `elif main=$(git -c core.quotePath=false worktree list --porcelain 2>/dev/null | ${mainWorktree}) && [ -n "$main" ] && [ -x ${mainCli} ]; then ${mainCli} ${args}`,
     `elif command -v metafab >/dev/null 2>&1; then metafab ${args}`,
     `else npx --yes @seasb/metafab@${cliVersion} ${args}`,
   ];
