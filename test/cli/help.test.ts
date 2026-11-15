@@ -27,12 +27,13 @@ const IMPORT_HELP = [
 ].join("\n");
 
 const BUILD_HELP = [
-  "Usage: metafab build [--env <variable>=<values>]...",
+  "Usage: metafab build [--env <variable>=<values>]... [--out <dir>]",
   "",
   "Compile the factory for the configured agent tools",
   "",
   "Options:",
   "  --env <variable>=<values>  Select an environment for this build",
+  "  --out <dir>                Write a preview of the output to a directory instead of the repository",
   "  --json                     Write one JSON object to stdout",
   "  -h, --help                 Show this help",
   "",

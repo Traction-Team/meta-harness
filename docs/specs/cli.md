@@ -61,9 +61,11 @@ The CLI creates files but does not provide an interactive editor. A person or ag
 | Command | Behaviour |
 | --- | --- |
 | `metafab init [--agents <list>] [--adopt] [--git-hooks \| --no-git-hooks]` | Creates missing factory files, then runs `build` |
-| `metafab build [--env <variable>=<values>]...` | Compiles the factory for the agent tools in `metafab.yaml` and the selected environment, and removes obsolete output owned by Metafab |
+| `metafab build [--env <variable>=<values>]... [--out <dir>]` | Compiles the factory for the agent tools in `metafab.yaml` and the selected environment, and removes obsolete output owned by Metafab. With `--out`, writes a preview to `<dir>` instead |
 
-`build` takes one option, `--env`, which [selects an environment](environments.md#selecting-an-environment) for this run. It never changes which agent tools `build` writes for: edit [`metafab.yaml`](configuration.md) for that. To remove all output, set `agents: []` and run `build`.
+`build` takes two options. `--env` [selects an environment](environments.md#selecting-an-environment) for this run. `--out <dir>` writes a [preview](environments.md#commands) of the output to `<dir>` and changes nothing else. Neither changes which agent tools `build` writes for: edit [`metafab.yaml`](configuration.md) for that. To remove all output, set `agents: []` and run `build`.
+
+`build --out` exits 5 when `<dir>` exists and is not empty, and 1 when `<dir>` is a file or lies inside `.factory/`, `.claude/skills/` or `.agents/skills/`.
 
 `init` creates these entries when they are missing:
 
