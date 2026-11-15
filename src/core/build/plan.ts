@@ -48,10 +48,12 @@ import type { CompiledSkill, RenderFile } from "./skill.js";
 import { syncGitHooks } from "../hooks/index.js";
 import type { HookChange } from "../hooks/index.js";
 import { parseMarkdown } from "../env/directives.js";
+import type { MarkdownDocument } from "../env/directives.js";
 import { createImportCache } from "../env/imports.js";
 import type { ImportCache } from "../env/imports.js";
 import { renderDocument } from "../env/render.js";
 import { allValues, classify } from "../env/scenarios.js";
+import { importCombinationProblems } from "../env/validate.js";
 import type { EnvSelection, EnvVariable, ResolvedSelection } from "../env/types.js";
 import { resolveSelection } from "../env/select.js";
 
@@ -229,6 +231,18 @@ function skillWrites(destination: string, skill: DesiredSkill): BuildWrite[] {
 }
 
 /**
+ * True when a document may be rendered: it has no problem of its own, and no
+ * import pushes one of its blocks past the combination limit. Rendering such a
+ * block would classify every scenario it names, so the document is left as
+ * written, like any other document with an error.
+ */
+function canRender(document: MarkdownDocument, variables: readonly EnvVariable[]): boolean {
+  return [...document.problems, ...importCombinationProblems(document, variables)].every(
+    (problem) => problem.level !== "error",
+  );
+}
+
+/**
  * A `compileSkill` renderer for one skill: each Markdown file's body is parsed
  * and rendered for the selection, with imports expanded. A document with an
  * error is left as it is, because `build` stops on those errors before it writes
@@ -251,7 +265,7 @@ function markdownRenderer(
       route: `${route}/${file.relative}`,
       chain: [],
     });
-    if (document.problems.some((problem) => problem.level === "error")) return file.text;
+    if (!canRender(document, variables)) return file.text;
     return renderDocument(document, { variables, selection });
   };
 }
@@ -278,7 +292,7 @@ async function standingInstructions(
     route: "AGENTS.md",
     chain: [],
   });
-  if (document.problems.some((problem) => problem.level === "error")) return text;
+  if (!canRender(document, yaml.env)) return text;
   return renderDocument(document, { variables: yaml.env, selection: allValues(yaml.env) });
 }
 

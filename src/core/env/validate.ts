@@ -154,8 +154,12 @@ interface ImportWalk {
  * own parse checks its blocks against its own enclosing conditions, so this
  * reports only the blocks an import pushes over the limit, on the import
  * directive's line in the importing file.
+ *
+ * Rendering classifies each block over its enclosing conditions, so a renderer
+ * must treat these as errors too: without them it would enumerate every
+ * scenario of a block this reports.
  */
-function importCombinationProblems(
+export function importCombinationProblems(
   document: MarkdownDocument,
   variables: readonly EnvVariable[],
 ): Problem[] {
