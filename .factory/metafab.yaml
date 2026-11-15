@@ -1,5 +1,5 @@
 agents: [claude, codex, opencode]
-git-hooks: false
+git-hooks: true
 
 # Written by metafab import. Do not edit.
 upstream:

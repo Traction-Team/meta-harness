@@ -61,7 +61,7 @@ Metafab installs factory parts as follows:
 ## Terminology
 
 - **Factory:** The `.factory/` directory in a repository.
-- **Fab:** A factory shared for reuse, as a Git repository such as `github:Traction-Team/fab-basic` or an npm package such as `@seasb/fab-basic`.
+- **Fab:** A factory shared for reuse, as a Git repository such as `github:Traction-Team/fab-basic` or an npm package such as `@acme/fab-basic`.
 - **Fab repository:** A Git repository that holds only published fab releases. `metafab publish` writes it.
 - **Metafab:** The product and its `metafab` CLI, published as `@seasb/metafab`.
 - **Upstream fab:** The fab from which a factory was copied. A factory has zero or one upstream fab.
@@ -127,7 +127,6 @@ git commit -am "Update the fab-basic factory to 1.3.0"
 
 ## Open questions
 
-- How do Cursor and Copilot behave when they find the same skill in `.agents/skills/` and `.claude/skills/`? Their documentation does not say. Test both. See [Duplicate skills](building.md#duplicate-skills).
 - Do teams need more than one upstream fab, such as a base fab plus a shared skill fab?
 - Do pipelines need branches, such as a bug path and a feature path?
 - Which commands must be transactional? In particular, should `build` and `import` preflight every write?

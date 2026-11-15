@@ -38,6 +38,7 @@ The checks below ran on 2026-11-15 against the CLI built from `chore/1.022-verif
 | opencode | `2.2.0` | macOS 26.6.2 (25G83) | 2026-11-15 | A3 | pass | `opencode run "List the skills you can load, by name"` in the `agents: all` repository listed each of the nine factory skills once, although both `.agents/skills/` and `.claude/skills/` hold a copy, plus the user's own global skills. The default model failed first: `anthropic/claude-fable-5-2` reported "Claude Code 2.1.280 does not support this model; version 2.1.290 or newer is required", so the check ran with `-m anthropic/claude-sonnet-5`. The failure is in this machine's model setup, not in what `build` writes. This confirms the sentence already in [Duplicate skills](specs/building.md#duplicate-skills) |
 | Cursor | — | — | 2026-11-15 | A4 | pending | person, `finish-plan`: no headless mode |
 | Copilot | — | — | 2026-11-15 | A5 | pending | person, `finish-plan`: VS Code with GitHub Copilot Chat in agent mode |
+| Copilot CLI | `GitHub Copilot CLI 1.0.112` (`npx @github/copilot`) | macOS 26.6.2 | 2026-11-15 | A5 | pass | Ran headless instead of VS Code Copilot Chat, which was not run. The repositories came from the Release R1 import of fab-basic 0.1.1 with `@seasb/metafab@1.0.0`: `agents: [claude, codex]` (both directories) and two controls built with `agents: [claude]` and `agents: [codex]`. `copilot -p "List every skill you can load, by name … whether it appears once or more than once" -s` listed the twelve factory skills under "Project" in all three, so it reads both `.claude/skills/` and `.agents/skills/`. In the repository with both it said "No skill name appears more than once": like opencode, it lists each skill once |
 
 ## Windows
 
@@ -398,3 +399,14 @@ The three `test.fails` rows are defects pinned until their intake note is fixed:
 | `metafab` | an unexpected error is reported as a bug (exit 1; JSON has `command` and `problems`, no stack; human output keeps the stack and adds the fix line) | yes | yes | no | ok | `renderBug`, fixed in this PR |
 | `import` (Windows) | a relative path source written with backslashes | not run | not run | not run | not run | GitHub Actions did not start the job: account billing (run https://github.com/Traction-Team/meta-harness/actions/runs/43656797008), 2026-11-15; the Windows case is unverified |
 | `create` (Windows) | a backslash path with `--description` | not run | not run | not run | not run | GitHub Actions did not start the job: account billing (run https://github.com/Traction-Team/meta-harness/actions/runs/43656797008), 2026-11-15; the Windows case is unverified |
+
+## Release
+
+The checks below ran on 2026-11-15 against `@seasb/metafab@1.0.0` from npm, published by run [43683277001](https://github.com/Traction-Team/meta-harness/actions/runs/43683277001). `npm view @seasb/metafab@1.0.0 dist.attestations` shows SLSA provenance (`https://slsa.dev/provenance/v1`). Each import ran in a new, empty Git repository: `npx --yes @seasb/metafab@1.0.0 import github:Traction-Team/fab-basic --agents claude,codex --setup`, then `npx --yes @seasb/metafab@1.0.0 check`. The import resolved fab-basic 0.1.1.
+
+| Check | Node / Git | OS | Date | Steps | Result | Notes / finding |
+| --- | --- | --- | --- | --- | --- | --- |
+| Import with `--setup` | Node 24.21.0, npm 11.19.0 | macOS 26.6.2 | 2026-11-15 | R1 | pass | Import exited 0 and created `docs/factory.md`, `opencode.json`, `orca.yaml` and `docs/roadmap.md` from the fab's templates, and installed `.claude/skills/` and `.agents/skills/`. `check` printed "0 errors, 0 warnings" |
+| Import with `--setup` | Node 22.23.5, Git 2.39.5 | Linux, Debian 12 (Docker image `node:22`) | 2026-11-15 | R1 | pass | Same result as macOS: the four files created, `check` printed "0 errors, 0 warnings" |
+| Import with `--setup` | — | Windows 11 | 2026-11-15 | R1 | pending | person, on a Windows machine |
+| `orca.yaml` setup in a new Orca worktree | Orca 1.4.258 | macOS 26.6.2 | 2026-11-15 | R2 | pass | The macOS repository from R1 was committed, added with `orca repo add`, and given a worktree with `orca worktree create --setup run`. The Setup terminal ran `npx --yes @seasb/metafab build` from the generated `orca.yaml` and reported "24 files changed": the twelve skills in `.claude/skills/` and `.agents/skills/`, which `.gitignore` excludes. `check` in the worktree printed "0 errors, 0 warnings" |

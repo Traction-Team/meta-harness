@@ -63,7 +63,7 @@ Fab requirements:
 
 Anyone can publish a fab. Recommended names are `fab-<name>` and `@<scope>/fab-<name>`, for npm packages and fab repositories alike.
 
-The Metafab project shares its own fabs as Git repositories in the `Traction-Team` GitHub organization, such as `github:Traction-Team/fab-basic`, and also publishes them to npm under `@seasb/`.
+The Metafab project shares its own fabs as Git repositories in the `Traction-Team` GitHub organization, such as `github:Traction-Team/fab-basic`. It does not publish them to npm.
 
 ## Sharing a Git repository
 
@@ -500,6 +500,5 @@ The recorded version is the base for `update` and `diff`. Metafab downloads it a
 
 ## Open questions
 
-- Should the merge handle YAML frontmatter fields separately from Markdown body text?
 - Is npm provenance sufficient, or should projects configure trusted fab publishers?
 - How should an organisation update one fab across many repositories?
