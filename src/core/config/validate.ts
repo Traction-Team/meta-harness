@@ -30,6 +30,9 @@ const PUBLISH = new Set<string>(PUBLISH_KEYS);
 const UPSTREAM = new Set<string>(UPSTREAM_KEYS);
 const TARGET_SET = new Set<string>(TARGETS);
 
+/** The fix for an `agents` value that is not `all` or a list of target names. */
+const AGENTS_FIX = `Use agents: all or a list of: ${TARGETS.join(", ")}`;
+
 const GIT_URL =
   /^(?:git@[^\s:]+:[^\s]+|(?:git\+)?ssh:\/\/[^\s]+|(?:git\+)?https:\/\/[^\s]+|(?:git\+)?file:\/\/[^\s]+)$/i;
 
@@ -74,7 +77,10 @@ export interface ValidateDocumentOptions {
   lineOf?: (node: Node | null | undefined) => number | undefined;
 }
 
-type Report = (level: "error" | "warning", message: string, node: Node | null | undefined, fix?: string) => void;
+type Report = {
+  (level: "error", message: string, node: Node | null | undefined, fix: string): void;
+  (level: "warning", message: string, node: Node | null | undefined, fix?: string): void;
+};
 
 function mapEntries(map: YAMLMap): Map<string, Pair> {
   const entries = new Map<string, Pair>();
@@ -130,6 +136,7 @@ function reportUnknownKey(
     "error",
     `Unknown key "${key}"${where}.${suggestion === undefined ? "" : ` ${suggestion}`}`,
     pairNode(pair),
+    suggestion ?? `Remove "${key}"${where}`,
   );
 }
 
@@ -144,7 +151,12 @@ function validateStringKeys(
     const pair = entries.get(key);
     if (pair === undefined) continue;
     if (!isStringNode(resolvedNode(pair.value, doc))) {
-      report("error", `"${scope}.${key}" must be a string.`, pairNode(pair));
+      report(
+        "error",
+        `"${scope}.${key}" must be a string.`,
+        pairNode(pair),
+        `Write "${scope}.${key}" as a string`,
+      );
     }
   }
 }
@@ -161,7 +173,12 @@ function validateStringList(
 
   const value = resolvedNode(pair.value, doc);
   if (!isStringSequence(value)) {
-    report("error", `"${scope}.${key}" must be a list of strings.`, pairNode(pair));
+    report(
+      "error",
+      `"${scope}.${key}" must be a list of strings.`,
+      pairNode(pair),
+      `Write "${scope}.${key}" as a list of strings`,
+    );
     return;
   }
 
@@ -171,6 +188,7 @@ function validateStringList(
         "error",
         `"${scope}.${key}" must be a list of strings.`,
         isScalar(item) ? item : pairNode(pair),
+        `Write "${scope}.${key}" as a list of strings`,
       );
     }
   }
@@ -184,7 +202,7 @@ function validateAgents(report: Report, entries: Map<string, Pair>, doc: Documen
   if (isScalar(value) && value.value === "all") return;
 
   if (!isSeq(value)) {
-    report("error", `"agents" must be a list of targets or "all".`, pairNode(pair));
+    report("error", `"agents" must be a list of targets or "all".`, pairNode(pair), AGENTS_FIX);
     return;
   }
 
@@ -196,6 +214,7 @@ function validateAgents(report: Report, entries: Map<string, Pair>, doc: Documen
         "error",
         `"agents" must contain only target names.`,
         isScalar(node) ? node : pairNode(pair),
+        AGENTS_FIX,
       );
       continue;
     }
@@ -206,6 +225,7 @@ function validateAgents(report: Report, entries: Map<string, Pair>, doc: Documen
         "error",
         `Unknown target "${node.value}" in "agents".${suggestion === undefined ? "" : ` ${suggestion}`}`,
         node,
+        suggestion ?? AGENTS_FIX,
       );
       continue;
     }
@@ -224,7 +244,12 @@ function validateMetafabSkill(report: Report, entries: Map<string, Pair>, doc: D
 
   const value = resolvedNode(pair.value, doc);
   if (!isScalar(value) || typeof value.value !== "boolean") {
-    report("error", `"metafab-skill" must be a boolean.`, pairNode(pair));
+    report(
+      "error",
+      `"metafab-skill" must be a boolean.`,
+      pairNode(pair),
+      `Set "metafab-skill" to true or false`,
+    );
   }
 }
 
@@ -234,7 +259,7 @@ function validateGitHooks(report: Report, entries: Map<string, Pair>, doc: Docum
 
   const value = resolvedNode(pair.value, doc);
   if (!isScalar(value) || typeof value.value !== "boolean") {
-    report("error", `"git-hooks" must be a boolean.`, pairNode(pair));
+    report("error", `"git-hooks" must be a boolean.`, pairNode(pair), `Set "git-hooks" to true or false`);
   }
 }
 
@@ -266,7 +291,12 @@ function validatePublish(
   if (access !== undefined) {
     const value = resolvedNode(access.value, doc);
     if (!isScalar(value) || (value.value !== "public" && value.value !== "restricted")) {
-      report("error", `"publish.access" must be "public" or "restricted".`, pairNode(access));
+      report(
+        "error",
+        `"publish.access" must be "public" or "restricted".`,
+        pairNode(access),
+        `Set "publish.access" to public or restricted`,
+      );
     }
   }
 
@@ -287,7 +317,12 @@ function validatePublish(
     const result = validateNpmPackageName(nameText);
     if (!result.validForNewPackages) {
       const reason = result.errors?.[0] ?? result.warnings?.[0] ?? "invalid name";
-      report("error", `"publish.name" is not a valid npm package name: ${reason}.`, pairNode(name));
+      report(
+        "error",
+        `"publish.name" is not a valid npm package name: ${reason}.`,
+        pairNode(name),
+        "Use a valid npm package name, such as @scope/fab-name",
+      );
     }
   }
 
@@ -328,6 +363,7 @@ function validatePublish(
       "error",
       `"publish.version" is not a semantic version: "${versionText}".`,
       pairNode(version),
+      "Use a semantic version, such as 1.0.0",
     );
   }
 
@@ -338,7 +374,12 @@ function validatePublish(
       ? readmeText
       : path.join(repositoryRoot, readmeText);
     if (!isFile(resolved)) {
-      report("error", `"publish.readme" file not found: ${readmeText}.`, pairNode(readme));
+      report(
+        "error",
+        `"publish.readme" file not found: ${readmeText}.`,
+        pairNode(readme),
+        `Create ${readmeText} or change "publish.readme"`,
+      );
     }
   }
 }
@@ -412,22 +453,33 @@ export function validateDocument(doc: Document, options: ValidateDocumentOptions
   const lineOf = options.lineOf ?? (() => undefined);
   const problems: Problem[] = [];
 
-  const report: Report = (level, message, node, fix) => {
+  const report: Report = (
+    level: "error" | "warning",
+    message: string,
+    node: Node | null | undefined,
+    fix?: string,
+  ) => {
     const line = lineOf(node);
-    problems.push({
-      level,
-      file,
-      ...(line === undefined ? {} : { line }),
-      message,
-      ...(fix === undefined ? {} : { fix }),
-    });
+    const base = { file, ...(line === undefined ? {} : { line }), message };
+    if (level === "warning") {
+      problems.push({ level, ...base, ...(fix === undefined ? {} : { fix }) });
+      return;
+    }
+    // The overloads require a fix for an error, so the cast only tells the
+    // compiler what every caller already guarantees.
+    problems.push({ level, ...base, fix: fix as string });
   };
 
   const contents = doc.contents;
   if (contents === null) return problems;
 
   if (!isMap(contents)) {
-    report("error", "metafab.yaml must be a mapping.", contents);
+    report(
+      "error",
+      "metafab.yaml must be a mapping.",
+      contents,
+      "Start the document with key: value pairs",
+    );
     return problems;
   }
 
@@ -448,7 +500,7 @@ export function validateDocument(doc: Document, options: ValidateDocumentOptions
   if (publish !== undefined) {
     const publishValue = resolvedNode(publish.value, doc);
     if (!isMap(publishValue)) {
-      report("error", `"publish" must be a map.`, pairNode(publish));
+      report("error", `"publish" must be a map.`, pairNode(publish), `Write "publish" as a map of keys`);
     } else {
       validatePublish(report, publishValue, pairNode(publish), options.repositoryRoot, doc);
     }
@@ -458,7 +510,7 @@ export function validateDocument(doc: Document, options: ValidateDocumentOptions
   if (upstream !== undefined) {
     const upstreamValue = resolvedNode(upstream.value, doc);
     if (!isMap(upstreamValue)) {
-      report("error", `"upstream" must be a map.`, pairNode(upstream));
+      report("error", `"upstream" must be a map.`, pairNode(upstream), `Write "upstream" as a map of keys`);
     } else {
       validateUpstream(report, upstreamValue, pairNode(upstream), doc);
     }

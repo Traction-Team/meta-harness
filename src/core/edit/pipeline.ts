@@ -39,12 +39,12 @@ export interface RemoveWorkflowResult {
   pipeline: string[];
 }
 
-function problem(file: string, message: string, fix?: string): Problem {
+function problem(file: string, message: string, fix: string): Problem {
   return {
     level: "error",
     file,
     message,
-    ...(fix === undefined ? {} : { fix }),
+    fix,
   };
 }
 
@@ -99,11 +99,13 @@ function requireAfter(names: readonly string[], after: string): void {
   ]);
 }
 
-function validateWorkflowName(workflow: string): void {
+function validateWorkflowName(workflow: string, command: "add" | "remove"): void {
   if (workflow !== "") return;
 
   const message = "A pipeline entry must name a workflow.";
-  throw pipelineError("pipeline-entry-invalid", message, [problem(FACTORY_FILE, message)]);
+  throw pipelineError("pipeline-entry-invalid", message, [
+    problem(FACTORY_FILE, message, `Name the workflow: metafab pipeline ${command} <workflow>`),
+  ]);
 }
 
 function validateStop(stop: string): void {
@@ -148,7 +150,7 @@ export async function addWorkflow(
   workflow: string,
   options: AddWorkflowOptions = {},
 ): Promise<AddWorkflowResult> {
-  validateWorkflowName(workflow);
+  validateWorkflowName(workflow, "add");
   if (options.stop !== undefined) validateStop(options.stop);
 
   const factory = await loadFactory(root);
@@ -187,7 +189,7 @@ export async function addWorkflow(
 }
 
 export async function removeWorkflow(root: string, workflow: string): Promise<RemoveWorkflowResult> {
-  validateWorkflowName(workflow);
+  validateWorkflowName(workflow, "remove");
 
   const factory = await loadFactory(root);
   const text = await readFactoryYamlText(factory.dir);

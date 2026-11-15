@@ -207,18 +207,21 @@ function updateWriteFailed(error: unknown, restored: boolean): MetafabError {
     exitCode: ExitCode.Failed,
     code: "update-write-failed",
     cause: error,
-    ...(restored
-      ? {}
-      : {
-          problems: [
-            {
-              level: "error" as const,
-              file: ".factory",
-              message: "The update stopped before it finished and could not restore .factory/",
-              fix: "Restore .factory/ from Git (git status shows what changed), then run metafab update again",
-            },
-          ],
-        }),
+    problems: [
+      restored
+        ? {
+            level: "error",
+            file: ".factory",
+            message: "The update stopped before it finished; .factory/ was restored",
+            fix: "Fix the cause, then run metafab update again",
+          }
+        : {
+            level: "error",
+            file: ".factory",
+            message: "The update stopped before it finished and could not restore .factory/",
+            fix: "Restore .factory/ from Git (git status shows what changed), then run metafab update again",
+          },
+    ],
   });
 }
 

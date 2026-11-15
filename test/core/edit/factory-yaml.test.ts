@@ -138,6 +138,23 @@ pipeline:
     expect(() => addPipelineEntryText(SOURCE, "x", { stop: "one\ntwo" })).toThrowError(MetafabError);
   });
 
+  test("rejects an empty workflow with the command to run", () => {
+    try {
+      addPipelineEntryText(SOURCE, "");
+      throw new Error("expected the add to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      expect((error as MetafabError).problems).toEqual([
+        {
+          level: "error",
+          file: ".factory/factory.yaml",
+          message: "A pipeline entry must name a workflow",
+          fix: "Name the workflow: metafab pipeline add <workflow>",
+        },
+      ]);
+    }
+  });
+
   test("rejects invalid YAML with a problem", () => {
     expect(() => parseFactoryYamlDocument("name: [")).toThrowError(MetafabError);
   });

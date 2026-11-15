@@ -40,6 +40,7 @@ export const pipelineRemoveCommand: CommandDefinition = {
       ok: true,
       command: "pipeline remove",
       exitCode: ExitCode.Ok,
+      problems: [],
       summary: `Removed ${workflow} from the pipeline.\n.factory/factory.yaml\n${runBuild}`,
       path: ".factory/factory.yaml",
       workflow,

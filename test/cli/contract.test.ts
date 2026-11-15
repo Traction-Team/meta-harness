@@ -183,8 +183,6 @@ const CASES: readonly ContractCase[] = [
   {
     command: "map",
     name: "the mark4-like factory maps",
-    // intake: docs/intake/2026-11-15-json-results-without-problems.md
-    intake: "docs/intake/2026-11-15-json-results-without-problems.md",
     args: ["map"],
     prepare: mark4,
     exitCode: ExitCode.Ok,

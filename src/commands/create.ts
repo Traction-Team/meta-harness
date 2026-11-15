@@ -74,6 +74,7 @@ export const createCommand: CommandDefinition = {
       ok: true,
       command: "create",
       exitCode: ExitCode.Ok,
+      problems: [],
       summary: `Created ${file}\nRun metafab build to install the change.`,
       path: file,
       name: plan.name,

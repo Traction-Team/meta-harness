@@ -173,6 +173,14 @@ describe("update restores .factory/ when a write fails", { timeout: 30_000 }, ()
     expect(payload.code).toBe("update-write-failed");
     expect(payload.summary).toContain("Update stopped:");
     expect(payload.summary).toContain(".factory/ was restored.");
+    expect(payload.problems).toEqual([
+      {
+        level: "error",
+        file: ".factory",
+        message: "The update stopped before it finished; .factory/ was restored",
+        fix: "Fix the cause, then run metafab update again",
+      },
+    ]);
     expect(await walkRaw(factoryDir)).toEqual(before);
     expect((await lstat(repo.path(".factory", "Empty"))).isDirectory()).toBe(true);
     expect(toLF(await readFile(repo.path(".factory", "AGENTS.md"), "utf8"))).toBe("# Agents v1\n");
@@ -330,6 +338,14 @@ describe("unversioned update restores .factory/ when a write fails", { timeout: 
     const payload = parseJson(result);
     expect(payload.code).toBe("update-write-failed");
     expect(payload.summary).toContain(".factory/ was restored.");
+    expect(payload.problems).toEqual([
+      {
+        level: "error",
+        file: ".factory",
+        message: "The update stopped before it finished; .factory/ was restored",
+        fix: "Fix the cause, then run metafab update again",
+      },
+    ]);
     expect(await walkRaw(factoryDir)).toEqual(before);
     expect((await lstat(repo.path(".factory", "Empty"))).isDirectory()).toBe(true);
     expect(toLF(await readFile(repo.path(".factory", "AGENTS.md"), "utf8"))).toBe("# Agents v1\n");

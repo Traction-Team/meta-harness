@@ -35,13 +35,13 @@ export const mapCommand: CommandDefinition = {
       ok: errors.length === 0,
       command: "map",
       exitCode: errors.length === 0 ? ExitCode.Ok : ExitCode.Failed,
+      problems: data.problems,
       factory: data.factory,
       pipeline: data.pipeline,
       standaloneWorkflows: data.standaloneWorkflows,
       skills: data.skills,
       summary: mapSummary(data),
     };
-    if (data.problems.length > 0) result.problems = data.problems;
     return result;
   },
 };

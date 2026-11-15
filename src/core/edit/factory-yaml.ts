@@ -22,13 +22,13 @@ export interface AddPipelineEntryOptions {
   stop?: string;
 }
 
-function problem(file: string, message: string, line?: number, fix?: string): Problem {
+function problem(file: string, message: string, line: number | undefined, fix: string): Problem {
   return {
     level: "error",
     file,
     ...(line === undefined ? {} : { line }),
     message,
-    ...(fix === undefined ? {} : { fix }),
+    fix,
   };
 }
 
@@ -147,7 +147,14 @@ export function addPipelineEntry(
   if (workflow === "") {
     throw new MetafabError("A pipeline entry must name a workflow.", {
       code: "pipeline-entry-invalid",
-      problems: [problem(file, "A pipeline entry must name a workflow")],
+      problems: [
+        problem(
+          file,
+          "A pipeline entry must name a workflow",
+          undefined,
+          "Name the workflow: metafab pipeline add <workflow>",
+        ),
+      ],
     });
   }
 

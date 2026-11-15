@@ -243,6 +243,16 @@ pipeline:
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("must be a non-empty single line");
   });
+
+  test("rejects an empty workflow name with the command to run", async () => {
+    const created = await repo();
+
+    const result = await runCli(["pipeline", "add", ""], { cwd: created.root, tty: false });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("A pipeline entry must name a workflow.");
+    expect(result.stderr).toContain("fix: Name the workflow: metafab pipeline add <workflow>");
+  });
 });
 
 const ALIASED_SOURCE = `format: 1
@@ -580,5 +590,15 @@ pipeline:
     expect(result.code).toBe(1);
     expect(result.stderr).toContain('The pipeline does not contain "y".');
     expect(await pathExists(created.path(".factory/factory.yaml"))).toBe(false);
+  });
+
+  test("rejects an empty workflow name with the command to run", async () => {
+    const created = await repo();
+
+    const result = await runCli(["pipeline", "remove", ""], { cwd: created.root, tty: false });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("A pipeline entry must name a workflow.");
+    expect(result.stderr).toContain("fix: Name the workflow: metafab pipeline remove <workflow>");
   });
 });

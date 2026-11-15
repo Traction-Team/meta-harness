@@ -3,6 +3,7 @@ import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import { listFiles } from "../../util/fs.js";
+import { CONFIG_FILE } from "../config/parse.js";
 import type { Config, PublishConfig } from "../config/types.js";
 import type { Factory } from "../factory/index.js";
 import { buildPackageJson } from "./package-json.js";
@@ -10,12 +11,21 @@ import { resolveReadme } from "./readme.js";
 import { stageFab } from "./stage.js";
 import type { PreparedFab, PublishTargetName } from "./types.js";
 
-const CONFIG_FILE = ".factory/metafab.yaml";
+/**
+ * The fix for a failed publish target, from the Sharing spec's publish steps:
+ * fix the failure and run the command again, where a target that already
+ * carries these bytes is skipped. It lives beside `publishProblem` rather than
+ * in `publish.ts` so both targets import it without a cycle: `publish.ts`
+ * imports the targets.
+ */
+export const PUBLISH_RETRY_FIX =
+  "Fix the failure, then run metafab publish again; a target that already has this version is skipped";
 
 /** A `publish` section that has a version and at least one target. */
 export type ValidPublishConfig = PublishConfig & { version: string };
 
-function publishProblem(message: string, fix: string): Problem {
+/** A problem about the `publish` section, whose file is the configuration the person edits. */
+export function publishProblem(message: string, fix: string): Problem {
   return {
     level: "error",
     file: CONFIG_FILE,

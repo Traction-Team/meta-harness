@@ -124,6 +124,7 @@ function invalidYaml(doc: Document, file: string): Config {
       file,
       ...(line === undefined ? {} : { line }),
       message,
+      fix: "Fix the YAML syntax on this line",
     },
   ]);
 }
@@ -159,6 +160,7 @@ export function parseConfig(text: string, options: ParseConfigOptions = {}): Con
         file,
         ...(line === undefined ? {} : { line }),
         message: `Invalid YAML: Unresolved alias "${alias.source}".`,
+        fix: "Remove the alias or define its anchor before it",
       },
     ]);
   }
@@ -186,6 +188,7 @@ export function parseConfig(text: string, options: ParseConfigOptions = {}): Con
         level: "error",
         file,
         message: `Invalid YAML: ${message}`,
+        fix: "Fix the YAML syntax on this line",
       },
     ]);
   }

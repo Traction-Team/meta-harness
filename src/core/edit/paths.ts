@@ -8,12 +8,12 @@ export interface CreatePath {
   name: string;
 }
 
-function pathProblem(input: string, message: string, fix?: string): Problem {
+function pathProblem(input: string, message: string, fix: string): Problem {
   return {
     level: "error",
     file: input === "" ? "path" : input,
     message,
-    ...(fix === undefined ? {} : { fix }),
+    fix,
   };
 }
 
@@ -41,7 +41,7 @@ export function normaliseCreatePath(input: string): CreatePath {
     const message = "The path must not contain ..";
     throw new MetafabError(message, {
       code: "create-path-invalid",
-      problems: [pathProblem(input, message)],
+      problems: [pathProblem(input, message, "Use a path such as workflows/review-slice")],
     });
   }
 

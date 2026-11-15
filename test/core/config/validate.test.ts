@@ -118,6 +118,144 @@ describe("validation fixtures", () => {
   }
 });
 
+describe("every error report names a fix", () => {
+  interface FixCase {
+    name: string;
+    text: string;
+    message: RegExp;
+    fix: string;
+  }
+
+  const agentsFix = `Use agents: all or a list of: ${TARGETS.join(", ")}`;
+  const fixCases: FixCase[] = [
+    {
+      name: "an unknown top-level key with a suggestion",
+      text: "publush:\n  name: x\n",
+      message: /^Unknown key "publush"\. Did you mean "publish"\?$/,
+      fix: `Did you mean "publish"?`,
+    },
+    {
+      name: "an unknown top-level key with no suggestion",
+      text: "zzz: x\n",
+      message: /^Unknown key "zzz"\.$/,
+      fix: `Remove "zzz"`,
+    },
+    {
+      name: "an unknown key inside publish",
+      text: "publish:\n  nme: example\n  name: '@seasb/fab-mark4'\n  version: 1.2.0\n",
+      message: /^Unknown key "nme" in "publish"\. Did you mean "name"\?$/,
+      fix: `Did you mean "name"?`,
+    },
+    {
+      name: "a string key that is not a string",
+      text: "upstream:\n  source: 7\n",
+      message: /^"upstream\.source" must be a string\.$/,
+      fix: `Write "upstream.source" as a string`,
+    },
+    {
+      name: "a list key that is not a list",
+      text: "publish:\n  name: '@seasb/fab-mark4'\n  version: 1.2.0\n  keywords: planning\n",
+      message: /^"publish\.keywords" must be a list of strings\.$/,
+      fix: `Write "publish.keywords" as a list of strings`,
+    },
+    {
+      name: "a list item that is not a string",
+      text: "publish:\n  name: '@seasb/fab-mark4'\n  version: 1.2.0\n  keywords: [planning, 7]\n",
+      message: /^"publish\.keywords" must be a list of strings\.$/,
+      fix: `Write "publish.keywords" as a list of strings`,
+    },
+    {
+      name: "agents that is not a list",
+      text: "agents: nope\n",
+      message: /^"agents" must be a list of targets or "all"\.$/,
+      fix: agentsFix,
+    },
+    {
+      name: "an agents item that is not a target name",
+      text: "agents: [claude, 7]\n",
+      message: /^"agents" must contain only target names\.$/,
+      fix: agentsFix,
+    },
+    {
+      name: "an unknown target with a suggestion",
+      text: "agents: [claud]\n",
+      message: /^Unknown target "claud" in "agents"\. Did you mean "claude"\?$/,
+      fix: `Did you mean "claude"?`,
+    },
+    {
+      name: "an unknown target with no suggestion",
+      text: "agents: [zzz]\n",
+      message: /^Unknown target "zzz" in "agents"\.$/,
+      fix: agentsFix,
+    },
+    {
+      name: "a metafab-skill that is not a boolean",
+      text: "metafab-skill: 'yes'\n",
+      message: /^"metafab-skill" must be a boolean\.$/,
+      fix: `Set "metafab-skill" to true or false`,
+    },
+    {
+      name: "a git-hooks that is not a boolean",
+      text: "git-hooks: 'yes'\n",
+      message: /^"git-hooks" must be a boolean\.$/,
+      fix: `Set "git-hooks" to true or false`,
+    },
+    {
+      name: "a publish.access that is neither value",
+      text: "publish:\n  name: '@seasb/fab-mark4'\n  version: 1.2.0\n  access: everyone\n",
+      message: /^"publish\.access" must be "public" or "restricted"\.$/,
+      fix: `Set "publish.access" to public or restricted`,
+    },
+    {
+      name: "a publish.name that npm refuses",
+      text: "publish:\n  name: 'Not A Name'\n  version: 1.2.0\n",
+      message: /^"publish\.name" is not a valid npm package name: .+\.$/,
+      fix: "Use a valid npm package name, such as @scope/fab-name",
+    },
+    {
+      name: "a publish.version that is not a semantic version",
+      text: "publish:\n  name: '@seasb/fab-mark4'\n  version: '1.2'\n",
+      message: /^"publish\.version" is not a semantic version: "1\.2"\.$/,
+      fix: "Use a semantic version, such as 1.0.0",
+    },
+    {
+      name: "a publish.readme file that is missing",
+      text: "publish:\n  name: '@seasb/fab-mark4'\n  version: 1.2.0\n  readme: docs/missing.md\n",
+      message: /^"publish\.readme" file not found: docs\/missing\.md\.$/,
+      fix: `Create docs/missing.md or change "publish.readme"`,
+    },
+    {
+      name: "a document that is not a mapping",
+      text: "just a string\n",
+      message: /^metafab\.yaml must be a mapping\.$/,
+      fix: "Start the document with key: value pairs",
+    },
+    {
+      name: "a publish that is not a map",
+      text: "publish: nope\n",
+      message: /^"publish" must be a map\.$/,
+      fix: `Write "publish" as a map of keys`,
+    },
+    {
+      name: "an upstream that is not a map",
+      text: "upstream: nope\n",
+      message: /^"upstream" must be a map\.$/,
+      fix: `Write "upstream" as a map of keys`,
+    },
+  ];
+
+  test.each(fixCases)("$name names a fix", async ({ text, message, fix }) => {
+    const repo = await repoWith();
+
+    const config = parseConfig(text, { repositoryRoot: repo.path() });
+    const problem = config.problems.find((candidate) => message.test(candidate.message));
+
+    expect(problem?.message).toMatch(message);
+    expect(problem?.level).toBe("error");
+    expect(problem?.fix).toBe(fix);
+  });
+});
+
 describe("the spec example", () => {
   test("parses with no problems and the expected model", async () => {
     const text = await readFile(fixture("spec-example.yaml"), "utf8");

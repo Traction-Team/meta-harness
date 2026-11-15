@@ -3,6 +3,7 @@ import { ExitCode, MetafabError } from "../../errors.js";
 import type { PublishConfig } from "../config/types.js";
 import { npmInvocation } from "../sources/npm-cli.js";
 import { redact } from "../sources/redact.js";
+import { PUBLISH_RETRY_FIX, publishProblem } from "./prepare.js";
 import { provenanceEnabled } from "./provenance.js";
 import type { PublishOptions } from "./types.js";
 
@@ -34,8 +35,15 @@ function publishError(
   code: string,
   exitCode: ExitCode,
   cause?: unknown,
+  fix = PUBLISH_RETRY_FIX,
 ): MetafabError {
-  return new MetafabError(redact(message), { exitCode, code, cause });
+  const text = redact(message);
+  return new MetafabError(text, {
+    exitCode,
+    code,
+    cause,
+    problems: [publishProblem(text, fix)],
+  });
 }
 
 function notFound(result: NpmResult): boolean {
@@ -180,6 +188,8 @@ export async function npmVersionState(
       "The npm target requires publish.name.",
       "publish-missing-setting",
       ExitCode.Failed,
+      undefined,
+      'Add "name" to "publish"',
     );
   }
   const env = options.env ?? process.env;
@@ -246,7 +256,13 @@ export async function publishNpmFab(
   options: PublishOptions = {},
 ): Promise<string> {
   if (publish.name === undefined) {
-    throw publishError("The npm target requires publish.name.", "publish-missing-setting", ExitCode.Failed);
+    throw publishError(
+      "The npm target requires publish.name.",
+      "publish-missing-setting",
+      ExitCode.Failed,
+      undefined,
+      'Add "name" to "publish"',
+    );
   }
   const env = options.env ?? process.env;
   const onText = options.stderr ?? ((text: string) => process.stderr.write(text));

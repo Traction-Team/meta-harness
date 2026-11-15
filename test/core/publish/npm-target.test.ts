@@ -1,10 +1,12 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { prepareFab, publishFab } from "../../../src/core/publish/index.js";
+import { ExitCode, MetafabError } from "../../../src/errors.js";
+import { PUBLISH_RETRY_FIX, prepareFab, publishFab } from "../../../src/core/publish/index.js";
 import type { PublishConfig } from "../../../src/core/config/types.js";
 import { npmInvocation } from "../../../src/core/sources/npm-cli.js";
 import { extractTarball } from "../../../src/core/sources/extract.js";
@@ -127,6 +129,28 @@ async function npmPackPaths(root: string): Promise<string[]> {
     .map((file) => file.path)
     .filter((file): file is string => typeof file === "string")
     .sort();
+}
+
+/**
+ * An npm registry URL nothing listens on, so `npm view` fails for a reason other
+ * than the 404 that means "this version is new". The port is released before it
+ * is used, and the retry count is zero so the failure is immediate.
+ */
+async function unreachableRegistryEnv(): Promise<NodeJS.ProcessEnv> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  if (address === null || typeof address === "string") throw new Error("cannot allocate a port");
+
+  return {
+    ...registry.env,
+    npm_config_registry: `http://127.0.0.1:${address.port}/`,
+    npm_config_fetch_retries: "0",
+  };
 }
 
 // A registry publish spawns npm and Git several times over; Windows is slower
@@ -260,6 +284,27 @@ describe("the npm target", { timeout: 60_000 }, () => {
     ).rejects.toMatchObject({ code: "publish-version-exists" });
 
     expect(await listRemoteRefs(bare.repo)).toEqual([]);
+  });
+
+  it("reports a failed npm view as a publish problem with the retry fix", async () => {
+    const fixture = await prepare(npmPublishSection("@seasb/fab-unreachable", "1.2.0"));
+
+    const failure = (await publishFab(fixture.prepared, fixture.publish, {
+      env: await unreachableRegistryEnv(),
+      stderr: () => undefined,
+    }).catch((error: unknown) => error)) as MetafabError;
+
+    expect(failure).toBeInstanceOf(MetafabError);
+    expect(failure.code).toBe("publish-npm-failed");
+    expect(failure.exitCode).toBe(ExitCode.FetchFailed);
+    expect(failure.problems).toEqual([
+      {
+        level: "error",
+        file: ".factory/metafab.yaml",
+        message: failure.message,
+        fix: PUBLISH_RETRY_FIX,
+      },
+    ]);
   });
 });
 

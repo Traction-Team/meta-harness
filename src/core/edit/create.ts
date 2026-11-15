@@ -19,12 +19,12 @@ export interface CreatePlan {
   skillPath: string;
 }
 
-function problem(file: string, message: string, fix?: string): Problem {
+function problem(file: string, message: string, fix: string): Problem {
   return {
     level: "error",
     file,
     message,
-    ...(fix === undefined ? {} : { fix }),
+    fix,
   };
 }
 
