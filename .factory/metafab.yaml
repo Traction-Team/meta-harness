@@ -1,2 +1,9 @@
 agents: [claude, codex, opencode]
 git-hooks: false
+
+# Written by metafab import. Do not edit.
+upstream:
+  source: github:Traction-Team/fab-basic
+  requested: ^0.1.0
+  version: 0.1.0
+  commit: fa06fe14757421bb5061e1d98a481d4020213480
