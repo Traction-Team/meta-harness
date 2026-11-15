@@ -12,7 +12,7 @@ This file is the source of truth for implementation progress on the `metafab` CL
 
 ## How to use this file
 
-The [factory](../.factory/README.md) workflows maintain this file:
+The [factory](../.factory/docs/process.md) workflows maintain this file:
 
 - `start-plan` picks the first ready plan in this order (`node .factory/scripts/next.mjs` shows ready, blocked and in-flight plans). A plan in flight has `status: building` and a draft pull request.
 - `finish-plan` ticks a plan's box in its landing commit, and moves the open questions it answered to [Decisions](#decisions).

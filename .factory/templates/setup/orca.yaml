@@ -1,0 +1,3 @@
+scripts:
+  setup: |
+    npx --yes @seasb/metafab build
