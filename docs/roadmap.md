@@ -59,12 +59,12 @@ A team can publish a factory as a fab and other teams can import and update it.
 
 ## Milestone 3.1: v1 fixes
 
-Fixes to 1.0 found by the reviews and verification of Milestone 3. They change little that 2.011 to 2.014 touch, so they can run beside them.
+Fixes to 1.0 found by the reviews and verification of Milestone 3. They ship in 2.0, not as 1.0.x patches (decided 2026-11-15). The first three share files with 2.011 to 2.014, so they run after 2.011 merges and before 2.012.
 
-- [ ] **Error and JSON contract fixes** — needs a plan · every error gets `problems` with a `fix:` line, every result has `problems`, and Windows problem files use `/`: [errors without problems](intake/2026-11-15-errors-without-problems.md), [problems without fixes](intake/2026-11-15-problems-without-fixes.md), [JSON results without problems](intake/2026-11-15-json-results-without-problems.md), [native Windows paths](intake/2026-11-15-import-problem-files-use-native-windows-paths.md)
-- [ ] **CLI and source fixes** — needs a plan · small fixes left by the 1.020 and 1.021 reviews and the 1.024 build: [help cluster and test build](intake/2026-11-14-help-cluster-and-test-build.md), [publish label drive path](intake/2026-11-14-publish-label-drive-path.md), [unsupported upstream scheme](intake/2026-11-14-upstream-source-unsupported-scheme.md), [publish.git edge cases](intake/2026-11-15-publish-git-url-edge-cases.md), [import local-only files](intake/2026-11-15-import-local-only-files.md)
-- [ ] **New worktree hooks find the project's metafab** — needs a plan · `git worktree add` builds skills when metafab is only a devDependency of the main checkout: [note](intake/2026-11-15-new-worktree-hook-finds-no-metafab.md)
-- [ ] **Orb setup continues when the unshallow fails** — needs a plan · `.agents/setup` warns and runs `npm ci` and the build when GitHub credentials are not ready yet: [note](intake/2026-11-15-orb-setup-unshallow-without-credentials.md)
+- [ ] [1.026 Error and JSON contract](plans/1.026-error-and-json-contract.md): every error has a `fix:` line, every `--json` result has `problems`, problem files use `/` on Windows; the types refuse a new site
+- [ ] [1.027 CLI and source fixes](plans/1.027-cli-and-source-fixes.md): `-help` is an unknown option, a private test build per file, the publish label, `upstream.source` schemes, `#` in `publish.git`, `git+file://localhost/`, kept local files in the import summary
+- [ ] [1.028 Worktree hooks find metafab](plans/1.028-worktree-hooks-find-metafab.md): the hook tries the main worktree's `node_modules/.bin/metafab` before `PATH`, so `git worktree add` builds the new worktree
+- [ ] [1.029 Orb setup unshallow](plans/1.029-orb-setup-unshallow.md): `.agents/setup` unshallows last and warns instead of stopping when GitHub credentials are not ready
 
 ## Milestone 4: Environments (version 2)
 
@@ -110,6 +110,13 @@ A team keeps its factory's working documents and scores in a shared store outsid
 ```
 
 1.002 and 1.003 can run in parallel. 1.007 can run in parallel with 1.004 to 1.006. 1.013 needs nothing unmerged and can run beside 1.005 and 1.006. 1.008 can start once 1.002 and 1.003 are done. 1.014 and 1.015 need nothing unmerged and share no paths with 1.009 to 1.011, so they can run beside them. 1.017 should land between waves, because it changes how every worktree gets its skills. 1.018 shares no paths with 1.017, so the two can run side by side after 1.016. On 12 Nov 1.012 was split into 1.020 to 1.024. 1.019 and 1.021 can run side by side; 1.020 waits for 1.019 because both change `src/core/build/plan.ts`. 1.023 needs 1.020 and 1.021. 1.022 and 1.024 can run side by side after 1.023; 1.024 should land between waves, because it replaces `.factory/` and every worktree's skills. 1.012 publishes the package, and 1.025 turns on hooks here once it is on npm.
+
+```text
+2.011 ── 1.026 ── 1.027 ── 1.028 ── 2.012
+1.029
+```
+
+1.026 needs 2.011, because its type change covers 2.011's new code. 1.027 and 1.028 follow in a chain because each shares files with the plan before it. 2.012 shares files with all three, so in roadmap order it starts after them. 1.029 changes only `.agents/setup` and can start at once.
 
 ```text
 1.012 + 1.023 ── 2.011 ── 2.012 ── 2.013 ── 2.014 ── 2.016 ── 2.015

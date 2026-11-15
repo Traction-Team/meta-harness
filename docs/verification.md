@@ -44,7 +44,7 @@ The checks below ran on 2026-11-15 against the CLI built from `chore/1.022-verif
 
 The CI evidence would be the `hooks` job for W1 and the recipe test for W2 and W3. It did not run: GitHub Actions did not start any job on the pull request (see *CI recipe and hooks* for the run URL). These rows are `not run`, and the Windows branches are unverified. The local macOS evidence is in the rows below. W4 is a person's check during `finish-plan`.
 
-Run [43661843108](https://github.com/Traction-Team/meta-harness/actions/runs/43661843108) did start the jobs, and its `hooks` job passed D1–G3 on `windows-latest`; the results are in *CI recipe and hooks* below. The `verify` job on `windows-latest` failed in four tests: two recipe tests, because the test copied a CRLF fixture checkout into the team repositories; the `import` contract case, because its problems name a native absolute path (filed as [NPW](intake/2026-11-15-import-problem-files-use-native-windows-paths.md)); and the requirements mode assertion, which expected a POSIX mode. The two test defects are fixed in this PR, so W2 and W3 wait for the next run's row.
+Run [43661843108](https://github.com/Traction-Team/meta-harness/actions/runs/43661843108) did start the jobs, and its `hooks` job passed D1–G3 on `windows-latest`; the results are in *CI recipe and hooks* below. The `verify` job on `windows-latest` failed in four tests: two recipe tests, because the test copied a CRLF fixture checkout into the team repositories; the `import` contract case, because its problems name a native absolute path (filed as [NPW](plans/1.026-error-and-json-contract.md)); and the requirements mode assertion, which expected a POSIX mode. The two test defects are fixed in this PR, so W2 and W3 wait for the next run's row.
 
 | Check | Git for Windows / Node | OS | Date | Steps | Result | Notes / finding |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -73,7 +73,7 @@ Run [43661843108](https://github.com/Traction-Team/meta-harness/actions/runs/436
 
 Checked on 2026-11-15 against the CLI built from `chore/1.022-verification`. The sites are every line matching `rg -n "new MetafabError\(|level: \"error\"|new NeedsInput\(" src`: 283 matches, of which one (`src/errors.ts:11`) is the `Problem` type declaration rather than an error site. The two named result-shape changes add rows of their own, so the table has 284 rows.
 
-**Fix line** is `yes` when the error or its problems carry a `fix`, `no` when it does not, and `n/a` for exit 2, whose `required` list replaces the fix line. **Exit code** is the code the code path implies; **expected** is the code the [Exit codes](specs/cli.md#exit-codes) table implies. A `filed` row links the intake note that covers it: [EWP](intake/2026-11-15-errors-without-problems.md) for an error that carries no problems at all, [PNF](intake/2026-11-15-problems-without-fixes.md) for problems without a fix line.
+**Fix line** is `yes` when the error or its problems carry a `fix`, `no` when it does not, and `n/a` for exit 2, whose `required` list replaces the fix line. **Exit code** is the code the code path implies; **expected** is the code the [Exit codes](specs/cli.md#exit-codes) table implies. A `filed` row links the intake note that covers it: [EWP](plans/1.026-error-and-json-contract.md) for an error that carries no problems at all, [PNF](plans/1.026-error-and-json-contract.md) for problems without a fix line. On 2026-11-15 these intake notes, and the JRP and NPW notes below, were folded into [Plan 1.026](plans/1.026-error-and-json-contract.md) and deleted, so the links point at the plan.
 
 Totals: 192 `ok`, 90 `filed`, 2 `fixed in this PR`. No site was a one-line fix in `src/cli.ts`, `src/output.ts`, `src/errors.ts`, `src/input.ts` or `src/commands/**` beyond the two named changes, so no other site was fixed here.
 
@@ -86,51 +86,51 @@ The message column quotes the code. `${…}` marks an interpolated value, and `m
 | `src/core/init/gitattributes.ts:93` | init | `message` | yes | 1 | 1 | ok | — |
 | `src/core/init/gitattributes.ts:98` | init | `message` (argument of the local helper) | yes | 1 | 1 | ok | — |
 | `src/core/init/run.ts:237` | init | required values (see the command's prompt) | n/a | 2 | 2 | ok | — |
-| `src/core/init/run.ts:316` | init | `"Build stopped because the repository contains output that Metafab does not own."` | no | 5 | 5 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/init/run.ts:323` | init | `"Build failed after init."` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
+| `src/core/init/run.ts:316` | init | `"Build stopped because the repository contains output that Metafab does not own."` | no | 5 | 5 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/init/run.ts:323` | init | `"Build failed after init."` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
 | `src/core/update/select.ts:44` | update, diff | `The recorded upstream is a ${kind} source, not an npm package or Git repository` | yes | 1 | 1 | ok | — |
 | `src/core/update/select.ts:49` | update, diff | `The recorded upstream is a ${kind} source, not an npm package or Git repository` | yes | 1 | 1 | ok | — |
 | `src/core/update/diff.ts:48` | update, diff | `This factory has no upstream to compare` | yes | 1 | 1 | ok | — |
 | `src/core/update/diff.ts:53` | update, diff | `This factory has no upstream to compare` | yes | 1 | 1 | ok | — |
-| `src/core/update/diff.ts:63` | update, diff | `"The factory configuration has problems."` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/update/detach.ts:23` | update, diff | `"The factory configuration has problems."` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
+| `src/core/update/diff.ts:63` | update, diff | `"The factory configuration has problems."` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/update/detach.ts:23` | update, diff | `"The factory configuration has problems."` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
 | `src/core/update/clashes.ts:56` | update, diff | `The update would replace ${file} with a different kind of entry` | yes | 1 | 1 | ok | — |
 | `src/core/update/clashes.ts:65` | update, diff | `The update writes ${incoming}, but ${file} is a file` | yes | 1 | 1 | ok | — |
 | `src/core/update/spelling.ts:43` | update, diff | `"Update stopped because local paths differ only in case and the incoming path does not mat` | yes | 1 | 1 | ok | — |
 | `src/core/update/run.ts:150` | update, diff | `This factory has no upstream to update` | yes | 1 | 1 | ok | — |
 | `src/core/update/run.ts:155` | update, diff | `This factory has no upstream to update` | yes | 1 | 1 | ok | — |
-| `src/core/update/run.ts:165` | update, diff | `"The factory configuration has problems."` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
+| `src/core/update/run.ts:165` | update, diff | `"The factory configuration has problems."` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
 | `src/core/update/run.ts:173` | update, diff | `--to ${to} cannot select a version from an unversioned upstream` | yes | 1 | 1 | ok | — |
 | `src/core/update/run.ts:178` | update, diff | `--to ${to} cannot select a version from an unversioned upstream` | yes | 1 | 1 | ok | — |
-| `src/core/update/run.ts:188` | update, diff | `"Update stopped: resolve the conflicts from an earlier update first."` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
+| `src/core/update/run.ts:188` | update, diff | `"Update stopped: resolve the conflicts from an earlier update first."` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
 | `src/core/update/run.ts:206` | update, diff | `The update stopped before it finished and could not restore .factory/` | yes | 1 | 1 | ok | — |
 | `src/core/update/run.ts:215` | update, diff | `The update stopped before it finished and could not restore .factory/` | yes | 1 | 1 | ok | — |
-| `src/core/update/run.ts:242` | update, diff | `"Update stopped because the incoming fab would replace local content."` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/update/run.ts:253` | update, diff | `"Build stopped because the repository contains output that Metafab does not own."` | no | 5 | 5 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/update/run.ts:264` | update, diff | `"Build failed after update."` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
+| `src/core/update/run.ts:242` | update, diff | `"Update stopped because the incoming fab would replace local content."` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/update/run.ts:253` | update, diff | `"Build stopped because the repository contains output that Metafab does not own."` | no | 5 | 5 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/update/run.ts:264` | update, diff | `"Build failed after update."` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
 | `src/core/update/run.ts:343` | update, diff | `Refusing to replace the directory ${file} with a file` | yes | 1 | 1 | ok | — |
 | `src/core/update/run.ts:348` | update, diff | `Refusing to replace the directory ${file} with a file` | yes | 1 | 1 | ok | — |
 | `src/core/update/run.ts:1064` | update, diff | required values (see the command's prompt) | n/a | 2 | 2 | ok | — |
 | `src/core/update/run.ts:1302` | update, diff | required values (see the command's prompt) | n/a | 2 | 2 | ok | — |
-| `src/core/config/parse.ts:123` | all (config) | `message` (argument of the local helper) | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/config/parse.ts:158` | all (config) | `Invalid YAML: Unresolved alias "${alias.source}".` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/config/parse.ts:186` | all (config) | `Invalid YAML: ${message}` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
+| `src/core/config/parse.ts:123` | all (config) | `message` (argument of the local helper) | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/parse.ts:158` | all (config) | `Invalid YAML: Unresolved alias "${alias.source}".` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/parse.ts:186` | all (config) | `Invalid YAML: ${message}` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
 | `src/core/config/validate.ts:77` | all (config) | `message` (argument of the local helper) | n/a | 1 | 1 | ok | — |
-| `src/core/config/writers.ts:24` | all (config) | ``${file}: ${message}`` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/config/writers.ts:28` | all (config) | `message` (argument of the local helper) | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/config/writers.ts:43` | all (config) | `The configuration must be a YAML map.` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/config/writers.ts:45` | all (config) | `The configuration must be a YAML map.` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
+| `src/core/config/writers.ts:24` | all (config) | ``${file}: ${message}`` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/writers.ts:28` | all (config) | `message` (argument of the local helper) | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/writers.ts:43` | all (config) | `The configuration must be a YAML map.` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/writers.ts:45` | all (config) | `The configuration must be a YAML map.` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
 | `src/core/setup.ts:22` | init, import, update | `message` | yes | 1 | 1 | ok | — |
 | `src/core/setup.ts:25` | init, import, update | `message` (argument of the local helper) | yes | 1 | 1 | ok | — |
-| `src/core/setup.ts:113` | init, import, update | `"Build stopped because the repository contains output that Metafab does not own."` | no | 5 | 5 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
+| `src/core/setup.ts:113` | init, import, update | `"Build stopped because the repository contains output that Metafab does not own."` | no | 5 | 5 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
 | `src/core/edit/pipeline.ts:44` | pipeline | `message` (argument of the local helper) | yes | 1 | 1 | ok | — |
 | `src/core/edit/pipeline.ts:52` | pipeline | `message` | yes | 1 | 1 | ok | — |
 | `src/core/edit/factory-yaml.ts:27` | create, pipeline | `message` (argument of the local helper) | yes | 1 | 1 | ok | — |
-| `src/core/edit/factory-yaml.ts:42` | create, pipeline | ``${file}: ${message}`` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/edit/factory-yaml.ts:56` | create, pipeline | ``${file}: ${message}`` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/edit/factory-yaml.ts:64` | create, pipeline | ``${file}: ${message}`` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/edit/factory-yaml.ts:83` | create, pipeline | ``${file}: ${message}`` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/edit/factory-yaml.ts:148` | create, pipeline | `"A pipeline entry must name a workflow."` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
+| `src/core/edit/factory-yaml.ts:42` | create, pipeline | ``${file}: ${message}`` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/edit/factory-yaml.ts:56` | create, pipeline | ``${file}: ${message}`` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/edit/factory-yaml.ts:64` | create, pipeline | ``${file}: ${message}`` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/edit/factory-yaml.ts:83` | create, pipeline | ``${file}: ${message}`` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/edit/factory-yaml.ts:148` | create, pipeline | `"A pipeline entry must name a workflow."` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
 | `src/core/edit/factory-yaml.ts:155` | create, pipeline | `"The pipeline stop must be a non-empty single line."` | yes | 1 | 1 | ok | — |
 | `src/core/edit/factory-yaml.ts:164` | create, pipeline | ``Pipeline already contains "${workflow}".`` | yes | 1 | 1 | ok | — |
 | `src/core/edit/factory-yaml.ts:179` | create, pipeline | ``Pipeline has no workflow "${options.after}".`` | yes | 1 | 1 | ok | — |
@@ -140,19 +140,19 @@ The message column quotes the code. `${…}` marks an interpolated value, and `m
 | `src/core/edit/paths.ts:13` | create | `message` (argument of the local helper) | yes | 1 | 1 | ok | — |
 | `src/core/edit/paths.ts:24` | create | `"A path is required."` | yes | 1 | 1 | ok | — |
 | `src/core/edit/paths.ts:32` | create | `message` | yes | 1 | 1 | ok | — |
-| `src/core/edit/paths.ts:42` | create | `message` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
+| `src/core/edit/paths.ts:42` | create | `message` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
 | `src/core/edit/paths.ts:53` | create | `message` | yes | 1 | 1 | ok | — |
 | `src/core/edit/paths.ts:67` | create | `message` | yes | 1 | 1 | ok | — |
 | `src/core/edit/paths.ts:77` | create | `nameProblems[0]!.message` | yes | 1 | 1 | ok | — |
 | `src/core/publish/publish.ts:23` | publish | `The ${label} already has ${version} with different content.` | yes | 1 | 1 | ok | — |
 | `src/core/publish/publish.ts:28` | publish | `The ${label} already has ${version} with different content.` | yes | 1 | 1 | ok | — |
-| `src/core/publish/publish.ts:77` | publish | `'"publish.version" is required.'` | no | 1 | 1 | filed | [EWP](intake/2026-11-15-errors-without-problems.md) |
+| `src/core/publish/publish.ts:77` | publish | `'"publish.version" is required.'` | no | 1 | 1 | filed | [EWP](plans/1.026-error-and-json-contract.md) |
 | `src/core/publish/prepare.ts:20` | publish | `message` (argument of the local helper) | yes | 1 | 1 | ok | — |
 | `src/core/publish/prepare.ts:47` | publish | `'"publish" is not configured.'` | yes | 1 | 1 | ok | — |
 | `src/core/publish/prepare.ts:60` | publish | `'"publish" names no target.'` | yes | 1 | 1 | ok | — |
 | `src/core/publish/prepare.ts:73` | publish | `'"publish.version" is required.'` | yes | 1 | 1 | ok | — |
-| `src/core/publish/npm-target.ts:38` | publish | `redact(message)` | no | 1 | 1 | filed | [EWP](intake/2026-11-15-errors-without-problems.md) |
-| `src/core/publish/git-target.ts:72` | publish | `redact(message)` | no | 1 | 1 | filed | [EWP](intake/2026-11-15-errors-without-problems.md) |
+| `src/core/publish/npm-target.ts:38` | publish | `redact(message)` | no | 1 | 1 | filed | [EWP](plans/1.026-error-and-json-contract.md) |
+| `src/core/publish/git-target.ts:72` | publish | `redact(message)` | no | 1 | 1 | filed | [EWP](plans/1.026-error-and-json-contract.md) |
 | `src/core/publish/git-target.ts:185` | publish | `Git cannot store ${file} in a fab` | yes | 1 | 1 | ok | — |
 | `src/core/publish/git-target.ts:190` | publish | ``Git cannot store ${file} in a fab.`` | yes | 4 | 4 | ok | — |
 | `src/core/publish/git-target.ts:214` | publish | `The Git target requires publish.git.` | yes | 1 | 1 | ok | — |
@@ -160,15 +160,15 @@ The message column quotes the code. `${…}` marks an interpolated value, and `m
 | `src/core/publish/git-target.ts:309` | publish | `Git did not stage ${file}` | yes | 1 | 1 | ok | — |
 | `src/core/publish/git-target.ts:315` | publish | `Git stored different bytes for ${file}` | yes | 1 | 1 | ok | — |
 | `src/core/publish/git-target.ts:321` | publish | `Git staged ${file}, which the staged fab does not carry` | yes | 1 | 1 | ok | — |
-| `src/core/publish/git-target.ts:332` | publish | `message` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
+| `src/core/publish/git-target.ts:332` | publish | `message` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
 | `src/core/publish/git-target.ts:514` | publish | `The fab repository has no branch "${branch}".` | yes | 1 | 1 | ok | — |
 | `src/core/publish/git-target.ts:519` | publish | ``The fab repository has no branch "${branch}".`` | yes | 1 | 1 | ok | — |
 | `src/core/publish/git-target.ts:570` | publish | `The head of "${branch}" is not tagged by an earlier publish.` | yes | 1 | 1 | ok | — |
 | `src/core/publish/git-target.ts:575` | publish | ``The Git fab repository branch "${branch}" was changed outside metafab publish.`` | yes | 5 | 5 | ok | — |
 | `src/core/publish/git-target.ts:592` | publish | `Tag v${version} already exists in the fab repository.` | yes | 1 | 1 | ok | — |
 | `src/core/publish/git-target.ts:599` | publish | `Tag v${version} already exists in the fab repository.` | yes | 1 | 1 | ok | — |
-| `src/core/publish/stage.ts:69` | publish | `message` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/publish/stage.ts:78` | publish | `message` (argument of the local helper) | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
+| `src/core/publish/stage.ts:69` | publish | `message` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/publish/stage.ts:78` | publish | `message` (argument of the local helper) | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
 | `src/core/publish/stage.ts:120` | publish | `Pipeline names excluded workflow "${entry.workflow}"` | yes | 1 | 1 | ok | — |
 | `src/core/publish/package-json.ts:45` | publish | `The npm target requires "${key}".` | yes | 1 | 1 | ok | — |
 | `src/core/publish/package-json.ts:50` | publish | `The npm target requires "${key}".` | yes | 1 | 1 | ok | — |
@@ -189,63 +189,63 @@ The message column quotes the code. `${…}` marks an interpolated value, and `m
 | `src/core/adopt.ts:571` | init | `Skill "${name}" clashes with the built-in "${name}" skill that metafab build installs` | yes | 5 | 5 | ok | — |
 | `src/core/adopt.ts:580` | init | `Skill "${name}" already exists in the incoming fab` | yes | 5 | 5 | ok | — |
 | `src/core/adopt.ts:607` | init | `message` (argument of the local helper) | yes | 5 | 5 | ok | — |
-| `src/core/adopt.ts:623` | init | ``Adoption is blocked by ${count} ${count === 1 ? "entry" : "entries"}.`` | no | 5 | 5 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/adopt.ts:775` | init | `"Adoption cannot write into the factory directory."` | no | 5 | 5 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/adopt.ts:788` | init | ``Skill "${move.name}" already exists in .factory/.`` | no | 5 | 5 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:327` | import, update | `duplicate archive entry "${entryPath}" would replace earlier content` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:349` | import, update | `an entry whose path is an existing directory is not allowed` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:404` | import, update | `links could not be created: ${message}` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:485` | import, update | `links whose target does not exist are not allowed` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:494` | import, update | `links that point outside the extraction root are not allowed` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:522` | import, update | `links whose target does not exist are not allowed` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:530` | import, update | `links that point outside the extraction root are not allowed` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:542` | import, update | ``Cannot extract ${tarball}: ${message}`` | no | 4 | 4 | filed | [EWP](intake/2026-11-15-errors-without-problems.md) |
-| `src/core/sources/extract.ts:550` | import, update | `"The archive is not a safe fab"` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:553` | import, update | `message` (argument of the local helper) | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:590` | import, update | `"The archive is not a safe fab"` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:610` | import, update | `message` (argument of the local helper) | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:615` | import, update | `message` (argument of the local helper) | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:630` | import, update | `links are not allowed at the extraction root` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:638` | import, update | `entries written through a symbolic link are not allowed` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:648` | import, update | `links that point outside the extraction root are not allowed` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:660` | import, update | `links that point outside the extraction root are not allowed` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:672` | import, update | `message` (argument of the local helper) | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:677` | import, update | `unsupported archive entry type "${rawEntry.type}"` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:685` | import, update | `entries written through a symbolic link are not allowed` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:732` | import, update | `"The archive is not a safe fab"` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/extract.ts:753` | import, update | `"The archive is not a safe fab"` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/path.ts:27` | import, update | `redact(message)` | no | 3 | 3 | filed | [EWP](intake/2026-11-15-errors-without-problems.md) |
-| `src/core/sources/path.ts:35` | import, update | ``Invalid fab from ${redact(sourceLabel)}`` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/path.ts:96` | import, update | `links are not allowed in a fab` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/path.ts:169` | import, update | `links could not be created: ${error instanceof Error ? error.message : String(error)}` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/path.ts:185` | import, update | `links could not be created: ${error instanceof Error ? error.message : String(error)}` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/path.ts:215` | import, update | `links whose target does not exist are not allowed` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/path.ts:224` | import, update | `links that point outside .factory are not allowed` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/path.ts:258` | import, update | `fabs with more than ${maxEntries} files, directories and links are not allowed` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/path.ts:284` | import, update | `links that point outside .factory are not allowed` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/path.ts:304` | import, update | `device files and FIFOs are not allowed in a fab` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/path.ts:316` | import, update | `files larger than ${MAX_FAB_FILE_SIZE} bytes are not allowed in a fab` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/path.ts:327` | import, update | `files larger than ${maxTotalSize} bytes in total are not allowed in a fab` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/parse.ts:40` | import, update | ``Invalid source "${redact(input)}": ${reason}`` | no | 1 | 1 | filed | [EWP](intake/2026-11-15-errors-without-problems.md) |
-| `src/core/sources/parse.ts:195` | import, update | `message` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/parse.ts:198` | import, update | `message` (argument of the local helper) | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/validate.ts:20` | import, update | ``Invalid fab from ${redact(sourceLabel)}`` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
+| `src/core/adopt.ts:623` | init | ``Adoption is blocked by ${count} ${count === 1 ? "entry" : "entries"}.`` | no | 5 | 5 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/adopt.ts:775` | init | `"Adoption cannot write into the factory directory."` | no | 5 | 5 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/adopt.ts:788` | init | ``Skill "${move.name}" already exists in .factory/.`` | no | 5 | 5 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:327` | import, update | `duplicate archive entry "${entryPath}" would replace earlier content` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:349` | import, update | `an entry whose path is an existing directory is not allowed` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:404` | import, update | `links could not be created: ${message}` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:485` | import, update | `links whose target does not exist are not allowed` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:494` | import, update | `links that point outside the extraction root are not allowed` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:522` | import, update | `links whose target does not exist are not allowed` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:530` | import, update | `links that point outside the extraction root are not allowed` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:542` | import, update | ``Cannot extract ${tarball}: ${message}`` | no | 4 | 4 | filed | [EWP](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:550` | import, update | `"The archive is not a safe fab"` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:553` | import, update | `message` (argument of the local helper) | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:590` | import, update | `"The archive is not a safe fab"` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:610` | import, update | `message` (argument of the local helper) | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:615` | import, update | `message` (argument of the local helper) | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:630` | import, update | `links are not allowed at the extraction root` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:638` | import, update | `entries written through a symbolic link are not allowed` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:648` | import, update | `links that point outside the extraction root are not allowed` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:660` | import, update | `links that point outside the extraction root are not allowed` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:672` | import, update | `message` (argument of the local helper) | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:677` | import, update | `unsupported archive entry type "${rawEntry.type}"` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:685` | import, update | `entries written through a symbolic link are not allowed` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:732` | import, update | `"The archive is not a safe fab"` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:753` | import, update | `"The archive is not a safe fab"` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:27` | import, update | `redact(message)` | no | 3 | 3 | filed | [EWP](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:35` | import, update | ``Invalid fab from ${redact(sourceLabel)}`` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:96` | import, update | `links are not allowed in a fab` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:169` | import, update | `links could not be created: ${error instanceof Error ? error.message : String(error)}` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:185` | import, update | `links could not be created: ${error instanceof Error ? error.message : String(error)}` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:215` | import, update | `links whose target does not exist are not allowed` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:224` | import, update | `links that point outside .factory are not allowed` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:258` | import, update | `fabs with more than ${maxEntries} files, directories and links are not allowed` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:284` | import, update | `links that point outside .factory are not allowed` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:304` | import, update | `device files and FIFOs are not allowed in a fab` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:316` | import, update | `files larger than ${MAX_FAB_FILE_SIZE} bytes are not allowed in a fab` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:327` | import, update | `files larger than ${maxTotalSize} bytes in total are not allowed in a fab` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/parse.ts:40` | import, update | ``Invalid source "${redact(input)}": ${reason}`` | no | 1 | 1 | filed | [EWP](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/parse.ts:195` | import, update | `message` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/parse.ts:198` | import, update | `message` (argument of the local helper) | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/validate.ts:20` | import, update | ``Invalid fab from ${redact(sourceLabel)}`` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
 | `src/core/sources/validate.ts:30` | import, update | `Unknown factory format ${JSON.stringify(value)}` | yes | 4 | 4 | ok | — |
 | `src/core/sources/validate.ts:100` | import, update | `A fab must contain a .factory directory` | yes | 4 | 4 | ok | — |
-| `src/core/sources/npm.ts:68` | import, update | `redact(message)` | no | 3 | 3 | filed | [EWP](intake/2026-11-15-errors-without-problems.md) |
-| `src/core/sources/npm.ts:265` | import, update | ``Invalid fab from ${label}`` | no | 4 | 4 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/npm.ts:270` | import, update | `message` (argument of the local helper) | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/npm.ts:337` | import, update | ``Integrity check failed for ${tarball}`` | no | 4 | 4 | filed | [EWP](intake/2026-11-15-errors-without-problems.md) |
-| `src/core/sources/npm.ts:346` | import, update | ``Cannot download npm package "${source.spec.name}@${source.version}": the tarball is large` | no | 4 | 4 | filed | [EWP](intake/2026-11-15-errors-without-problems.md) |
-| `src/core/sources/npm.ts:357` | import, update | ``Cannot download npm package "${source.spec.name}@${source.version}": it unpacks to ${unpa` | no | 4 | 4 | filed | [EWP](intake/2026-11-15-errors-without-problems.md) |
-| `src/core/sources/npm.ts:368` | import, update | ``Cannot download npm package "${source.spec.name}@${source.version}": it has ${fileCount} ` | no | 4 | 4 | filed | [EWP](intake/2026-11-15-errors-without-problems.md) |
+| `src/core/sources/npm.ts:68` | import, update | `redact(message)` | no | 3 | 3 | filed | [EWP](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/npm.ts:265` | import, update | ``Invalid fab from ${label}`` | no | 4 | 4 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/npm.ts:270` | import, update | `message` (argument of the local helper) | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/npm.ts:337` | import, update | ``Integrity check failed for ${tarball}`` | no | 4 | 4 | filed | [EWP](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/npm.ts:346` | import, update | ``Cannot download npm package "${source.spec.name}@${source.version}": the tarball is large` | no | 4 | 4 | filed | [EWP](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/npm.ts:357` | import, update | ``Cannot download npm package "${source.spec.name}@${source.version}": it unpacks to ${unpa` | no | 4 | 4 | filed | [EWP](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/npm.ts:368` | import, update | ``Cannot download npm package "${source.spec.name}@${source.version}": it has ${fileCount} ` | no | 4 | 4 | filed | [EWP](plans/1.026-error-and-json-contract.md) |
 | `src/core/sources/cache.ts:132` | import, update | `message` (argument of the local helper) | yes | 3 | 3 | ok | — |
-| `src/core/sources/cache.ts:137` | import, update | `message` | no | 3 | 3 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/sources/npm-cli.ts:53` | import, update | `"Cannot run npm: npm could not be found"` | no | 3 | 3 | filed | [EWP](intake/2026-11-15-errors-without-problems.md) |
-| `src/core/sources/https.ts:36` | import, update | `redact(message)` | no | 3 | 3 | filed | [EWP](intake/2026-11-15-errors-without-problems.md) |
-| `src/core/sources/https.ts:193` | import, update | ``Cannot download ${redact(url)}: the tarball is larger than ${maxBytes} bytes`` | no | 4 | 4 | filed | [EWP](intake/2026-11-15-errors-without-problems.md) |
-| `src/core/sources/git.ts:179` | import, update | `redact(message)` | no | 3 | 3 | filed | [EWP](intake/2026-11-15-errors-without-problems.md) |
-| `src/core/sources/git.ts:195` | import, update | `redact(message)` | no | 3 | 3 | filed | [EWP](intake/2026-11-15-errors-without-problems.md) |
+| `src/core/sources/cache.ts:137` | import, update | `message` | no | 3 | 3 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/npm-cli.ts:53` | import, update | `"Cannot run npm: npm could not be found"` | no | 3 | 3 | filed | [EWP](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/https.ts:36` | import, update | `redact(message)` | no | 3 | 3 | filed | [EWP](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/https.ts:193` | import, update | ``Cannot download ${redact(url)}: the tarball is larger than ${maxBytes} bytes`` | no | 4 | 4 | filed | [EWP](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/git.ts:179` | import, update | `redact(message)` | no | 3 | 3 | filed | [EWP](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/git.ts:195` | import, update | `redact(message)` | no | 3 | 3 | filed | [EWP](plans/1.026-error-and-json-contract.md) |
 | `src/core/sources/git.ts:570` | import, update | `A fab must contain a .factory directory` | yes | 1 | 1 | ok | — |
 | `src/core/sources/git.ts:576` | import, update | ``Invalid fab from ${label}`` | yes | 4 | 4 | ok | — |
 | `src/core/discovery.ts:102` | all | `message` | yes | 1 | 1 | ok | — |
@@ -277,13 +277,13 @@ The message column quotes the code. `${…}` marks an interpolated value, and `m
 | `src/core/import/run.ts:109` | all | `This factory already has an upstream` | yes | 5 | 5 | ok | — |
 | `src/core/import/run.ts:114` | all | `This factory already has an upstream` | yes | 1 | 1 | ok | — |
 | `src/core/import/run.ts:124` | all | `"Import stopped because the incoming fab would replace local files."` | yes | 5 | 5 | ok | — |
-| `src/core/import/run.ts:188` | all | `"The factory configuration has problems."` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
+| `src/core/import/run.ts:188` | all | `"The factory configuration has problems."` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
 | `src/core/import/run.ts:251` | all | required values (see the command's prompt) | n/a | 2 | 2 | ok | — |
 | `src/core/import/run.ts:253` | all | required values (see the command's prompt) | n/a | 2 | 2 | ok | — |
 | `src/core/import/run.ts:254` | all | required values (see the command's prompt) | n/a | 2 | 2 | ok | — |
 | `src/core/import/run.ts:277` | all | required values (see the command's prompt) | n/a | 2 | 2 | ok | — |
-| `src/core/import/run.ts:334` | all | `"Build stopped because the repository contains output that Metafab does not own."` | no | 5 | 5 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/import/run.ts:344` | all | `"Build failed after import."` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
+| `src/core/import/run.ts:334` | all | `"Build stopped because the repository contains output that Metafab does not own."` | no | 5 | 5 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/import/run.ts:344` | all | `"Build failed after import."` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
 | `src/core/check/markers.ts:212` | check | `Unresolved conflict marker` | yes | 1 | 1 | ok | — |
 | `src/core/check/markers.ts:233` | check | `Unresolved .upstream conflict file` | yes | 1 | 1 | ok | — |
 | `src/core/check/drift.ts:36` | check | `message` (argument of the local helper) | yes | 1 | 1 | ok | — |
@@ -316,7 +316,7 @@ The message column quotes the code. `${…}` marks an interpolated value, and `m
 | `src/core/factory/validate.ts:439` | build, check | `message` (argument of the local helper) | yes | 1 | 1 | ok | — |
 | `src/core/factory/validate.ts:454` | build, check | `message` (argument of the local helper) | yes | 1 | 1 | ok | — |
 | `src/core/factory/validate.ts:465` | build, check | `message` (argument of the local helper) | yes | 1 | 1 | ok | — |
-| `src/core/factory/factory-yaml.ts:48` | build, check | `message` (argument of the local helper) | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
+| `src/core/factory/factory-yaml.ts:48` | build, check | `message` (argument of the local helper) | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
 | `src/core/factory/factory-yaml.ts:75` | build, check | `Pipeline entry must be a workflow name` | yes | 1 | 1 | ok | — |
 | `src/core/factory/factory-yaml.ts:88` | build, check | `Pipeline entry must be a workflow name or a mapping` | yes | 1 | 1 | ok | — |
 | `src/core/factory/factory-yaml.ts:99` | build, check | `Pipeline entry must name a workflow` | yes | 1 | 1 | ok | — |
@@ -330,13 +330,13 @@ The message column quotes the code. `${…}` marks an interpolated value, and `m
 | `src/core/factory/factory-yaml.ts:235` | build, check | `requires entry must be a mapping` | yes | 1 | 1 | ok | — |
 | `src/core/factory/factory-yaml.ts:252` | build, check | `requires entry keys must be strings` | yes | 1 | 1 | ok | — |
 | `src/core/factory/factory-yaml.ts:263` | build, check | `Unknown key "${key}" in a requires entry` | yes | 1 | 1 | ok | — |
-| `src/core/factory/factory-yaml.ts:286` | build, check | `requires entry is missing "${key}"` | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
-| `src/core/factory/factory-yaml.ts:321` | build, check | `message` (argument of the local helper) | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
+| `src/core/factory/factory-yaml.ts:286` | build, check | `requires entry is missing "${key}"` | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
+| `src/core/factory/factory-yaml.ts:321` | build, check | `message` (argument of the local helper) | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
 | `src/core/factory/factory-yaml.ts:333` | build, check | `factory.yaml field names must be strings` | yes | 1 | 1 | ok | — |
 | `src/core/factory/factory-yaml.ts:396` | build, check | `message` (argument of the local helper) | yes | 1 | 1 | ok | — |
 | `src/core/factory/factory-yaml.ts:418` | build, check | `message` (argument of the local helper) | yes | 1 | 1 | ok | — |
 | `src/core/factory/discovery.ts:64` | build, check | `Cannot read file ${file}` | yes | 1 | 1 | ok | — |
-| `src/core/factory/discovery.ts:77` | build, check | `message` (argument of the local helper) | no | 1 | 1 | filed | [PNF](intake/2026-11-15-problems-without-fixes.md) |
+| `src/core/factory/discovery.ts:77` | build, check | `message` (argument of the local helper) | no | 1 | 1 | filed | [PNF](plans/1.026-error-and-json-contract.md) |
 | `src/core/factory/discovery.ts:118` | build, check | `Cannot read directory ${file}` | yes | 1 | 1 | ok | — |
 | `src/core/factory/requires.ts:15` | build, check | `message` (argument of the local helper) | yes | 1 | 1 | ok | — |
 | `src/core/factory/requires.ts:57` | build, check | `Cannot read directory .factory/${relativeDir}` | yes | 1 | 1 | ok | — |
@@ -381,13 +381,13 @@ The three `test.fails` rows are defects pinned until their intake note is fixed:
 | `create` | a path without `--description` needs input (exit 2) | yes | yes | no | ok | — |
 | `pipeline add` | an unknown workflow exits 1 with a fix | yes | yes | no | ok | — |
 | `pipeline remove` | an unknown workflow exits 1 with a fix | yes | yes | no | ok | — |
-| `map` | the `mark4-like` factory maps (exit 0) | yes | yes | no | filed | [JRP](intake/2026-11-15-json-results-without-problems.md) |
+| `map` | the `mark4-like` factory maps (exit 0) | yes | yes | no | filed | [JRP](plans/1.026-error-and-json-contract.md) |
 | `map` | no factory exits 1 | yes | yes | no | ok | — |
 | `check` | a stale installed skill exits 1 | yes | yes | no | ok | — |
 | `import` | a path source imports (exit 0) | yes | yes | no | ok | exit 0 observed; the spec leaves the non-interactive code open (plan, open question 4) |
 | `import` | an invalid fab exits 4 | yes | yes | no | ok | — |
-| `import` (Windows) | an invalid fab exits 4 reports a `/`-separated `file` | yes | yes | no | filed | [NPW](intake/2026-11-15-import-problem-files-use-native-windows-paths.md): on `windows-latest` in run [43661843108](https://github.com/Traction-Team/meta-harness/actions/runs/43661843108) the problem's `file` was `D:\a\…/.factory/skills/broken/SKILL.md`, so rule 4 fails there; a Windows-only `test.fails` case pins it and POSIX still asserts the rule in full |
-| `import` | a path that does not exist exits 3 | yes | yes | no | filed | [EWP](intake/2026-11-15-errors-without-problems.md) |
+| `import` (Windows) | an invalid fab exits 4 reports a `/`-separated `file` | yes | yes | no | filed | [NPW](plans/1.026-error-and-json-contract.md): on `windows-latest` in run [43661843108](https://github.com/Traction-Team/meta-harness/actions/runs/43661843108) the problem's `file` was `D:\a\…/.factory/skills/broken/SKILL.md`, so rule 4 fails there; a Windows-only `test.fails` case pins it and POSIX still asserts the rule in full |
+| `import` | a path that does not exist exits 3 | yes | yes | no | filed | [EWP](plans/1.026-error-and-json-contract.md) |
 | `update` | a factory with no upstream exits 1 with a fix | yes | yes | no | ok | — |
 | `diff` | a factory with no upstream exits 1 with a fix | yes | yes | no | ok | — |
 | `detach` | a factory with no upstream is a no-op (exit 0, `problems: []`) | yes | yes | no | ok | — |
