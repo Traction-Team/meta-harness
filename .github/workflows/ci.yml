@@ -10,30 +10,84 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Actions minutes on this private repository are billed per job, rounded up to
+# the minute, with Windows at about 2x and macOS at about 10x a Linux minute.
+# So the cheap Linux `factory` job runs first and gates the rest: the test
+# matrix runs only when it passes and the change touches more than docs.
 jobs:
-  verify:
+  factory:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.changes.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Does the change touch code
+        id: changes
+        env:
+          BEFORE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          AFTER: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          # Docs-only: docs/ except docs/specs/ (tests read specs), .factory/
+          # except .factory/scripts/ (code), and the generated root blocks. This
+          # job's own checks cover all of them. Anything else, or a range we
+          # cannot diff, runs the full matrix.
+          if ! files=$(git diff --name-only "$BEFORE...$AFTER" 2>/dev/null); then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          other=$(printf '%s\n' "$files" | grep -vE '^(docs/|\.factory/|AGENTS\.md$|CLAUDE\.md$)' | grep -c . || true)
+          excepted=$(printf '%s\n' "$files" | grep -cE '^(docs/specs/|\.factory/scripts/)' || true)
+          if [ "$((other + excepted))" -gt 0 ]; then echo "code=true"; else echo "code=false"; fi >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$files"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run factory
+
+  verify:
+    needs: factory
+    if: needs.factory.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
+        # Every OS on one Node; the engines floor (Node 20) on Linux only.
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node: [20, 22]
+        node: [22]
+        include:
+          - os: ubuntu-latest
+            node: 20
     runs-on: ${{ matrix.os }}
     steps:
+      # Real-time scanning of every git and npm child process is most of the
+      # Windows test time.
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
-      - run: npm run verify
+      # The hosted runners have 2 vCPUs, so Vitest's default is one worker. The
+      # tests wait on git and npm processes, not the CPU, so run more. Workers
+      # share the CPU, so a test without its own timeout gets 30 s, not 5 s.
+      - run: npx vitest run --maxWorkers=3 --testTimeout=30000
 
   hooks:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: factory
+    if: needs.factory.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Linux covers POSIX sh; Windows covers Git Bash. macOS adds nothing at 10x.
+        os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -192,18 +246,3 @@ jobs:
           [ ! -d ../glob-wt2/.claude/skills ] || fail "G3: the new worktree was built without a global shim"
           grep -q "npx stub reached" "$LOG" || fail "G3: the hook did not fall through to the npx stub"
           echo "G3: passed"
-
-  factory:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm ci
-      - run: npm run build
-      - run: node dist/cli.js build
-      - run: git diff --exit-code -- AGENTS.md CLAUDE.md .gitignore .gitattributes
-      - run: node dist/cli.js check
-      - run: node .factory/scripts/check.mjs
