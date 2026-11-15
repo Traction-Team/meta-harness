@@ -227,9 +227,11 @@ function skillWrites(destination: string, skill: DesiredSkill): BuildWrite[] {
 }
 
 /**
- * A `compileSkill` renderer for one skill: each Markdown file is parsed and
- * rendered for the selection. A document with problems is left as it is, because
- * `build` stops on those problems before it writes anything.
+ * A `compileSkill` renderer for one skill: each Markdown file's body is parsed
+ * and rendered for the selection. A document with an error is left as it is,
+ * because `build` stops on those errors before it writes anything; a warning
+ * still renders, so an unclosed fence only turns its own directive lines into
+ * text.
  */
 function markdownRenderer(
   sourcePath: string,
@@ -242,7 +244,7 @@ function markdownRenderer(
       firstLine: file.firstLine,
       variables,
     });
-    if (document.problems.length > 0) return file.text;
+    if (document.problems.some((problem) => problem.level === "error")) return file.text;
     return renderDocument(document, { variables, selection });
   };
 }
@@ -250,7 +252,8 @@ function markdownRenderer(
 /**
  * The `.factory/AGENTS.md` text for the root block. A format 2 factory renders it
  * for every declared value of every variable, so the committed block is the same
- * for every developer; a format 1 factory keeps it as written.
+ * for every developer; a format 1 factory keeps it as written. As for a skill,
+ * only an error leaves the text unrendered.
  */
 function standingInstructions(factory: Factory): string | undefined {
   const text = factory.agentsMd;
@@ -262,7 +265,7 @@ function standingInstructions(factory: Factory): string | undefined {
     firstLine: 1,
     variables: yaml.env,
   });
-  if (document.problems.length > 0) return text;
+  if (document.problems.some((problem) => problem.level === "error")) return text;
   return renderDocument(document, { variables: yaml.env, selection: allValues(yaml.env) });
 }
 

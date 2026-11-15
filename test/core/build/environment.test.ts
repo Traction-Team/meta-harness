@@ -295,6 +295,99 @@ describe("build with directives", () => {
     expect(await pathExists(repo.path(".agents/skills/hello"))).toBe(false);
   });
 
+  test("renders a document whose only problem is a warning, keeping the fenced directives as text", async () => {
+    // The fence is never closed, so `check` warns that the directive lines after
+    // it are text. That warning must not stop the rest of the document rendering.
+    const body = [
+      "",
+      "# Hello",
+      "",
+      "<!-- factory:when env.harness == amp -->",
+      "AMP ONLY.",
+      "<!-- factory:endwhen -->",
+      "```text",
+      "<!-- factory:when env.harness == amp -->",
+      "",
+    ].join("\n");
+    const standing = [
+      "<!-- factory:when env.harness == amp -->",
+      "Amp only.",
+      "<!-- factory:endwhen -->",
+      "```text",
+      "<!-- factory:when env.harness == amp -->",
+      "",
+    ].join("\n");
+    const repo = track(
+      await makeRepo({
+        ".factory/factory.yaml":
+          "format: 2\nname: demo\nenv:\n  harness: { values: [amp, claude] }\n",
+        ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+        ".factory/AGENTS.md": standing,
+        ".factory/skills/hello/SKILL.md": skillSource(body),
+      }),
+    );
+
+    const { plan } = await build(repo.root, ["harness=claude"]);
+
+    expect(plan.errors).toEqual([]);
+    expect(await readFile(repo.path(".agents/skills/hello/SKILL.md"), "utf8")).toBe(
+      [
+        SKILL_HEADER,
+        GENERATED(".factory/skills/hello"),
+        "",
+        "# Hello",
+        "",
+        "```text",
+        "<!-- factory:when env.harness == amp -->",
+        "",
+      ].join("\n"),
+    );
+
+    // The root block renders for every value, so the same block keeps its label.
+    const root = await readFile(repo.path("AGENTS.md"), "utf8");
+    expect(root).toContain(
+      [
+        "**When harness is amp:**",
+        "Amp only.",
+        "```text",
+        "<!-- factory:when env.harness == amp -->",
+      ].join("\n"),
+    );
+  });
+
+  test("renders a supporting file's body when its frontmatter contains a code fence", async () => {
+    // A fence opened in frontmatter must not reach the body: validation parses
+    // the body alone, so rendering splits at the same `---` boundary.
+    const notes = [
+      "---",
+      "example: |",
+      "  ```sh",
+      "---",
+      "<!-- factory:when env.harness == amp -->",
+      "AMP ONLY.",
+      "<!-- factory:endwhen -->",
+      "",
+      "Everywhere.",
+      "",
+    ].join("\n");
+    const repo = track(
+      await makeRepo({
+        ".factory/factory.yaml":
+          "format: 2\nname: demo\nenv:\n  harness: { values: [amp, claude] }\n",
+        ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+        ".factory/skills/hello/SKILL.md": skillSource("\n# Hello\n"),
+        ".factory/skills/hello/notes.md": notes,
+      }),
+    );
+
+    const { plan } = await build(repo.root, ["harness=claude"]);
+
+    expect(plan.errors).toEqual([]);
+    expect(await readFile(repo.path(".agents/skills/hello/notes.md"), "utf8")).toBe(
+      ["---", "example: |", "  ```sh", "---", "", "Everywhere.", ""].join("\n"),
+    );
+  });
+
   test("renders a factory with eleven variables whose blocks each name one", async () => {
     const names = Array.from({ length: 11 }, (_, index) => `v${index}`);
     const env = names.map((name) => `  ${name}: { values: [one, two] }`).join("\n");

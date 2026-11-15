@@ -6,6 +6,7 @@ import { toLF } from "../../util/text.js";
 import { collectSkillFiles, textContent } from "../build/skill.js";
 import type { Factory } from "../factory/types.js";
 import { directiveLines, parseMarkdown } from "./directives.js";
+import { markdownParts } from "./markdown.js";
 
 const FACTORY_FILE = ".factory/factory.yaml";
 const AGENTS_FILE = ".factory/AGENTS.md";
@@ -17,36 +18,6 @@ const FORMAT_ONE_FIX = "Set format: 2 in .factory/factory.yaml, or remove the di
 /** True for a file `build` renders: its extension, lowercased, is `.md`. */
 function isRenderedMarkdown(relative: string): boolean {
   return path.extname(relative).toLowerCase() === ".md";
-}
-
-interface MarkdownParts {
-  /** The frontmatter lines, without their `---` fences, when the file starts with one. */
-  frontmatter?: string;
-  body: string;
-  /** Line number of the body's first line in the file. */
-  firstLine: number;
-}
-
-/**
- * Splits frontmatter from body the way `build` handles `SKILL.md`: a file that
- * starts with a `---` line has frontmatter up to the next `---` line. Without a
- * closing `---` the rest of the file is frontmatter, so no directive in it is
- * live.
- */
-function markdownParts(text: string): MarkdownParts {
-  const lines = text.split("\n");
-  if (lines[0] !== "---") return { body: text, firstLine: 1 };
-
-  const closing = lines.indexOf("---", 1);
-  if (closing === -1) {
-    return { frontmatter: lines.slice(1).join("\n"), body: "", firstLine: lines.length + 1 };
-  }
-
-  return {
-    frontmatter: lines.slice(1, closing).join("\n"),
-    body: lines.slice(closing + 1).join("\n"),
-    firstLine: closing + 2,
-  };
 }
 
 async function readMarkdown(
@@ -100,8 +71,8 @@ export async function environmentProblems(factory: Factory): Promise<Problem[]> 
       return;
     }
 
-    const parts = frontmatter ? markdownParts(text) : { body: text, firstLine: 1 };
-    if (parts.frontmatter !== undefined) {
+    const parts = frontmatter ? markdownParts(text) : undefined;
+    if (parts?.frontmatter !== undefined) {
       for (const line of directiveLines(parts.frontmatter, 2)) {
         problems.push({
           level: "error",
@@ -114,7 +85,11 @@ export async function environmentProblems(factory: Factory): Promise<Problem[]> 
     }
 
     problems.push(
-      ...parseMarkdown(parts.body, { file, firstLine: parts.firstLine, variables }).problems,
+      ...parseMarkdown(parts?.body ?? text, {
+        file,
+        firstLine: parts?.firstLine ?? 1,
+        variables,
+      }).problems,
     );
   };
 

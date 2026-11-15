@@ -127,7 +127,7 @@ For each factory skill, `build` performs these steps:
 
 1. Copy the skill directory, including all supporting files.
 2. Keep the frontmatter unchanged.
-3. In a format 2 factory, render every `.md` file, and `SKILL.md` below its frontmatter, for the [selection](environments.md#rendering).
+3. In a format 2 factory, render every `.md` file below its frontmatter for the [selection](environments.md#rendering).
 4. Add a generated-file comment after the frontmatter, and for a skill that [applies only in some environments](environments.md#conditional-skills), the line `**Applies only <label>.**` after it.
 
 A format 2 factory does not install a skill whose condition is false for the selection.
