@@ -64,7 +64,7 @@ export interface CompileSkillOptions {
    * Renders a Markdown file for the environment selection. Absent copies the
    * text unchanged, as the built-in skill and adoption do.
    */
-  render?: (file: RenderFile) => string;
+  render?: (file: RenderFile) => Promise<string>;
   /** A partial match's label, for `**Applies only <label>.**` after the comment. */
   appliesOnly?: string;
 }
@@ -192,12 +192,12 @@ function isMarkdown(relative: string): boolean {
 }
 
 /** A Markdown file's text for the selection; anything else is left alone. */
-function renderMarkdown(
+async function renderMarkdown(
   relative: string,
   text: string,
   firstLine: number,
   options: CompileSkillOptions,
-): string {
+): Promise<string> {
   if (options.render === undefined || !isMarkdown(relative)) return text;
   return options.render({ relative, text, firstLine });
 }
@@ -208,11 +208,11 @@ function renderMarkdown(
  * below the frontmatter is rendered, so name and description stay the same in
  * every environment.
  */
-function insertComment(
+async function insertComment(
   text: string,
   comment: string,
   options: CompileSkillOptions,
-): { ok: true; text: string } | { ok: false; message: string; fix: string } {
+): Promise<{ ok: true; text: string } | { ok: false; message: string; fix: string }> {
   const parts = markdownParts(text);
   if (parts.frontmatter === undefined) {
     return {
@@ -229,7 +229,8 @@ function insertComment(
     };
   }
 
-  const rendered = renderMarkdown("SKILL.md", parts.body, parts.firstLine, options).split("\n");
+  const body = await renderMarkdown("SKILL.md", parts.body, parts.firstLine, options);
+  const rendered = body.split("\n");
   // `prefix` ends with the newline that starts the body, or with the closing
   // `---` itself when the file ends there, so only then does the comment need
   // one of its own.
@@ -492,7 +493,7 @@ async function compiledFile(
     // same split validation parses, so a fence in frontmatter cannot hide a
     // directive in the body.
     const parts = markdownParts(text);
-    const rendered = renderMarkdown(file.relative, parts.body, parts.firstLine, options);
+    const rendered = await renderMarkdown(file.relative, parts.body, parts.firstLine, options);
     return {
       path: file.relative,
       content: Buffer.from(`${parts.prefix}${rendered}`, "utf8"),
@@ -500,7 +501,7 @@ async function compiledFile(
     };
   }
 
-  const inserted = insertComment(text, comment, options);
+  const inserted = await insertComment(text, comment, options);
   if (!inserted.ok) return error(inserted.message, inserted.fix);
 
   return { path: file.relative, content: Buffer.from(inserted.text, "utf8"), mode: file.mode };

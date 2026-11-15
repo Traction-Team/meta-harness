@@ -123,6 +123,14 @@ function realFile(factoryReal: string, real: string): string {
 }
 
 /**
+ * The repository-relative `.factory/<path>` name of a realpath, for messages
+ * such as an import loop's chain.
+ */
+export function realDisplayPath(cache: ImportCache, real: string): string {
+  return realFile(cache.factoryReal ?? cache.factoryDir, real);
+}
+
+/**
  * Resolves an import to the file's realpath and its loaded content, reporting
  * every path rule of the spec on the directive's line. The walk reads directory
  * listings and matches names exactly, so a wrong-case path fails the same way on

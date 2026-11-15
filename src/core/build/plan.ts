@@ -48,6 +48,8 @@ import type { CompiledSkill, RenderFile } from "./skill.js";
 import { syncGitHooks } from "../hooks/index.js";
 import type { HookChange } from "../hooks/index.js";
 import { parseMarkdown } from "../env/directives.js";
+import { createImportCache } from "../env/imports.js";
+import type { ImportCache } from "../env/imports.js";
 import { renderDocument } from "../env/render.js";
 import { allValues, classify } from "../env/scenarios.js";
 import type { EnvSelection, EnvVariable, ResolvedSelection } from "../env/types.js";
@@ -228,21 +230,26 @@ function skillWrites(destination: string, skill: DesiredSkill): BuildWrite[] {
 
 /**
  * A `compileSkill` renderer for one skill: each Markdown file's body is parsed
- * and rendered for the selection. A document with an error is left as it is,
- * because `build` stops on those errors before it writes anything; a warning
- * still renders, so an unclosed fence only turns its own directive lines into
- * text.
+ * and rendered for the selection, with imports expanded. A document with an
+ * error is left as it is, because `build` stops on those errors before it writes
+ * anything; a warning still renders, so an unclosed fence only turns its own
+ * directive lines into text.
  */
 function markdownRenderer(
   sourcePath: string,
+  route: string,
   variables: readonly EnvVariable[],
   selection: EnvSelection,
-): (file: RenderFile) => string {
-  return (file) => {
-    const document = parseMarkdown(file.text, {
+  imports: ImportCache,
+): (file: RenderFile) => Promise<string> {
+  return async (file) => {
+    const document = await parseMarkdown(file.text, {
       file: `${sourcePath}/${file.relative}`,
       firstLine: file.firstLine,
       variables,
+      imports,
+      route: `${route}/${file.relative}`,
+      chain: [],
     });
     if (document.problems.some((problem) => problem.level === "error")) return file.text;
     return renderDocument(document, { variables, selection });
@@ -255,15 +262,21 @@ function markdownRenderer(
  * for every developer; a format 1 factory keeps it as written. As for a skill,
  * only an error leaves the text unrendered.
  */
-function standingInstructions(factory: Factory): string | undefined {
+async function standingInstructions(
+  factory: Factory,
+  imports: ImportCache,
+): Promise<string | undefined> {
   const text = factory.agentsMd;
   const yaml = factory.factoryYaml;
   if (text === undefined || yaml === undefined || yaml.format !== 2) return text;
 
-  const document = parseMarkdown(text, {
+  const document = await parseMarkdown(text, {
     file: ".factory/AGENTS.md",
     firstLine: 1,
     variables: yaml.env,
+    imports,
+    route: "AGENTS.md",
+    chain: [],
   });
   if (document.problems.some((problem) => problem.level === "error")) return text;
   return renderDocument(document, { variables: yaml.env, selection: allValues(yaml.env) });
@@ -274,7 +287,11 @@ function standingInstructions(factory: Factory): string | undefined {
  * condition is false for it is left out, so `scanDestination` removes its owned
  * output as for a deleted skill; a partial match installs with its label.
  */
-async function compileFactorySkills(factory: Factory, plan: BuildPlan): Promise<DesiredSkill[]> {
+async function compileFactorySkills(
+  factory: Factory,
+  plan: BuildPlan,
+  imports: ImportCache,
+): Promise<DesiredSkill[]> {
   const desired: DesiredSkill[] = [];
   const yaml = factory.factoryYaml;
   const formatTwo = yaml?.format === 2;
@@ -301,7 +318,9 @@ async function compileFactorySkills(factory: Factory, plan: BuildPlan): Promise<
       },
       {
         factoryDir: factory.dir,
-        render: formatTwo ? markdownRenderer(sourcePath, variables, selection) : undefined,
+        render: formatTwo
+          ? markdownRenderer(sourcePath, skill.relDir, variables, selection, imports)
+          : undefined,
         appliesOnly,
       },
     );
@@ -875,7 +894,10 @@ export async function planBuild(
   }
 
   const selectedDestinations = destinations(config.agents);
-  const factorySkills = await compileFactorySkills(factory, plan);
+  // One import cache per run, shared by every skill and the standing
+  // instructions, so a partial is read once however many files import it.
+  const imports = createImportCache(factory.dir);
+  const factorySkills = await compileFactorySkills(factory, plan, imports);
   const builtin = await compileBuiltinSkill(config, cliVersion, plan.errors);
 
   const desiredPerDestination = new Map<string, DesiredSkill[]>();
@@ -937,7 +959,7 @@ export async function planBuild(
   const agentsEntry = await readRootEntry(root, agentsFile);
   const agentsSelected = selectedDestinations.length > 0;
   // Rendered for every value, so the committed block is the same for everyone.
-  const standing = agentsSelected ? standingInstructions(factory) : undefined;
+  const standing = agentsSelected ? await standingInstructions(factory, imports) : undefined;
 
   if (agentsEntry.problem !== undefined) {
     plan.errors.push(agentsEntry.problem);
