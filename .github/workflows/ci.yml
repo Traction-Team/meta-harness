@@ -144,7 +144,14 @@ jobs:
           gbin="$tmp/gprefix"
           rm -rf "$gbin"
           mkdir -p "$gbin"
-          export PATH="$gbin/bin:$gbin:$PATH"
+          # npm needs the native prefix, but PATH splits on ":", so a Windows
+          # prefix such as D:/a/_temp/gprefix would truncate the entry. Use the
+          # POSIX form (cygpath) for PATH and keep the native form for npm.
+          gpath="$gbin"
+          if command -v cygpath >/dev/null 2>&1; then
+            gpath=$(cygpath -u "$gbin")
+          fi
+          export PATH="$gpath/bin:$gpath:$PATH"
 
           # G1: a repository with no node_modules, built through a global install.
           rm -rf "$glob"
@@ -175,6 +182,8 @@ jobs:
           # G3: without the global shim, the hook reaches the npx stub. This is
           # G2's control.
           npm uninstall --global --prefix "$gbin" @seasb/metafab >/dev/null
+          # bash caches command locations: drop the shim found for G1.
+          hash -r
           if command -v metafab >/dev/null 2>&1; then
             fail "G3: the global metafab shim is still on PATH"
           fi
