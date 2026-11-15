@@ -557,12 +557,13 @@ export async function fetchNpm(
     validate: (dir) => validateExtractedFab(dir, sourceLabel).then(() => fabDir),
     create: async (staging) => {
       // `extractTarball` creates the staging directory; a cache Metafab cannot
-      // write is reported as a cache write failure, not a bad tarball.
+      // write is reported as a cache write failure naming the entry's final
+      // path, because the staging directory is removed before the person reads
+      // the message. `getOrCreate` validates the staging directory itself.
       await extractTarball(tarball, staging, {
         stripPrefix: "package",
-        writeError: (target, error) => cacheWriteError(target, layout.root, error),
+        writeError: (_target, error) => cacheWriteError(fabDir, layout.root, error),
       });
-      await validateExtractedFab(staging, sourceLabel);
     },
   });
 

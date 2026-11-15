@@ -1,16 +1,12 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
+import { isAbsentError } from "../../util/fs.js";
 import type { PublishConfig } from "../config/types.js";
 import type { Factory, Skill } from "../factory/index.js";
 import { importSourceForGitUrl, sourceWithoutCredentials } from "../sources/parse.js";
 
 const IMPORT_COMMAND = "npx @seasb/metafab import";
-
-function isAbsentError(error: unknown): boolean {
-  const code = (error as NodeJS.ErrnoException | undefined)?.code;
-  return code === "ENOENT" || code === "ENOTDIR";
-}
 
 function readError(file: string, fix: string): MetafabError {
   return new MetafabError(`Cannot read file ${file}`, {

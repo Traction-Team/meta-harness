@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readdir, rename, rm, stat } from "node:fs/promises";
+import { lstat, readdir, rename, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
-import { pathExists, toPosixPath } from "../../util/fs.js";
+import { isAbsentError, pathExists, toPosixPath } from "../../util/fs.js";
 import { sourceWithoutCredentials } from "./parse.js";
 
 export interface CacheLayout {
@@ -142,78 +142,144 @@ export function cacheWriteError(target: string, root: string, error: unknown): M
   });
 }
 
-function isAbsentError(error: unknown): boolean {
-  const code = errorCode(error);
-  return code === "ENOENT" || code === "ENOTDIR";
-}
-
 /**
  * Moves a complete entry that failed validation out of the way. The rename is
  * atomic, so when two commands find the same corrupt entry only one moves it;
- * the other's rename fails with ENOENT and it carries on to create. A sibling a
- * command leaves behind is swept after 24 hours.
+ * the other's rename fails with ENOENT and it carries on to create. The caller
+ * removes the returned sibling once its replacement is in place: while the old
+ * inode is still allocated the replacement cannot reuse it, so a command that
+ * read the entry before the swap still sees a different identity afterwards.
+ * A sibling a command leaves behind is swept after 24 hours.
  */
-async function discardEntry(target: string, root: string): Promise<void> {
+async function discardEntry(target: string, root: string): Promise<string | undefined> {
   const discarded = `${target}.old-${randomUUID()}`;
   try {
     await rename(target, discarded);
   } catch (error) {
     // Another command moved it first, so it is already gone.
-    if (isAbsentError(error)) return;
+    if (isAbsentError(error)) return undefined;
     throw cacheWriteError(target, root, error);
   }
-  await removeQuietly(discarded);
+  return discarded;
+}
+
+interface EntryIdentity {
+  dev: bigint;
+  ino: bigint;
+  ctimeNs: bigint;
+}
+
+/**
+ * What `lstat` says about the entry: its identity, `"absent"` when it is not
+ * there, or `undefined` when `lstat` failed for another reason, which the
+ * caller answers the way it always has.
+ */
+async function entryIdentity(target: string): Promise<EntryIdentity | "absent" | undefined> {
+  try {
+    const info = await lstat(target, { bigint: true });
+    return { dev: info.dev, ino: info.ino, ctimeNs: info.ctimeNs };
+  } catch (error) {
+    return isAbsentError(error) ? "absent" : undefined;
+  }
+}
+
+/**
+ * True when two reads are the same directory entry. A replaced entry has a new
+ * identity, because the rename that installs it moves a different inode in and
+ * the entry it replaces stays allocated until then, so an entry that did not
+ * change needs no second walk. The values are `bigint` because an NTFS file
+ * index can exceed `Number.MAX_SAFE_INTEGER`, where two different entries
+ * could compare equal as numbers. An inode of 0, which some network
+ * filesystems report, cannot tell two entries apart, so it is never the same
+ * entry.
+ */
+function sameEntry(left: EntryIdentity, right: EntryIdentity): boolean {
+  return (
+    left.ino !== 0n &&
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.ctimeNs === right.ctimeNs
+  );
 }
 
 export async function getOrCreate<T>(target: string, options: GetOrCreateOptions<T>): Promise<T> {
   // A complete entry that fails validation is wrong, not another command's
   // partial work: renames are atomic. Another command may have replaced it
   // since it was read, though, so look again before moving it: moving an entry
-  // that just became good would take the path away from its caller.
-  if (await pathExists(target)) {
+  // that just became good would take the path away from its caller. The second
+  // look compares identity, so an entry that is still the one that failed is
+  // not walked twice; only an entry another command replaced is validated
+  // again.
+  const before = await entryIdentity(target);
+  let discarded: string | undefined;
+  // An `lstat` that failed for another reason is not absence: ask the question
+  // this code always asked, so the identity check can only skip a walk and
+  // never add a failure.
+  const present = before === undefined ? await pathExists(target) : before !== "absent";
+  if (present) {
     try {
       return await options.validate(target);
     } catch {
-      if (await pathExists(target)) {
-        try {
-          return await options.validate(target);
-        } catch {
-          await discardEntry(target, options.root);
+      const after = await entryIdentity(target);
+      if (after !== "absent") {
+        if (
+          before !== undefined &&
+          before !== "absent" &&
+          after !== undefined &&
+          sameEntry(before, after)
+        ) {
+          // The entry that failed is the one still there, so a second walk
+          // would fail the same way.
+          discarded = await discardEntry(target, options.root);
+        } else if (await pathExists(target)) {
+          // Another command replaced the entry, or an `lstat` failed for
+          // another reason: validate again before moving anything aside.
+          try {
+            return await options.validate(target);
+          } catch {
+            discarded = await discardEntry(target, options.root);
+          }
         }
       }
     }
   }
 
-  await sweepStale(path.dirname(target), path.basename(target));
-
-  const staging = `${target}.tmp-${randomUUID()}`;
   try {
-    await options.create(staging);
-  } catch (error) {
-    await removeQuietly(staging);
-    throw error;
-  }
+    await sweepStale(path.dirname(target), path.basename(target));
 
-  let result: T;
-  try {
-    result = await options.validate(staging);
-  } catch (error) {
-    await removeQuietly(staging);
-    throw error;
-  }
-
-  try {
-    await rename(staging, target);
-  } catch (error) {
-    if (await isLostRaceError(error, target)) {
-      // Another command renamed a complete entry into place first. Its entry
-      // is the one that won; use it rather than deleting it.
+    const staging = `${target}.tmp-${randomUUID()}`;
+    try {
+      await options.create(staging);
+    } catch (error) {
       await removeQuietly(staging);
-      return await options.validate(target);
+      throw error;
     }
-    await removeQuietly(staging);
-    throw cacheWriteError(target, options.root, error);
-  }
 
-  return result;
+    let result: T;
+    try {
+      result = await options.validate(staging);
+    } catch (error) {
+      await removeQuietly(staging);
+      throw error;
+    }
+
+    try {
+      await rename(staging, target);
+    } catch (error) {
+      if (await isLostRaceError(error, target)) {
+        // Another command renamed a complete entry into place first. Its entry
+        // is the one that won; use it rather than deleting it.
+        await removeQuietly(staging);
+        return await options.validate(target);
+      }
+      await removeQuietly(staging);
+      throw cacheWriteError(target, options.root, error);
+    }
+
+    return result;
+  } finally {
+    // The discarded entry stays allocated until its replacement is in place,
+    // so the replacement cannot reuse its inode.
+    if (discarded !== undefined) await removeQuietly(discarded);
+  }
 }

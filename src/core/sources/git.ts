@@ -8,7 +8,7 @@ import semver from "semver";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import type { UpstreamEntry } from "../config/types.js";
-import { pathExists } from "../../util/fs.js";
+import { isAbsentError, pathExists } from "../../util/fs.js";
 import { cacheLayout, cacheRoot, fabKey, getOrCreate, cacheWriteError, isLostRaceError, sweepStale } from "./cache.js";
 import type { CacheLayout } from "./cache.js";
 import { extractTarball } from "./extract.js";
@@ -351,11 +351,6 @@ async function isUsableMirror(mirror: string, options: GitOptions): Promise<bool
   return origin.ok && origin.stdout.trim() !== "";
 }
 
-function isAbsentError(error: unknown): boolean {
-  const code = (error as NodeJS.ErrnoException | undefined)?.code;
-  return code === "ENOENT" || code === "ENOTDIR";
-}
-
 /**
  * Swaps a fresh clone for a mirror whose fetch failed. Two commands can run
  * this at once, and the mirror is the thing they synchronise on: the rename
@@ -602,10 +597,11 @@ async function selectRef(
 async function exportFactory(
   mirror: string,
   commit: string,
-  fabDir: string,
+  destination: string,
   sourceLabel: string,
   layout: CacheLayout,
   options: GitOptions,
+  reportAs: string,
 ): Promise<void> {
   const hasFactory = await tryGit(["-C", mirror, "cat-file", "-e", `${commit}:.factory`], options);
   if (!hasFactory.ok) {
@@ -656,9 +652,11 @@ async function exportFactory(
     );
 
     // `extractTarball` creates the staging directory itself; a cache Metafab
-    // cannot write is reported as a cache write failure, not a bad tarball.
-    await extractTarball(archive, fabDir, {
-      writeError: (target, error) => cacheWriteError(target, layout.root, error),
+    // cannot write is reported as a cache write failure naming `reportAs`, the
+    // entry's final path, because the staging directory it received is removed
+    // before the person reads the message.
+    await extractTarball(archive, destination, {
+      writeError: (_target, error) => cacheWriteError(reportAs, layout.root, error),
     });
   } finally {
     await rm(staging, { recursive: true, force: true });
@@ -716,9 +714,9 @@ export async function fetchGit(
     },
     create: async (staging) => {
       const mirror = await ensureMirror(source.spec.url, layout, options);
-      await exportFactory(mirror, source.commit, staging, sourceLabel, layout, options);
-      await dropPayloadFiles(staging);
-      await validateFab(staging, { sourceLabel });
+      // `getOrCreate` validates the staging directory itself, so the fetch
+      // only has to fill it.
+      await exportFactory(mirror, source.commit, staging, sourceLabel, layout, options, fabDir);
     },
   });
 
