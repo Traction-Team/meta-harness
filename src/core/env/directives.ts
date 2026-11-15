@@ -192,7 +192,9 @@ export async function parseMarkdown(
 ): Promise<MarkdownDocument> {
   const { file, firstLine, variables: declared, imports, route } = options;
   const chain = await importChain(imports, route, options.chain ?? []);
-  const lines = text.split("\n");
+  // An empty file has no lines, so it contributes no nodes: an import of an
+  // empty or frontmatter-only partial inserts nothing, not a blank line.
+  const lines = text === "" ? [] : text.split("\n");
   const nodes: Node[] = [];
   const problems: Problem[] = [];
   const names = new Set<string>();

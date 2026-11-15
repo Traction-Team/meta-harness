@@ -221,6 +221,72 @@ describe("import expansion", () => {
     expect(render(document, { harness: ["opencode"] })).toBe("\n# Build plan\n\nOpenCode steps.\n");
   });
 
+  test("an empty partial inserts nothing, at top level and in a case that would label it", async () => {
+    const repo = await repoWith({
+      ".factory/workflows/build-plan/SKILL.md": [
+        "---",
+        "name: build-plan",
+        "description: Build a plan. Use when building one.",
+        "---",
+        "",
+        "Before",
+        "<!-- factory:import ../../partials/empty.md -->",
+        "After",
+        "<!-- factory:switch env.harness -->",
+        "<!-- factory:case opencode -->",
+        "OpenCode steps.",
+        "<!-- factory:case claude -->",
+        "Claude steps.",
+        "<!-- factory:case amp -->",
+        "<!-- factory:import ../../partials/empty.md -->",
+        "<!-- factory:endswitch -->",
+        "",
+      ].join("\n"),
+      ".factory/partials/empty.md": "",
+    });
+
+    const document = await parseBody(repo, ".factory/workflows/build-plan/SKILL.md");
+
+    expect(document.problems).toEqual([]);
+    // The import line is removed with no blank line in its place, and the case
+    // whose only content is the empty import writes neither text nor a label.
+    expect(render(document, { harness: ["amp"] })).toBe("\nBefore\nAfter\n");
+    expect(render(document, { harness: ["opencode", "amp"] })).toBe(
+      "\nBefore\nAfter\n**In OpenCode:**\nOpenCode steps.\n",
+    );
+  });
+
+  test("a frontmatter-only partial inserts nothing, at top level and in a when that would label it", async () => {
+    const repo = await repoWith({
+      ".factory/workflows/build-plan/SKILL.md": [
+        "---",
+        "name: build-plan",
+        "description: Build a plan. Use when building one.",
+        "---",
+        "",
+        "Before",
+        "<!-- factory:import ../../partials/front.md -->",
+        "After",
+        "<!-- factory:when env.harness == opencode -->",
+        "<!-- factory:import ../../partials/front.md -->",
+        "<!-- factory:endwhen -->",
+        "<!-- factory:when env.harness == claude -->",
+        "Claude steps.",
+        "<!-- factory:endwhen -->",
+        "",
+      ].join("\n"),
+      ".factory/partials/front.md": ["---", "title: Front", "---", ""].join("\n"),
+    });
+
+    const document = await parseBody(repo, ".factory/workflows/build-plan/SKILL.md");
+
+    expect(document.problems).toEqual([]);
+    expect(render(document, { harness: ["amp"] })).toBe("\nBefore\nAfter\n");
+    expect(render(document, { harness: ["opencode", "claude"] })).toBe(
+      "\nBefore\nAfter\n**In Claude Code:**\nClaude steps.\n",
+    );
+  });
+
   test("a loop of two files is one error listing the chain, on the line that closes it", async () => {
     const repo = await repoWith({
       ".factory/workflows/build-plan/SKILL.md": workflowImporting("../../partials/a.md"),
