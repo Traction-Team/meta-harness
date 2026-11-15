@@ -191,7 +191,7 @@ skills:
 
 `env set` checks every value against `factory.yaml` and refuses an undeclared one (exit 1). `env set` and `env unset` need a Git repository for repository scope; outside one they exit 1 and suggest `--global` or `FACTORY_ENV_<VARIABLE>`.
 
-`build --out <dir>` writes `<dir>/.agents/skills/`, `<dir>/.claude/skills/` (for the selected `agents`) and `<dir>/AGENTS.md` (the rendered block alone), and changes nothing else: no root files, no `.gitignore`, no Git hooks. `<dir>` must not exist or must be empty, and must not be inside `.factory/`, `.claude/skills/` or `.agents/skills/`, where the next `build` would find it. A developer or agent uses it to see what a teammate on another harness receives.
+`build --out <dir>` writes `<dir>/.agents/skills/`, `<dir>/.claude/skills/` (for the selected `agents`) and `<dir>/AGENTS.md` (the rendered block alone), and changes nothing else: no root files, no `.gitignore`, no Git hooks. With `agents: []` it writes nothing and says so. `<dir>` must not exist or must be empty, and must not be inside `.factory/`, `.claude/skills/` or `.agents/skills/`, where the next `build` would find it. A developer or agent uses it to see what a teammate on another harness receives.
 
 ## Validation
 
