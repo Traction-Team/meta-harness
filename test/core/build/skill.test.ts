@@ -92,6 +92,42 @@ describe("compileSkill", () => {
     }
   });
 
+  test("keeps a supporting file that ends at its closing --- byte for byte", async () => {
+    // Its closing fence is its last line, so the file has no final newline, and
+    // neither writing it as read nor rendering it may add one.
+    const exact = "---\nvalue: example\n---";
+    const repo = await makeRepo({
+      ".factory/skills/demo/SKILL.md":
+        "---\nname: demo\ndescription: A demo skill. Use when testing.\n---\n\n# Demo\n",
+      ".factory/skills/demo/notes.md": exact,
+      ".factory/skills/demo/example.yaml": exact,
+      ".factory/skills/demo/example.txt": exact,
+    });
+
+    try {
+      const demo = {
+        dir: repo.path(".factory/skills/demo"),
+        name: "demo",
+        sourcePath: ".factory/skills/demo",
+      };
+      const withoutRenderer = await compileSkill(demo, { factoryDir: repo.path(".factory") });
+      const withRenderer = await compileSkill(demo, {
+        factoryDir: repo.path(".factory"),
+        render: (file) => file.text,
+      });
+
+      for (const result of [withoutRenderer, withRenderer]) {
+        expect(result.problems).toEqual([]);
+        const files = new Map(result.files.map((file) => [file.path, file]));
+        for (const name of ["example.txt", "example.yaml", "notes.md"]) {
+          expect(files.get(name)!.content.toString("utf8"), name).toBe(exact);
+        }
+      }
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
   test.skipIf(process.platform === "win32")(
     "sets an explicit mode for every file from its executable bit",
     async () => {

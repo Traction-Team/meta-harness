@@ -229,9 +229,15 @@ function insertComment(
   }
 
   const rendered = renderMarkdown("SKILL.md", parts.body, parts.firstLine, options).split("\n");
-  const next = [`${parts.prefix}${comment}`];
+  // `prefix` ends with the newline that starts the body, or with the closing
+  // `---` itself when the file ends there, so only then does the comment need
+  // one of its own.
+  const head = `${parts.prefix}${parts.prefix.endsWith("\n") ? "" : "\n"}${comment}`;
+  const next = [head];
   if (options.appliesOnly !== undefined) next.push(`**Applies only ${options.appliesOnly}.**`);
-  next.push(...rendered);
+  // A file that ends at its closing `---` has no body line, not even the empty
+  // one a final newline leaves behind.
+  if (parts.body !== "" || text.endsWith("\n")) next.push(...rendered);
   return { ok: true, text: next.join("\n") };
 }
 
@@ -475,6 +481,12 @@ async function compiledFile(
 
   const text = toLF(decoded);
   if (file.relative !== "SKILL.md") {
+    // Only a Markdown file with a renderer is split and rendered. Every other
+    // file is written as read, byte for byte, so format 1 output and the
+    // built-in skill never change.
+    if (options.render === undefined || !isMarkdown(file.relative)) {
+      return { path: file.relative, content: Buffer.from(text, "utf8"), mode: file.mode };
+    }
     // The frontmatter is kept byte for byte and only the body is rendered, the
     // same split validation parses, so a fence in frontmatter cannot hide a
     // directive in the body.

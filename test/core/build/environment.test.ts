@@ -388,6 +388,27 @@ describe("build with directives", () => {
     );
   });
 
+  test("keeps a supporting file that ends at its closing --- byte for byte", async () => {
+    // The file has no body and no final newline, so rendering it for the
+    // selection must not add one.
+    const repo = track(
+      await makeRepo({
+        ".factory/factory.yaml":
+          "format: 2\nname: demo\nenv:\n  harness: { values: [amp, claude] }\n",
+        ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+        ".factory/skills/hello/SKILL.md": skillSource("\n# Hello\n"),
+        ".factory/skills/hello/notes.md": "---\nvalue: example\n---",
+      }),
+    );
+
+    const { plan } = await build(repo.root, ["harness=claude"]);
+
+    expect(plan.errors).toEqual([]);
+    expect(await readFile(repo.path(".agents/skills/hello/notes.md"), "utf8")).toBe(
+      "---\nvalue: example\n---",
+    );
+  });
+
   test("renders a factory with eleven variables whose blocks each name one", async () => {
     const names = Array.from({ length: 11 }, (_, index) => `v${index}`);
     const env = names.map((name) => `  ${name}: { values: [one, two] }`).join("\n");

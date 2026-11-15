@@ -35,10 +35,13 @@ export function markdownParts(text: string): MarkdownParts {
     };
   }
 
+  const fence = lines.slice(0, closing + 1).join("\n");
   return {
     frontmatter: lines.slice(1, closing).join("\n"),
     closed: true,
-    prefix: `${lines.slice(0, closing + 1).join("\n")}\n`,
+    // A file that ends at its closing `---` has no newline to keep, so the
+    // prefix is the whole text and the body is empty.
+    prefix: closing === lines.length - 1 ? fence : `${fence}\n`,
     body: lines.slice(closing + 1).join("\n"),
     firstLine: closing + 2,
   };
