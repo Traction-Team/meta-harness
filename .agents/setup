@@ -38,10 +38,21 @@ unshallow() {
   fi
 }
 
+select_env() {
+  # An Amp orb is the Amp harness on the orb workspace. Repository scope: the orb's own
+  # clone is nobody else's, and the build below, every later hook-run build and
+  # `metafab env` in the orb read it. `git config` replaces the value, so rerunning is a no-op.
+  git config factory.env.harness amp
+  git config factory.env.workspace orb
+  echo "harness $(git config factory.env.harness), workspace $(git config factory.env.workspace)"
+}
+
 step "Check Node" check_node
 # npm ci keeps package-lock.json untouched; npm install can rewrite it.
 step "Install dependencies" npm ci --no-audit --no-fund
 step "Build dist/" npm run build --silent
 # The factory skills in .agents/skills/ (which Amp reads) are generated, not committed.
+# The selection must be in Git config before the build, and before any later hook-run build.
+step "Select the Amp environment" select_env
 step "Install factory skills" node dist/cli.js build
 step "Unshallow the clone" unshallow
