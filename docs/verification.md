@@ -41,24 +41,24 @@ The checks below ran on 2026-11-15 against the CLI built from `chore/1.022-verif
 
 ## Windows
 
-The CI evidence is the `hooks` job for W1 and the recipe test for W2 and W3. The Windows CI run URL is added after the pull request's first run; until then these rows stay `pending`. W4 is a person's check during `finish-plan`.
+The CI evidence would be the `hooks` job for W1 and the recipe test for W2 and W3. It did not run: GitHub Actions did not start any job on the pull request (see *CI recipe and hooks* for the run URL). These rows are `not run`, and the Windows branches are unverified. The local macOS evidence is in the rows below. W4 is a person's check during `finish-plan`.
 
 | Check | Git for Windows / Node | OS | Date | Steps | Result | Notes / finding |
 | --- | --- | --- | --- | --- | --- | --- |
-| Hook rebuilds a new worktree through a global install | pending CI | windows-latest | 2026-11-15 | W1 | pending | CI `hooks` job step G2; run URL to come |
-| A CRLF clone matches after `build` | pending CI | windows-latest | 2026-11-15 | W2 | pending | `test/cli/ci-recipe.test.ts`, CRLF cases, on Windows; run URL to come |
-| A path with a space and non-ASCII letters | pending CI | windows-latest | 2026-11-15 | W3 | pending | `test/cli/ci-recipe.test.ts`, `metafab recipe é-`; run URL to come |
+| Hook rebuilds a new worktree through a global install | — | windows-latest | 2026-11-15 | W1 | not run | CI `hooks` job step G2, and the Windows branch is unverified: GitHub Actions did not start the job, account billing (run https://github.com/Traction-Team/meta-harness/actions/runs/43656797008), 2026-11-15. G1–G3 were simulated locally on macOS and passed |
+| A CRLF clone matches after `build` | — | windows-latest | 2026-11-15 | W2 | not run | `test/cli/ci-recipe.test.ts`, CRLF cases: the Windows branch is unverified, GitHub Actions did not start the job, account billing (run https://github.com/Traction-Team/meta-harness/actions/runs/43656797008), 2026-11-15. The CRLF cases pass locally on macOS |
+| A path with a space and non-ASCII letters | — | windows-latest | 2026-11-15 | W3 | not run | `test/cli/ci-recipe.test.ts`, `metafab recipe é-`, and the Windows long-path branch: unverified, GitHub Actions did not start the job, account billing (run https://github.com/Traction-Team/meta-harness/actions/runs/43656797008), 2026-11-15. Both pass locally on macOS |
 | Claude Code on Windows | — | Windows 11 | 2026-11-15 | W4 | pending | person, `finish-plan`, if a machine is available |
 
 ## CI recipe and hooks
 
 | Check | Where | Date | Result | Notes / finding |
 | --- | --- | --- | --- | --- |
-| Spec CI recipe (LF checkout, `mark4-like`) | `test/cli/ci-recipe.test.ts` | 2026-11-15 | pass | 8 cases pass locally on macOS; the `verify` job repeats them on all three operating systems |
+| Spec CI recipe (LF checkout, `mark4-like`) | `test/cli/ci-recipe.test.ts` | 2026-11-15 | pass | 8 cases pass locally on macOS; the `verify` job on all three operating systems did not run (see the last two rows) |
 | Spec CI recipe (CRLF with `eol=lf` lines) | `test/cli/ci-recipe.test.ts` | 2026-11-15 | pass | locally on macOS |
 | Spec CI recipe (CRLF without `eol=lf` lines) | `test/cli/ci-recipe.test.ts` | 2026-11-15 | pass | locally on macOS |
-| Hooks: D1–D4, project dependency | CI `hooks` job | 2026-11-15 | pending | D1–D4 simulated locally on macOS (pass); run URL to come |
-| Hooks: G1–G3, global install | CI `hooks` job | 2026-11-15 | pending | G1–G3 simulated locally on macOS (pass); run URL to come |
+| Hooks: D1–D4, project dependency | CI `hooks` job | 2026-11-15 | not run | GitHub Actions did not start the job: account billing (run https://github.com/Traction-Team/meta-harness/actions/runs/43656797008), 2026-11-15. D1–D4 were simulated locally on macOS and passed |
+| Hooks: G1–G3, global install | CI `hooks` job | 2026-11-15 | not run | GitHub Actions did not start the job: account billing (run https://github.com/Traction-Team/meta-harness/actions/runs/43656797008), 2026-11-15. G1–G3 were simulated locally on macOS and passed |
 | Real `npx` fallback | — | 2026-11-15 | not run | `@seasb/metafab@<version>` is not on npm until 1.0, and after 1.0 the check needs the network |
 
 ## Error messages and exit codes
@@ -388,5 +388,5 @@ The two `test.fails` rows are defects pinned until their intake note is fixed: `
 | `metafab` | an unknown command exits 1 with a suggestion | yes | yes | no | ok | — |
 | `metafab` | `pipeline` without a subcommand exits 1 | yes | yes | no | ok | — |
 | `metafab` | an unexpected error is reported as a bug (exit 1; JSON has `command` and `problems`, no stack; human output keeps the stack and adds the fix line) | yes | yes | no | ok | `renderBug`, fixed in this PR |
-| `import` (Windows) | a relative path source written with backslashes | pending | pending | pending | pending | Windows-only case; CI run URL to come |
-| `create` (Windows) | a backslash path with `--description` | pending | pending | pending | pending | Windows-only case; CI run URL to come |
+| `import` (Windows) | a relative path source written with backslashes | not run | not run | not run | not run | GitHub Actions did not start the job: account billing (run https://github.com/Traction-Team/meta-harness/actions/runs/43656797008), 2026-11-15; the Windows case is unverified |
+| `create` (Windows) | a backslash path with `--description` | not run | not run | not run | not run | GitHub Actions did not start the job: account billing (run https://github.com/Traction-Team/meta-harness/actions/runs/43656797008), 2026-11-15; the Windows case is unverified |

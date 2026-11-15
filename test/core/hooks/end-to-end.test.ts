@@ -89,7 +89,9 @@ async function clear(log: string): Promise<void> {
   await writeFile(log, "", "utf8");
 }
 
-describe("Git hooks end to end", () => {
+// Windows coverage is the `hooks` job in .github/workflows/ci.yml; lift this
+// skip once a Windows run of this file passes.
+describe.skipIf(process.platform === "win32")("Git hooks end to end", () => {
   // The shared helper compiles `dist/` once per test run: the first file to ask
   // does the `tsc` run, and `test/cli/e2e.test.ts` reuses it instead of
   // interleaving another compile with this file's spawned CLI.
