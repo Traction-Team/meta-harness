@@ -57,9 +57,18 @@ A team can publish a factory as a fab and other teams can import and update it.
 - [x] [1.012 Release v1](plans/1.012-release.md): package `README.md`, release workflow with provenance, `@seasb/metafab@1.0.0`
 - [x] [1.025 Git hooks on here](plans/1.025-git-hooks-on.md): `@seasb/metafab` as a devDependency and `git-hooks: true` in this repository, once 1.0.0 is on npm
 
+## Milestone 3.1: v1 fixes
+
+Fixes to 1.0 found by the reviews and verification of Milestone 3. They change little that 2.011 to 2.014 touch, so they can run beside them.
+
+- [ ] **Error and JSON contract fixes** — needs a plan · every error gets `problems` with a `fix:` line, every result has `problems`, and Windows problem files use `/`: [errors without problems](intake/2026-11-15-errors-without-problems.md), [problems without fixes](intake/2026-11-15-problems-without-fixes.md), [JSON results without problems](intake/2026-11-15-json-results-without-problems.md), [native Windows paths](intake/2026-11-15-import-problem-files-use-native-windows-paths.md)
+- [ ] **CLI and source fixes** — needs a plan · small fixes left by the 1.020 and 1.021 reviews and the 1.024 build: [help cluster and test build](intake/2026-11-14-help-cluster-and-test-build.md), [publish label drive path](intake/2026-11-14-publish-label-drive-path.md), [unsupported upstream scheme](intake/2026-11-14-upstream-source-unsupported-scheme.md), [publish.git edge cases](intake/2026-11-15-publish-git-url-edge-cases.md), [import local-only files](intake/2026-11-15-import-local-only-files.md)
+- [ ] **New worktree hooks find the project's metafab** — needs a plan · `git worktree add` builds skills when metafab is only a devDependency of the main checkout: [note](intake/2026-11-15-new-worktree-hook-finds-no-metafab.md)
+- [ ] **Orb setup continues when the unshallow fails** — needs a plan · `.agents/setup` warns and runs `npm ci` and the build when GitHub credentials are not ready yet: [note](intake/2026-11-15-orb-setup-unshallow-without-credentials.md)
+
 ## Milestone 4: Environments (version 2)
 
-A team compiles one factory for each developer's environment: the factory declares variables such as `harness` and `workspace`, each developer selects values in Git config, and `build` installs only the instructions that apply, with `when`, `switch` and `import` directives and conditional skills. What to build: [Environments](specs/environments.md). 2.011 to 2.014 and 2.016 are approved (2026-11-15); 2.015 stays a draft until its prerequisites land. Start them after 1.012 releases v1.
+A team compiles one factory for each developer's environment: the factory declares variables such as `harness` and `workspace`, each developer selects values in Git config, and `build` installs only the instructions that apply, with `when`, `switch` and `import` directives and conditional skills. What to build: [Environments](specs/environments.md). 2.011 to 2.014 and 2.016 are approved (2026-11-15); 2.015 stays a draft until its prerequisites land.
 
 - [ ] [2.011 Environment declarations and selection](plans/2.011-environment-selection.md): `format: 2`, `env` in `factory.yaml`, selection from `--env`, `FACTORY_ENV_*` and Git config, `metafab env`, `env set`, `env unset`
 - [ ] [2.012 Conditional blocks and skills](plans/2.012-conditional-blocks.md): `when` and `switch` directives, labels for partial matches, `skills:` conditions, `check` validates every branch
@@ -70,7 +79,7 @@ A team compiles one factory for each developer's environment: the factory declar
 
 ## Milestone 5: Store (version 2, draft plans)
 
-A team keeps its factory's working documents and scores in a shared store outside Git, with a local mirror for agents. What to build: [Store](specs/store.md) and [Store protocol](specs/store-protocol.md). These plans are drafts awaiting approval; start them after 1.012 releases v1.
+A team keeps its factory's working documents and scores in a shared store outside Git, with a local mirror for agents. What to build: [Store](specs/store.md) and [Store protocol](specs/store-protocol.md). These plans are drafts awaiting approval.
 
 - [ ] [2.001 Document folders](plans/2.001-document-folders.md): `format: 2`, `documents` in `factory.yaml`, JSON Schema, `unique` and `references`, checked by `metafab check`
 - [ ] [2.002 Store model and local backend](plans/2.002-store-model-and-local-backend.md): `store` in `metafab.yaml`, document content and hashes, origin, the backend interface, the local backend, the contract suite
@@ -124,8 +133,6 @@ Answer these before or during the named plan. Spec-level questions are linked to
 
 | Question | Blocks | Proposal |
 | --- | --- | --- |
-| Field-level frontmatter merge | [1.010](plans/1.010-update-diff-detach.md#open-questions), [spec](specs/sharing.md#open-questions) | Line merge in v1 |
-| Duplicate skills in Cursor and Copilot | [1.022](plans/1.022-verification.md), [spec](specs/README.md#open-questions) | Test during verification |
 | Multiple upstream fabs; pipeline branches; trusted publishers; fleet updates | After v1 | Deferred |
 | Approve the version 2 store direction: `metafab store` (Metastore Cloud is the hosted backend), trunk-only documents with origin (not branch-aware records), `format: 2` with `documents` and scorers, a new exit code 6, and remote, git and local backends | 2.001 to 2.010, [spec](specs/store.md) | Approve as written; branch-aware records stay a [draft](specs/next/branch-aware-records.md) |
 | Should backends enforce document rules, so two pushes at once cannot save duplicate unique values? | After 2.009, [spec](specs/store.md#open-questions) | Later, as a protocol capability |
@@ -137,6 +144,8 @@ Record answered questions here with the date and the commit that applied them.
 
 | Date | Decision | Applied in |
 | --- | --- | --- |
+| 2026-11-15 | `update` merges frontmatter line by line, as 1.010 shipped. A field-level merge waits until someone files a real conflict | [Sharing](specs/sharing.md), [1.010](plans/1.010-update-diff-detach.md#open-questions) |
+| 2026-11-15 | Duplicate skills: Copilot CLI 1.0.112 lists each skill once, as opencode does. Cursor and VS Code Copilot Chat were not verified in 1.0. No setting to avoid duplicates in v1: a team selects only the targets it uses | [Building](specs/building.md#duplicate-skills), [README](specs/README.md#open-questions), [verification](verification.md#agent-tools) |
 | 2026-11-15 | fab-basic is a Git repository only: `github:Traction-Team/fab-basic`, released by pushing a `v<version>` tag. The `@seasb/fab-basic` npm mirror is unpublished and its `publish` block removed from fab-basic, so no release of ours runs `metafab publish`. Metafab still supports npm fabs | [Sharing](specs/sharing.md), [2.015](plans/2.015-dogfood-environments.md) |
 | 2026-11-15 | Approve the environments direction as written: the [spec amendments](specs/environments.md) of 15 Nov (variable names start with a letter; outside a Git repository global and system config still count; labels leave out variables with every value; `build --out` refuses skill destinations; a block and its enclosing conditions span at most 1024 combinations; whitespace is optional around condition symbols), `env set` and `env unset` rebuild, and `check` does not compile every selection | [Environments](specs/environments.md), 2.011 to 2.014 |
 | 2026-11-15 | A fab is shared as a Git repository by default: `.factory/` at its root, a `v<version>` tag per release, imported as `github:<owner>/<repo>`. npm stays supported and optional; fab-basic keeps its `@seasb/fab-basic` mirror for now. Specs, quick-start and plans name the Git source first (#28) | [Sharing](specs/sharing.md#sharing-a-git-repository), [1.012](plans/1.012-release.md), [2.015](plans/2.015-dogfood-environments.md) |

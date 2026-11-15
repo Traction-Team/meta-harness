@@ -499,6 +499,5 @@ The recorded version is the base for `update` and `diff`. Metafab downloads it a
 
 ## Open questions
 
-- Should the merge handle YAML frontmatter fields separately from Markdown body text?
 - Is npm provenance sufficient, or should projects configure trusted fab publishers?
 - How should an organisation update one fab across many repositories?

@@ -29,7 +29,7 @@ Metafab never writes `.cursor/`, `.codex/`, `.opencode/`, or `.github/skills/`. 
 
 ### Duplicate skills
 
-Cursor, opencode, and Copilot read both `.agents/skills/` and `.claude/skills/`. When `claude` and any other target are selected, these tools find two copies of each skill, with the same name and content. opencode lists each skill once, so it needs no setting. The results for Cursor and Copilot are pending; see [the verification record](../verification.md#agent-tools). A team that uses only Claude Code, or uses no Claude Code, avoids duplicates by selecting only the targets it uses.
+Cursor, opencode, and Copilot read both `.agents/skills/` and `.claude/skills/`. When `claude` and any other target are selected, these tools find two copies of each skill, with the same name and content. opencode lists each skill once, so it needs no setting. Copilot CLI lists each skill once. These results were checked with the versions in [the verification record](../verification.md#agent-tools). Cursor and VS Code Copilot Chat were not verified in 1.0. A team that uses only Claude Code, or uses no Claude Code, avoids duplicates by selecting only the targets it uses.
 
 ## Target selection
 
