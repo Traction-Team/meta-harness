@@ -14,7 +14,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { applyBuild, fileMatches, planBuild } from "../../../src/core/build/index.js";
 import type { BuildPlan } from "../../../src/core/build/index.js";
 import { loadConfig } from "../../../src/core/config/load.js";
@@ -25,6 +25,8 @@ import {
   listFiles,
   pathExists,
 } from "../../../src/util/fs.js";
+import { runGit } from "../../../src/util/git.js";
+import { isolateGitConfig } from "../hooks/helpers.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
 import type { TempRepo } from "../../helpers/makeRepo.js";
 
@@ -1366,4 +1368,71 @@ describe("installed file modes", () => {
       expect(second.report.changed).toEqual([]);
     },
   );
+});
+
+describe("planBuild selection", () => {
+  const FACTORY = `format: 2
+name: demo
+env:
+  harness:
+    description: The agent tool that runs the workflows
+    values: [opencode, claude, amp]
+    default: claude
+`;
+
+  let isolation: Awaited<ReturnType<typeof isolateGitConfig>>;
+
+  beforeEach(async () => {
+    isolation = await isolateGitConfig();
+  });
+
+  afterEach(() => {
+    isolation.restore();
+  });
+
+  async function envRepo(): Promise<TempRepo> {
+    return track(
+      await makeRepo(
+        {
+          ".factory/factory.yaml": FACTORY,
+          ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+        },
+        { git: true },
+      ),
+    );
+  }
+
+  test("resolves the selection from the process environment and Git config", async () => {
+    const repo = await envRepo();
+    await runGit(["config", "factory.env.harness", "amp"], { cwd: repo.root });
+
+    const factory = await loadFactory(repo.root);
+    const config = await loadConfig(factory.dir);
+    const plan = await planBuild(factory, config, PACKAGE_VERSION);
+
+    expect(plan.selection.variables).toEqual([
+      { variable: "harness", values: ["amp"], source: "git", scope: "local" },
+    ]);
+    expect(plan.selection.selection.get("harness")).toEqual(["amp"]);
+    expect(plan.warnings).toEqual([]);
+  });
+
+  test("carries a selection the caller already resolved", async () => {
+    const repo = await envRepo();
+    const factory = await loadFactory(repo.root);
+    const config = await loadConfig(factory.dir);
+
+    const plan = await planBuild(factory, config, PACKAGE_VERSION, {
+      selection: {
+        variables: [{ variable: "harness", values: ["claude"], source: "option" }],
+        selection: new Map([["harness", ["claude"]]]),
+        warnings: [],
+      },
+    });
+
+    expect(plan.selection.selection.get("harness")).toEqual(["claude"]);
+    expect(plan.selection.variables).toEqual([
+      { variable: "harness", values: ["claude"], source: "option" },
+    ]);
+  });
 });
