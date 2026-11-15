@@ -177,7 +177,8 @@ export async function isOwned(dir: string, displayPath = dir): Promise<boolean |
   }
 }
 
-function isInside(root: string, target: string): boolean {
+/** True when `target` is `root` or below it, both absolute native paths. */
+export function isInside(root: string, target: string): boolean {
   const relative = path.relative(root, target);
   return (
     relative === "" ||
