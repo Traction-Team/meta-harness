@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { classifySource, parseConfig } from "../../../src/core/config.js";
+import { classifySource, parseConfig, sourceProblem } from "../../../src/core/config.js";
 import { parseSource } from "../../../src/core/sources/index.js";
 
 describe("classifySource", () => {
@@ -70,16 +70,65 @@ describe("classifySource", () => {
     expect(classifySource("")).toBe("npm");
   });
 
-  test("reports an invalid upstream source and an unknown key without throwing", () => {
+  test("reports the source import would refuse and an unknown key without throwing", () => {
     const config = parseConfig("upstream:\n  source: gitlab.com/o/r\nbogus: true\n");
 
-    expect(config.problems.map((problem) => problem.message)).toEqual([
-      'Unknown key "bogus".',
-      '"upstream" npm source requires "version".',
-    ]);
+    expect(config.problems).toHaveLength(2);
+    expect(config.problems[0]?.message).toBe('Unknown key "bogus".');
+    // `import` refuses this as an npm name, and `check` now says so on the
+    // `source` line instead of asking for a version.
+    expect(config.problems[1]?.message).toContain('Invalid source "gitlab.com/o/r":');
     for (const problem of config.problems) {
       expect(problem.file).toBe(".factory/metafab.yaml");
       expect(problem.line).toBeGreaterThan(0);
+      expect(problem.fix).toBeTruthy();
+    }
+  });
+});
+
+describe("sourceProblem", () => {
+  test("returns undefined for every supported form", () => {
+    const sources = [
+      "@seasb/fab-mark4@^1.2.0",
+      "github:seasb/fab-mark4#v1.2.0",
+      "git+ssh://git@example.com/fab-acme.git",
+      "git+https://example.com/fab-acme.git",
+      "git+file:///srv/fab-acme.git",
+      "https://example.com/fab-acme-1.0.0.tgz",
+      "git@github.com:seasb/fab-mark4.git",
+      "ssh://git@github.com/seasb/fab-mark4.git",
+      "../platform/.factory",
+      "file:../fab-acme",
+    ];
+
+    for (const source of sources) {
+      expect(sourceProblem(source, process.cwd()), source).toBeUndefined();
+    }
+  });
+
+  test("returns the message and fix import gives for an unsupported scheme", () => {
+    expect(sourceProblem("ftp://x", process.cwd())).toEqual({
+      message:
+        'Invalid source "ftp://x": unsupported URL scheme "ftp:". ' +
+        "Supported sources: an npm name, github:owner/repo, git+https://, git+ssh://, ssh://, git@host:path, git+file:///<path>, an https:// tarball, or a local path",
+      fix: "Use git+https://, git+ssh://, git+file://, ssh://, user@host:path or github:owner/repo for a Git repository, an https:// URL for a tarball, an npm name, or a local path",
+    });
+  });
+
+  test("never throws", () => {
+    const sources = [
+      "",
+      " ",
+      "ftp://x",
+      "git+file://localhost/",
+      "git+file://host/x.git",
+      "git+ssh://",
+      "not a package",
+      "C:fab",
+    ];
+
+    for (const source of sources) {
+      expect(() => sourceProblem(source, process.cwd()), source).not.toThrow();
     }
   });
 });

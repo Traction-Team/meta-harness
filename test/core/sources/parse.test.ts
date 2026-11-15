@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, test } from "vitest";
 import { ExitCode, MetafabError } from "../../../src/errors.js";
 import {
+  fileUrlAuthority,
   gitTransportUrl,
   importSourceForGitUrl,
   parseSource,
@@ -298,6 +299,13 @@ describe("parseSource", () => {
       ["git+file:../fab.git", "a Git file URL must be absolute"],
       ["git+file:///", "the Git file URL has no path"],
       ["git+file://", "the Git file URL has no path"],
+      // `localhost` is Git's name for this machine, so with nothing after it
+      // the URL names the filesystem root rather than a repository.
+      ["git+file://localhost/", "the Git file URL has no path"],
+      ["git+file://LOCALHOST/", "the Git file URL has no path"],
+      ["git+file://localhost", "the Git file URL has no path"],
+      ["git+file://localhost//", "the Git file URL has no path"],
+      ["git+file://localhost///", "the Git file URL has no path"],
     ];
 
     for (const [source, reason] of refused) {
@@ -384,6 +392,36 @@ describe("parseSource", () => {
   });
 });
 
+describe("fileUrlAuthority", () => {
+  test("tells a path from no path and from a host", () => {
+    const cases: Array<[after: string, kind: "path" | "empty" | "host"]> = [
+      ["", "empty"],
+      ["/", "empty"],
+      ["//", "empty"],
+      ["///", "empty"],
+      ["localhost", "empty"],
+      ["LOCALHOST", "empty"],
+      ["LocalHost", "empty"],
+      ["localhost/", "empty"],
+      ["localhost//", "empty"],
+      ["localhost///", "empty"],
+      ["/srv/fab.git", "path"],
+      ["/C:/fabs/fab.git", "path"],
+      ["localhost/srv/fab.git", "path"],
+      ["LOCALHOST/srv/fab.git", "path"],
+      ["C:\\fabs\\fab.git", "path"],
+      ["C:/fabs/fab.git", "path"],
+      ["host/fab.git", "host"],
+      ["machine", "host"],
+      ["localhosted/x", "host"],
+    ];
+
+    for (const [after, kind] of cases) {
+      expect(fileUrlAuthority(after), after).toBe(kind);
+    }
+  });
+});
+
 describe("gitTransportUrl and importSourceForGitUrl", () => {
   test("changes only the scheme text", () => {
     const forms: Array<[input: string, transport: string, imported: string]> = [
@@ -453,6 +491,36 @@ describe("gitTransportUrl and importSourceForGitUrl", () => {
     expect(importSourceForGitUrl("HTTPS://Example.com/Fab.git")).toBe(
       "git+https://Example.com/Fab.git",
     );
+  });
+
+  test("encodes a # for every scheme, so the import line names the same repository", () => {
+    // Git decodes `%23` in an `ssh://` and a `file://` URL, and a source reads a
+    // literal `#` as the ref, so the encoded text names the same repository.
+    expect(importSourceForGitUrl("ssh://git@example.com/my#fab.git")).toBe(
+      "ssh://git@example.com/my%23fab.git",
+    );
+    expect(importSourceForGitUrl("git+ssh://git@example.com/my#fab.git")).toBe(
+      "git+ssh://git@example.com/my%23fab.git",
+    );
+    expect(importSourceForGitUrl("https://example.com/my#fab.git")).toBe(
+      "git+https://example.com/my%23fab.git",
+    );
+    expect(importSourceForGitUrl("git+https://example.com/my#fab.git")).toBe(
+      "git+https://example.com/my%23fab.git",
+    );
+    // A `%23` already there is left alone, and an scp URL has no `://` to
+    // encode in: Git sends its path literally.
+    expect(importSourceForGitUrl("ssh://git@example.com/my%23fab.git")).toBe(
+      "ssh://git@example.com/my%23fab.git",
+    );
+    expect(importSourceForGitUrl("git@example.com:my#fab.git")).toBe("git@example.com:my#fab.git");
+
+    const source = importSourceForGitUrl("ssh://git@example.com/my#fab.git");
+    expect(parseSource(source, { cwd: CWD })).toEqual({
+      kind: "git",
+      url: "ssh://git@example.com/my%23fab.git",
+      source,
+    });
   });
 });
 

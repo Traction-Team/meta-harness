@@ -89,9 +89,9 @@ Edit `metafab.yaml` directly, then run `metafab build`. No command overrides it.
 4. `agents` names an unknown target.
 5. `publish` is present without `version`, or without either `name` or `git`.
 6. `publish.name` is not a valid npm package name.
-7. `publish.git` is not a Git URL, or a `file://` URL that names a host rather than a path; the second says to write the path with three slashes, such as `file:///srv/fabs/fab.git`.
+7. `publish.git` is not a Git URL. This includes a `file://` URL that names a host rather than a path, an `https://` URL with a literal `#`, and a `git@host:path` URL with a `#`. The `file://` error says to write the path with three slashes, such as `file:///srv/fabs/fab.git`. The `https://` error says to write the `#` as `%23`. The `git@host:path` error says to use an `ssh://` URL with `%23`.
 8. `publish.branch` is present without `publish.git`.
 9. `publish.version` is not a semantic version.
 10. `publish.readme` names a file that does not exist.
-11. `upstream` is present without `source`, an npm upstream has no `version`, or a Git upstream has no `commit`.
+11. `upstream` is present without `source`, or `source` is not a source `metafab import` accepts (the error is the one `import` gives, such as an unsupported URL scheme), or an npm upstream has no `version`, or a Git upstream has no `commit`.
 

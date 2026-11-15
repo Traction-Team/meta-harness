@@ -1,4 +1,4 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, test } from "vitest";
@@ -193,6 +193,62 @@ describe("git+file:// sources", { timeout: 120_000 }, () => {
     expect(source).toContain("%23");
 
     await roundTrip({ bare, gitRepo: repo, publishUrl: pathToFileURL(repo).href, source });
+  });
+
+  test("round-trips a repository whose path holds a literal #", async () => {
+    // `publish.git` is written with a literal `#`, which Git reads literally in
+    // a file path. The generated README encodes it, because a source would read
+    // a literal `#` as the ref, and `import` then reads the same repository.
+    const bare = track(await makeBareFabRepo());
+    const repo = path.join(bare.root, "my#fab", "fab.git");
+    await mkdir(path.dirname(repo), { recursive: true });
+    await runGitIn(bare.root, ["init", "--quiet", "--bare", "--initial-branch=main", repo]);
+
+    const posix = repo.split(path.sep).join("/");
+    const publishUrl = posix.startsWith("/") ? `file://${posix}` : `file:///${posix}`;
+    const source = `git+${publishUrl.replace("#", "%23")}`;
+    expect(source).toContain("my%23fab");
+
+    const publisher = await makePublisher(publishUrl, "1.0.0", SKILL_V1);
+    // The generated README is the one that names the import line.
+    await rm(publisher.path(".factory", "README.md"));
+    const project = track(await makeRepo({}, { git: true }));
+    const identity = trackEnv(await noIdentityEnv());
+    const env = { ...identity, METAFAB_CACHE: path.join(bare.root, "cache") };
+
+    await withProcessEnv(env, async () => {
+      expect((await runCli(["publish", "--json"], { cwd: publisher.root })).code).toBe(0);
+      const commit = await tagCommit(repo, "v1.0.0");
+
+      const readme = await runGitIn(process.cwd(), [
+        "--git-dir",
+        repo,
+        "show",
+        "v1.0.0:README.md",
+      ]);
+      expect(readme).toContain(`npx @seasb/metafab import ${source}`);
+
+      const imported = await runCli(["import", source, "--agents", "claude", "--json"], {
+        cwd: project.root,
+      });
+      expect(imported.code).toBe(0);
+      expect(parsed(imported).upstream).toEqual({
+        kind: "git",
+        source,
+        requested: "^1.0.0",
+        version: "1.0.0",
+        commit,
+      });
+
+      await bumpPublisher(publisher, publishUrl, SKILL_V2);
+      // The installed skills track `.factory/`, and `publish` runs `check`.
+      expect((await runCli(["build"], { cwd: publisher.root })).code).toBe(0);
+      expect((await runCli(["publish", "--json"], { cwd: publisher.root })).code).toBe(0);
+
+      const updated = await runCli(["update", "--json"], { cwd: project.root });
+      expect(updated.code).toBe(0);
+      expect(parsed(updated)).toMatchObject({ status: "updated", from: "1.0.0", to: "1.1.0" });
+    });
   });
 
   test.skipIf(process.platform !== "win32")(
