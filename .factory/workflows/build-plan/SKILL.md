@@ -39,7 +39,7 @@ and end with the same report as your final message.
 
 In a review brief, `Worktree:` is `your own checkout of <branch>`. Then end your turn: the report arrives as a message in this thread. Do not read the thread while it works. After a task or fix thread reports, run `git pull --ff-only` before the next step. If a thread stops without sending its report, read its final message with `read_thread`. Each hand-off ends your turn, so one build spans several turns.
 
-This repository is owned by a GitHub organization, so Amp's CI and pull request subscriptions fail with "Only a workspace subscription can watch". Skip them, in this thread and in the threads you start, and check CI with `gh pr checks` before the handoff.
+This repository is owned by a GitHub organization, so Amp's CI and pull request subscriptions fail with "Only a workspace subscription can watch". Skip them, in this thread and in the threads you start. CI does not run on draft pull requests, to save Actions minutes, so `gh pr checks` on the draft shows every job skipped; the local `npm run verify` is the check before the handoff. CI runs when `finish-plan` marks the pull request ready.
 
 ## 0. Check the branch
 
@@ -172,7 +172,7 @@ First merge the pull request's base: `git fetch origin && git merge origin/<base
 
 ## 9. Stop at the draft pull request with a TL;DR
 
-Complete the body sections: TL;DR, changes, proof, review, **For the developer**, build log, found while building. In **For the developer**, include uncertainties and a short *try this* list of commands. Leave the pull request as a draft.
+Complete the body sections: TL;DR, changes, proof, review, **For the developer**, build log, found while building. In **For the developer**, include uncertainties and a short *try this* list of commands. Leave the pull request as a draft. CI does not run on the draft: do not wait for it, and do not report its skipped checks as passing.
 
 Leave a worktree the orchestrator can remove after the merge: `git status --porcelain` must print nothing. Ignored files do not block removal, so clean nothing more.
 
