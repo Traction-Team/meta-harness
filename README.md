@@ -1,6 +1,6 @@
 # @seasb/metafab
 
-Metafab records a software factory in a repository. `.factory/` holds the skills, workflows and templates that define how a team works, `metafab build` installs them for the agent tools in use, `metafab check` validates them, and `metafab publish` shares the factory as a fab that another repository can import and update. A fab is a Git repository by default, or an npm package such as `@seasb/fab-basic`.
+Metafab records a software factory in a repository. `.factory/` holds the skills, workflows and templates that define how a team works, `metafab build` installs them for the agent tools in use, `metafab check` validates them, and `metafab publish` shares the factory as a fab that another repository can import and update. A fab is a Git repository by default, or an npm package such as `@acme/fab-basic`.
 
 It requires Node.js 20 or later. Git is required only for Git-based fab sources.
 
