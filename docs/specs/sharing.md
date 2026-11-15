@@ -58,6 +58,7 @@ Fab requirements:
 - `metafab.yaml` and `README.md` must not appear in a published `.factory/`. The fab's README is at the fab root.
 - In an npm package, `metafab.format` identifies the factory format version.
 - In any other source, `format` in `.factory/factory.yaml` identifies it. A factory without `factory.yaml` is format 1.
+- A format 2 fab needs Metafab 2 or later. Metafab 1 rejects it as an unknown format, with exit code 4.
 - The `metafab` keyword makes an npm fab discoverable with `npm search keywords:metafab`.
 
 Anyone can publish a fab. Recommended names are `fab-<name>` and `@<scope>/fab-<name>`, for npm packages and fab repositories alike.
@@ -269,7 +270,7 @@ Metafab never copies `metafab.yaml` from a source. A Git source that is a projec
 
 Fab validation rejects:
 
-- Unknown factory format versions
+- Unknown factory format versions (Metafab 2 knows 1 and 2)
 - Paths that escape `.factory/`
 - Paths that collide with `.factory/`, such as a case variant or a name ending in dots or spaces
 - Links that point outside `.factory/`

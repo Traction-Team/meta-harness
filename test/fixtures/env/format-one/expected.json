@@ -1,0 +1,16 @@
+[
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 4,
+    "message": "\"env\" needs format: 2",
+    "fix": "Set format: 2"
+  },
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 8,
+    "message": "\"values\" of \"workspace\" must be a non-empty list or mapping of value names",
+    "fix": "Write values: [<name>, ...] or values: { <name>: { label: <text> } }"
+  }
+]

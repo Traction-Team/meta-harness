@@ -31,9 +31,14 @@ function invalidFormat(sourceLabel: string, file: string, value: unknown): Metaf
       file: prefixedFile(sourceLabel, file),
       line: 1,
       message: `Unknown factory format ${JSON.stringify(value)}`,
-      fix: "Use format 1",
+      fix: "Use format 1 or 2, or upgrade @seasb/metafab",
     },
   ]);
+}
+
+/** A factory format Metafab 2 reads. Anything else is an unknown format. */
+function fabFormat(value: unknown): 1 | 2 | undefined {
+  return value === 1 || value === 2 ? value : undefined;
 }
 
 function packageFormat(packageJson: unknown): { present: boolean; value?: unknown } {
@@ -59,19 +64,23 @@ async function factoryYamlFormat(root: string): Promise<{ present: boolean; valu
   return { present: true, value: parsed.value.format };
 }
 
-async function detectFormat(root: string, sourceLabel: string, packageJson: unknown): Promise<1> {
+async function detectFormat(root: string, sourceLabel: string, packageJson: unknown): Promise<1 | 2> {
   const fromPackage = packageFormat(packageJson);
   if (fromPackage.present) {
-    if (fromPackage.value !== 1) throw invalidFormat(sourceLabel, "package.json", fromPackage.value);
-    return 1;
+    const format = fabFormat(fromPackage.value);
+    if (format === undefined) {
+      throw invalidFormat(sourceLabel, "package.json", fromPackage.value);
+    }
+    return format;
   }
 
   const fromFactory = await factoryYamlFormat(root);
   if (fromFactory.present) {
-    if (fromFactory.value !== 1) {
+    const format = fabFormat(fromFactory.value);
+    if (format === undefined) {
       throw invalidFormat(sourceLabel, ".factory/factory.yaml", fromFactory.value);
     }
-    return 1;
+    return format;
   }
 
   return 1;
@@ -106,7 +115,7 @@ export async function validateFab(root: string, options: ValidateFabOptions): Pr
     ]);
   }
 
-  await detectFormat(absoluteRoot, sourceLabel, options.packageJson);
+  const format = await detectFormat(absoluteRoot, sourceLabel, options.packageJson);
 
   const factory = await loadFactory(absoluteRoot);
   const problems = factory.problems.map((problem) => ({
@@ -118,5 +127,5 @@ export async function validateFab(root: string, options: ValidateFabOptions): Pr
     throw invalidFab(sourceLabel, problems);
   }
 
-  return { factoryDir, format: 1 };
+  return { factoryDir, format };
 }

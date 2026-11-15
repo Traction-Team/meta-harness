@@ -1,10 +1,12 @@
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { applyBuild, planBuild } from "../../../src/core/build/index.js";
 import { runCheck } from "../../../src/core/check/index.js";
 import { loadConfig } from "../../../src/core/config/load.js";
 import { loadFactory } from "../../../src/core/factory/index.js";
+import { MetafabError } from "../../../src/errors.js";
+import { isolateGitConfig } from "../hooks/helpers.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
 import type { RepoFiles, TempRepo } from "../../helpers/makeRepo.js";
 
@@ -355,5 +357,67 @@ describe("runCheck", () => {
         await chmod(locked, 0o755);
       }
     });
+  });
+});
+
+describe("runCheck with --env", () => {
+  const FORMAT_TWO = `format: 2
+name: demo
+env:
+  harness:
+    values: [opencode, claude, amp]
+    default: claude
+`;
+
+  let isolation: Awaited<ReturnType<typeof isolateGitConfig>>;
+
+  beforeEach(async () => {
+    isolation = await isolateGitConfig();
+  });
+
+  afterEach(() => {
+    isolation.restore();
+  });
+
+  function envRepo(): Promise<TempRepo> {
+    return checkRepo({
+      ".factory/factory.yaml": FORMAT_TWO,
+      ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+    });
+  }
+
+  async function rejection(promise: Promise<unknown>): Promise<MetafabError> {
+    try {
+      await promise;
+    } catch (error) {
+      return error as MetafabError;
+    }
+    throw new Error("Expected a MetafabError");
+  }
+
+  test("accepts a declared value", async () => {
+    const target = await envRepo();
+    await build(target.root);
+
+    expect(await runCheck(target.root, PACKAGE_VERSION, { env: ["harness=amp"] })).toEqual([]);
+  });
+
+  test("a bad --env throws before any problem is collected", async () => {
+    const target = await envRepo();
+
+    const error = await rejection(
+      runCheck(target.root, PACKAGE_VERSION, { env: ["harnesse=amp"] }),
+    );
+
+    expect(error).toBeInstanceOf(MetafabError);
+    expect(error.exitCode).toBe(1);
+    expect(error.problems).toEqual([
+      {
+        level: "error",
+        file: ".factory/factory.yaml",
+        message: '--env names unknown variable "harnesse"',
+        fix: 'Did you mean "harness"?',
+      },
+    ]);
   });
 });

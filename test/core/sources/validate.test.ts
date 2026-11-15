@@ -74,13 +74,40 @@ describe("validateFab", () => {
     throw new Error("expected validation to fail");
   });
 
+  test("accepts a format 2 fab and reports its format", async () => {
+    const base = await tempDir();
+    try {
+      const root = path.join(base, "fab");
+      await mkdir(path.join(root, ".factory"), { recursive: true });
+      await writeFile(
+        path.join(root, ".factory", "factory.yaml"),
+        "format: 2\nname: sample\nenv:\n  harness:\n    values: [amp, claude]\n",
+      );
+
+      const result = await validateFab(root, { sourceLabel: "file:./fab" });
+
+      expect(result.format).toBe(2);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
   test("rejects an unknown package.json format", async () => {
     await expect(
       validateFab(path.join(FIXTURES, "valid-fab"), {
         sourceLabel: "@seasb/sample-fab@1.0.0",
-        packageJson: { name: "@seasb/sample-fab", metafab: { format: 2 } },
+        packageJson: { name: "@seasb/sample-fab", metafab: { format: 3 } },
       }),
-    ).rejects.toMatchObject({ exitCode: ExitCode.InvalidFab, code: "invalid-fab" });
+    ).rejects.toMatchObject({
+      exitCode: ExitCode.InvalidFab,
+      code: "invalid-fab",
+      problems: [
+        {
+          message: "Unknown factory format 3",
+          fix: "Use format 1 or 2, or upgrade @seasb/metafab",
+        },
+      ],
+    });
   });
 
   test("rejects an unknown factory.yaml format", async () => {
@@ -88,11 +115,17 @@ describe("validateFab", () => {
     try {
       const root = path.join(base, "fab");
       await mkdir(path.join(root, ".factory"), { recursive: true });
-      await writeFile(path.join(root, ".factory", "factory.yaml"), "format: 2\nname: future\n");
+      await writeFile(path.join(root, ".factory", "factory.yaml"), "format: 3\nname: future\n");
 
       await expect(validateFab(root, { sourceLabel: "file:./fab" })).rejects.toMatchObject({
         exitCode: ExitCode.InvalidFab,
         code: "invalid-fab",
+        problems: [
+          {
+            message: "Unknown factory format 3",
+            fix: "Use format 1 or 2, or upgrade @seasb/metafab",
+          },
+        ],
       });
     } finally {
       await rm(base, { recursive: true, force: true });

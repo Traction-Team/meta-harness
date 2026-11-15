@@ -32,6 +32,8 @@ export interface CommandHelp {
   command: string;
   usage: string;
   description: string;
+  /** The commands whose name starts with `<command> `, such as `env set`. */
+  subcommands?: CommandSummary[];
   arguments: HelpArgument[];
   options: HelpOption[];
 }
@@ -74,12 +76,23 @@ function summary(definition: CommandDefinition): CommandSummary {
   return { command: definition.name, usage: definition.usage, description: definition.description };
 }
 
-/** The help of one command: its own options, then `--json` and `-h, --help`. */
-export function commandHelp(definition: CommandDefinition): CommandHelp {
+/**
+ * The help of one command: its subcommands, when it has any, its own options,
+ * then `--json` and `-h, --help`.
+ */
+export function commandHelp(
+  definition: CommandDefinition,
+  commands: readonly CommandDefinition[] = [],
+): CommandHelp {
+  const subcommands = commands
+    .filter((command) => command.name.startsWith(`${definition.name} `))
+    .map(summary);
+
   return {
     command: definition.name,
     usage: definition.usage,
     description: definition.description,
+    ...(subcommands.length === 0 ? {} : { subcommands }),
     arguments: (definition.arguments ?? []).map(helpArgument),
     options: [
       ...Object.entries(definition.options ?? {}).map(([name, option]) => helpOption(name, option)),
@@ -96,6 +109,14 @@ export function renderCommandHelp(help: CommandHelp): string {
   const argumentsText = help.arguments.map((argument) => `<${argument.name}>`);
   const width = padTo([...argumentsText, ...help.options.map((option) => option.flag)]);
   const lines = [`Usage: ${help.usage}`, "", help.description];
+
+  if (help.subcommands !== undefined && help.subcommands.length > 0) {
+    const subWidth = padTo(help.subcommands.map((subcommand) => subcommand.usage));
+    lines.push("", "Subcommands:");
+    for (const subcommand of help.subcommands) {
+      lines.push(`  ${subcommand.usage.padEnd(subWidth)}${subcommand.description}`);
+    }
+  }
 
   if (help.arguments.length > 0) {
     lines.push("", "Arguments:");

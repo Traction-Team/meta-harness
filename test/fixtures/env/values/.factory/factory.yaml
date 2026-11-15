@@ -1,0 +1,19 @@
+format: 2
+name: dragonfly
+
+env:
+  harness:
+    values:
+      - opencode
+      - OpenCode
+      - 1
+      - opencode
+  workspace:
+    values:
+      orca: In Orca
+      worktree:
+        name: Worktree
+      orb:
+        label: ""
+      claude:
+        label: "Two\nlines"

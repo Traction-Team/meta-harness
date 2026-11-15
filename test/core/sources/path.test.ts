@@ -220,6 +220,44 @@ describe("local path sources", () => {
     expect(await readFile(path.join(fetched.factoryDir, "hard-b.md"), "utf8")).toBe("shared\n");
   });
 
+  test("accepts a format 2 factory and its env", async () => {
+    await writeFile(
+      path.join(sourceParent, ".factory", "factory.yaml"),
+      [
+        "format: 2",
+        "name: sample-fab",
+        "pipeline:",
+        "  - sample-workflow",
+        "env:",
+        "  harness:",
+        "    values: [amp, claude]",
+        "",
+      ].join("\n"),
+    );
+
+    const fetched = await fetchSource(sourceParent);
+
+    expect(await pathExists(path.join(fetched.factoryDir, "factory.yaml"))).toBe(true);
+  });
+
+  test("refuses an unknown factory format with the upgrade fix", async () => {
+    await writeFile(
+      path.join(sourceParent, ".factory", "factory.yaml"),
+      "format: 3\nname: sample-fab\n",
+    );
+
+    await expect(fetchSource(sourceParent)).rejects.toMatchObject({
+      exitCode: ExitCode.InvalidFab,
+      code: "invalid-fab",
+      problems: [
+        {
+          message: "Unknown factory format 3",
+          fix: "Use format 1 or 2, or upgrade @seasb/metafab",
+        },
+      ],
+    });
+  });
+
   test("rejects an oversize file with exit 4", async () => {
     await writeFile(
       path.join(sourceParent, ".factory", "large.bin"),

@@ -25,6 +25,7 @@ const VALID_FACTORY = path.join(FIXTURES, "valid-fab", ".factory");
 
 let registry: Registry;
 let cache: string;
+let formatTwoRoot: string;
 
 function npmOptions(
   cacheDirectory: string = cache,
@@ -144,6 +145,19 @@ beforeAll(async () => {
     name: "fab-bad-format",
     version: "1.0.0",
     factoryDir: VALID_FACTORY,
+    metafab: { format: 3 },
+  });
+  formatTwoRoot = await mkdtemp(path.join(tmpdir(), "metafab-npm-format-2-"));
+  const formatTwoFactory = path.join(formatTwoRoot, ".factory");
+  await cp(VALID_FACTORY, formatTwoFactory, { recursive: true });
+  await writeFile(
+    path.join(formatTwoFactory, "factory.yaml"),
+    "format: 2\nname: sample\nenv:\n  harness:\n    values: [amp, claude]\n",
+  );
+  await registry.publishFab({
+    name: "fab-format-2",
+    version: "1.0.0",
+    factoryDir: formatTwoFactory,
     metafab: { format: 2 },
   });
   await registry.publishFab({
@@ -177,6 +191,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await rm(cache, { recursive: true, force: true });
+  await rm(formatTwoRoot, { recursive: true, force: true });
   await registry?.stop();
 }, 120_000);
 
@@ -471,10 +486,22 @@ describe("npm sources", { timeout: 60_000 }, () => {
     expect(await pathExists(path.join(fetched.factoryDir, "bulk-51.bin"))).toBe(true);
   });
 
-  test("fails with exit 4 when metafab.format is not 1", async () => {
+  test("accepts a fab package with metafab.format 2", async () => {
+    const fetched = await fetchSource("fab-format-2@1.0.0");
+
+    expect(await pathExists(path.join(fetched.factoryDir, "factory.yaml"))).toBe(true);
+  });
+
+  test("fails with exit 4 when metafab.format is unknown", async () => {
     await expect(fetchSource("fab-bad-format@1.0.0")).rejects.toMatchObject({
       exitCode: ExitCode.InvalidFab,
       code: "invalid-fab",
+      problems: [
+        {
+          message: "Unknown factory format 3",
+          fix: "Use format 1 or 2, or upgrade @seasb/metafab",
+        },
+      ],
     });
   });
 });

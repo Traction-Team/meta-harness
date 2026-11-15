@@ -312,12 +312,12 @@ function checkNpmFormat(packageJson: Record<string, unknown>, sourceLabel: strin
       'Add "metafab": { "format": 1 } to package.json',
     );
   }
-  if (metafab.format !== 1) {
+  if (metafab.format !== 1 && metafab.format !== 2) {
     throw npmFabError(
       sourceLabel,
       "package.json",
       `Unknown factory format ${JSON.stringify(metafab.format)}`,
-      "Use format 1",
+      "Use format 1 or 2, or upgrade @seasb/metafab",
     );
   }
 }

@@ -70,7 +70,7 @@ Fixes to 1.0 found by the reviews and verification of Milestone 3. They ship in 
 
 A team compiles one factory for each developer's environment: the factory declares variables such as `harness` and `workspace`, each developer selects values in Git config, and `build` installs only the instructions that apply, with `when`, `switch` and `import` directives and conditional skills. What to build: [Environments](specs/environments.md). 2.011 to 2.014 and 2.016 are approved (2026-11-15); 2.015 stays a draft until its prerequisites land.
 
-- [ ] [2.011 Environment declarations and selection](plans/2.011-environment-selection.md): `format: 2`, `env` in `factory.yaml`, selection from `--env`, `FACTORY_ENV_*` and Git config, `metafab env`, `env set`, `env unset`
+- [x] [2.011 Environment declarations and selection](plans/2.011-environment-selection.md): `format: 2`, `env` in `factory.yaml`, selection from `--env`, `FACTORY_ENV_*` and Git config, `metafab env`, `env set`, `env unset`
 - [ ] [2.012 Conditional blocks and skills](plans/2.012-conditional-blocks.md): `when` and `switch` directives, labels for partial matches, `skills:` conditions, `check` validates every branch
 - [ ] [2.013 Imports and partials](plans/2.013-imports.md): `factory:import`, shared partials in `.factory/partials/`, path rules and import loops
 - [ ] [2.014 Preview and authoring guidance](plans/2.014-preview-and-guidance.md): `build --out`, the `metafab` skill's Environments section, the workflow guidance rule

@@ -1,5 +1,6 @@
 import { runCheck } from "../core/check/index.js";
 import { findFactory } from "../core/discovery.js";
+import { envOptions } from "../core/env/index.js";
 import { ExitCode } from "../errors.js";
 import type { Problem } from "../errors.js";
 import type { CommandResult } from "../output.js";
@@ -26,10 +27,20 @@ function problemsSummary(problems: readonly Problem[]): string {
 export const checkCommand: CommandDefinition = {
   name: "check",
   description: "Validate the factory and its installed output",
-  usage: "metafab check",
+  usage: "metafab check [--env <variable>=<values>]...",
+  options: {
+    env: {
+      type: "string",
+      multiple: true,
+      value: "<variable>=<values>",
+      description: "Check against a build for this environment selection",
+    },
+  },
   async run(context) {
     const location = await findFactory(context.cwd, { command: "check" });
-    const problems = await runCheck(location.root, cliVersion());
+    const problems = await runCheck(location.root, cliVersion(), {
+      env: envOptions(context.options.env),
+    });
     const { errors } = countProblems(problems);
 
     const result: CommandResult = {

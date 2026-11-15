@@ -2,6 +2,7 @@ import type { Problem } from "../../errors.js";
 import { planBuild } from "../build/plan.js";
 import { dedupeReadErrors } from "../build/skill.js";
 import { loadConfig } from "../config/load.js";
+import { resolveSelection } from "../env/select.js";
 import { loadFactory } from "../factory/load.js";
 import { requirementWarnings } from "../requires/check.js";
 import { compareBuildOutput } from "./drift.js";
@@ -25,6 +26,11 @@ function problemKey(problem: Problem): string {
   ].join("\u0000");
 }
 
+export interface CheckOptions {
+  /** Raw `--env` arguments; absent reads the process environment and Git config. */
+  env?: readonly string[];
+}
+
 /**
  * Validates the factory source, its configuration and the installed output.
  *
@@ -33,9 +39,19 @@ function problemKey(problem: Problem): string {
  * `.upstream` files, build drift and finally build warnings. Drift and warnings
  * are skipped when an error leaves the build planner without a valid model.
  */
-export async function runCheck(root: string, cliVersion: string): Promise<Problem[]> {
+export async function runCheck(
+  root: string,
+  cliVersion: string,
+  options: CheckOptions = {},
+): Promise<Problem[]> {
   const factory = await loadFactory(root);
   const config = await loadConfig(factory.dir);
+
+  // A bad `--env` is a usage error: it throws before any problem is collected.
+  const selection = await resolveSelection(factory.factoryYaml?.env ?? [], {
+    root: factory.root,
+    options: options.env,
+  });
 
   const collected: Problem[] = [];
   const seen = new Set<string>();
@@ -56,7 +72,7 @@ export async function runCheck(root: string, cliVersion: string): Promise<Proble
     for (const problem of await requirementWarnings(factory)) add(problem);
   }
 
-  const plan = await planBuild(factory, config, cliVersion);
+  const plan = await planBuild(factory, config, cliVersion, { selection });
   for (const problem of plan.errors) add(problem);
 
   // The factory loader words its read errors as "Cannot read file <path>" or

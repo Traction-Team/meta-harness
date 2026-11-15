@@ -1,0 +1,10 @@
+format: 2
+name: dragonfly
+
+env:
+  harness: opencode
+  workspace:
+    values: [orca]
+    descrption: Where each plan gets its own checkout
+  agent:
+    description: Which agent runs the workflows

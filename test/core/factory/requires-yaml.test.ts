@@ -62,7 +62,7 @@ describe("requires grammar", () => {
 
   test("fills requires even when factory.yaml is otherwise invalid", () => {
     const result = parse(
-      "format: 2\nrequires:\n  - path: opencode.json\n    description: Agents\n",
+      "format: 3\nrequires:\n  - path: opencode.json\n    description: Agents\n",
     );
 
     expect(result.yaml).toBeUndefined();

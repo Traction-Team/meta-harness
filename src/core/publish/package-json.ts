@@ -14,7 +14,7 @@ export interface FabPackageJson {
   files: string[];
   /** Named by a provenance bundle, when CI supplies it. */
   repository?: string;
-  metafab: { format: 1 };
+  metafab: { format: 1 | 2 };
   license?: string;
 }
 

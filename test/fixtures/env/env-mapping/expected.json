@@ -1,0 +1,9 @@
+[
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 5,
+    "message": "\"env\" must be a mapping of variable names",
+    "fix": "Write each variable as <name>: { values: [...] }"
+  }
+]

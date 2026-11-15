@@ -41,7 +41,7 @@ agents: [claude, codex]
 
 Target selection follows these rules:
 
-1. `build` reads `agents` and has no command-line override.
+1. `build` reads `agents` and has no command-line override. `--env` selects [environment](environments.md) content, never targets.
 2. `agents: all` selects every target supported by version 1.
 3. When `agents` is absent, `build` uses `all`. `init` normally writes it first.
 4. `build` removes owned output for targets that are no longer selected.
@@ -71,6 +71,8 @@ Installed skills are ignored by Git, so they are missing after a fresh clone or 
 1. **Git hooks.** With `git-hooks: true` in [`metafab.yaml`](configuration.md), `build` installs Git hooks that run `metafab build` after a branch checkout, a merge, and a rebase. Git shares one hooks directory across every worktree of a clone, so `git worktree add` builds the new worktree too. A new worktree has no `node_modules/` yet, so its hook finds `metafab` on `PATH`, or falls back to `npx`, which needs the network. A project dependency alone does not build a new worktree; a worktree setup script that installs dependencies first does. A fresh clone has no hooks until its first `metafab build`.
 2. **Worktree setup scripts.** Tools that create a worktree and then run a setup script should run `metafab build` in that script. Orca reads `scripts.setup` from a committed `orca.yaml`. `init` suggests this step when it finds `orca.yaml`.
 3. **Agents.** The `AGENTS.md` block and the [built-in `metafab` skill](#built-in-metafab-skill) tell agents to run `metafab build` after they edit `.factory/`.
+
+Every build, including one a hook or a setup script runs, uses the developer's [environment selection](environments.md#selecting-an-environment). A setup script for a known environment sets `FACTORY_ENV_*`, such as `FACTORY_ENV_HARNESS=amp metafab build`.
 
 Metafab has no watch mode and installs no agent session hooks.
 

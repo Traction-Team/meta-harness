@@ -47,6 +47,8 @@ import {
 import type { CompiledSkill } from "./skill.js";
 import { syncGitHooks } from "../hooks/index.js";
 import type { HookChange } from "../hooks/index.js";
+import { resolveSelection } from "../env/select.js";
+import type { ResolvedSelection } from "../env/types.js";
 
 export interface BuildWrite {
   path: string;
@@ -60,11 +62,18 @@ export interface BuildPlan {
   gitHooks: boolean;
   /** The CLI version that wrote the installed output and any Git hooks. */
   cliVersion: string;
+  /** The environment selection this plan was made for. */
+  selection: ResolvedSelection;
   writes: BuildWrite[];
   removals: string[];
   conflicts: Problem[];
   warnings: Problem[];
   errors: Problem[];
+}
+
+export interface PlanBuildOptions {
+  /** A selection the caller already resolved, such as from `--env`. */
+  selection?: ResolvedSelection;
 }
 
 export interface BuildChange {
@@ -771,16 +780,23 @@ export async function planBuild(
   factory: Factory,
   config: Config,
   cliVersion: string,
+  options: PlanBuildOptions = {},
 ): Promise<BuildPlan> {
   const root = factory.root;
+  // A caller that read `--env` has already resolved the selection; otherwise the
+  // developer's process environment and Git config decide it.
+  const selection =
+    options.selection ??
+    (await resolveSelection(factory.factoryYaml?.env ?? [], { root }));
   const plan: BuildPlan = {
     root,
     gitHooks: config.gitHooks,
     cliVersion,
+    selection,
     writes: [],
     removals: [],
     conflicts: [],
-    warnings: [],
+    warnings: [...selection.warnings],
     errors: [],
   };
 

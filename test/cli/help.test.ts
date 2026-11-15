@@ -27,13 +27,30 @@ const IMPORT_HELP = [
 ].join("\n");
 
 const BUILD_HELP = [
-  "Usage: metafab build",
+  "Usage: metafab build [--env <variable>=<values>]...",
   "",
   "Compile the factory for the configured agent tools",
   "",
   "Options:",
-  "  --json      Write one JSON object to stdout",
-  "  -h, --help  Show this help",
+  "  --env <variable>=<values>  Select an environment for this build",
+  "  --json                     Write one JSON object to stdout",
+  "  -h, --help                 Show this help",
+  "",
+].join("\n");
+
+const ENV_HELP = [
+  "Usage: metafab env",
+  "",
+  "Show each environment variable, its selected values and where they came from",
+  "",
+  "Subcommands:",
+  "  metafab env set <variable>=<values> [--global]  Set a variable's values in Git config, then build",
+  "  metafab env unset <variable> [--global]         Remove a variable's values from Git config, then build",
+  "",
+  "Options:",
+  "  --env <variable>=<values>  Preview a selection instead of the configured one",
+  "  --json                     Write one JSON object to stdout",
+  "  -h, --help                 Show this help",
   "",
 ].join("\n");
 
@@ -148,6 +165,27 @@ describe("command help", () => {
     expect(description).toBeGreaterThan(-1);
     expect(lines[description + 1]).toBe("");
     expect(lines[description + 2]).toBe("Options:");
+  });
+
+  test("env --help lists env set and env unset under the usage", async () => {
+    const result = await help(["env", "--help"]);
+
+    expect(result.code).toBe(ExitCode.Ok);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe(ENV_HELP);
+  });
+
+  test("env set --help prints its usage, argument and options", async () => {
+    for (const argv of [
+      ["env", "set", "--help"],
+      ["--help", "env", "set"],
+    ]) {
+      const result = await help(argv);
+      expect(result.code, argv.join(" ")).toBe(ExitCode.Ok);
+      expect(result.stdout).toContain("Usage: metafab env set <variable>=<values> [--global]");
+      expect(result.stdout).toContain("<variable=values>");
+      expect(result.stdout).toContain("--global");
+    }
   });
 
   test("import --help has an Arguments section", async () => {
@@ -399,6 +437,9 @@ describe("help data", () => {
       "create",
       "pipeline add",
       "pipeline remove",
+      "env",
+      "env set",
+      "env unset",
       "import",
       "update",
       "diff",
@@ -408,6 +449,6 @@ describe("help data", () => {
     const map = COMMANDS.find((definition) => definition.name === "map");
     const check = COMMANDS.find((definition) => definition.name === "check");
     expect(map?.usage).toBe("metafab map");
-    expect(check?.usage).toBe("metafab check");
+    expect(check?.usage).toBe("metafab check [--env <variable>=<values>]...");
   });
 });
