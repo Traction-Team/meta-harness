@@ -136,18 +136,18 @@ async function build(root: string, values: Record<string, readonly string[]>): P
   await applyBuild(plan);
 }
 
-/** A `writeFile` that writes normally until its `failureAt`th call, then fails. */
-function failingWriter(failureAt: number): { io: PreviewIo; calls: string[] } {
-  const calls: string[] = [];
+/** A `write` that writes normally until its `failureAt`th call, then fails. */
+function failingWriter(failureAt: number): { io: PreviewIo; calls: number[] } {
+  const calls: number[] = [];
   return {
     calls,
     io: {
-      writeFile: async (target, content) => {
-        calls.push(target);
+      write: async (file, content) => {
+        calls.push(file.fd);
         if (calls.length === failureAt) {
           throw Object.assign(new Error("no space left on device"), { code: "ENOSPC" });
         }
-        await writeFile(target, content, { flag: "wx" });
+        await file.writeFile(content);
       },
     },
   };
@@ -508,6 +508,62 @@ describe("writePreview", () => {
     expect(await readdir(out)).toEqual([]);
   });
 
+  /**
+   * A `write` that puts part of the content on disk and then fails, the way a
+   * full disk does, and reads it back so the test knows the file existed.
+   */
+  function partialWriter(target: string): { io: PreviewIo; written: () => string } {
+    let written = "";
+    return {
+      written: () => written,
+      io: {
+        write: async (file, content) => {
+          await file.writeFile(content.subarray(0, 64));
+          written = await readFile(target, "utf8");
+          throw Object.assign(new Error("no space left on device"), { code: "ENOSPC" });
+        },
+      },
+    };
+  }
+
+  // Recording a file only after its content is written leaves a partly written
+  // file behind when the write fails, and with it every directory above it.
+  test("removes a file it created when the write fails part way through", async () => {
+    const repo = await previewRepo();
+    const out = repo.path("preview", "nested");
+    const plan = await preview(repo.root, out);
+    const first = plan.writes[0]!;
+    const firstPath = path.join(out, ...first.path.split("/"));
+    const writer = partialWriter(firstPath);
+
+    const error = await writePreview(plan, writer.io).catch((error: unknown) => error);
+
+    expect(error).toBeInstanceOf(MetafabError);
+    expect((error as MetafabError).exitCode).toBe(ExitCode.Failed);
+    expect((error as MetafabError).problems).toEqual([writeProblem(firstPath)]);
+    // The file was created and held part of its content before the failure.
+    expect(writer.written().length).toBeGreaterThan(0);
+    expect(first.content.toString("utf8").startsWith(writer.written())).toBe(true);
+    expect(await pathExists(repo.path("preview"))).toBe(false);
+  });
+
+  test("leaves a pre-existing empty --out empty when the write fails part way through", async () => {
+    const repo = await previewRepo();
+    const out = repo.path("preview");
+    await mkdir(out);
+    const plan = await preview(repo.root, out);
+    const first = plan.writes[0]!;
+    const writer = partialWriter(path.join(out, ...first.path.split("/")));
+
+    const error = await writePreview(plan, writer.io).catch((error: unknown) => error);
+
+    expect(error).toBeInstanceOf(MetafabError);
+    expect((error as MetafabError).exitCode).toBe(ExitCode.Failed);
+    expect(writer.written().length).toBeGreaterThan(0);
+    expect(await pathExists(out)).toBe(true);
+    expect(await readdir(out)).toEqual([]);
+  });
+
   test.skipIf(onWindows || asRoot)("fails without creating anything when the parent is read-only", async () => {
     const repo = await previewRepo();
     const parent = repo.path("read-only");
@@ -545,15 +601,15 @@ describe("writePreview", () => {
     // Writes in order: a/SKILL.md, b/SKILL.md, b/notes.md, AGENTS.md.
     const stuck = path.join(out, ".agents/skills/a/SKILL.md");
     const failingPath = path.join(out, ".agents/skills/b/notes.md");
-    const calls: string[] = [];
+    let calls = 0;
     const removed: string[] = [];
     const io: PreviewIo = {
-      writeFile: async (target, content) => {
-        calls.push(target);
-        if (calls.length === 3) {
+      write: async (file, content) => {
+        calls += 1;
+        if (calls === 3) {
           throw Object.assign(new Error("no space left on device"), { code: "ENOSPC" });
         }
-        await writeFile(target, content, { flag: "wx" });
+        await file.writeFile(content);
       },
       remove: async (target) => {
         removed.push(target);
@@ -579,9 +635,10 @@ describe("writePreview", () => {
     // The file it could not remove, and its parents, are the only entries left.
     expect(await listFiles(out)).toEqual([".agents/skills/a/SKILL.md"]);
     expect(await pathExists(path.join(out, ".agents/skills/b"))).toBe(false);
-    // Rollback goes deepest first and never touches an entry the run did not make.
+    // Rollback goes deepest first, including the file whose write failed, which
+    // the run created before writing it, and never touches anything else.
     expect(removed[0]).toBe(stuck);
-    expect(removed).not.toContain(failingPath);
+    expect(removed).toContain(failingPath);
     const lengths = removed.map((target) => target.length);
     expect(lengths).toEqual([...lengths].sort((left, right) => right - left));
     for (const target of removed) expect(target.startsWith(out)).toBe(true);
