@@ -1,5 +1,6 @@
 import type { Document } from "yaml";
 import type { Problem } from "../../errors.js";
+import type { Condition } from "../env/condition.js";
 import type { EnvVariable } from "../env/types.js";
 
 export interface Factory {
@@ -20,7 +21,17 @@ export interface FactoryYaml {
   requires: Requirement[];
   /** Format 2: the variables a developer selects values for; empty when none. */
   env: EnvVariable[];
+  /** Format 2: the condition of each skill that depends on the environment; empty when none. */
+  skills: SkillCondition[];
   doc: Document.Parsed;
+}
+
+/** A `skills` entry: a skill that is installed only where its condition can be true. */
+export interface SkillCondition {
+  name: string;
+  condition?: Condition;
+  /** Line of the entry in `factory.yaml`. */
+  line: number;
 }
 
 export interface PipelineEntry {

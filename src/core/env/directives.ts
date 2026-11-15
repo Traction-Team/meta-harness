@@ -2,6 +2,7 @@ import type { Problem } from "../../errors.js";
 import { didYouMean } from "../../util/suggest.js";
 import { isNameFormatted } from "../factory/validate.js";
 import {
+  CONDITION_FIX,
   conditionFix,
   conditionProblems,
   conditionVariables,
@@ -81,8 +82,6 @@ const DIRECTIVE_NAMES = [
   "import",
 ] as const;
 
-const CONDITION_FIX =
-  "Write env.<variable> == <value>, != <value> or in [<values>], joined with and, or, not and parentheses";
 const WHOLE_LINE_MESSAGE =
   "A factory: directive must be one whole line: <!-- factory:<name> <arguments> -->";
 const WHOLE_LINE_FIX = "Write it on one line: <!-- factory:<name> <arguments> -->";

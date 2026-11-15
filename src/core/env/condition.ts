@@ -15,6 +15,10 @@ export type Condition =
 /** The characters that end a word, whichever side of it whitespace sits on. */
 const WORD_BREAK = "()[],=!";
 
+/** The fix for a condition that does not parse: the grammar, in one line. */
+export const CONDITION_FIX =
+  "Write env.<variable> == <value>, != <value> or in [<values>], joined with and, or, not and parentheses";
+
 type Token = { kind: "symbol" | "word"; text: string };
 
 /** A parse error, rendered as `<reason> at "<token>"`. */

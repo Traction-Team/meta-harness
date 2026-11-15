@@ -58,6 +58,22 @@ export interface CompiledSkill {
   problems: Problem[];
 }
 
+/** A source file the walk found, before it is read. */
+export interface CollectedFile {
+  /** Path inside the installed skill directory, with forward slashes. */
+  relative: string;
+  /** Absolute path to read, after following a symlink. */
+  target: string;
+  /** Installed permission bits: 0o755 when the source has any executable bit, else 0o644. */
+  mode: number;
+}
+
+export interface CollectedSkillFiles {
+  /** Sorted by `relative`, so two runs list a tree in the same order. */
+  files: CollectedFile[];
+  problems: Problem[];
+}
+
 export function generatedComment(sourcePath: string): string {
   return `${GENERATED_COMMENT_PREFIX} from ${sourcePath}/. Edit the source, then run metafab build. -->`;
 }
@@ -180,9 +196,8 @@ function insertComment(
 interface WalkContext {
   factoryDir: string;
   linkRoots: readonly string[];
-  comment: string;
   sourcePath: string;
-  files: CompiledFile[];
+  files: CollectedFile[];
   problems: Problem[];
 }
 
@@ -200,10 +215,8 @@ async function addFile(
   context: WalkContext,
   mode?: number,
 ): Promise<void> {
-  let data: Buffer;
   let fileMode: number;
   try {
-    data = await readFile(target);
     fileMode = mode ?? (await stat(target)).mode;
   } catch {
     addProblem(
@@ -215,38 +228,11 @@ async function addFile(
     return;
   }
 
-  let content = data;
-  let text: string | undefined;
-  const decoded = textContent(data);
-  if (decoded !== undefined) {
-    text = toLF(decoded);
-    content = Buffer.from(text, "utf8");
-  }
-
-  if (relative === "SKILL.md") {
-    if (text === undefined) {
-      addProblem(
-        context,
-        problemFile(context, relative),
-        "SKILL.md is binary",
-        "Replace it with a UTF-8 text file",
-      );
-      return;
-    }
-    const inserted = insertComment(text, context.comment);
-    if (!inserted.ok) {
-      addProblem(context, problemFile(context, relative), inserted.message, inserted.fix);
-      return;
-    }
-    content = Buffer.from(inserted.text, "utf8");
-  }
-
-  const file: CompiledFile = {
-    path: relative,
-    content,
+  context.files.push({
+    relative,
+    target,
     mode: (fileMode & 0o111) !== 0 ? 0o755 : 0o644,
-  };
-  context.files.push(file);
+  });
 }
 
 async function addSymlink(
@@ -385,14 +371,19 @@ async function walk(
   }
 }
 
-export async function compileSkill(
+/**
+ * Lists a skill's source files as `build` installs them, with the symlink
+ * containment and loop rules of the walk. `compileSkill` reads the files it
+ * returns; the environment validation walks the same list to check every
+ * Markdown file `build` would render.
+ */
+export async function collectSkillFiles(
   source: SkillSource,
   options: CompileSkillOptions,
-): Promise<CompiledSkill> {
+): Promise<CollectedSkillFiles> {
   const context: WalkContext = {
     factoryDir: options.factoryDir,
     linkRoots: options.linkRoots ?? [],
-    comment: options.comment ?? generatedComment(source.sourcePath),
     sourcePath: source.sourcePath,
     files: [],
     problems: [],
@@ -400,23 +391,89 @@ export async function compileSkill(
 
   await walk(source.dir, "", context, new Set());
 
-  if (!context.files.some((file) => file.path === "SKILL.md") && context.problems.length === 0) {
-    addProblem(
-      context,
-      `${source.sourcePath}/SKILL.md`,
-      `Missing SKILL.md in ${source.sourcePath}`,
-      "Add a SKILL.md with name and description frontmatter",
-    );
+  context.files.sort((left, right) =>
+    left.relative < right.relative ? -1 : left.relative > right.relative ? 1 : 0,
+  );
+
+  return { files: context.files, problems: context.problems };
+}
+
+/**
+ * Reads one collected file into its installed content: text is written as LF,
+ * and `SKILL.md` gains the generated comment after its frontmatter. A file that
+ * cannot be read, or a `SKILL.md` that is binary or has no frontmatter, reports
+ * its problem and is left out.
+ */
+async function compiledFile(
+  file: CollectedFile,
+  displayPath: string,
+  comment: string,
+  problems: Problem[],
+): Promise<CompiledFile | undefined> {
+  const error = (message: string, fix: string): undefined => {
+    problems.push({ level: "error", file: displayPath, line: 1, message, fix });
+    return undefined;
+  };
+
+  let data: Buffer;
+  try {
+    data = await readFile(file.target);
+  } catch {
+    return error(`Cannot read file ${displayPath}`, "Check its permissions or restore the file");
   }
 
-  context.files.sort((left, right) =>
-    left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
-  );
+  const decoded = textContent(data);
+  if (decoded === undefined) {
+    if (file.relative === "SKILL.md") {
+      return error("SKILL.md is binary", "Replace it with a UTF-8 text file");
+    }
+    return { path: file.relative, content: data, mode: file.mode };
+  }
+
+  const text = toLF(decoded);
+  if (file.relative !== "SKILL.md") {
+    return { path: file.relative, content: Buffer.from(text, "utf8"), mode: file.mode };
+  }
+
+  const inserted = insertComment(text, comment);
+  if (!inserted.ok) return error(inserted.message, inserted.fix);
+
+  return { path: file.relative, content: Buffer.from(inserted.text, "utf8"), mode: file.mode };
+}
+
+export async function compileSkill(
+  source: SkillSource,
+  options: CompileSkillOptions,
+): Promise<CompiledSkill> {
+  const collected = await collectSkillFiles(source, options);
+  const problems = [...collected.problems];
+  const files: CompiledFile[] = [];
+  const comment = options.comment ?? generatedComment(source.sourcePath);
+
+  for (const file of collected.files) {
+    const compiled = await compiledFile(
+      file,
+      `${source.sourcePath}/${file.relative}`,
+      comment,
+      problems,
+    );
+    if (compiled !== undefined) files.push(compiled);
+  }
+
+  if (!files.some((file) => file.path === "SKILL.md") && problems.length === 0) {
+    problems.push({
+      level: "error",
+      file: `${source.sourcePath}/SKILL.md`,
+      line: 1,
+      message: `Missing SKILL.md in ${source.sourcePath}`,
+      fix: "Add a SKILL.md with name and description frontmatter",
+    });
+  }
 
   return {
     name: source.name,
     sourcePath: source.sourcePath,
-    files: context.files,
-    problems: context.problems,
+    files,
+    problems,
   };
 }

@@ -5,9 +5,18 @@ import { didYouMean } from "../../util/suggest.js";
 import { isSingleLine } from "../../util/text.js";
 import { aliasProblems, parseYaml } from "../../util/yaml.js";
 import type { YamlDocument } from "../../util/yaml.js";
+import {
+  CONDITION_FIX,
+  conditionFix,
+  conditionProblems,
+  conditionVariables,
+  parseCondition,
+} from "../env/condition.js";
+import type { Condition } from "../env/condition.js";
 import { parseEnvField } from "../env/declarations.js";
+import { MAX_COMBINATIONS, combinations } from "../env/scenarios.js";
 import type { EnvVariable } from "../env/types.js";
-import type { FactoryYaml, PipelineEntry, Requirement } from "./types.js";
+import type { FactoryYaml, PipelineEntry, Requirement, SkillCondition } from "./types.js";
 import {
   knownFormat,
   KNOWN_FACTORY_FIELDS,
@@ -316,6 +325,211 @@ function parseRequirement(
     : { path, description, template, line };
 }
 
+const SKILL_ENTRY_KEYS = ["when"] as const;
+
+function isNull(node: unknown): boolean {
+  return isScalar(node) && node.value === null;
+}
+
+/** How a problem names a node that should have been a name. */
+function nodeText(node: unknown): string {
+  return isScalar(node) ? String(node.value) : "?";
+}
+
+/**
+ * A skill entry's `when`: the condition, or undefined after reporting why it
+ * cannot be read. Undeclared names and the combination bound are reported here
+ * too, as a directive's condition is, because both need the declared variables.
+ */
+function parseSkillCondition(
+  name: string,
+  node: unknown,
+  line: number,
+  parsed: YamlDocument,
+  file: string,
+  variables: readonly EnvVariable[],
+  problems: Problem[],
+): Condition | undefined {
+  const value = resolveNode(node, parsed.document);
+  const text = isScalar(value) && typeof value.value === "string" ? value.value.trim() : "";
+
+  if (text === "") {
+    problems.push({
+      level: "error",
+      file,
+      line,
+      message: `Skill entry "${name}" needs a "when" condition`,
+      fix: `Write ${name}: { when: env.<variable> == <value> }`,
+    });
+    return undefined;
+  }
+
+  const parsedCondition = parseCondition(text);
+  if ("error" in parsedCondition) {
+    problems.push({
+      level: "error",
+      file,
+      line,
+      message: `Cannot read condition "${text}": ${parsedCondition.error}`,
+      fix: CONDITION_FIX,
+    });
+    return undefined;
+  }
+
+  const condition = parsedCondition.condition;
+  for (const message of conditionProblems(condition, variables)) {
+    problems.push({ level: "error", file, line, message, fix: conditionFix(condition, variables) });
+  }
+
+  const named = conditionVariables(condition);
+  const count = combinations(named, variables);
+  if (count > MAX_COMBINATIONS) {
+    problems.push({
+      level: "error",
+      file,
+      line,
+      message: `Condition spans too many combinations: ${count} over ${[...named].join(", ")}; the limit is ${MAX_COMBINATIONS}`,
+      fix: "Split the condition, or nest fewer conditions",
+    });
+  }
+
+  return condition;
+}
+
+function parseSkillEntry(
+  name: string,
+  node: unknown,
+  line: number,
+  parsed: YamlDocument,
+  file: string,
+  variables: readonly EnvVariable[],
+  problems: Problem[],
+): SkillCondition | undefined {
+  const entry = resolveNode(node, parsed.document);
+
+  if (!isMap(entry)) {
+    problems.push({
+      level: "error",
+      file,
+      line,
+      message: `Skill entry "${name}" must be { when: <condition> }`,
+      fix: `Write ${name}: { when: env.<variable> == <value> }`,
+    });
+    return undefined;
+  }
+
+  let when: { node: unknown; line: number } | undefined;
+  for (const pair of entry.items as Pair<unknown, unknown>[]) {
+    const key = scalarString(pair.key);
+    const keyLine = parsed.lineOf(pair.key);
+
+    if (key !== "when") {
+      const shown = key ?? nodeText(pair.key);
+      problems.push({
+        level: "error",
+        file,
+        line: keyLine,
+        message: `Unknown key "${shown}" in skill entry "${name}"`,
+        fix: didYouMean(shown, SKILL_ENTRY_KEYS) ?? "Remove the key or use when",
+      });
+      continue;
+    }
+
+    when = { node: pair.value, line: keyLine };
+  }
+
+  if (when === undefined) {
+    problems.push({
+      level: "error",
+      file,
+      line,
+      message: `Skill entry "${name}" is missing "when"`,
+      fix: `Add when: env.<variable> == <value>`,
+    });
+    return undefined;
+  }
+
+  const condition = parseSkillCondition(
+    name,
+    when.node,
+    when.line,
+    parsed,
+    file,
+    variables,
+    problems,
+  );
+
+  return condition === undefined ? { name, line } : { name, condition, line };
+}
+
+/** The `skills` key of a `factory.yaml`: its value node and the line of the key. */
+export interface SkillsField {
+  node: unknown;
+  line: number;
+}
+
+/**
+ * Rule 14: `skills` gives a condition to each skill that depends on the
+ * environment. Every problem is an error on the key's or entry's line, and the
+ * entries that parse are still returned, as pipeline entries are.
+ */
+export function parseSkillsField(
+  field: SkillsField,
+  parsed: YamlDocument,
+  file: string,
+  format: 1 | 2 | undefined,
+  variables: readonly EnvVariable[],
+  problems: Problem[],
+): SkillCondition[] {
+  const node = resolveNode(field.node, parsed.document);
+
+  if (format === 1) {
+    problems.push({
+      level: "error",
+      file,
+      line: field.line,
+      message: '"skills" needs format: 2',
+      fix: "Set format: 2",
+    });
+  }
+
+  // `skills:` with nothing after it declares no conditions.
+  if (isNull(node)) return [];
+
+  if (!isMap(node)) {
+    problems.push({
+      level: "error",
+      file,
+      line: parsed.lineOf(node),
+      message: '"skills" must be a mapping of skill names',
+      fix: "Write each skill as <name>: { when: <condition> }",
+    });
+    return [];
+  }
+
+  const entries: SkillCondition[] = [];
+  for (const pair of node.items as Pair<unknown, unknown>[]) {
+    const name = scalarString(pair.key);
+    const line = parsed.lineOf(pair.key);
+
+    if (name === undefined || name === "") {
+      problems.push({
+        level: "error",
+        file,
+        line,
+        message: `Skill name "${nodeText(pair.key)}" must be a string`,
+        fix: "Use the skill's directory name as the key",
+      });
+      continue;
+    }
+
+    const entry = parseSkillEntry(name, pair.value, line, parsed, file, variables, problems);
+    if (entry !== undefined) entries.push(entry);
+  }
+
+  return entries;
+}
+
 export function parseFactoryYaml(text: string, file: string): FactoryYamlParseResult {
   const parsed = parseYaml(text);
   if (!parsed.ok) {
@@ -364,6 +578,7 @@ export function parseFactoryYaml(text: string, file: string): FactoryYamlParseRe
   const pipelineField = field("pipeline", parsed);
   const requiresField = field("requires", parsed);
   const envField = field("env", parsed);
+  const skillsField = field("skills", parsed);
   const format = formatField === undefined ? undefined : knownFormat(formatField);
 
   problems.push(
@@ -440,6 +655,14 @@ export function parseFactoryYaml(text: string, file: string): FactoryYamlParseRe
     env.push(...parseEnvField({ node, line: envField.line }, parsed, file, format, problems));
   }
 
+  const skills: SkillCondition[] = [];
+  if (skillsField !== undefined) {
+    const node = skillsField.node;
+    skills.push(
+      ...parseSkillsField({ node, line: skillsField.line }, parsed, file, format, env, problems),
+    );
+  }
+
   const yaml: FactoryYaml | undefined =
     format !== undefined && name !== undefined
       ? {
@@ -449,6 +672,7 @@ export function parseFactoryYaml(text: string, file: string): FactoryYamlParseRe
           pipeline,
           requires,
           env,
+          skills,
           doc: parsed.document,
         }
       : undefined;
