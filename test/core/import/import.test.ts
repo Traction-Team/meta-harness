@@ -131,6 +131,8 @@ describe("metafab import", () => {
     expect(result.stdout).toContain(`Imported ${fab.root}`);
     expect(result.stdout).toContain("Workflows");
     expect(result.stdout).toContain("Skills");
+    // A first import has no local-only factory files to keep.
+    expect(result.stdout).not.toContain("Local files kept");
     expect(result.stdout).toContain("Nothing was committed. Review the changes with git diff.");
   });
 
@@ -400,6 +402,8 @@ describe("adoption during import", () => {
       skill("release"),
     );
     expect(await pathExists(repo.path(".claude", "skills", "release", "SKILL.md"))).toBe(true);
+    // An adopted skill is listed as added, not as a local file kept.
+    expect(result.stdout).not.toContain("Local files kept");
   });
 
   test("an adopted skill that overlaps the fab follows the conflict rule", async () => {
@@ -450,6 +454,72 @@ describe("adoption during import", () => {
     expect(await readFile(repo.path(".factory", "skills", "release", "SKILL.md"), "utf8")).toBe(
       skill("release"),
     );
+  });
+});
+
+describe("local files kept, not in the fab", () => {
+  /** A factory with a README, a skill and an AGENTS.md the fab does not have. */
+  async function repoWithLocalOnlyFiles(): Promise<TempRepo> {
+    return repoWith({
+      ".factory/README.md": "# Local factory README\n",
+      ".factory/skills/local/SKILL.md": skill("local"),
+      ".factory/AGENTS.md": "# Local agents\n",
+    });
+  }
+
+  test("--force lists the local factory files the fab does not have", async () => {
+    const repo = await repoWithLocalOnlyFiles();
+    const fab = await makeFab(fabFiles());
+
+    const result = await runCli(["import", fab.root, "--agents", "claude", "--force"], {
+      cwd: repo.root,
+    });
+
+    expect(result.code).toBe(0);
+    const rendered = result.stdout.split("\n");
+    const heading = rendered.indexOf("Local files kept, not in the fab");
+    expect(heading).toBeGreaterThan(-1);
+    expect(rendered.slice(heading + 1, heading + 3)).toEqual([
+      "  README.md",
+      "  skills/local/SKILL.md",
+    ]);
+    // The fab replaced AGENTS.md, and metafab.yaml is configuration.
+    expect(rendered).not.toContain("  AGENTS.md");
+    expect(rendered).not.toContain("  metafab.yaml");
+  });
+
+  test("--json returns the kept group as bare paths", async () => {
+    const repo = await repoWithLocalOnlyFiles();
+    const fab = await makeFab(fabFiles());
+
+    const result = await runCli(["import", fab.root, "--agents", "claude", "--force", "--json"], {
+      cwd: repo.root,
+    });
+
+    expect(result.code).toBe(0);
+    const review = parseJson(result).review as {
+      groups: { key: string; heading: string; entries: { path: string }[] }[];
+    };
+    expect(review.groups.find((group) => group.key === "kept")).toEqual({
+      key: "kept",
+      heading: "Local files kept, not in the fab",
+      entries: [{ path: "README.md" }, { path: "skills/local/SKILL.md" }],
+    });
+  });
+
+  test("--force does not list a local file the fab's file replaced", async () => {
+    const repo = await repoWith({ ".factory/templates/x/local.md": "local\n" });
+    const fab = await makeFab({ ...fabFiles(), ".factory/templates/x": "fab\n" });
+
+    const result = await runCli(["import", fab.root, "--agents", "claude", "--force"], {
+      cwd: repo.root,
+    });
+
+    expect(result.code).toBe(0);
+    // The fab's file replaced the local directory, so its file no longer exists:
+    // the change list reports the removal, and the kept list names nothing.
+    expect(await readFile(repo.path(".factory", "templates", "x"), "utf8")).toBe("fab\n");
+    expect(result.stdout).not.toContain("Local files kept");
   });
 });
 
@@ -815,6 +885,10 @@ describe("import --force realignment", () => {
     expect(await readFile(repo.path(".factory", "skills", "local-only.md"), "utf8")).toBe(
       "local only\n",
     );
+    // The kept list is read after the realignment, so it names the new spelling.
+    const rendered = result.stdout.split("\n");
+    const heading = rendered.indexOf("Local files kept, not in the fab");
+    expect(rendered.slice(heading + 1, heading + 2)).toEqual(["  skills/local-only.md"]);
   });
 
   test("renames a case-only skill directory to the fab's spelling", async () => {

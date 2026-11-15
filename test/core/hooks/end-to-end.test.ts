@@ -2,14 +2,16 @@ import { execFile } from "node:child_process";
 import { chmod, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { buildCli, cliPath } from "../../cli/build.js";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { buildCli } from "../../cli/build.js";
+import type { BuiltCli } from "../../cli/build.js";
 import { HOOK_NAMES, syncGitHooks } from "../../../src/core/hooks/index.js";
 import { isolateGitConfig, makeTestRepo } from "./helpers.js";
 import type { TestRepo } from "./helpers.js";
 
 const execFileAsync = promisify(execFile);
 
+let built: BuiltCli;
 let isolation: Awaited<ReturnType<typeof isolateGitConfig>> | undefined;
 const repos: TestRepo[] = [];
 
@@ -71,7 +73,7 @@ async function installCli(git: TestRepo): Promise<PathEntry> {
   const bin = path.join(git.container, "cli-bin");
   await mkdir(bin, { recursive: true });
   const entry = path.join(bin, "metafab");
-  await writeFile(entry, `#!/bin/sh\nexec "${process.execPath}" "${cliPath}" "$@"\n`, "utf8");
+  await writeFile(entry, `#!/bin/sh\nexec "${process.execPath}" "${built.cliPath}" "$@"\n`, "utf8");
   await chmod(entry, 0o755);
   return { bin, originalPath: process.env.PATH };
 }
@@ -92,10 +94,15 @@ async function clear(log: string): Promise<void> {
 // Windows coverage is the `hooks` job in .github/workflows/ci.yml; lift this
 // skip once a Windows run of this file passes.
 describe.skipIf(process.platform === "win32")("Git hooks end to end", () => {
-  // The shared helper compiles `dist/` once per test run: the first file to ask
-  // does the `tsc` run, and `test/cli/e2e.test.ts` reuses it instead of
-  // interleaving another compile with this file's spawned CLI.
-  beforeAll(buildCli, 180_000);
+  // A private compile of this checkout for this file, so no other test file's
+  // build and no stale `dist/` decides whether the spawned CLI runs.
+  beforeAll(async () => {
+    built = await buildCli();
+  }, 180_000);
+
+  afterAll(async () => {
+    await built?.cleanup();
+  });
 
   test(
     "post-checkout finds a factory below the repository root",
@@ -118,11 +125,11 @@ describe.skipIf(process.platform === "win32")("Git hooks end to end", () => {
       usePath(cli);
 
       try {
-        const built = await execFileAsync(process.execPath, [cliPath, "build"], {
+        const run = await execFileAsync(process.execPath, [built.cliPath, "build"], {
           cwd: git.path("packages", "app"),
           encoding: "utf8",
         });
-        expect(built.stdout).toContain("+ git hook post-checkout");
+        expect(run.stdout).toContain("+ git hook post-checkout");
         for (const hook of HOOK_NAMES) {
           expect(await readFile(git.path(".git/hooks", hook), "utf8")).toContain(
             'cd "$(git rev-parse --show-toplevel)/packages/app"',

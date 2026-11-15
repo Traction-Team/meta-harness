@@ -141,6 +141,28 @@ describe("resolveReadme", () => {
     });
   });
 
+  test("encodes a # in an ssh path so the import line names the same repository", async () => {
+    // Git decodes `%23` in an `ssh://` URL, and a source reads a literal `#` as
+    // the ref, so the encoded line imports the repository publish wrote to.
+    const target = await repo({
+      publish: [
+        "publish:",
+        "  git: ssh://git@example.com/my#fab.git",
+        "  version: 1.2.0",
+        "",
+      ].join("\n"),
+    });
+    await rm(target.path(".factory", "README.md"));
+
+    const source = "ssh://git@example.com/my%23fab.git";
+    expect(await resolve(target)).toContain(`npx @seasb/metafab import ${source}`);
+    expect(parseSource(source, { cwd: target.root })).toEqual({
+      kind: "git",
+      url: source,
+      source,
+    });
+  });
+
   test("names the import form of the Git URL in the generated import command", async () => {
     // `import` reads a plain https URL as a tarball, so the README of a fab
     // published to a Git repository must name the `git+` form.

@@ -6,10 +6,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vit
 import { ExitCode, MetafabError } from "../../../src/errors.js";
 import {
   cacheLayout,
+  fabKey,
+  FAB_FETCH_FORMAT,
   fetchFab,
   getOrCreate,
   parseSource,
   resolve,
+  resolveGit,
+  sourceWithoutCredentials,
 } from "../../../src/core/sources/index.js";
 import type { GitSourceSpec, Resolved } from "../../../src/core/sources/index.js";
 import { toPosixPath } from "../../../src/util/fs.js";
@@ -166,16 +170,18 @@ describe("cache write failures", () => {
     });
 
     test(`mkdir of the fabric staging directory during a Git fetch is exit 3 (${code})`, async () => {
-      const resolved = await gitResolve();
+      const resolved = await resolveGit(gitSpec(), { cache });
+      const fabDir = cacheLayout(cache).fabDir(
+        fabKey(FAB_FETCH_FORMAT, sourceWithoutCredentials(resolved.spec.source), resolved.commit),
+      );
       mkdirFailure = { match: fabsTemporaryPath, code };
 
       await expectCacheWriteFailure(
         code,
         () => fetchFab(resolved, { cache }),
-        (file) => {
-          expect(file.startsWith(toPosixPath(path.join(cache, "fabs")))).toBe(true);
-          expect(file).toMatch(/\.tmp-[^/]+$/);
-        },
+        // The staging directory is removed before the person reads the
+        // message, so the problem names the entry's final path instead.
+        (file) => expect(file).toBe(toPosixPath(fabDir)),
       );
     });
 
@@ -254,15 +260,15 @@ describe("cache write failures", () => {
 
     test(`mkdir of the fabric staging directory during an npm fetch is exit 3 (${code})`, async () => {
       const resolved = await resolve(parseSource("fab-fs@1.0.0"), npmOptions());
+      const fabDir = cacheLayout(cache).fabDir(fabKey("fab-fs", "1.0.0"));
       mkdirFailure = { match: fabsTemporaryPath, code };
 
       await expectCacheWriteFailure(
         code,
         () => fetchFab(resolved, npmOptions()),
-        (file) => {
-          expect(file.startsWith(toPosixPath(path.join(cache, "fabs")))).toBe(true);
-          expect(file).toMatch(/\.tmp-[^/]+$/);
-        },
+        // The staging directory is removed before the person reads the
+        // message, so the problem names the entry's final path instead.
+        (file) => expect(file).toBe(toPosixPath(fabDir)),
       );
     });
 

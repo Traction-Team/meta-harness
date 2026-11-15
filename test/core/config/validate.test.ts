@@ -306,10 +306,50 @@ describe("rule 7: Git URLs", () => {
     "file://user:token@localhost/tmp/fab-mark4.git",
     "file:///C:/fabs/fab-mark4.git",
     `file://C:\\fabs\\fab-mark4.git`,
+    // An `ssh://` URL can hold a `#`: Git decodes `%23` there, so the README
+    // writes it encoded. An `https://` URL may already be written encoded.
+    "ssh://git@example.com/my#fab-mark4.git",
+    "git+ssh://git@example.com/my#fab-mark4.git",
+    "https://example.com/my%23fab-mark4.git",
   ])("accepts %s", (url) => {
     const config = parseConfig(`publish:\n  git: ${url}\n  version: 1.2.0\n`);
 
     expect(config.problems).toEqual([]);
+  });
+
+  test.each([
+    [
+      "https://example.com/my#fab-mark4.git",
+      `"publish.git" has a # in an https:// URL.`,
+      "Write the # as %23, such as https://example.com/my%23fab.git: Git over HTTPS drops everything after a #.",
+    ],
+    [
+      "git+https://example.com/my#fab-mark4.git",
+      `"publish.git" has a # in an https:// URL.`,
+      "Write the # as %23, such as https://example.com/my%23fab.git: Git over HTTPS drops everything after a #.",
+    ],
+    [
+      "git@example.com:my#fab-mark4.git",
+      `"publish.git" has a # in a git@host:path URL, which an import source cannot name.`,
+      "Use an ssh:// URL with # written as %23, such as ssh://git@example.com/~/my%23fab.git.",
+    ],
+  ])("rejects %s", (url, message, fix) => {
+    // Git's HTTP transport drops everything after a literal `#`, and an scp URL
+    // has nowhere to write `%23`, so no import line can name this repository.
+    const config = parseConfig(`publish:\n  git: ${url}\n  version: 1.2.0\n`);
+
+    expect(config.problems).toHaveLength(1);
+    expect(config.problems[0]?.message).toBe(message);
+    expect(config.problems[0]?.fix).toBe(fix);
+  });
+
+  test("rejects a file URL with no path", () => {
+    // `import` refuses `git+file://localhost/` as naming the filesystem root,
+    // so the README would name a source that fails.
+    const config = parseConfig("publish:\n  git: file://localhost/\n  version: 1.2.0\n");
+
+    expect(config.problems).toHaveLength(1);
+    expect(config.problems[0]?.message).toBe(`"publish.git" is not a Git URL.`);
   });
 
   test("rejects a URL that is not a Git URL", () => {
@@ -499,6 +539,24 @@ describe("rule 11: upstream requirements", () => {
     const config = parseConfig("upstream:\n  source: ../platform/.factory\n");
 
     expect(config.problems).toEqual([]);
+  });
+
+  test("reports the source import would refuse, and skips the version rule", () => {
+    // `update`, `diff` and `detach` re-parse the source and fail on it anyway,
+    // so a missing version would only hide the real problem.
+    const config = parseConfig("upstream:\n  source: ftp://x/fab.tgz\n");
+
+    expect(config.problems).toHaveLength(1);
+    const problem = config.problems[0]!;
+    expect(problem.level).toBe("error");
+    expect(problem.line).toBe(2);
+    expect(problem.message).toBe(
+      'Invalid source "ftp://x/fab.tgz": unsupported URL scheme "ftp:". ' +
+        "Supported sources: an npm name, github:owner/repo, git+https://, git+ssh://, ssh://, git@host:path, git+file:///<path>, an https:// tarball, or a local path",
+    );
+    expect(problem.fix).toBe(
+      "Use git+https://, git+ssh://, git+file://, ssh://, user@host:path or github:owner/repo for a Git repository, an https:// URL for a tarball, an npm name, or a local path",
+    );
   });
 
   test.each([

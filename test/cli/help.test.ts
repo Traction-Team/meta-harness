@@ -405,6 +405,117 @@ describe("option parse errors", () => {
   });
 });
 
+describe("a single dash before a word", () => {
+  test("init -help, -jh and -hx are unknown options that write nothing", async () => {
+    for (const token of ["-help", "-jh", "-hx"]) {
+      const gitRepo = await makeRepo({ "README.md": "hello\n" }, { git: true });
+
+      try {
+        const result = await runCli(["init", token], { cwd: gitRepo.root, tty: false });
+
+        expect(result.code, token).toBe(ExitCode.Failed);
+        expect(result.stdout, token).not.toContain("Usage:");
+        for (const created of [".factory", "AGENTS.md", "metafab.yaml", ".gitignore", ".gitattributes"]) {
+          expect(await stat(gitRepo.path(created)).catch(() => undefined), `${token} ${created}`).toBeUndefined();
+        }
+      } finally {
+        await gitRepo.cleanup();
+      }
+    }
+  });
+
+  test("the -help error names the token typed and suggests --help", async () => {
+    const result = await help(["init", "-help"]);
+
+    expect(result.code).toBe(ExitCode.Failed);
+    expect(result.stderr).toContain("Unknown option '-help'");
+    expect(result.stderr).toContain("Did you mean --help? Run metafab init --help to see its options");
+  });
+
+  test("-jh and -hx keep parseArgs's error for the unknown letter", async () => {
+    for (const [token, letter] of [["-jh", "-j"], ["-hx", "-x"]]) {
+      const result = await help(["init", token!]);
+
+      expect(result.code, token).toBe(ExitCode.Failed);
+      expect(result.stderr, token).toContain(`Unknown option '${letter}'`);
+      expect(result.stderr, token).not.toContain("Did you mean");
+    }
+  });
+
+  test("only a word the command declares as a long option gets the hint", async () => {
+    const publish = await help(["publish", "-dry-run"]);
+    expect(publish.code).toBe(ExitCode.Failed);
+    expect(publish.stderr).toContain("Unknown option '-dry-run'");
+    expect(publish.stderr).toContain("Did you mean --dry-run?");
+
+    // `dry-run` is not an import option, so the original error stands.
+    const imported = await help(["import", "-dry-run"]);
+    expect(imported.code).toBe(ExitCode.Failed);
+    expect(imported.stderr).not.toContain("Did you mean");
+  });
+
+  test("metafab -help is an unknown command that suggests --help", async () => {
+    const result = await help(["-help"]);
+
+    expect(result.code).toBe(ExitCode.Failed);
+    expect(result.stdout).toContain("Unknown command: -help");
+    expect(result.stderr).toContain("Did you mean --help?");
+    expect(result.stdout).not.toContain("Usage:");
+  });
+
+  test("metafab -help --json is one object", async () => {
+    const result = await help(["-help", "--json"]);
+
+    expect(result.code).toBe(ExitCode.Failed);
+    expect(result.stderr).toBe("");
+    const parsed = JSON.parse(result.stdout) as { ok: boolean; problems: unknown[] };
+    expect(parsed.ok).toBe(false);
+    expect(parsed.problems).toEqual([
+      {
+        level: "error",
+        file: "metafab",
+        message: "Unknown command: -help",
+        fix: "Did you mean --help?",
+      },
+    ]);
+  });
+
+  test("an earlier unknown option keeps its own error", async () => {
+    const first = await help(["publish", "--bogus", "-dry-run"]);
+    expect(first.code).toBe(ExitCode.Failed);
+    expect(first.stderr).toContain("Unknown option '--bogus'");
+    expect(first.stderr).not.toContain("Did you mean");
+
+    const second = await help(["publish", "-dry-run", "--bogus"]);
+    expect(second.code).toBe(ExitCode.Failed);
+    expect(second.stderr).toContain("Unknown option '-dry-run'");
+    expect(second.stderr).toContain("Did you mean --dry-run?");
+  });
+
+  test("a command with its own short boolean option prints help for -fh and does not run", async () => {
+    let ran = false;
+    const fancy: CommandDefinition = {
+      name: "fancy",
+      description: "A command that declares a short option",
+      usage: "metafab fancy",
+      options: {
+        force: { type: "boolean", short: "f", description: "Force the thing" },
+      },
+      async run() {
+        ran = true;
+        return { ok: true, command: "fancy", exitCode: ExitCode.Ok, problems: [] };
+      },
+    };
+
+    const result = await runCli(["fancy", "-fh"], { cwd: repo.root, tty: false, commands: [fancy] });
+
+    expect(result.code).toBe(ExitCode.Ok);
+    expect(result.stdout).toContain("Usage: metafab fancy");
+    expect(result.stdout).toContain("-f, --force");
+    expect(ran).toBe(false);
+  });
+});
+
 describe("help data", () => {
   test("every command declares its usage and every option its description", () => {
     for (const definition of COMMANDS) {

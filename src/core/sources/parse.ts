@@ -28,7 +28,7 @@ const GIT_SOURCE_FIX =
   "Use git+https://, git+ssh://, git+file://, ssh://, user@host:path or github:owner/repo for a Git repository, an https:// URL for a tarball, an npm name, or a local path";
 const WINDOWS_PATH_FIX = "Write the path as C:\\fabs\\acme or C:/fabs/acme";
 
-function isScpGit(value: string): boolean {
+export function isScpGit(value: string): boolean {
   if (DRIVE_PATH.test(value)) return false;
   const colon = value.indexOf(":");
   if (colon <= 0) return false;
@@ -138,6 +138,21 @@ function drivePathFileUrl(after: string): string | undefined {
 }
 
 /**
+ * What follows `//` in a `file:` or `git+file:` URL: a path, no path, or a
+ * host. `localhost` is Git's name for this machine, so `localhost` with nothing
+ * after it names no path at all, just as `""` and a run of slashes do. The
+ * authority rule lives here so `check` and `import` cannot disagree about it.
+ */
+export function fileUrlAuthority(after: string): "path" | "empty" | "host" {
+  if (after === "" || /^\/+$/.test(after)) return "empty";
+  if (/^localhost$/i.test(after) || /^localhost\/+$/i.test(after)) return "empty";
+  if (after.startsWith("/")) return "path";
+  if (/^localhost\//i.test(after)) return "path";
+  if (DRIVE_PATH.test(after)) return "path";
+  return "host";
+}
+
+/**
  * A `git+file://` source is a Git repository on this machine or a mounted
  * share, such as the bare fab repository `publish.git: file:///…` writes. The
  * path must be absolute, so `update` can re-parse the recorded source from
@@ -158,12 +173,11 @@ function parseGitFileUrl(input: string): SourceSpec {
   }
 
   const after = rest.slice(2);
-  if (after === "" || after === "/") {
+  const authority = fileUrlAuthority(after);
+  if (authority === "empty") {
     throw invalidSource(input, "the Git file URL has no path");
   }
-  // Git accepts an empty host (the third slash), `localhost`, and a Windows
-  // drive right after `//` or `///`. Any other authority names a host.
-  if (!after.startsWith("/") && !/^localhost\//i.test(after) && !DRIVE_PATH.test(after)) {
+  if (authority === "host") {
     throw invalidSource(input, "a Git file URL cannot name a host; use git+file:///<absolute path>");
   }
 
@@ -402,18 +416,25 @@ export function sourceWithoutCredentials(source: string): string {
 
 /**
  * The source `import` accepts for a URL Git accepts: `https://` and `file://`
- * gain `git+`. A `#` in a `file:` path becomes `%23`, because Git reads it
- * literally in a path while a source splits it off as the ref: the repository
- * `/srv/my#fab.git` would otherwise be imported as `/srv/my` at ref `fab.git`.
- * Every other form is returned unchanged, and only the scheme text changes.
+ * gain `git+`, and a `#` in the text after `://` becomes `%23`, because a
+ * source splits a `#` off as the ref: the repository `/srv/my#fab.git` would
+ * otherwise be imported as `/srv/my` at ref `fab.git`. Git decodes `%23` in an
+ * `ssh://` and a `file://` URL, so the line names the repository publish wrote.
+ * An scp URL has no `://` and is returned unchanged, and a `%23` already there
+ * is left alone.
  */
 export function importSourceForGitUrl(url: string): string {
   const match = SCHEME.exec(url);
   if (match === null) return url;
   const scheme = (match[1] as string).toLowerCase();
   const bare = scheme.replace(/^git\+/, "");
-  if (scheme !== "https" && bare !== "file") return url;
   const rest = url.slice(match[0].length);
-  const path = bare === "file" ? rest.replace(/#/g, "%23") : rest;
-  return scheme.startsWith("git+") ? `${scheme}://${path}` : `git+${scheme}://${path}`;
+  const path = rest.replace(/#/g, "%23");
+  if (scheme !== "https" && bare !== "file") {
+    // Already a form `import` reads: only a `#` changes, so the text stays
+    // byte for byte when there is none.
+    return path === rest ? url : `${url.slice(0, match[0].length)}${path}`;
+  }
+  const imported = scheme.startsWith("git+") ? scheme : `git+${scheme}`;
+  return `${imported}://${path}`;
 }

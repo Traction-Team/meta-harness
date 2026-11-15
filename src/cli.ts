@@ -31,7 +31,12 @@ import { pipelineAddCommand } from "./commands/pipeline-add.js";
 import { pipelineRemoveCommand } from "./commands/pipeline-remove.js";
 import { publishCommand } from "./commands/publish.js";
 import { updateCommand } from "./commands/update.js";
-import type { CommandDefinition, CommandOptionValue, CommandOptions } from "./commands/types.js";
+import type {
+  CommandDefinition,
+  CommandOptionDefinition,
+  CommandOptionValue,
+  CommandOptions,
+} from "./commands/types.js";
 
 export const COMMANDS: readonly CommandDefinition[] = [
   initCommand,
@@ -70,6 +75,9 @@ interface GlobalFlags {
 
 const GLOBAL_FLAGS = new Set(["--json", "--json=true", "--help", "-h", "--version"]);
 
+/** The global flags' names, for the `-<word>` hint before a command name. */
+const GLOBAL_FLAG_NAMES = ["json", "help", "version"];
+
 /** The fix line an unexpected error carries: it is a defect in Metafab, not in the repository. */
 const BUG_FIX = "This is a bug in metafab. Report it with the command you ran and this message";
 
@@ -101,20 +109,94 @@ type HelpTarget =
   | { kind: "global" };
 
 /**
- * `--help` or a short-option cluster that contains `h` (`-h`, `-hh`, `-jh`),
- * anywhere after the command name and before a `--`, asks for help: `parseArgs`
- * reads the cluster as `help: true` too.
+ * `--help`, `-h` or a repeated `-h` such as `-hh`, anywhere after the command
+ * name and before a `--`, asks for help: `h` is the only short option any
+ * command declares, so those are exactly the tokens `parseArgs` reads as
+ * `help: true` with no unknown letter. Any other word after one dash is a group
+ * of short options, so `-help` and `-jh` are unknown options, not help.
  */
 function isHelpToken(token: string): boolean {
-  if (token === "--help" || token === "-h") return true;
-  return /^-[a-zA-Z]+$/.test(token) && token.includes("h");
+  return token === "--help" || /^-h+$/.test(token);
 }
 
 /**
- * `--help`, `-h` or a short-option cluster with `h` anywhere after the command
- * name, before a `--`, wins over every other flag and argument. The leading words
- * name the command (`pipeline add`), the `pipeline` group, or nothing (the global
- * help, also for an unknown name).
+ * The option name a `-<word>` token spells, when `names` has it: `-help` gives
+ * `help`. Only a word longer than one letter counts, so `-h` and `--help` give
+ * nothing. `parseArgs` rejects such a token on its first letter (`Unknown option
+ * '-e'` for `-help`), so this names the token the person typed instead.
+ */
+function singleDashOption(token: string, names: readonly string[]): string | undefined {
+  if (!token.startsWith("-") || token.startsWith("--")) return undefined;
+  const word = token.slice(1);
+  if (word.length < 2) return undefined;
+  return names.includes(word) ? word : undefined;
+}
+
+/**
+ * The `-<word>` spelling of an option that `parseArgs` rejects first, or
+ * undefined when it rejects another token first. The tokens are walked the way
+ * `parseArgs` reads them: a known option, a known option's value and a
+ * positional argument all pass, and the first token that does not ends the walk.
+ * So `publish --bogus -dry-run` keeps its `--bogus` error, and only
+ * `publish -dry-run --bogus` gets the hint.
+ */
+function rejectedSingleDashOption(
+  args: readonly string[],
+  options: CommandOptions,
+): string | undefined {
+  const names = Object.keys(options);
+  const shorts = new Map<string, CommandOptionDefinition>();
+  for (const option of Object.values(options)) {
+    if (option.short !== undefined) shorts.set(option.short, option);
+  }
+
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index]!;
+    if (token === "--") return undefined;
+
+    if (token.startsWith("--")) {
+      const name = token.slice(2).split("=")[0]!;
+      const option = options[name];
+      if (option === undefined) return undefined;
+      if (option.type === "string" && !token.includes("=")) {
+        // A value that starts with a dash is ambiguous to `parseArgs`, which
+        // then rejects the option itself rather than the value.
+        const value = args[index + 1];
+        if (value === undefined || value.startsWith("-")) return undefined;
+        index += 1;
+      }
+      continue;
+    }
+
+    if (token.startsWith("-") && token.length > 1) {
+      let known = true;
+      for (let at = 1; at < token.length; at += 1) {
+        const option = shorts.get(token[at]!);
+        if (option === undefined) {
+          known = false;
+          break;
+        }
+        if (option.type === "string") {
+          // The rest of the cluster is the value, or else the next token is.
+          if (at === token.length - 1) {
+            const value = args[index + 1];
+            if (value === undefined || value.startsWith("-")) return undefined;
+            index += 1;
+          }
+          break;
+        }
+      }
+      if (!known) return singleDashOption(token, names);
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * `--help`, `-h` or `-hh` after the command name, before a `--`, wins over every
+ * other flag and argument. The leading words name the command (`pipeline add`),
+ * the `pipeline` group, or nothing (the global help, also for an unknown name).
  */
 function helpTarget(
   tokens: readonly string[],
@@ -353,11 +435,14 @@ export async function main(
     const definition = findCommand(commands, requested);
     if (definition === undefined) {
       const suggestion = didYouMean(requested, candidates);
+      const globalWord = singleDashOption(first, GLOBAL_FLAG_NAMES);
       return emit(
         failure(
           "metafab",
           `Unknown command: ${requested}`,
-          suggestion ?? "Run metafab --help to see the available commands.",
+          globalWord === undefined
+            ? suggestion ?? "Run metafab --help to see the available commands."
+            : `Did you mean --${globalWord}?`,
           { command: requested, suggestion },
         ),
         failureJson,
@@ -376,11 +461,13 @@ export async function main(
       parsed = parseCommandArgs(tokens.slice(consumed), options);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const word = rejectedSingleDashOption(tokens.slice(consumed), options);
+      const helpHint = `Run metafab ${definition.name} --help to see its options`;
       return emit(
         failure(
           definition.name,
-          message,
-          `Run metafab ${definition.name} --help to see its options`,
+          word === undefined ? message : `Unknown option '-${word}'`,
+          word === undefined ? helpHint : `Did you mean --${word}? ${helpHint}`,
         ),
         failureJson,
         stdout,
@@ -392,8 +479,11 @@ export async function main(
     // A global `--json` before the command reaches the command the same way.
     if (json && parsed.values.json !== true) parsed.values.json = true;
 
-    // A safety net: whatever spelling made `parseArgs` read `help`, print the
-    // command's help instead of running it. Nothing a help request does may write.
+    // A safety net that today's options cannot reach: `h` is the only short
+    // option any command declares, so every token `parseArgs` reads as `help`
+    // is one `isHelpToken` caught above. It stays for a command that adds a
+    // short boolean option, such as `short: "f"`: `-fh` would then pass
+    // `parseArgs` with `help: true` and still must print help, not run.
     if (parsed.values.help === true) {
       return emit(
         renderHelp({ kind: "command", definition }, commands, helpJson),

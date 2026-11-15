@@ -8,8 +8,8 @@ import type { Problem } from "../../errors.js";
 import { copyTree, listFiles } from "../../util/fs.js";
 import type { PublishConfig } from "../config/types.js";
 import { disabledHooksConfig, gitEnvironment, gitMessage, VERBATIM_TEXT_ATTRIBUTES } from "../sources/git-process.js";
-import { gitTransportUrl } from "../sources/parse.js";
-import { redact, stripSourceCredentials } from "../sources/redact.js";
+import { gitTransportUrl, sourceWithoutCredentials } from "../sources/parse.js";
+import { redact } from "../sources/redact.js";
 import { PUBLISH_RETRY_FIX, publishProblem } from "./prepare.js";
 import type { PublishOptions } from "./types.js";
 
@@ -250,7 +250,7 @@ async function cloneFab(url: string, parent: string, context: GitContext): Promi
     parent,
     context,
     [],
-    gitFailureError(`Cannot clone fab repository ${stripSourceCredentials(url)}`),
+    gitFailureError(`Cannot clone fab repository ${sourceWithoutCredentials(url)}`),
   );
   // The clone has already checked its branch out, and the attributes apply to
   // every checkout and add that follows, so the publish and the
@@ -268,7 +268,7 @@ async function tagExistsRemotely(url: string, tag: string, context: GitContext):
     process.cwd(),
     context,
     [],
-    gitFailureError(`Cannot read tags from fab repository ${stripSourceCredentials(url)}`),
+    gitFailureError(`Cannot read tags from fab repository ${sourceWithoutCredentials(url)}`),
   );
   return output.split("\n").some((line) => line.split("\t")[1]?.trim() === ref);
 }
@@ -603,7 +603,7 @@ async function identityConfig(repo: string, context: GitContext): Promise<string
 
 function versionExistsError(version: string, url: string): MetafabError {
   return new MetafabError(
-    `The fab repository ${stripSourceCredentials(url)} already has tag v${version}.`,
+    `The fab repository ${sourceWithoutCredentials(url)} already has tag v${version}.`,
     {
       exitCode: ExitCode.Failed,
       code: "publish-version-exists",
@@ -687,10 +687,10 @@ export async function publishGitFab(
       repo,
       context,
       [],
-      gitFailureError(`Cannot push ${tag} to ${stripSourceCredentials(url)}`),
+      gitFailureError(`Cannot push ${tag} to ${sourceWithoutCredentials(url)}`),
     );
 
-    return `Published ${version} to ${branch} in ${stripSourceCredentials(url)}.`;
+    return `Published ${version} to ${branch} in ${sourceWithoutCredentials(url)}.`;
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }

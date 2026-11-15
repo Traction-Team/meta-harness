@@ -8,7 +8,7 @@ import type {
   PublishTargetResult,
   ValidPublishConfig,
 } from "../core/publish/index.js";
-import { stripSourceCredentials } from "../core/sources/index.js";
+import { sourceWithoutCredentials } from "../core/sources/index.js";
 import { ExitCode, MetafabError } from "../errors.js";
 import type { Problem } from "../errors.js";
 import type { CommandResult } from "../output.js";
@@ -47,9 +47,15 @@ function formatSize(bytes: number): string {
   return `${(kilobytes / 1024).toFixed(1)} MB`;
 }
 
+/**
+ * The target's own name in the report. `sourceWithoutCredentials` is the same
+ * rewrite a recorded source and the published README use, so a Windows drive
+ * path such as `file://C:\Users\bob@corp\fab.git` is printed whole instead of
+ * losing the text before its `@`.
+ */
 function targetLabel(target: "npm" | "git", publish: ValidPublishConfig): string {
   if (target === "npm") return `npm (${publish.name ?? "name missing"})`;
-  return `git (${stripSourceCredentials(publish.git ?? "url missing")})`;
+  return `git (${sourceWithoutCredentials(publish.git ?? "url missing")})`;
 }
 
 /** The dry-run and publish report: files, total size and every target. */
