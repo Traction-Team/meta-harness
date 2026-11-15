@@ -20,4 +20,4 @@ A code is not the only gap. An account whose 2FA is a security key or passkey (1
 
 The npm target runs `npm publish` as a child process (`src/core/publish/`). Options: an `--otp <code>` flag passed through to npm, or let npm read the terminal when stdin is a TTY, and in either case a fix line on E403 that names `--otp` or `NPM_CONFIG_OTP`. Also seen: `publish --dry-run` prints `check` warnings after the publish summary rather than before it.
 
-Priority, 15 Nov: lower. Fabs are shared as Git repositories by default, so only the optional npm target meets this. fab-basic still mirrors to npm, so its releases do.
+Priority, 15 Nov: lower. Fabs are shared as Git repositories by default, so only the optional npm target meets this. fab-basic no longer publishes to npm (decision of 15 Nov in the roadmap), so none of our own releases meet it.

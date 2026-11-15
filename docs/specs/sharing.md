@@ -62,7 +62,7 @@ Fab requirements:
 
 Anyone can publish a fab. Recommended names are `fab-<name>` and `@<scope>/fab-<name>`, for npm packages and fab repositories alike.
 
-The Metafab project shares its own fabs as Git repositories in the `Traction-Team` GitHub organization, such as `github:Traction-Team/fab-basic`, and also publishes them to npm under `@seasb/`.
+The Metafab project shares its own fabs as Git repositories in the `Traction-Team` GitHub organization, such as `github:Traction-Team/fab-basic`. It does not publish them to npm.
 
 ## Sharing a Git repository
 

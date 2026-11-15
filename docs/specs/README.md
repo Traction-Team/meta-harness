@@ -61,7 +61,7 @@ Metafab installs factory parts as follows:
 ## Terminology
 
 - **Factory:** The `.factory/` directory in a repository.
-- **Fab:** A factory shared for reuse, as a Git repository such as `github:Traction-Team/fab-basic` or an npm package such as `@seasb/fab-basic`.
+- **Fab:** A factory shared for reuse, as a Git repository such as `github:Traction-Team/fab-basic` or an npm package such as `@acme/fab-basic`.
 - **Fab repository:** A Git repository that holds only published fab releases. `metafab publish` writes it.
 - **Metafab:** The product and its `metafab` CLI, published as `@seasb/metafab`.
 - **Upstream fab:** The fab from which a factory was copied. A factory has zero or one upstream fab.

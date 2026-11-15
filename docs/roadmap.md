@@ -53,7 +53,7 @@ A team can publish a factory as a fab and other teams can import and update it.
 - [x] [1.021 Source hardening](plans/1.021-source-hardening.md): `git+file://` sources, safe cache and mirror swaps, cache write errors exit 3, npm size checked before download
 - [x] [1.023 Factory requirements](plans/1.023-factory-requires.md): `requires:` in `factory.yaml`; `import` and `update` offer to create missing repository files from templates, `check` warns
 - [x] [1.022 Verification](plans/1.022-verification.md): agent tools, Windows, git hooks under Git for Windows, the CI recipe against `mark4-like`, the error message and `--json` contract, recorded in `docs/verification.md`
-- [x] [1.024 First fab](plans/1.024-first-fab.md): the Dragonfly factory generalised as `@seasb/fab-basic`, and this repository imports it
+- [x] [1.024 First fab](plans/1.024-first-fab.md): the Dragonfly factory generalised as `github:Traction-Team/fab-basic`, and this repository imports it
 - [x] [1.012 Release v1](plans/1.012-release.md): package `README.md`, release workflow with provenance, `@seasb/metafab@1.0.0`
 - [x] [1.025 Git hooks on here](plans/1.025-git-hooks-on.md): `@seasb/metafab` as a devDependency and `git-hooks: true` in this repository, once 1.0.0 is on npm
 
@@ -137,6 +137,7 @@ Record answered questions here with the date and the commit that applied them.
 
 | Date | Decision | Applied in |
 | --- | --- | --- |
+| 2026-11-15 | fab-basic is a Git repository only: `github:Traction-Team/fab-basic`, released by pushing a `v<version>` tag. The `@seasb/fab-basic` npm mirror is unpublished and its `publish` block removed from fab-basic, so no release of ours runs `metafab publish`. Metafab still supports npm fabs | [Sharing](specs/sharing.md), [2.015](plans/2.015-dogfood-environments.md) |
 | 2026-11-15 | Approve the environments direction as written: the [spec amendments](specs/environments.md) of 15 Nov (variable names start with a letter; outside a Git repository global and system config still count; labels leave out variables with every value; `build --out` refuses skill destinations; a block and its enclosing conditions span at most 1024 combinations; whitespace is optional around condition symbols), `env set` and `env unset` rebuild, and `check` does not compile every selection | [Environments](specs/environments.md), 2.011 to 2.014 |
 | 2026-11-15 | A fab is shared as a Git repository by default: `.factory/` at its root, a `v<version>` tag per release, imported as `github:<owner>/<repo>`. npm stays supported and optional; fab-basic keeps its `@seasb/fab-basic` mirror for now. Specs, quick-start and plans name the Git source first (#28) | [Sharing](specs/sharing.md#sharing-a-git-repository), [1.012](plans/1.012-release.md), [2.015](plans/2.015-dogfood-environments.md) |
 | 2026-11-15 | The first fab is `@seasb/fab-basic` (`github:Traction-Team/fab-basic`, since GitHub has no `seasb` account; changed while building #28), not `fab-orca`: a factory named after one harness or runner conflicts with environments, and the fab describes a process | [1.024](plans/1.024-first-fab.md#decisions), [1.012](plans/1.012-release.md) |
