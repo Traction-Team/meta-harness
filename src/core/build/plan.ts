@@ -44,11 +44,14 @@ import {
   isOwned,
   textContent,
 } from "./skill.js";
-import type { CompiledSkill } from "./skill.js";
+import type { CompiledSkill, RenderFile } from "./skill.js";
 import { syncGitHooks } from "../hooks/index.js";
 import type { HookChange } from "../hooks/index.js";
+import { parseMarkdown } from "../env/directives.js";
+import { renderDocument } from "../env/render.js";
+import { allValues, classify } from "../env/scenarios.js";
+import type { EnvSelection, EnvVariable, ResolvedSelection } from "../env/types.js";
 import { resolveSelection } from "../env/select.js";
-import type { ResolvedSelection } from "../env/types.js";
 
 export interface BuildWrite {
   path: string;
@@ -223,20 +226,84 @@ function skillWrites(destination: string, skill: DesiredSkill): BuildWrite[] {
   }));
 }
 
-async function compileFactorySkills(factory: Factory, errors: Problem[]): Promise<DesiredSkill[]> {
+/**
+ * A `compileSkill` renderer for one skill: each Markdown file is parsed and
+ * rendered for the selection. A document with problems is left as it is, because
+ * `build` stops on those problems before it writes anything.
+ */
+function markdownRenderer(
+  sourcePath: string,
+  variables: readonly EnvVariable[],
+  selection: EnvSelection,
+): (file: RenderFile) => string {
+  return (file) => {
+    const document = parseMarkdown(file.text, {
+      file: `${sourcePath}/${file.relative}`,
+      firstLine: file.firstLine,
+      variables,
+    });
+    if (document.problems.length > 0) return file.text;
+    return renderDocument(document, { variables, selection });
+  };
+}
+
+/**
+ * The `.factory/AGENTS.md` text for the root block. A format 2 factory renders it
+ * for every declared value of every variable, so the committed block is the same
+ * for every developer; a format 1 factory keeps it as written.
+ */
+function standingInstructions(factory: Factory): string | undefined {
+  const text = factory.agentsMd;
+  const yaml = factory.factoryYaml;
+  if (text === undefined || yaml === undefined || yaml.format !== 2) return text;
+
+  const document = parseMarkdown(text, {
+    file: ".factory/AGENTS.md",
+    firstLine: 1,
+    variables: yaml.env,
+  });
+  if (document.problems.length > 0) return text;
+  return renderDocument(document, { variables: yaml.env, selection: allValues(yaml.env) });
+}
+
+/**
+ * Compiles the factory's skills for the selection. A skill whose `skills`
+ * condition is false for it is left out, so `scanDestination` removes its owned
+ * output as for a deleted skill; a partial match installs with its label.
+ */
+async function compileFactorySkills(factory: Factory, plan: BuildPlan): Promise<DesiredSkill[]> {
   const desired: DesiredSkill[] = [];
+  const yaml = factory.factoryYaml;
+  const formatTwo = yaml?.format === 2;
+  const variables = yaml?.env ?? [];
+  const conditions = formatTwo ? yaml.skills : [];
+  const selection = plan.selection.selection;
 
   for (const skill of factory.skills) {
+    const sourcePath = `.factory/${skill.relDir}`;
+    let appliesOnly: string | undefined;
+
+    const condition = conditions.find((entry) => entry.name === skill.name)?.condition;
+    if (condition !== undefined) {
+      const applies = classify(condition, [], selection, variables);
+      if (applies.kind === "none") continue;
+      if (applies.kind === "some") appliesOnly = applies.label;
+    }
+
     const compiled: CompiledSkill = await compileSkill(
       {
         dir: path.join(factory.dir, ...skill.relDir.split("/")),
         name: skill.name,
-        sourcePath: `.factory/${skill.relDir}`,
+        sourcePath,
       },
-      { factoryDir: factory.dir },
+      {
+        factoryDir: factory.dir,
+        render: formatTwo ? markdownRenderer(sourcePath, variables, selection) : undefined,
+        appliesOnly,
+      },
     );
 
-    if (compiled.problems.length > 0) errors.push(...compiled.problems);
+    if (compiled.problems.length > 0) plan.errors.push(...compiled.problems);
     desired.push({
       name: compiled.name,
       files: compiled.files.map((file) => ({
@@ -805,7 +872,7 @@ export async function planBuild(
   }
 
   const selectedDestinations = destinations(config.agents);
-  const factorySkills = await compileFactorySkills(factory, plan.errors);
+  const factorySkills = await compileFactorySkills(factory, plan);
   const builtin = await compileBuiltinSkill(config, cliVersion, plan.errors);
 
   const desiredPerDestination = new Map<string, DesiredSkill[]>();
@@ -866,6 +933,8 @@ export async function planBuild(
   const agentsFile = "AGENTS.md";
   const agentsEntry = await readRootEntry(root, agentsFile);
   const agentsSelected = selectedDestinations.length > 0;
+  // Rendered for every value, so the committed block is the same for everyone.
+  const standing = agentsSelected ? standingInstructions(factory) : undefined;
 
   if (agentsEntry.problem !== undefined) {
     plan.errors.push(agentsEntry.problem);
@@ -873,13 +942,19 @@ export async function planBuild(
     plan.conflicts.push(symlinkReadConflict(agentsFile));
   } else {
     const agentsResult = agentsSelected
-      ? planBlockFile(agentsEntry.text, AGENTS_MARKERS, agentsFile, renderAgentsBlockBody(factory), true)
+      ? planBlockFile(
+          agentsEntry.text,
+          AGENTS_MARKERS,
+          agentsFile,
+          renderAgentsBlockBody(factory, standing),
+          true,
+        )
       : planBlockFile(agentsEntry.text, AGENTS_MARKERS, agentsFile, undefined, true);
     addBlockPlan(plan, agentsFile, agentsEntry, agentsResult, removals);
   }
 
   if (agentsSelected) {
-    const lineCount = agentsBlockLineCount(factory);
+    const lineCount = agentsBlockLineCount(factory, standing);
     if (lineCount > AGENTS_BLOCK_LINE_LIMIT) {
       plan.warnings.push({
         level: "warning",

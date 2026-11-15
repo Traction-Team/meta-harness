@@ -38,6 +38,16 @@ export interface SkillSource {
   sourcePath: string;
 }
 
+/** One Markdown file handed to a `CompileSkillOptions.render` callback. */
+export interface RenderFile {
+  /** Path inside the installed skill directory, with forward slashes. */
+  relative: string;
+  /** LF-normalised text; for `SKILL.md`, the body after its frontmatter. */
+  text: string;
+  /** Line number of `text`'s first line in the source file. */
+  firstLine: number;
+}
+
 export interface CompileSkillOptions {
   /** Absolute `.factory` directory. Symlinks must resolve inside it. */
   factoryDir: string;
@@ -49,6 +59,13 @@ export interface CompileSkillOptions {
   linkRoots?: string[];
   /** Generated comment line. Defaults to the factory skill comment. */
   comment?: string;
+  /**
+   * Renders a Markdown file for the environment selection. Absent copies the
+   * text unchanged, as the built-in skill and adoption do.
+   */
+  render?: (file: RenderFile) => string;
+  /** A partial match's label, for `**Applies only <label>.**` after the comment. */
+  appliesOnly?: string;
 }
 
 export interface CompiledSkill {
@@ -167,9 +184,32 @@ function isInside(root: string, target: string): boolean {
   );
 }
 
+/** True for a file `build` renders: its extension, lowercased, is `.md`. */
+function isMarkdown(relative: string): boolean {
+  return path.extname(relative).toLowerCase() === ".md";
+}
+
+/** A Markdown file's text for the selection; anything else is left alone. */
+function renderMarkdown(
+  relative: string,
+  text: string,
+  firstLine: number,
+  options: CompileSkillOptions,
+): string {
+  if (options.render === undefined || !isMarkdown(relative)) return text;
+  return options.render({ relative, text, firstLine });
+}
+
+/**
+ * Inserts the generated comment after the frontmatter, and the `Applies only`
+ * line after it when the skill applies in some environments only. For `SKILL.md`
+ * only the body below the frontmatter is rendered, so name and description stay
+ * the same in every environment.
+ */
 function insertComment(
   text: string,
   comment: string,
+  options: CompileSkillOptions,
 ): { ok: true; text: string } | { ok: false; message: string; fix: string } {
   const lines = text.split("\n");
   if (lines[0] !== "---") {
@@ -189,8 +229,12 @@ function insertComment(
     };
   }
 
-  lines.splice(closing + 1, 0, comment);
-  return { ok: true, text: lines.join("\n") };
+  const body = lines.slice(closing + 1).join("\n");
+  const rendered = renderMarkdown("SKILL.md", body, closing + 2, options).split("\n");
+  const next = [...lines.slice(0, closing + 1), comment];
+  if (options.appliesOnly !== undefined) next.push(`**Applies only ${options.appliesOnly}.**`);
+  next.push(...rendered);
+  return { ok: true, text: next.join("\n") };
 }
 
 interface WalkContext {
@@ -400,14 +444,15 @@ export async function collectSkillFiles(
 
 /**
  * Reads one collected file into its installed content: text is written as LF,
- * and `SKILL.md` gains the generated comment after its frontmatter. A file that
- * cannot be read, or a `SKILL.md` that is binary or has no frontmatter, reports
- * its problem and is left out.
+ * Markdown is rendered for the selection, and `SKILL.md` gains the generated
+ * comment after its frontmatter. A file that cannot be read, or a `SKILL.md`
+ * that is binary or has no frontmatter, reports its problem and is left out.
  */
 async function compiledFile(
   file: CollectedFile,
   displayPath: string,
   comment: string,
+  options: CompileSkillOptions,
   problems: Problem[],
 ): Promise<CompiledFile | undefined> {
   const error = (message: string, fix: string): undefined => {
@@ -432,10 +477,11 @@ async function compiledFile(
 
   const text = toLF(decoded);
   if (file.relative !== "SKILL.md") {
-    return { path: file.relative, content: Buffer.from(text, "utf8"), mode: file.mode };
+    const rendered = renderMarkdown(file.relative, text, 1, options);
+    return { path: file.relative, content: Buffer.from(rendered, "utf8"), mode: file.mode };
   }
 
-  const inserted = insertComment(text, comment);
+  const inserted = insertComment(text, comment, options);
   if (!inserted.ok) return error(inserted.message, inserted.fix);
 
   return { path: file.relative, content: Buffer.from(inserted.text, "utf8"), mode: file.mode };
@@ -455,6 +501,7 @@ export async function compileSkill(
       file,
       `${source.sourcePath}/${file.relative}`,
       comment,
+      options,
       problems,
     );
     if (compiled !== undefined) files.push(compiled);

@@ -1,0 +1,16 @@
+format: 2
+name: demo
+
+env:
+  harness:
+    description: The agent tool that runs the workflows
+    values:
+      opencode: { label: In OpenCode }
+      claude: { label: In Claude Code }
+      amp: { label: In Amp }
+  workspace:
+    values: [orca, orb]
+
+skills:
+  amp-threads:
+    when: env.harness == amp

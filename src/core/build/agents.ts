@@ -31,12 +31,15 @@ export function renderPipelineEntry(entry: PipelineEntry, index: number): string
   return `${line}. Then stop: ${stopSentence(entry.stop)}`;
 }
 
-/** The text between the factory markers in the root AGENTS.md. */
-export function renderAgentsBlockBody(factory: Factory): string {
+/**
+ * The text between the factory markers in the root AGENTS.md. `standing` is the
+ * rendered `.factory/AGENTS.md`; without it the source text is used as written.
+ */
+export function renderAgentsBlockBody(factory: Factory, standing?: string): string {
   const lines: string[] = [generatedComment(".factory"), ""];
 
-  const standing = factory.agentsMd?.trim() ?? "";
-  if (standing !== "") lines.push(...standing.split("\n"), "");
+  const text = (standing ?? factory.agentsMd ?? "").trim();
+  if (text !== "") lines.push(...text.split("\n"), "");
 
   const pipeline = factory.factoryYaml?.pipeline ?? [];
   if (pipeline.length > 0) {
@@ -58,14 +61,16 @@ export function renderAgentsBlockBody(factory: Factory): string {
 }
 
 /** The full root AGENTS.md block, markers included. */
-export function renderAgentsBlock(factory: Factory): string {
-  return [AGENTS_MARKERS.start, ...renderAgentsBlockBody(factory).split("\n"), AGENTS_MARKERS.end].join(
-    "\n",
-  );
+export function renderAgentsBlock(factory: Factory, standing?: string): string {
+  return [
+    AGENTS_MARKERS.start,
+    ...renderAgentsBlockBody(factory, standing).split("\n"),
+    AGENTS_MARKERS.end,
+  ].join("\n");
 }
 
-export function agentsBlockLineCount(factory: Factory): number {
-  return renderAgentsBlock(factory).split("\n").length;
+export function agentsBlockLineCount(factory: Factory, standing?: string): number {
+  return renderAgentsBlock(factory, standing).split("\n").length;
 }
 
 export function claudeBlockBody(): string {
