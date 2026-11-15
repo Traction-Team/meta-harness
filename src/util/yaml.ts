@@ -4,7 +4,7 @@ import type { Document, Pair } from "yaml";
 export interface YamlProblem {
   message: string;
   line: number;
-  fix?: string;
+  fix: string;
 }
 
 export interface YamlParseOptions {

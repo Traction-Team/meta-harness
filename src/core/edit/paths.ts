@@ -1,5 +1,5 @@
 import { MetafabError } from "../../errors.js";
-import type { Problem } from "../../errors.js";
+import type { ErrorProblem } from "../../errors.js";
 import { getSkillNameProblems } from "./names.js";
 
 export interface CreatePath {
@@ -8,12 +8,17 @@ export interface CreatePath {
   name: string;
 }
 
-function pathProblem(input: string, message: string, fix?: string): Problem {
+/**
+ * A problem about a path the person typed. The JSON contract requires `/`
+ * separators in `file` on every platform, while the message keeps the path as
+ * typed.
+ */
+function pathProblem(input: string, message: string, fix: string): ErrorProblem {
   return {
     level: "error",
-    file: input === "" ? "path" : input,
+    file: input === "" ? "path" : input.replace(/\\/g, "/"),
     message,
-    ...(fix === undefined ? {} : { fix }),
+    fix,
   };
 }
 
@@ -41,7 +46,7 @@ export function normaliseCreatePath(input: string): CreatePath {
     const message = "The path must not contain ..";
     throw new MetafabError(message, {
       code: "create-path-invalid",
-      problems: [pathProblem(input, message)],
+      problems: [pathProblem(input, message, "Use a path such as workflows/review-slice")],
     });
   }
 

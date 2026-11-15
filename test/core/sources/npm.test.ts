@@ -258,11 +258,26 @@ describe("npm sources", { timeout: 60_000 }, () => {
     expect(await pathExists(path.join(fetched.factoryDir, "AGENTS.md"))).toBe(true);
   });
 
-  test("fails with exit 3 when no version matches the range", async () => {
-    await expect(resolveSource("fab-range@^9.0.0")).rejects.toMatchObject({
-      exitCode: ExitCode.FetchFailed,
-      code: "fetch-failed",
-    });
+  test("fails with exit 3 and the version fix when no version matches the range", async () => {
+    try {
+      await resolveSource("fab-range@^9.0.0");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      const failure = error as MetafabError;
+      expect(failure.exitCode).toBe(ExitCode.FetchFailed);
+      expect(failure.code).toBe("fetch-failed");
+      expect(failure.problems).toEqual([
+        {
+          level: "error",
+          file: "fab-range",
+          message: failure.message,
+          fix: "Use a published version, a range or a dist-tag (npm view fab-range versions lists them)",
+        },
+      ]);
+      expect(failure.problems?.[0]?.file).not.toContain("\\");
+      return;
+    }
+    throw new Error("expected resolution to fail");
   });
 
   test("fails with exit 3 and the npm message for a missing package", async () => {

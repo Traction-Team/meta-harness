@@ -10,6 +10,7 @@ import type { PublishConfig } from "../config/types.js";
 import { disabledHooksConfig, gitEnvironment, gitMessage, VERBATIM_TEXT_ATTRIBUTES } from "../sources/git-process.js";
 import { gitTransportUrl } from "../sources/parse.js";
 import { redact, stripSourceCredentials } from "../sources/redact.js";
+import { PUBLISH_RETRY_FIX, publishProblem } from "./prepare.js";
 import type { PublishOptions } from "./types.js";
 
 /** The tag message prefix that marks a tag `publish` created itself. */
@@ -68,8 +69,20 @@ function gitContext(options: PublishOptions): GitContext {
   };
 }
 
-function gitError(message: string, code: string, exitCode: ExitCode, cause?: unknown): MetafabError {
-  return new MetafabError(redact(message), { exitCode, code, cause });
+function gitError(
+  message: string,
+  code: string,
+  exitCode: ExitCode,
+  cause?: unknown,
+  fix = PUBLISH_RETRY_FIX,
+): MetafabError {
+  const text = redact(message);
+  return new MetafabError(text, {
+    exitCode,
+    code,
+    cause,
+    problems: [publishProblem(text, fix)],
+  });
 }
 
 async function tryGit(

@@ -308,6 +308,21 @@ describe("parseSource", () => {
     }
   });
 
+  test("reports an invalid source with a fix and a /-separated file", () => {
+    const error = failure("git+file://host\\fab.git");
+
+    expect(error.code).toBe("invalid-source");
+    expect(error.exitCode).toBe(ExitCode.Failed);
+    expect(error.problems).toEqual([
+      {
+        level: "error",
+        file: "git+file://host/fab.git",
+        message: error.message,
+        fix: "Use an npm name, github:owner/repo, git+https://, git+ssh://, ssh://, git@host:path, git+file:///<path>, an https:// tarball, or a local path",
+      },
+    ]);
+  });
+
   test("refuses an unsupported URL scheme with the supported forms", () => {
     const refused: Array<[source: string, message: string]> = [
       ["ftp://x/f.tgz", 'unsupported URL scheme "ftp:"'],

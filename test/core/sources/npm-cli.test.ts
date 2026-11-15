@@ -78,6 +78,15 @@ describe("npmInvocation", () => {
       expect(metafab.exitCode).toBe(ExitCode.FetchFailed);
       expect(metafab.code).toBe("fetch-failed");
       expect(metafab.message).toContain("npm could not be found");
+      expect(metafab.problems).toEqual([
+        {
+          level: "error",
+          file: "npm",
+          message: "Cannot run npm: npm could not be found",
+          fix: "Install Node.js with npm, or put npm on PATH, then run the command again",
+        },
+      ]);
+      expect(metafab.problems?.[0]?.file).not.toContain("\\");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

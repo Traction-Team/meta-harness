@@ -2,7 +2,7 @@ import path from "node:path";
 import { isMap } from "yaml";
 import type { Document } from "yaml";
 import { MetafabError } from "../../errors.js";
-import type { Problem } from "../../errors.js";
+import type { ErrorProblem, Problem } from "../../errors.js";
 import { didYouMean } from "../../util/suggest.js";
 import { loadFactory } from "../factory/load.js";
 import type { Skill } from "../factory/types.js";
@@ -39,12 +39,16 @@ export interface RemoveWorkflowResult {
   pipeline: string[];
 }
 
-function problem(file: string, message: string, fix?: string): Problem {
+/**
+ * A problem about a pipeline edit. A workflow name is person-typed and reaches
+ * `file` inside a path, so the separators are normalized for the JSON contract.
+ */
+function problem(file: string, message: string, fix: string): ErrorProblem {
   return {
     level: "error",
-    file,
+    file: file.replace(/\\/g, "/"),
     message,
-    ...(fix === undefined ? {} : { fix }),
+    fix,
   };
 }
 
@@ -99,11 +103,13 @@ function requireAfter(names: readonly string[], after: string): void {
   ]);
 }
 
-function validateWorkflowName(workflow: string): void {
+function validateWorkflowName(workflow: string, command: "add" | "remove"): void {
   if (workflow !== "") return;
 
   const message = "A pipeline entry must name a workflow.";
-  throw pipelineError("pipeline-entry-invalid", message, [problem(FACTORY_FILE, message)]);
+  throw pipelineError("pipeline-entry-invalid", message, [
+    problem(FACTORY_FILE, message, `Name the workflow: metafab pipeline ${command} <workflow>`),
+  ]);
 }
 
 function validateStop(stop: string): void {
@@ -148,7 +154,7 @@ export async function addWorkflow(
   workflow: string,
   options: AddWorkflowOptions = {},
 ): Promise<AddWorkflowResult> {
-  validateWorkflowName(workflow);
+  validateWorkflowName(workflow, "add");
   if (options.stop !== undefined) validateStop(options.stop);
 
   const factory = await loadFactory(root);
@@ -187,7 +193,7 @@ export async function addWorkflow(
 }
 
 export async function removeWorkflow(root: string, workflow: string): Promise<RemoveWorkflowResult> {
-  validateWorkflowName(workflow);
+  validateWorkflowName(workflow, "remove");
 
   const factory = await loadFactory(root);
   const text = await readFactoryYamlText(factory.dir);

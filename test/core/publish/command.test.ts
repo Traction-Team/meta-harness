@@ -274,7 +274,7 @@ describe("metafab publish", () => {
       },
     ]);
     expect(json.targets).toEqual([
-      { target: "git", status: "failed", detail: expect.stringContaining("missing") },
+      { target: "git", status: "failed", detail: 'The fab repository has no branch "missing".' },
     ]);
   });
 

@@ -298,7 +298,14 @@ export async function main(
     if (global.version) {
       const version = cliVersion();
       return emit(
-        { ok: true, command: "version", exitCode: ExitCode.Ok, summary: version, version },
+        {
+          ok: true,
+          command: "version",
+          exitCode: ExitCode.Ok,
+          problems: [],
+          summary: version,
+          version,
+        },
         json,
         stdout,
         stderr,

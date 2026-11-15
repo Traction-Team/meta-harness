@@ -59,6 +59,36 @@ describe("normaliseCreatePath", () => {
     expect(codeOf(() => normaliseCreatePath("review/Bad_Name"))).toBe("create-name-invalid");
     expect(codeOf(() => normaliseCreatePath("metafab-review"))).toBe("create-name-invalid");
   });
+
+  test("a path with .. names the next step", () => {
+    try {
+      normaliseCreatePath("workflows/../review-slice");
+      throw new Error("expected the path to be refused");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      expect((error as MetafabError).problems).toEqual([
+        {
+          level: "error",
+          file: "workflows/../review-slice",
+          message: "The path must not contain ..",
+          fix: "Use a path such as workflows/review-slice",
+        },
+      ]);
+    }
+  });
+
+  test("a backslash path in a problem file uses / and keeps the message as typed", () => {
+    try {
+      normaliseCreatePath("workflows\\..\\bad");
+      throw new Error("expected the path to be refused");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      const failure = error as MetafabError;
+      expect(failure.code).toBe("create-path-invalid");
+      expect(failure.problems?.[0]?.file).toBe("workflows/../bad");
+      expect(failure.problems?.[0]?.message).toBe("The path must not contain ..");
+    }
+  });
 });
 
 describe("headingFromName", () => {

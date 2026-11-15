@@ -74,6 +74,23 @@ describe("validateFab", () => {
     throw new Error("expected validation to fail");
   });
 
+  test("reports a Windows source label with / in every problem file", async () => {
+    try {
+      await validateFab(path.join(FIXTURES, "invalid-fab"), {
+        sourceLabel: "C:\\fabs\\broken\\",
+      });
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      const failure = error as MetafabError;
+      expect(failure.message).toBe("Invalid fab from C:\\fabs\\broken\\");
+      const files = failure.problems?.map((problem) => problem.file) ?? [];
+      expect(files).toContain("C:/fabs/broken/.factory/skills/broken/SKILL.md");
+      for (const file of files) expect(file).not.toContain("\\");
+      return;
+    }
+    throw new Error("expected validation to fail");
+  });
+
   test("accepts a format 2 fab and reports its format", async () => {
     const base = await tempDir();
     try {

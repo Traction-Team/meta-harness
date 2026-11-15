@@ -29,6 +29,7 @@ function invalidYaml(text: string, file: string): never {
         file,
         ...(line === undefined ? {} : { line }),
         message,
+        fix: "Fix the YAML syntax on this line",
       },
     ],
   });
@@ -42,7 +43,14 @@ function documentForWriting(text: string, file = CONFIG_FILE): Document {
   if (doc.contents !== null && !isMap(doc.contents)) {
     throw new MetafabError(`${file}: The configuration must be a YAML map.`, {
       code: "config-invalid-yaml",
-      problems: [{ level: "error", file, message: "The configuration must be a YAML map." }],
+      problems: [
+        {
+          level: "error",
+          file,
+          message: "The configuration must be a YAML map.",
+          fix: "Start the document with key: value pairs",
+        },
+      ],
     });
   }
 

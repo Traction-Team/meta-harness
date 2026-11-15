@@ -53,5 +53,13 @@ export async function npmInvocation(
   throw new MetafabError("Cannot run npm: npm could not be found", {
     exitCode: ExitCode.FetchFailed,
     code: "fetch-failed",
+    problems: [
+      {
+        level: "error",
+        file: "npm",
+        message: "Cannot run npm: npm could not be found",
+        fix: "Install Node.js with npm, or put npm on PATH, then run the command again",
+      },
+    ],
   });
 }

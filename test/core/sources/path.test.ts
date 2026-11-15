@@ -5,10 +5,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { ExitCode, MetafabError } from "../../../src/errors.js";
 import { fetchFab, parseSource, resolve } from "../../../src/core/sources/index.js";
+import { FAB_LINK_FIX } from "../../../src/core/sources/problems.js";
 import { pathExists } from "../../../src/util/fs.js";
 import { runGitIn } from "./git-fixture.js";
 
 const FIXTURES = fileURLToPath(new URL("../../fixtures/fabs/", import.meta.url));
+const LOCAL_FETCH_FIX =
+  "Run metafab import with the directory that contains .factory/, or a Git, npm or HTTPS source";
 
 let root: string;
 let sourceParent: string;
@@ -22,6 +25,19 @@ async function fetchSource(
   options: Record<string, unknown> = {},
 ): Promise<Awaited<ReturnType<typeof fetchFab>>> {
   return fetchFab(await resolve(pathSource(value)), options);
+}
+
+async function fetchFailure(
+  value: string,
+  options: Record<string, unknown> = {},
+): Promise<MetafabError> {
+  try {
+    await fetchSource(value, options);
+  } catch (error) {
+    expect(error).toBeInstanceOf(MetafabError);
+    return error as MetafabError;
+  }
+  throw new Error("expected the fetch to fail");
 }
 
 beforeEach(async () => {
@@ -77,61 +93,89 @@ describe("local path sources", () => {
     expect(await pathExists(path.join(fetched.factoryDir, "new-local.md"))).toBe(false);
   });
 
-  test("fails with exit 3 when the path does not exist", async () => {
-    await expect(fetchSource(path.join(root, "missing-fab"))).rejects.toMatchObject({
-      exitCode: ExitCode.FetchFailed,
-      code: "fetch-failed",
-    });
+  test("fails with exit 3 and a fix when the path does not exist", async () => {
+    const missing = path.join(root, "missing-fab");
+    const failure = await fetchFailure(missing);
+
+    expect(failure.exitCode).toBe(ExitCode.FetchFailed);
+    expect(failure.code).toBe("fetch-failed");
+    expect(failure.problems).toEqual([
+      {
+        level: "error",
+        file: missing.replace(/\\/g, "/"),
+        message: failure.message,
+        fix: LOCAL_FETCH_FIX,
+      },
+    ]);
   });
 
   test("names the git+file:// form for a bare Git repository", async () => {
     const repo = path.join(root, "fab.git");
     await runGitIn(root, ["init", "-q", "--bare", repo]);
 
-    try {
-      await fetchSource(repo);
-    } catch (error) {
-      expect(error).toBeInstanceOf(MetafabError);
-      const failure = error as MetafabError;
-      expect(failure.exitCode).toBe(ExitCode.FetchFailed);
-      expect(failure.code).toBe("fetch-failed");
-      expect(failure.message).toContain("it is a bare Git repository");
-      expect(failure.message).toContain(`git+${pathToFileURL(repo).href}`);
-      return;
-    }
-    throw new Error("expected the fetch to fail");
+    const failure = await fetchFailure(repo);
+
+    expect(failure.exitCode).toBe(ExitCode.FetchFailed);
+    expect(failure.code).toBe("fetch-failed");
+    expect(failure.message).toContain("it is a bare Git repository");
+    expect(failure.message).toContain(`git+${pathToFileURL(repo).href}`);
+    expect(failure.problems?.[0]?.fix).toBe(`Run metafab import git+${pathToFileURL(repo).href}`);
   });
 
   test("keeps the missing .factory message for a directory that is not a repository", async () => {
     const empty = path.join(root, "empty");
     await mkdir(empty, { recursive: true });
 
-    try {
-      await fetchSource(empty);
-    } catch (error) {
-      expect(error).toBeInstanceOf(MetafabError);
-      const failure = error as MetafabError;
-      expect(failure.message).toContain("the .factory directory does not exist");
-      expect(failure.message).not.toContain("bare Git repository");
-      return;
-    }
-    throw new Error("expected the fetch to fail");
+    const failure = await fetchFailure(empty);
+
+    expect(failure.message).toContain("the .factory directory does not exist");
+    expect(failure.message).not.toContain("bare Git repository");
+    expect(failure.problems?.[0]?.fix).toBe(LOCAL_FETCH_FIX);
+  });
+
+  test("refuses a .factory that is a file with exit 3 and a fix", async () => {
+    const notADirectory = path.join(root, "not-a-directory");
+    await mkdir(notADirectory, { recursive: true });
+    await writeFile(path.join(notADirectory, ".factory"), "not a directory\n");
+
+    const failure = await fetchFailure(notADirectory);
+
+    expect(failure.exitCode).toBe(ExitCode.FetchFailed);
+    expect(failure.code).toBe("fetch-failed");
+    expect(failure.message).toContain("is not a directory");
+    expect(failure.problems?.[0]?.fix).toBe(LOCAL_FETCH_FIX);
+  });
+
+  test("refuses a .factory that is a link with exit 4 and the link fix", async () => {
+    const linked = path.join(root, "linked");
+    await mkdir(linked, { recursive: true });
+    await symlink(path.join(sourceParent, ".factory"), path.join(linked, ".factory"));
+
+    const failure = await fetchFailure(linked);
+
+    expect(failure.exitCode).toBe(ExitCode.InvalidFab);
+    expect(failure.code).toBe("invalid-fab");
+    expect(failure.problems).toEqual([
+      {
+        level: "error",
+        file: `${linked.replace(/\\/g, "/")}/.factory`,
+        line: 1,
+        message: "links are not allowed in a fab",
+        fix: FAB_LINK_FIX,
+      },
+    ]);
   });
 
   test("rejects a symlink that points outside the factory with exit 4", async () => {
     await writeFile(path.join(root, "outside.txt"), "outside\n");
     await symlink(path.join(root, "outside.txt"), path.join(sourceParent, ".factory", "link.md"));
 
-    try {
-      await fetchSource(sourceParent);
-    } catch (error) {
-      expect(error).toBeInstanceOf(MetafabError);
-      const failure = error as MetafabError;
-      expect(failure.exitCode).toBe(ExitCode.InvalidFab);
-      expect(failure.problems?.some((problem) => problem.message.includes("links"))).toBe(true);
-      return;
-    }
-    throw new Error("expected the fetch to fail");
+    const failure = await fetchFailure(sourceParent);
+
+    expect(failure.exitCode).toBe(ExitCode.InvalidFab);
+    expect(failure.problems?.some((problem) => problem.message.includes("links"))).toBe(true);
+    expect(failure.problems?.[0]?.file).toBe(`${sourceParent.replace(/\\/g, "/")}/.factory/link.md`);
+    expect(failure.problems?.[0]?.file).not.toContain("\\");
   });
 
   test("allows a symlink whose target stays inside the factory", async () => {

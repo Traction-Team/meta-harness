@@ -62,6 +62,7 @@ describe("loadConfig", () => {
 
     expect(config.problems).toHaveLength(1);
     expect(config.problems[0]?.file).toBe(".factory/metafab.yaml");
+    expect(config.problems[0]?.fix).toBe("Fix the YAML syntax on this line");
     expect(config.agents).toEqual(TARGETS);
     expect(unreadableConfigCode(config)).toBeUndefined();
   });

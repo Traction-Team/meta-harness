@@ -271,8 +271,28 @@ describe("file writers", () => {
     const original = "agents: [claude\n";
     const repo = await repoWith({ ".factory/metafab.yaml": original });
 
-    await expect(setUpstream(repo.path(".factory"), npmEntry)).rejects.toThrow(MetafabError);
+    await expect(setUpstream(repo.path(".factory"), npmEntry)).rejects.toMatchObject({
+      name: "MetafabError",
+      problems: [{ file: ".factory/metafab.yaml", fix: "Fix the YAML syntax on this line" }],
+    });
     expect(await readFile(repo.path(".factory/metafab.yaml"), "utf8")).toBe(original);
+  });
+
+  test("setUpstream rejects a document that is not a map with a fix", () => {
+    try {
+      setUpstreamText("just a string\n", npmEntry);
+      throw new Error("expected the write to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MetafabError);
+      expect((error as MetafabError).problems).toEqual([
+        {
+          level: "error",
+          file: ".factory/metafab.yaml",
+          message: "The configuration must be a YAML map.",
+          fix: "Start the document with key: value pairs",
+        },
+      ]);
+    }
   });
 
   test("removeUpstream is a no-op when the file or key is missing", async () => {

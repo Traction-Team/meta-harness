@@ -461,6 +461,27 @@ description: Review a slice before it merges.
     expect(result.stderr).toBe("");
   });
 
+  test("a backslash path in a problem file uses / and keeps the message as typed", async () => {
+    const created = await repo();
+
+    const result = await runCli(
+      ["create", "workflows\\..\\bad", "--description", "Bad.", "--json"],
+      { cwd: created.root, tty: false },
+    );
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toBe("");
+    const output = JSON.parse(result.stdout) as {
+      code: string;
+      problems: { file: string; message: string }[];
+    };
+    expect(output.code).toBe("create-path-invalid");
+    expect(output.problems[0]?.file).toBe("workflows/../bad");
+    expect(output.problems[0]?.file).not.toContain("\\");
+    expect(output.problems[0]?.message).toBe("The path must not contain ..");
+    expect(await pathExists(created.path(".factory/workflows/bad/SKILL.md"))).toBe(false);
+  });
+
   test("exits 2 and writes nothing without a description in a non-TTY", async () => {
     const created = await repo();
     const before = await listFiles(created.root);

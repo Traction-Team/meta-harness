@@ -5,8 +5,10 @@ import { fileURLToPath } from "node:url";
 import * as tar from "tar";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { MetafabError } from "../../../src/errors.js";
+import type { Problem } from "../../../src/errors.js";
 import { extractTarball } from "../../../src/core/sources/extract.js";
 import { fetchFab, parseSource, resolve } from "../../../src/core/sources/index.js";
+import { LINK_CREATE_FIX } from "../../../src/core/sources/problems.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
@@ -23,20 +25,22 @@ function denySymlinkCreation(): void {
   );
 }
 
-async function failureFrom(run: () => Promise<unknown>): Promise<string[]> {
+async function failureFrom(run: () => Promise<unknown>): Promise<Problem[]> {
   try {
     await run();
   } catch (error) {
     expect(error).toBeInstanceOf(MetafabError);
-    return ((error as MetafabError).problems ?? []).map((problem) => problem.message);
+    return (error as MetafabError).problems ?? [];
   }
   throw new Error("expected the fetch to fail");
 }
 
-function expectOnlyCreationMessage(messages: string[]): void {
-  expect(messages).toHaveLength(1);
-  expect(messages[0]).toContain("links could not be created");
-  expect(messages[0]).not.toContain("does not exist");
+function expectOnlyCreationMessage(problems: Problem[]): void {
+  expect(problems).toHaveLength(1);
+  const message = problems[0]?.message ?? "";
+  expect(message).toContain("links could not be created");
+  expect(message).not.toContain("does not exist");
+  expect(problems[0]?.fix).toBe(LINK_CREATE_FIX);
 }
 
 beforeEach(async () => {

@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { MetafabError } from "../../errors.js";
-import type { Problem } from "../../errors.js";
+import type { ErrorProblem, Problem } from "../../errors.js";
 import { readdirTyped } from "../../util/fs.js";
 import { isSingleLine } from "../../util/text.js";
 import { discoverSkills } from "../factory/discovery.js";
@@ -19,12 +19,12 @@ export interface CreatePlan {
   skillPath: string;
 }
 
-function problem(file: string, message: string, fix?: string): Problem {
+function problem(file: string, message: string, fix: string): ErrorProblem {
   return {
     level: "error",
     file,
     message,
-    ...(fix === undefined ? {} : { fix }),
+    fix,
   };
 }
 

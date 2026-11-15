@@ -49,6 +49,22 @@ describe("global flags", () => {
     expect(result.stdout.trim()).toBe(pkg.version);
   });
 
+  test("--version --json adds problems and the version", async () => {
+    const pkg = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as {
+      version: string;
+    };
+    const result = await runCli(["--version", "--json"], { cwd: repo.root, tty: false });
+
+    expect(result.code).toBe(ExitCode.Ok);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: true,
+      command: "version",
+      exitCode: ExitCode.Ok,
+      problems: [],
+      version: pkg.version,
+    });
+  });
+
   test("a pipeline subcommand is dispatched", async () => {
     const result = await runCli(["pipeline", "add", "review-slice"], { cwd: repo.root, tty: false });
     expect(result.code).toBe(ExitCode.Failed);

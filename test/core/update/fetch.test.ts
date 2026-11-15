@@ -3,7 +3,7 @@ import { ExitCode, MetafabError } from "../../../src/errors.js";
 import { recordedBaseGone } from "../../../src/core/update/fetch.js";
 
 function failure(code: string, message: string, cause?: unknown): MetafabError {
-  return new MetafabError(message, { exitCode: ExitCode.FetchFailed, code, cause });
+  return new MetafabError(message, { exitCode: ExitCode.FetchFailed, code, cause, problems: [] });
 }
 
 describe("recordedBaseGone", () => {

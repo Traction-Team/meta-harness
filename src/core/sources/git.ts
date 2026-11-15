@@ -13,6 +13,7 @@ import { cacheLayout, cacheRoot, fabKey, getOrCreate, cacheWriteError, isLostRac
 import type { CacheLayout } from "./cache.js";
 import { extractTarball } from "./extract.js";
 import { disabledHooksConfig, gitEnvironment, gitMessage, VERBATIM_TEXT_ATTRIBUTES } from "./git-process.js";
+import { sourceProblemFile } from "./problems.js";
 import { redact } from "./redact.js";
 import { sourceWithoutCredentials } from "./parse.js";
 import type { FetchedFab, GitRef, GitSourceSpec, Resolved } from "./types.js";
@@ -112,7 +113,9 @@ async function writeVerbatimAttributes(mirror: string, sourceLabel: string): Pro
     await rm(temporary, { force: true }).catch(() => undefined);
     const detail = error instanceof Error ? error.message : String(error);
     throw fetchError(
+      sourceLabel,
       `Cannot export .factory from ${sourceLabel} byte for byte: ${detail}`,
+      undefined,
       error,
     );
   }
@@ -175,10 +178,21 @@ function gitOptions(options: GitOptions): {
   };
 }
 
-function fetchError(message: string, cause?: unknown): MetafabError {
-  return new MetafabError(redact(message), {
+/**
+ * A fetch failure names the source twice: as the problem's `file`, and in the
+ * fix, so the person can run the same command to see Git's own answer.
+ */
+function fetchError(
+  source: string,
+  message: string,
+  fix: string = `Check that the repository exists and that git can reach it (git ls-remote ${redact(source)}), then run the command again`,
+  cause?: unknown,
+): MetafabError {
+  const text = redact(message);
+  return new MetafabError(text, {
     exitCode: ExitCode.FetchFailed,
     code: "fetch-failed",
+    problems: [{ level: "error", file: sourceProblemFile(source), message: text, fix }],
     cause,
   });
 }
@@ -191,19 +205,33 @@ function fetchError(message: string, cause?: unknown): MetafabError {
  * a rejected credential, a cache or filesystem problem) is `fetch-failed` and
  * must stop an update rather than be mistaken for a missing base.
  */
-function notFoundError(message: string): MetafabError {
-  return new MetafabError(redact(message), {
+function notFoundError(source: string, message: string): MetafabError {
+  const text = redact(message);
+  return new MetafabError(text, {
     exitCode: ExitCode.FetchFailed,
     code: "fetch-not-found",
+    problems: [
+      {
+        level: "error",
+        file: sourceProblemFile(source),
+        message: text,
+        fix: `Check that the tag, branch or commit exists in the repository (git ls-remote ${redact(source)}), or import the source without a ref`,
+      },
+    ],
   });
 }
 
-async function runGit(args: string[], context: string, options: GitOptions): Promise<string> {
+async function runGit(
+  source: string,
+  args: string[],
+  context: string,
+  options: GitOptions,
+): Promise<string> {
   try {
     const { stdout } = await execFileAsync("git", [...gitConfigArgs(), ...args], gitOptions(options));
     return stdout;
   } catch (error) {
-    throw fetchError(`${context}: ${gitMessage(error as GitFailure)}`, error);
+    throw fetchError(source, `${context}: ${gitMessage(error as GitFailure)}`, undefined, error);
   }
 }
 
@@ -256,11 +284,13 @@ async function cloneInto(
     // left in the mirror's config, and later fetches pass the URL on the
     // command line instead.
     await runGit(
+      url,
       ["clone", "--mirror", "--", url, destination],
       `Cannot clone Git source ${url}`,
       options,
     );
     await runGit(
+      sourceWithoutCredentials(url),
       ["-C", destination, "remote", "set-url", "origin", sourceWithoutCredentials(url)],
       `Cannot record Git source ${sourceWithoutCredentials(url)}`,
       options,
@@ -280,6 +310,7 @@ async function cloneInto(
 async function installMirror(
   temporary: string,
   mirror: string,
+  source: string,
   layout: CacheLayout,
   options: GitOptions,
 ): Promise<void> {
@@ -290,6 +321,7 @@ async function installMirror(
       await rm(temporary, { recursive: true, force: true }).catch(() => undefined);
       if (await isUsableMirror(mirror, options)) return;
       throw fetchError(
+        source,
         `Cannot use the Git mirror ${mirror}: another command left it incomplete`,
       );
     }
@@ -309,7 +341,7 @@ async function cloneMirror(
   // at the real path.
   const temporary = `${mirror}.tmp-${randomUUID()}`;
   await cloneInto(url, temporary, layout, options);
-  await installMirror(temporary, mirror, layout, options);
+  await installMirror(temporary, mirror, url, layout, options);
 }
 
 async function isUsableMirror(mirror: string, options: GitOptions): Promise<boolean> {
@@ -351,7 +383,7 @@ async function replaceMirror(
       // or is halfway through one. Install this clone the way a first clone
       // does, so a mirror that is already back in place wins and the rest of
       // the command uses it instead of failing on a cache it cannot write.
-      await installMirror(replacement, mirror, layout, options);
+      await installMirror(replacement, mirror, url, layout, options);
       return mirror;
     }
     await rm(replacement, { recursive: true, force: true }).catch(() => undefined);
@@ -409,8 +441,13 @@ async function ensureMirror(url: string, layout: CacheLayout, options: GitOption
   return mirror;
 }
 
-async function listRefs(mirror: string, options: GitOptions): Promise<MirrorRefs> {
+async function listRefs(
+  mirror: string,
+  source: string,
+  options: GitOptions,
+): Promise<MirrorRefs> {
   const stdout = await runGit(
+    source,
     ["-C", mirror, "for-each-ref", "--format=%(refname)%00%(objectname)%00%(*objectname)", "refs/tags", "refs/heads"],
     "Cannot read the Git refs",
     options,
@@ -469,7 +506,10 @@ async function selectByRange(
   );
   const tag = candidates.find((candidate) => candidate.version === version);
   if (version === null || tag === undefined) {
-    throw notFoundError(`Cannot resolve Git source ${source}: no version tag matches "${range}"`);
+    throw notFoundError(
+      source,
+      `Cannot resolve Git source ${source}: no version tag matches "${range}"`,
+    );
   }
   return { commit: tag.commit, version, requested: range };
 }
@@ -520,7 +560,10 @@ async function selectByName(
     }
   }
 
-  throw notFoundError(`Cannot resolve Git source ${source}: ref "${name}" was not found`);
+  throw notFoundError(
+    source,
+    `Cannot resolve Git source ${source}: ref "${name}" was not found`,
+  );
 }
 
 async function selectRef(
@@ -545,6 +588,7 @@ async function selectRef(
     const head = refs.head === undefined ? undefined : refs.heads.get(refs.head);
     if (head === undefined) {
       throw notFoundError(
+        spec.source,
         `Cannot resolve Git source ${spec.source}: the default branch was not found`,
       );
     }
@@ -568,7 +612,7 @@ async function exportFactory(
     const label = redact(sourceLabel);
     const problem: Problem = {
       level: "error",
-      file: `${label.replace(/\/+$/, "")}/.factory`,
+      file: sourceProblemFile(sourceLabel, ".factory"),
       line: 1,
       message: "A fab must contain a .factory directory",
       fix: "Add .factory/ to the fab",
@@ -585,12 +629,18 @@ async function exportFactory(
     staging = await mkdtemp(path.join(tmpdir(), "metafab-git-"));
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw fetchError(`Cannot create a temporary directory in ${tmpdir()}: ${detail}`, error);
+    throw fetchError(
+      sourceLabel,
+      `Cannot create a temporary directory in ${tmpdir()}: ${detail}`,
+      "Free disk space or make the temporary directory writable, then run the command again",
+      error,
+    );
   }
   try {
     const archive = path.join(staging, "factory.tar");
     await writeVerbatimAttributes(mirror, sourceLabel);
     await runGit(
+      sourceLabel,
       [
         ...VERBATIM_CONFIG,
         "-C",
@@ -631,7 +681,7 @@ export async function resolveGit(
 ): Promise<ResolvedGit> {
   const layout = cacheLayout(options.cache ?? cacheRoot());
   const mirror = await ensureMirror(spec.url, layout, options);
-  const refs = await listRefs(mirror, options);
+  const refs = await listRefs(mirror, spec.source, options);
   const selection = await selectRef(spec, refs, mirror, options.to, options);
 
   return {

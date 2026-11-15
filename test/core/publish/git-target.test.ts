@@ -1,8 +1,8 @@
-import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ExitCode, MetafabError } from "../../../src/errors.js";
-import { prepareFab, publishFab, verifyGitIndex } from "../../../src/core/publish/index.js";
+import { PUBLISH_RETRY_FIX, prepareFab, publishFab, verifyGitIndex } from "../../../src/core/publish/index.js";
 import { addFailure } from "../../../src/core/publish/git-target.js";
 import type { PublishConfig } from "../../../src/core/config/types.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
@@ -187,6 +187,62 @@ describe("the Git target", { timeout: 30_000 }, () => {
     expect(failure.message).toContain("Cannot compare tag v1.2.0 with the staged fab");
     expect(failure.message).toContain("diff.algorithm");
     expect(await remoteRef(bare.repo, "refs/heads/main")).toBe(head);
+  });
+
+  it("reports a failed clone as a publish problem with the retry fix", async () => {
+    const bare = track(await makeBareFabRepo());
+    await publish(bare.repo, VERSION);
+    // `ls-remote` reads refs only, so the tag is still visible; the clone that
+    // follows reads the objects, and they are gone.
+    await rm(path.join(bare.repo, "objects"), { recursive: true, force: true });
+    await mkdir(path.join(bare.repo, "objects"));
+    const fixture = await prepare(bare.repo, VERSION);
+    const env = trackEnv(await noIdentityEnv());
+
+    const failure = (await publishFab(fixture.prepared, fixture.publish, {
+      env,
+      stderr: () => undefined,
+    }).catch((error: unknown) => error)) as MetafabError;
+
+    expect(failure).toBeInstanceOf(MetafabError);
+    expect(failure.code).toBe("publish-git-failed");
+    expect(failure.exitCode).toBe(ExitCode.FetchFailed);
+    expect(failure.problems).toEqual([
+      {
+        level: "error",
+        file: ".factory/metafab.yaml",
+        message: failure.message,
+        fix: PUBLISH_RETRY_FIX,
+      },
+    ]);
+  });
+
+  it("reports a raw target failure with the retry fix and exit 1", async () => {
+    const bare = track(await makeBareFabRepo());
+    await publish(bare.repo, VERSION);
+    const fixture = await prepare(bare.repo, "1.3.0");
+    const env = trackEnv(await noIdentityEnv());
+    // The staged fab is gone by the time the target copies it, so the target
+    // throws a raw filesystem error rather than a MetafabError.
+    await rm(fixture.prepared.root, { recursive: true, force: true });
+
+    const result = await publishFab(fixture.prepared, fixture.publish, {
+      env,
+      stderr: () => undefined,
+    });
+
+    expect(result.exitCode).toBe(ExitCode.Failed);
+    expect(result.problems).toEqual([
+      {
+        level: "error",
+        file: ".factory/metafab.yaml",
+        message: expect.stringContaining("The git target failed:"),
+        fix: PUBLISH_RETRY_FIX,
+      },
+    ]);
+    expect(result.targets).toEqual([
+      { target: "git", status: "failed", detail: expect.stringContaining("ENOENT") },
+    ]);
   });
 
   it("refuses a version whose tag carries different content without changing the repository", async () => {

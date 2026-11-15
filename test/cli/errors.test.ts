@@ -15,12 +15,12 @@ describe("ExitCode", () => {
 
 describe("MetafabError", () => {
   test("defaults to a failed exit code", () => {
-    const error = new MetafabError("broken");
+    const error = new MetafabError("broken", { problems: [] });
     expect(error).toBeInstanceOf(Error);
     expect(error.name).toBe("MetafabError");
     expect(error.exitCode).toBe(ExitCode.Failed);
     expect(error.code).toBe("error");
-    expect(error.problems).toBeUndefined();
+    expect(error.problems).toEqual([]);
   });
 
   test("keeps the given exit code, problems and details", () => {

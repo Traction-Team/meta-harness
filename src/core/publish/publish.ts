@@ -1,8 +1,10 @@
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
+import { CONFIG_FILE } from "../config/parse.js";
 import type { PublishConfig } from "../config/types.js";
 import { gitVersionState, publishGitFab } from "./git-target.js";
 import { npmVersionState, publishNpmFab } from "./npm-target.js";
+import { PUBLISH_RETRY_FIX, publishProblem } from "./prepare.js";
 import type {
   PreparedFab,
   PublishOptions,
@@ -47,7 +49,11 @@ function failureDetail(error: unknown): string {
   const message =
     error instanceof Error && error.message.trim() !== "" ? error.message.trim() : String(error);
   if (!(error instanceof MetafabError)) return message;
-  const files = [...new Set((error.problems ?? []).map((problem) => problem.file))];
+  // A publish problem names the configuration the person edits rather than a
+  // path the target printed, so the detail keeps naming only the target's paths.
+  const files = [...new Set((error.problems ?? []).map((problem) => problem.file))].filter(
+    (file) => file !== CONFIG_FILE,
+  );
   if (files.length === 0) return message;
   if (files.length === 1) return `${message} (${files[0] as string})`;
   // A failed list may name thousands of paths; the reported problems carry
@@ -77,6 +83,7 @@ export async function publishFab(
     throw new MetafabError('"publish.version" is required.', {
       exitCode: ExitCode.Failed,
       code: "publish-missing-setting",
+      problems: [publishProblem('"publish.version" is required.', 'Add "version" to "publish"')],
     });
   }
 
@@ -129,13 +136,20 @@ export async function publishFab(
       // Head protection is a refusal the command must report with its own exit
       // code, and it happens before this target changes anything.
       if (error instanceof MetafabError && error.exitCode === ExitCode.NotOwned) throw error;
+      const detail = failureDetail(error);
       // A target that names its problems, such as the files Git lost, keeps
       // them: the command reports them and exits with the target's code.
       if (error instanceof MetafabError) {
         problems.push(...(error.problems ?? []));
         exitCode = error.exitCode;
+      } else {
+        // A raw failure, such as a filesystem error while the Git target writes
+        // its repository, names no problem of its own. The person still needs a
+        // next step, and the command still exits 1.
+        problems.push(publishProblem(`The ${target} target failed: ${detail}`, PUBLISH_RETRY_FIX));
+        exitCode = ExitCode.Failed;
       }
-      results.set(target, { target, status: "failed", detail: failureDetail(error) });
+      results.set(target, { target, status: "failed", detail });
       failed = target;
     }
   }

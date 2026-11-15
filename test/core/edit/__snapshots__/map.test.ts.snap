@@ -32,6 +32,7 @@ exports[`map > writes the factory map as one JSON object 1`] = `
       "workflow": "finish-slice",
     },
   ],
+  "problems": [],
   "skills": [
     {
       "frontmatter": {

@@ -59,6 +59,7 @@ export const pipelineAddCommand: CommandDefinition = {
       ok: true,
       command: "pipeline add",
       exitCode: ExitCode.Ok,
+      problems: [],
       summary: `Added ${workflow} to the pipeline.\n.factory/factory.yaml\n${runBuild}`,
       path: ".factory/factory.yaml",
       workflow,

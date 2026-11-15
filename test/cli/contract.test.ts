@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, test } from "vitest";
 import { COMMANDS } from "../../src/cli.js";
 import type { CommandDefinition } from "../../src/commands/types.js";
@@ -61,13 +61,6 @@ interface ContractCase {
   windowsOnly?: boolean;
   /** The defect this case pins, by intake note. The case is registered with `test.fails`. */
   intake?: string;
-  /**
-   * A Windows-only defect this case pins: a problem's `file` is a native
-   * absolute path, so rule 4's `\` check cannot hold there. Rule 4 skips that
-   * check on Windows for this case, and a separate `test.fails` case below
-   * asserts it, with this note in its comment.
-   */
-  windowsPathIntake?: string;
   also?: (json: JsonObject, cwd: string) => void | Promise<void>;
   humanAlso?: (run: RunCliResult) => void;
 }
@@ -99,6 +92,17 @@ async function copyFixture(source: string, destination: string): Promise<void> {
 async function mark4(): Promise<string> {
   const root = await newDirectory();
   await copyFixture(MARK4_SOURCE, root);
+  return root;
+}
+
+/** A mark4-like factory with one workflow the pipeline does not list. */
+async function mark4WithStandalone(): Promise<string> {
+  const root = await mark4();
+  const created = await runCli(
+    ["create", "workflows/standalone", "--description", "A standalone workflow."],
+    { cwd: root, tty: false },
+  );
+  expect(created.code, created.stderr).toBe(ExitCode.Ok);
   return root;
 }
 
@@ -167,11 +171,33 @@ const CASES: readonly ContractCase[] = [
     required: [{ name: "description", flag: "--description" }],
   },
   {
+    command: "create",
+    name: "a path with --description creates a workflow",
+    args: ["create", "workflows/x", "--description", "d"],
+    prepare: mark4,
+    exitCode: ExitCode.Ok,
+    also: async (json, cwd) => {
+      expect(Array.isArray(json.problems)).toBe(true);
+      const created = await readFile(path.join(cwd, ".factory", "workflows", "x", "SKILL.md"), "utf8");
+      expect(created).toContain("name: x");
+    },
+  },
+  {
     command: "pipeline add",
     name: "an unknown workflow exits 1 with a fix",
     args: ["pipeline", "add", "nope"],
     prepare: mark4,
     exitCode: ExitCode.Failed,
+  },
+  {
+    command: "pipeline add",
+    name: "a workflow outside the pipeline is added",
+    args: ["pipeline", "add", "standalone"],
+    prepare: mark4WithStandalone,
+    exitCode: ExitCode.Ok,
+    also: (json) => {
+      expect(json.pipeline).toContain("standalone");
+    },
   },
   {
     command: "pipeline remove",
@@ -181,10 +207,18 @@ const CASES: readonly ContractCase[] = [
     exitCode: ExitCode.Failed,
   },
   {
+    command: "pipeline remove",
+    name: "a pipeline workflow is removed",
+    args: ["pipeline", "remove", "build-slice"],
+    prepare: mark4,
+    exitCode: ExitCode.Ok,
+    also: (json) => {
+      expect(json.pipeline).not.toContain("build-slice");
+    },
+  },
+  {
     command: "map",
     name: "the mark4-like factory maps",
-    // intake: docs/intake/2026-11-15-json-results-without-problems.md
-    intake: "docs/intake/2026-11-15-json-results-without-problems.md",
     args: ["map"],
     prepare: mark4,
     exitCode: ExitCode.Ok,
@@ -245,8 +279,6 @@ const CASES: readonly ContractCase[] = [
   {
     command: "import",
     name: "an invalid fab exits 4",
-    // The `file` rule on Windows: docs/intake/2026-11-15-import-problem-files-use-native-windows-paths.md
-    windowsPathIntake: "docs/intake/2026-11-15-import-problem-files-use-native-windows-paths.md",
     args: ["import", INVALID_FAB],
     prepare: () => newDirectory(),
     exitCode: ExitCode.InvalidFab,
@@ -254,10 +286,29 @@ const CASES: readonly ContractCase[] = [
   {
     command: "import",
     name: "a path that does not exist exits 3",
-    // intake: docs/intake/2026-11-15-errors-without-problems.md
-    intake: "docs/intake/2026-11-15-errors-without-problems.md",
     args: (cwd) => ["import", path.join(cwd, "missing-fab")],
     prepare: () => newDirectory(),
+    exitCode: ExitCode.FetchFailed,
+  },
+  {
+    command: "import",
+    name: "a git source that does not exist exits 3 with a fix",
+    args: (cwd) => ["import", `git+${pathToFileURL(path.join(cwd, "missing.git")).href}`],
+    prepare: () => newDirectory(),
+    exitCode: ExitCode.FetchFailed,
+  },
+  {
+    command: "import",
+    name: "an invalid source exits 1 with a fix",
+    args: ["import", "github:"],
+    prepare: () => newDirectory(),
+    exitCode: ExitCode.Failed,
+  },
+  {
+    command: "import",
+    name: "a path whose .factory is a file exits 3 with a fix",
+    args: (cwd) => ["import", path.join(cwd, "src")],
+    prepare: () => newDirectory({ "src/.factory": "not a directory\n" }),
     exitCode: ExitCode.FetchFailed,
   },
   {
@@ -312,6 +363,18 @@ const CASES: readonly ContractCase[] = [
     exitCode: ExitCode.Ok,
     also: (json) => {
       expect(json.command).toBe("help");
+    },
+  },
+  {
+    command: "metafab",
+    name: "--version reports the version and no problems",
+    args: ["--version"],
+    prepare: () => newDirectory(),
+    exitCode: ExitCode.Ok,
+    also: (json) => {
+      expect(json.command).toBe("version");
+      expect(json.problems).toEqual([]);
+      expect(typeof json.version).toBe("string");
     },
   },
   {
@@ -449,9 +512,6 @@ async function expectContract(spec: ContractCase): Promise<void> {
       if (problem.level !== "error") continue;
       expect(typeof problem.fix, `${label}: ${problem.message} has a fix`).toBe("string");
       expect(problem.fix!.trim(), `${label}: ${problem.message} fix is not empty`).not.toBe("");
-      // On Windows a path source echoes its native absolute path, so its problems
-      // keep backslashes (`windowsPathIntake`); the separate case below pins it.
-      if (process.platform === "win32" && spec.windowsPathIntake !== undefined) continue;
       expect(problem.file, `${label}: ${problem.message} file uses /`).not.toContain("\\");
     }
   }
@@ -516,12 +576,10 @@ describe("contract sweep", () => {
   for (const spec of CASES) register(spec);
 
   // Windows only: `import` of a path source echoes the source label, which on
-  // Windows is the native absolute path, so its validation problems' `file`
-  // keeps backslashes and breaks rule 4. The fix belongs in src/core, which
-  // this plan does not own, so the case above skips that check on Windows and
-  // this case pins the defect:
-  // docs/intake/2026-11-15-import-problem-files-use-native-windows-paths.md
-  test.skipIf(process.platform !== "win32").fails(
+  // Windows is the native absolute path, so `sourceProblemFile` replaces its
+  // backslashes. Plan 1.026 fixed that, so rule 4's `file` check above runs on
+  // every platform and this case pins the Windows half.
+  test.skipIf(process.platform !== "win32")(
     "import: an invalid fab reports a / separated file on Windows",
     async () => {
       const cwd = await newDirectory();
@@ -537,22 +595,22 @@ describe("contract sweep", () => {
   );
 
   // Windows only: a backslash path is the same path as its `/` form, or a
-  // usage error that names a fix. The contract's `problems` rule is not
-  // asserted here: `create` on success still omits it
-  // (docs/intake/2026-11-15-json-results-without-problems.md).
+  // usage error that names a fix. A successful result carries `problems`, which
+  // Plan 1.026 made required.
   test.skipIf(process.platform !== "win32")("create: a backslash path with --description", async () => {
     const cwd = await mark4();
     const result = await runCli(["create", "workflows\\x", "--description", "d", "--json"], {
       cwd,
       tty: false,
     });
+    const json = JSON.parse(result.stdout) as JsonObject;
 
     if (result.code === ExitCode.Ok) {
+      expect(Array.isArray(json.problems)).toBe(true);
       const created = await readFile(path.join(cwd, ".factory", "workflows", "x", "SKILL.md"), "utf8");
       expect(created).toContain("name: x");
     } else {
       expect(result.code).toBe(ExitCode.Failed);
-      const json = JSON.parse(result.stdout) as JsonObject;
       expect(json.ok).toBe(false);
       expect(json.problems?.every((problem) => (problem.fix ?? "") !== "")).toBe(true);
     }

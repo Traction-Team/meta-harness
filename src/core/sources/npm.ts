@@ -14,6 +14,7 @@ import { withEnv } from "./env.js";
 import { extractTarball, MAX_FAB_ENTRIES, MAX_FAB_TOTAL_SIZE } from "./extract.js";
 import { MAX_TARBALL_SIZE } from "./https.js";
 import { npmInvocation } from "./npm-cli.js";
+import { FAB_DOWNLOAD_FIX, FAB_SIZE_FIX, sourceProblemFile } from "./problems.js";
 import { redact } from "./redact.js";
 import type { FetchedFab, NpmSourceSpec, Resolved } from "./types.js";
 import { dropPayloadFiles, validateFab } from "./validate.js";
@@ -64,15 +65,32 @@ function npmMessage(failure: NpmFailure): string {
   return lines.join("\n") || "npm failed";
 }
 
-function fetchError(message: string, cause?: unknown): MetafabError {
-  return new MetafabError(redact(message), {
+function fetchError(
+  name: string,
+  message: string,
+  fix: string = `Check the package name and that npm can reach the registry (npm view ${name}), then run the command again`,
+  cause?: unknown,
+): MetafabError {
+  const text = redact(message);
+  return new MetafabError(text, {
     exitCode: ExitCode.FetchFailed,
     code: "fetch-failed",
+    problems: [{ level: "error", file: sourceProblemFile(name), message: text, fix }],
     cause,
   });
 }
 
-async function runNpm(args: string[], options: NpmOptions, context: string): Promise<string> {
+/** The fix when the registry answered but has nothing the source's range accepts. */
+function versionFix(name: string): string {
+  return `Use a published version, a range or a dist-tag (npm view ${name} versions lists them)`;
+}
+
+async function runNpm(
+  name: string,
+  args: string[],
+  options: NpmOptions,
+  context: string,
+): Promise<string> {
   const env = npmEnv(options);
   try {
     const npm = await npmInvocation({ env });
@@ -87,7 +105,8 @@ async function runNpm(args: string[], options: NpmOptions, context: string): Pro
   } catch (error) {
     if (error instanceof MetafabError) throw error;
     const failure = error as NpmFailure;
-    throw fetchError(`${context}: ${npmMessage(failure)}`, error);
+    const message = `${context}: ${npmMessage(failure)}`;
+    throw fetchError(name, message, undefined, error);
   }
 }
 
@@ -95,11 +114,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function parseJson(value: string, context: string): unknown {
+function parseJson(name: string, value: string, context: string): unknown {
   try {
     return JSON.parse(value);
   } catch (error) {
-    throw fetchError(`${context}: npm returned invalid JSON`, error);
+    throw fetchError(name, `${context}: npm returned invalid JSON`, undefined, error);
   }
 }
 
@@ -122,12 +141,13 @@ export function npmVersionList(value: unknown): string[] {
 async function listVersions(spec: NpmSourceSpec, options: NpmOptions): Promise<PackageVersions> {
   const context = `Cannot resolve npm package "${spec.name}"`;
   const stdout = await runNpm(
+    spec.name,
     ["view", spec.name, "versions", "dist-tags", "--json"],
     options,
     context,
   );
-  const parsed = parseJson(stdout, context);
-  if (!isRecord(parsed)) throw fetchError(`${context}: npm returned an unexpected response`);
+  const parsed = parseJson(spec.name, stdout, context);
+  if (!isRecord(parsed)) throw fetchError(spec.name, `${context}: npm returned an unexpected response`);
 
   const versions = npmVersionList(parsed.versions);
   const distTags: Record<string, string> = {};
@@ -137,7 +157,9 @@ async function listVersions(spec: NpmSourceSpec, options: NpmOptions): Promise<P
     }
   }
 
-  if (versions.length === 0) throw fetchError(`${context}: the package has no published versions`);
+  if (versions.length === 0) {
+    throw fetchError(spec.name, `${context}: the package has no published versions`);
+  }
   return { versions, distTags };
 }
 
@@ -155,7 +177,7 @@ function selectVersion(
     if (latest !== undefined) return latest;
     const highest = highestVersion(versions.versions);
     if (highest === undefined) {
-      throw fetchError(`Cannot resolve npm package "${spec.name}": no valid semantic versions`);
+      throw fetchError(spec.name, `Cannot resolve npm package "${spec.name}": no valid semantic versions`);
     }
     return highest;
   }
@@ -165,14 +187,18 @@ function selectVersion(
 
   if (semver.validRange(requested) === null) {
     throw fetchError(
+      spec.name,
       `Cannot resolve npm package "${spec.name}": "${requested}" is not a version, range, or dist-tag`,
+      versionFix(spec.name),
     );
   }
 
   const selected = semver.maxSatisfying(versions.versions, requested);
   if (selected === null) {
     throw fetchError(
+      spec.name,
       `Cannot resolve npm package "${spec.name}": no version matches "${requested}"`,
+      versionFix(spec.name),
     );
   }
   return selected;
@@ -205,15 +231,15 @@ async function readManifest(
   options: NpmOptions,
 ): Promise<NpmManifest> {
   const context = `Cannot resolve npm package "${name}@${version}"`;
-  const stdout = await runNpm(["view", `${name}@${version}`, "--json"], options, context);
-  const parsed = parseJson(stdout, context);
+  const stdout = await runNpm(name, ["view", `${name}@${version}`, "--json"], options, context);
+  const parsed = parseJson(name, stdout, context);
   if (!isRecord(parsed) || !isRecord(parsed.dist)) {
-    throw fetchError(`${context}: npm returned an unexpected response`);
+    throw fetchError(name, `${context}: npm returned an unexpected response`);
   }
 
   const tarball = parsed.dist.tarball;
   if (typeof tarball !== "string" || tarball === "") {
-    throw fetchError(`${context}: the registry did not report a tarball URL`);
+    throw fetchError(name, `${context}: the registry did not report a tarball URL`);
   }
 
   const integrity = distIntegrity(parsed.dist);
@@ -259,19 +285,18 @@ function npmFabError(
   sourceLabel: string,
   file: string,
   message: string,
-  fix?: string,
+  fix: string = "Fix package.json in the fab and publish it again, or use another version of the fab",
 ): MetafabError {
-  const label = redact(sourceLabel);
-  return new MetafabError(`Invalid fab from ${label}`, {
+  return new MetafabError(`Invalid fab from ${redact(sourceLabel)}`, {
     exitCode: ExitCode.InvalidFab,
     code: "invalid-fab",
     problems: [
       {
         level: "error",
-        file: `${label.replace(/\/+$/, "")}/${file}`,
+        file: sourceProblemFile(sourceLabel, file),
         line: 1,
         message,
-        ...(fix === undefined ? {} : { fix }),
+        fix,
       },
     ],
   });
@@ -329,23 +354,42 @@ async function validateExtractedFab(root: string, sourceLabel: string): Promise<
   await validateFab(root, { sourceLabel, packageJson });
 }
 
+/** The label an npm fab is known by once its version is resolved. */
+function packageLabel(source: ResolvedNpm): string {
+  return `${source.spec.name}@${source.version}`;
+}
+
+/** An exit-4 problem about a resolved npm package, such as its size. */
+function packageError(source: ResolvedNpm, message: string, fix: string): MetafabError {
+  return new MetafabError(message, {
+    exitCode: ExitCode.InvalidFab,
+    code: "invalid-fab",
+    problems: [{ level: "error", file: sourceProblemFile(packageLabel(source)), message, fix }],
+  });
+}
+
 function verifyIntegrity(tarball: string, data: Buffer, integrity: string | undefined): void {
   if (integrity === undefined) return;
   try {
     ssri.checkData(data, integrity, { error: true });
   } catch (error) {
-    throw new MetafabError(`Integrity check failed for ${tarball}`, {
+    const message = `Integrity check failed for ${tarball}`;
+    throw new MetafabError(message, {
       exitCode: ExitCode.InvalidFab,
       code: "invalid-fab",
+      problems: [
+        { level: "error", file: sourceProblemFile(tarball), message, fix: FAB_DOWNLOAD_FIX },
+      ],
       cause: error,
     });
   }
 }
 
 function tarballTooLarge(source: ResolvedNpm, size: number, maxBytes: number): MetafabError {
-  return new MetafabError(
-    `Cannot download npm package "${source.spec.name}@${source.version}": the tarball is larger than ${maxBytes} bytes (${size} bytes)`,
-    { exitCode: ExitCode.InvalidFab, code: "invalid-fab" },
+  return packageError(
+    source,
+    `Cannot download npm package "${packageLabel(source)}": the tarball is larger than ${maxBytes} bytes (${size} bytes)`,
+    FAB_SIZE_FIX,
   );
 }
 
@@ -354,9 +398,10 @@ function packageTooLarge(
   unpackedSize: number,
   maxTotalSize: number,
 ): MetafabError {
-  return new MetafabError(
-    `Cannot download npm package "${source.spec.name}@${source.version}": it unpacks to ${unpackedSize} bytes, more than the ${maxTotalSize}-byte fab limit`,
-    { exitCode: ExitCode.InvalidFab, code: "invalid-fab" },
+  return packageError(
+    source,
+    `Cannot download npm package "${packageLabel(source)}": it unpacks to ${unpackedSize} bytes, more than the ${maxTotalSize}-byte fab limit`,
+    FAB_SIZE_FIX,
   );
 }
 
@@ -365,9 +410,10 @@ function packageHasTooManyFiles(
   fileCount: number,
   maxEntries: number,
 ): MetafabError {
-  return new MetafabError(
-    `Cannot download npm package "${source.spec.name}@${source.version}": it has ${fileCount} files, more than the ${maxEntries}-file fab limit`,
-    { exitCode: ExitCode.InvalidFab, code: "invalid-fab" },
+  return packageError(
+    source,
+    `Cannot download npm package "${packageLabel(source)}": it has ${fileCount} files, more than the ${maxEntries}-file fab limit`,
+    FAB_SIZE_FIX,
   );
 }
 
@@ -417,6 +463,7 @@ async function downloadTarball(
   try {
     try {
       await runNpm(
+        source.spec.name,
         [
           "pack",
           `${source.spec.name}@${source.version}`,
@@ -438,7 +485,7 @@ async function downloadTarball(
 
     const entries = await readdir(packDir);
     const filename = entries.find((entry) => entry.endsWith(".tgz"));
-    if (filename === undefined) throw fetchError(`${context}: npm pack produced no tarball`);
+    if (filename === undefined) throw fetchError(source.spec.name, `${context}: npm pack produced no tarball`);
 
     const packed = path.join(packDir, filename);
     const size = (await stat(packed)).size;

@@ -7,6 +7,12 @@ import { describe, expect, test } from "vitest";
 import { ExitCode, MetafabError } from "../../../src/errors.js";
 import { extractTarball, isCacheWriteFailure } from "../../../src/core/sources/index.js";
 import type { ExtractTarballOptions } from "../../../src/core/sources/index.js";
+import {
+  FAB_DOWNLOAD_FIX,
+  FAB_ENTRY_FIX,
+  FAB_LINK_FIX,
+  FAB_SIZE_FIX,
+} from "../../../src/core/sources/problems.js";
 import { pathExists } from "../../../src/util/fs.js";
 
 async function tempDir(): Promise<string> {
@@ -23,7 +29,7 @@ async function makeTar(archive: string, cwd: string, entries: string[], preserve
 
 interface RawEntry {
   path: string;
-  type: "File" | "SymbolicLink" | "Link";
+  type: "File" | "SymbolicLink" | "Link" | "CharacterDevice" | "FIFO";
   linkpath?: string;
   body?: string;
 }
@@ -200,7 +206,25 @@ describe("extractTarball", () => {
       const failure = await expectInvalid(archive, destination);
 
       expect(failure.problems?.[0]?.file).toContain("..");
+      expect(failure.problems?.[0]?.fix).toBe(FAB_ENTRY_FIX);
       expect(await pathExists(path.join(base, "nested", "evil.txt"))).toBe(false);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("normalizes a backslash entry path in a problem file", async () => {
+    const base = await tempDir();
+    try {
+      const archive = path.join(base, "evil.tar");
+      await makeRawTar(archive, [{ path: ".factory\\..\\escape", type: "File", body: "evil" }]);
+
+      const failure = await expectInvalid(archive, path.join(base, "out"));
+
+      expect(failure.problems?.[0]?.file).toBe(".factory/../escape");
+      expect(failure.problems?.[0]?.file).not.toContain("\\");
+      expect(failure.problems?.[0]?.fix).toBe(FAB_ENTRY_FIX);
+      expect(await pathExists(path.join(base, "escape"))).toBe(false);
     } finally {
       await rm(base, { recursive: true, force: true });
     }
@@ -236,6 +260,7 @@ describe("extractTarball", () => {
       const failure = await expectInvalid(archive, path.join(base, "out"));
 
       expect(failure.problems?.[0]?.message).toContain("links");
+      expect(failure.problems?.[0]?.fix).toBe(FAB_LINK_FIX);
     } finally {
       await rm(base, { recursive: true, force: true });
     }
@@ -294,6 +319,7 @@ describe("extractTarball", () => {
       const failure = await expectInvalid(archive, path.join(base, "out"));
 
       expect(failure.problems?.[0]?.message).toContain("links that point outside");
+      expect(failure.problems?.[0]?.fix).toBe(FAB_LINK_FIX);
     } finally {
       await rm(base, { recursive: true, force: true });
     }
@@ -563,6 +589,7 @@ describe("extractTarball", () => {
       expect(failure.problems?.some((problem) => problem.message.includes("more than 2 entries"))).toBe(
         true,
       );
+      expect(failure.problems?.[0]?.fix).toBe(FAB_SIZE_FIX);
     } finally {
       await rm(base, { recursive: true, force: true });
     }
@@ -586,6 +613,7 @@ describe("extractTarball", () => {
       expect(failure.problems?.some((problem) => problem.message.includes("more than 4 entries"))).toBe(
         true,
       );
+      expect(failure.problems?.[0]?.fix).toBe(FAB_SIZE_FIX);
     } finally {
       await rm(base, { recursive: true, force: true });
     }
@@ -605,6 +633,7 @@ describe("extractTarball", () => {
       });
 
       expect(failure.problems?.some((problem) => problem.message.includes("in total"))).toBe(true);
+      expect(failure.problems?.[0]?.fix).toBe(FAB_SIZE_FIX);
     } finally {
       await rm(base, { recursive: true, force: true });
     }
@@ -631,6 +660,7 @@ describe("extractTarball", () => {
       });
 
       expect(failure.problems?.some((problem) => problem.message.includes("in total"))).toBe(true);
+      expect(failure.problems?.[0]?.fix).toBe(FAB_SIZE_FIX);
       expect(failure.message).not.toContain("Cannot extract");
     } finally {
       await rm(base, { recursive: true, force: true });
@@ -656,6 +686,7 @@ describe("extractTarball", () => {
       expect(failure.problems?.some((problem) => problem.message.includes("more than 1 entries"))).toBe(
         true,
       );
+      expect(failure.problems?.[0]?.fix).toBe(FAB_SIZE_FIX);
       expect(failure.message).not.toContain("Cannot extract");
     } finally {
       await rm(base, { recursive: true, force: true });
@@ -684,6 +715,7 @@ describe("extractTarball", () => {
       });
 
       expect(failure.problems?.some((problem) => problem.message.includes("in total"))).toBe(true);
+      expect(failure.problems?.[0]?.fix).toBe(FAB_SIZE_FIX);
       expect(failure.message).not.toContain("Cannot extract");
     } finally {
       await rm(base, { recursive: true, force: true });
@@ -703,6 +735,24 @@ describe("extractTarball", () => {
 
       expect(failure.problems?.[0]?.file).toBe("big.bin");
       expect(failure.problems?.[0]?.message).toContain("larger than");
+      expect(failure.problems?.[0]?.fix).toBe(FAB_SIZE_FIX);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a device entry with the entry fix", async () => {
+    const base = await tempDir();
+    try {
+      const archive = path.join(base, "evil.tar");
+      await makeRawTar(archive, [{ path: ".factory/pipe", type: "FIFO" }]);
+
+      const failure = await expectInvalid(archive, path.join(base, "out"));
+
+      expect(failure.problems?.[0]?.file).toBe(".factory/pipe");
+      expect(failure.problems?.[0]?.message).toContain("device files and FIFOs");
+      expect(failure.problems?.[0]?.fix).toBe(FAB_ENTRY_FIX);
+      expect(await pathExists(path.join(base, "out", ".factory", "pipe"))).toBe(false);
     } finally {
       await rm(base, { recursive: true, force: true });
     }
@@ -717,6 +767,9 @@ describe("extractTarball", () => {
       const failure = await expectInvalid(archive, path.join(base, "out"));
 
       expect(failure.message).toContain("Cannot extract");
+      expect(failure.problems).toEqual([
+        { level: "error", file: archive.replace(/\\/g, "/"), message: failure.message, fix: FAB_DOWNLOAD_FIX },
+      ]);
     } finally {
       await rm(base, { recursive: true, force: true });
     }
@@ -779,7 +832,7 @@ describe("isCacheWriteFailure", () => {
       expect(isCacheWriteFailure(Object.assign(new Error(code), { code }))).toBe(true);
     }
     expect(isCacheWriteFailure(Object.assign(new Error("ENOENT"), { code: "ENOENT" }))).toBe(false);
-    expect(isCacheWriteFailure(new MetafabError("boom"))).toBe(false);
+    expect(isCacheWriteFailure(new MetafabError("boom", { problems: [] }))).toBe(false);
     expect(isCacheWriteFailure("not an error")).toBe(false);
   });
 });

@@ -73,7 +73,7 @@ Run [43661843108](https://github.com/Traction-Team/meta-harness/actions/runs/436
 
 Checked on 2026-11-15 against the CLI built from `chore/1.022-verification`. The sites are every line matching `rg -n "new MetafabError\(|level: \"error\"|new NeedsInput\(" src`: 283 matches, of which one (`src/errors.ts:11`) is the `Problem` type declaration rather than an error site. The two named result-shape changes add rows of their own, so the table has 284 rows.
 
-**Fix line** is `yes` when the error or its problems carry a `fix`, `no` when it does not, and `n/a` for exit 2, whose `required` list replaces the fix line. **Exit code** is the code the code path implies; **expected** is the code the [Exit codes](specs/cli.md#exit-codes) table implies. A `filed` row links the intake note that covers it: [EWP](plans/1.026-error-and-json-contract.md) for an error that carries no problems at all, [PNF](plans/1.026-error-and-json-contract.md) for problems without a fix line. On 2026-11-15 these intake notes, and the JRP and NPW notes below, were folded into [Plan 1.026](plans/1.026-error-and-json-contract.md) and deleted, so the links point at the plan.
+**Fix line** is `yes` when the error or its problems carry a `fix`, `no` when it does not, and `n/a` for exit 2, whose `required` list replaces the fix line. **Exit code** is the code the code path implies; **expected** is the code the [Exit codes](specs/cli.md#exit-codes) table implies. A `filed` row links the intake note that covers it: [EWP](plans/1.026-error-and-json-contract.md) for an error that carries no problems at all, [PNF](plans/1.026-error-and-json-contract.md) for problems without a fix line. On 2026-11-15 these intake notes, and the JRP and NPW notes below, were folded into [Plan 1.026](plans/1.026-error-and-json-contract.md) and deleted, so the links point at the plan. The recheck below records the fixed state.
 
 Totals: 192 `ok`, 90 `filed`, 2 `fixed in this PR`. No site was a one-line fix in `src/cli.ts`, `src/output.ts`, `src/errors.ts`, `src/input.ts` or `src/commands/**` beyond the two named changes, so no other site was fixed here.
 
@@ -366,6 +366,122 @@ The message column quotes the code. `${…}` marks an interpolated value, and `m
 | `src/commands/update.ts:15` | update | `message` (argument of the local helper) | yes | 1 | 1 | ok | — |
 | `src/cli.ts:188 (fromMetafabError)` | all | `error.message`, with `error.problems ?? []` | yes, when the error carries one | error.exitCode | same | fixed in this PR | `0c0b0df` |
 
+### Recheck after Plan 1.026
+
+Checked on 2026-11-15 against the CLI built from `fix/1.026-error-and-json-contract`. Each row is a `filed` row of the table above, with its site found again by its function; the last 19 rows are sites the type change found that the table did not mark `filed`. `fixed` means this branch edited the site so it carries a `fix`. `ok (fix forwarded; proven by type)` means the site was not edited, and the stricter types now prove the problems it reports carry a fix. The method was `npm run typecheck` with the stricter types, and no regular expression. Totals: 75 `fixed`, 34 `ok (fix forwarded; proven by type)`, 109 rows.
+
+| Site (file:line) | Command | Message | Fix line | Exit code | Expected exit code | Verdict | Finding |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `src/core/init/run.ts:316` | init | `"Build stopped because the repository contains output that Metafab does not own."` | yes | 5 | 5 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/init/run.ts:323` | init | `"Build failed after init."` | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/update/diff.ts:63` | update, diff | `"The factory configuration has problems."` | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/update/detach.ts:23` | update, diff | `"The factory configuration has problems."` | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/update/run.ts:165` | update, diff | `"The factory configuration has problems."` | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/update/run.ts:188` | update, diff | `"Update stopped: resolve the conflicts from an earlier update first."` | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/update/run.ts:245` | update, diff | `"Update stopped because the incoming fab would replace local content."` | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/update/run.ts:256` | update, diff | `"Build stopped because the repository contains output that Metafab does not own."` | yes | 5 | 5 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/update/run.ts:267` | update, diff | `"Build failed after update."` | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/parse.ts:123` | all (config) | `message` (argument of the local helper) | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/parse.ts:159` | all (config) | `Invalid YAML: Unresolved alias "${alias.source}".` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/parse.ts:188` | all (config) | `Invalid YAML: ${message}` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/writers.ts:24` | all (config) | ``${file}: ${message}`` | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/writers.ts:28` | all (config) | `message` (argument of the local helper) | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/writers.ts:44` | all (config) | `The configuration must be a YAML map.` | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/writers.ts:48` | all (config) | `The configuration must be a YAML map.` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/setup.ts:113` | init, import, update | `"Build stopped because the repository contains output that Metafab does not own."` | yes | 5 | 5 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/edit/factory-yaml.ts:42` | create, pipeline | ``${file}: ${message}`` | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/edit/factory-yaml.ts:56` | create, pipeline | ``${file}: ${message}`` | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/edit/factory-yaml.ts:64` | create, pipeline | ``${file}: ${message}`` | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/edit/factory-yaml.ts:83` | create, pipeline | ``${file}: ${message}`` | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/edit/factory-yaml.ts:148` | create, pipeline | `"A pipeline entry must name a workflow."` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/edit/paths.ts:42` | create | `message` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/publish/publish.ts:83` | publish | `'"publish.version" is required.'` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/publish/npm-target.ts:41` | publish | `redact(message)` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/publish/git-target.ts:80` | publish | `redact(message)` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/publish/git-target.ts:345` | publish | `message` | yes | 4 | 4 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/publish/stage.ts:69` | publish | `message` | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/publish/stage.ts:78` | publish | `message` (argument of the local helper) | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/adopt.ts:623` | init | ``Adoption is blocked by ${count} ${count === 1 ? "entry" : "entries"}.`` | yes | 5 | 5 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/adopt.ts:775` | init | `"Adoption cannot write into the factory directory."` | yes | 5 | 5 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/adopt.ts:788` | init | ``Skill "${move.name}" already exists in .factory/.`` | yes | 5 | 5 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:346` | import, update | `duplicate archive entry "${entryPath}" would replace earlier content` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:366` | import, update | `an entry whose path is an existing directory is not allowed` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:418` | import, update | `links could not be created: ${message}` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:495` | import, update | `links whose target does not exist are not allowed` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:501` | import, update | `links that point outside the extraction root are not allowed` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:526` | import, update | `links whose target does not exist are not allowed` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:531` | import, update | `links that point outside the extraction root are not allowed` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:542` | import, update | ``Cannot extract ${tarball}: ${message}`` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:551` | import, update | `"The archive is not a safe fab"` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:554` | import, update | `message` (argument of the local helper) | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:591` | import, update | `"The archive is not a safe fab"` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:611` | import, update | `message` (argument of the local helper) | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:616` | import, update | `message` (argument of the local helper) | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:630` | import, update | `links are not allowed at the extraction root` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:635` | import, update | `entries written through a symbolic link are not allowed` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:643` | import, update | `links that point outside the extraction root are not allowed` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:653` | import, update | `links that point outside the extraction root are not allowed` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:663` | import, update | `message` (argument of the local helper) | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:667` | import, update | `unsupported archive entry type "${rawEntry.type}"` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:672` | import, update | `entries written through a symbolic link are not allowed` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:717` | import, update | `"The archive is not a safe fab"` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/extract.ts:738` | import, update | `"The archive is not a safe fab"` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:32` | import, update | `redact(message)` | yes | 3 | 3 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:40` | import, update | ``Invalid fab from ${redact(sourceLabel)}`` | yes | 4 | 4 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:109` | import, update | `links are not allowed in a fab` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:187` | import, update | `links could not be created: ${error instanceof Error ? error.message : String(error)}` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:204` | import, update | `links could not be created: ${error instanceof Error ? error.message : String(error)}` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:235` | import, update | `links whose target does not exist are not allowed` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:245` | import, update | `links that point outside .factory are not allowed` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:280` | import, update | `fabs with more than ${maxEntries} files, directories and links are not allowed` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:307` | import, update | `links that point outside .factory are not allowed` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:328` | import, update | `device files and FIFOs are not allowed in a fab` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:341` | import, update | `files larger than ${MAX_FAB_FILE_SIZE} bytes are not allowed in a fab` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/path.ts:353` | import, update | `files larger than ${maxTotalSize} bytes in total are not allowed in a fab` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/parse.ts:42` | import, update | ``Invalid source "${redact(input)}": ${reason}`` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/parse.ts:205` | import, update | `message` | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/parse.ts:208` | import, update | `message` (argument of the local helper) | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/validate.ts:17` | import, update | ``Invalid fab from ${redact(sourceLabel)}`` | yes | 4 | 4 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/npm.ts:75` | import, update | `redact(message)` | yes | 3 | 3 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/npm.ts:290` | import, update | ``Invalid fab from ${label}`` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/npm.ts:295` | import, update | `message` (argument of the local helper) | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/npm.ts:377` | import, update | ``Integrity check failed for ${tarball}`` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/npm.ts:391` | import, update | ``Cannot download npm package "${source.spec.name}@${source.version}": the tarball is large` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/npm.ts:403` | import, update | ``Cannot download npm package "${source.spec.name}@${source.version}": it unpacks to ${unpa` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/npm.ts:415` | import, update | ``Cannot download npm package "${source.spec.name}@${source.version}": it has ${fileCount} ` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/cache.ts:137` | import, update | `message` | yes | 3 | 3 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/npm-cli.ts:53` | import, update | `"Cannot run npm: npm could not be found"` | yes | 3 | 3 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/https.ts:46` | import, update | `redact(message)` | yes | 3 | 3 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/https.ts:213` | import, update | ``Cannot download ${redact(url)}: the tarball is larger than ${maxBytes} bytes`` | yes | 4 | 4 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/git.ts:192` | import, update | `redact(message)` | yes | 3 | 3 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/sources/git.ts:210` | import, update | `redact(message)` | yes | 3 | 3 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/import/run.ts:188` | all | `"The factory configuration has problems."` | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/import/run.ts:334` | all | `"Build stopped because the repository contains output that Metafab does not own."` | yes | 5 | 5 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/import/run.ts:344` | all | `"Build failed after import."` | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/factory/factory-yaml.ts:48` | build, check | `message` (argument of the local helper) | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/factory/factory-yaml.ts:287` | build, check | `requires entry is missing "${key}"` | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/factory/factory-yaml.ts:323` | build, check | `message` (argument of the local helper) | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/factory/discovery.ts:77` | build, check | `message` (argument of the local helper) | yes | 1 | 1 | ok (fix forwarded; proven by type) | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/validate.ts:135` | all (config) | `Unknown key "${key}"${where}.` with the suggestion | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/validate.ts:154` | all (config) | `"${scope}.${key}" must be a string.` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/validate.ts:176` | all (config) | `"${scope}.${key}" must be a list of strings.` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/validate.ts:187` | all (config) | `"${scope}.${key}" must be a list of strings.` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/validate.ts:205` | all (config) | `"agents" must be a list of targets or "all".` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/validate.ts:213` | all (config) | `"agents" must contain only target names.` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/validate.ts:224` | all (config) | `Unknown target "${node.value}" in "agents".` with the suggestion | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/validate.ts:247` | all (config) | `"metafab-skill" must be a boolean.` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/validate.ts:262` | all (config) | `"git-hooks" must be a boolean.` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/validate.ts:294` | all (config) | `"publish.access" must be "public" or "restricted".` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/validate.ts:320` | all (config) | `"publish.name" is not a valid npm package name: ${reason}.` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/validate.ts:362` | all (config) | `"publish.version" is not a semantic version: "${versionText}".` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/validate.ts:377` | all (config) | `"publish.readme" file not found: ${readmeText}.` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/validate.ts:477` | all (config) | `metafab.yaml must be a mapping.` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/validate.ts:503` | all (config) | `"publish" must be a map.` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/config/validate.ts:513` | all (config) | `"upstream" must be a map.` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/edit/pipeline.ts:107` | pipeline add, pipeline remove | `A pipeline entry must name a workflow` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/edit/paths.ts:11` | create | `message` (argument of the local helper) | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+| `src/core/update/run.ts:213` | update, diff | `The update stopped before it finished; .factory/ was restored` | yes | 1 | 1 | fixed | [1.026](plans/1.026-error-and-json-contract.md) |
+
 ## JSON and terminal
 
 The contract sweep (`test/cli/contract.test.ts`) ran on 2026-11-15. Every case ran the command twice: once with `--json`, `tty: false` and a `stdin` stream that records any read, and once without `--json` with the same `stdin` and no terminal. Each row below records one of the 23 command cases; with the guard test that every name in `COMMANDS` has a case and the two extra Windows-only cases, the file has 26 tests.
@@ -399,6 +515,25 @@ The three `test.fails` rows are defects pinned until their intake note is fixed:
 | `metafab` | an unexpected error is reported as a bug (exit 1; JSON has `command` and `problems`, no stack; human output keeps the stack and adds the fix line) | yes | yes | no | ok | `renderBug`, fixed in this PR |
 | `import` (Windows) | a relative path source written with backslashes | not run | not run | not run | not run | GitHub Actions did not start the job: account billing (run https://github.com/Traction-Team/meta-harness/actions/runs/43656797008), 2026-11-15; the Windows case is unverified |
 | `create` (Windows) | a backslash path with `--description` | not run | not run | not run | not run | GitHub Actions did not start the job: account billing (run https://github.com/Traction-Team/meta-harness/actions/runs/43656797008), 2026-11-15; the Windows case is unverified |
+
+### Recheck after Plan 1.026
+
+Checked on 2026-11-15 against the CLI built from `fix/1.026-error-and-json-contract`. Each row is one of the three `filed` rows of the table above, a Windows case the table above left `not run`, or a case this plan added to `test/cli/contract.test.ts`. The Windows rows come from the `windows-latest` CI job on the ready pull request. Each command ran from a temporary directory with `--json` and stdin at `/dev/null`, and again without `--json` for the error cases, where stderr showed a `  fix: ` line.
+
+| Command | Case | One JSON object | `exitCode` matches | Reads stdin without a terminal | Verdict | Finding |
+| --- | --- | --- | --- | --- | --- | --- |
+| `map` | the `mark4-like` factory maps (exit 0, `problems: []`) | yes | yes | no | ok | [1.026](plans/1.026-error-and-json-contract.md) |
+| `import` | a path that does not exist exits 3 with a fix | yes | yes | no | ok | [1.026](plans/1.026-error-and-json-contract.md) |
+| `import` (Windows) | an invalid fab exits 4 reports a `/`-separated `file` | yes | yes | no | ok | `verify (windows-latest, 22)` passed in run https://github.com/Traction-Team/meta-harness/actions/runs/43697048790, with no Windows case skipped |
+| `import` (Windows) | a relative path source written with backslashes | yes | yes | no | ok | same run |
+| `create` (Windows) | a backslash path with `--description` reports `problems` | yes | yes | no | ok | same run |
+| `create` | a path with `--description` creates a workflow (exit 0, `problems: []`) | yes | yes | no | ok | — |
+| `pipeline add` | a workflow outside the pipeline is added (exit 0, `problems: []`) | yes | yes | no | ok | — |
+| `pipeline remove` | a pipeline workflow is removed (exit 0, `problems: []`) | yes | yes | no | ok | — |
+| `metafab` | `--version` reports the version, `command: "version"` and `problems: []` | yes | yes | no | ok | — |
+| `import` | `git+file://<tmp>/missing.git` exits 3 with a fix | yes | yes | no | ok | — |
+| `import` | `github:` exits 1 with a fix | yes | yes | no | ok | — |
+| `import` | a path whose `.factory` is a file exits 3 with a fix | yes | yes | no | ok | — |
 
 ## Release
 
