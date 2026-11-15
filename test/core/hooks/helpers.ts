@@ -51,10 +51,14 @@ export interface TestRepo {
 
 export interface MakeTestRepoOptions {
   git?: boolean;
+  /** Prefix for the temporary container, so a test can put a space or `é` in every path. */
+  containerPrefix?: string;
 }
 
 export async function makeTestRepo(options: MakeTestRepoOptions = {}): Promise<TestRepo> {
-  const container = await mkdtemp(path.join(tmpdir(), "metafab-hooks-"));
+  const container = await mkdtemp(
+    path.join(tmpdir(), options.containerPrefix ?? "metafab-hooks-"),
+  );
   const root = path.join(container, "repo");
   await mkdir(root, { recursive: true });
 

@@ -1,32 +1,41 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { buildCli } from "../../cli/build.js";
 import type { BuiltCli } from "../../cli/build.js";
-import { HOOK_NAMES, syncGitHooks } from "../../../src/core/hooks/index.js";
+import { HOOK_NAMES, hookScript, syncGitHooks } from "../../../src/core/hooks/index.js";
 import { isolateGitConfig, makeTestRepo } from "./helpers.js";
-import type { TestRepo } from "./helpers.js";
+import type { MakeTestRepoOptions, TestRepo } from "./helpers.js";
 
 const execFileAsync = promisify(execFile);
+
+const OLD_HOOKS = fileURLToPath(new URL("./fixtures/hooks-1.0.0", import.meta.url));
 
 let built: BuiltCli;
 let isolation: Awaited<ReturnType<typeof isolateGitConfig>> | undefined;
 const repos: TestRepo[] = [];
+/** The stub on `PATH` a test installed, restored after it however it ends. */
+let activePathStub: PathEntry | undefined;
 
 beforeEach(async () => {
   isolation = await isolateGitConfig();
 });
 
 afterEach(async () => {
+  if (activePathStub !== undefined) {
+    restorePath(activePathStub);
+    activePathStub = undefined;
+  }
   await Promise.all(repos.splice(0).map((repo) => repo.cleanup()));
   isolation?.restore();
   isolation = undefined;
 });
 
-async function repo(): Promise<TestRepo> {
-  const created = await makeTestRepo();
+async function repo(options: MakeTestRepoOptions = {}): Promise<TestRepo> {
+  const created = await makeTestRepo(options);
   repos.push(created);
   return created;
 }
@@ -49,14 +58,76 @@ interface Stub extends PathEntry {
   log: string;
 }
 
+/** Writes an executable stub at `file`, with `__LOG__` replaced by the log path. */
+async function writeStub(file: string, log: string, script: string): Promise<void> {
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, script.replace("__LOG__", log), "utf8");
+  await chmod(file, 0o755);
+}
+
 async function installStub(git: TestRepo, script: string): Promise<Stub> {
   const bin = path.join(git.container, "bin");
-  await mkdir(bin, { recursive: true });
   const log = path.join(git.container, "build.log");
-  const stub = path.join(bin, "metafab");
-  await writeFile(stub, script.replace("__LOG__", log), "utf8");
-  await chmod(stub, 0o755);
+  await writeStub(path.join(bin, "metafab"), log, script);
   return { bin, log, originalPath: process.env.PATH };
+}
+
+/** A `metafab` that logs `<label>:<cwd>`, and exits 1 when asked to fail. */
+function loggingScript(label: string, exitCode = 0): string {
+  const lines = ["#!/bin/sh", `printf '%s\\n' "${label}:$PWD" >> '__LOG__'`];
+  if (exitCode !== 0) lines.push(`exit ${exitCode}`);
+  return `${lines.join("\n")}\n`;
+}
+
+/** A stub in a factory's own `node_modules/.bin`, such as the main checkout's. */
+async function installFactoryStub(
+  git: TestRepo,
+  factoryRelDir: string,
+  script: string,
+): Promise<void> {
+  await writeStub(
+    git.path(factoryRelDir, "node_modules", ".bin", "metafab"),
+    path.join(git.container, "build.log"),
+    script,
+  );
+}
+
+/** The stub log's `<label>:<cwd>` lines, with each directory realpathed. */
+async function stubRuns(log: string): Promise<string[]> {
+  return Promise.all(
+    (await logLines(log)).map(async (line) => {
+      const colon = line.indexOf(":");
+      return `${line.slice(0, colon)}:${await realpath(line.slice(colon + 1))}`;
+    }),
+  );
+}
+
+interface HooksRepoOptions extends MakeTestRepoOptions {
+  /** The factory directory inside the repository, such as `packages/app`. */
+  factory?: string;
+}
+
+/**
+ * A repository with `git-hooks: true`, one commit and the three hooks, and a
+ * `metafab` on `PATH` that logs `path:<cwd>`. Every stub a test installs shares
+ * that log, so the order the hook tried them in is visible.
+ */
+async function hooksRepo(
+  options: HooksRepoOptions = {},
+): Promise<{ git: TestRepo; stub: Stub }> {
+  const git = await repo(options);
+  const factory = options.factory ?? "";
+  await git.write(
+    path.posix.join(factory, ".factory/metafab.yaml"),
+    "agents: all\ngit-hooks: true\n",
+  );
+  await git.writeAndCommit("README.md", "one\n", "factory");
+  await syncGitHooks(git.path(factory), true, "2.0.0");
+
+  const stub = await installStub(git, loggingScript("path"));
+  usePath(stub);
+  activePathStub = stub;
+  return { git, stub };
 }
 
 function usePath(stub: PathEntry): void {
@@ -276,5 +347,171 @@ describe.skipIf(process.platform === "win32")("Git hooks end to end", () => {
     } finally {
       restorePath(stub);
     }
+  });
+
+  describe("a new worktree finds the main worktree's metafab", () => {
+    test.each([
+      { paths: "plain names", containerPrefix: undefined, worktree: "wt" },
+      {
+        paths: "a space and é in the container and worktree names",
+        containerPrefix: "metafab hooks é-",
+        worktree: "wt é",
+      },
+    ])(
+      "worktree add runs the main checkout's stub, and a switch in the main checkout uses step 1 ($paths)",
+      { timeout: 60_000 },
+      async ({ containerPrefix, worktree }) => {
+        const { git, stub } = await hooksRepo({ containerPrefix });
+        await installFactoryStub(git, "", loggingScript("main"));
+
+        const created = git.path("..", worktree);
+        await git.git("worktree", "add", created, "-b", "wt");
+        expect(await stubRuns(stub.log)).toEqual([`main:${await realpath(created)}`]);
+
+        await clear(stub.log);
+        await git.git("switch", "--quiet", "-c", "other");
+        expect(await stubRuns(stub.log)).toEqual([`main:${await realpath(git.root)}`]);
+      },
+    );
+
+    test("without a main-worktree metafab, worktree add falls through to PATH", async () => {
+      const { git, stub } = await hooksRepo();
+
+      const created = git.path("..", "wt");
+      await git.git("worktree", "add", created, "-b", "wt");
+
+      expect(await stubRuns(stub.log)).toEqual([`path:${await realpath(created)}`]);
+    });
+
+    test("a worktree's own dependency wins over the main worktree's", async () => {
+      const { git, stub } = await hooksRepo();
+      await installFactoryStub(git, "", loggingScript("main"));
+
+      const created = git.path("..", "wt");
+      await git.git("worktree", "add", created, "-b", "wt");
+      expect(await stubRuns(stub.log)).toEqual([`main:${await realpath(created)}`]);
+
+      await clear(stub.log);
+      await writeStub(
+        path.join(created, "node_modules", ".bin", "metafab"),
+        stub.log,
+        loggingScript("own"),
+      );
+      await git.gitAt(created, "switch", "--quiet", "-c", "other");
+
+      expect(await stubRuns(stub.log)).toEqual([`own:${await realpath(created)}`]);
+    });
+
+    test("a factory in a subdirectory looks in that same subdirectory of the main worktree", async () => {
+      const { git, stub } = await hooksRepo({ factory: "packages/app" });
+      await installFactoryStub(git, "packages/app", loggingScript("main"));
+
+      const created = git.path("..", "wt");
+      await git.git("worktree", "add", created, "-b", "wt");
+      expect(await stubRuns(stub.log)).toEqual([
+        `main:${await realpath(path.join(created, "packages", "app"))}`,
+      ]);
+
+      // A dependency hoisted to the repository root is not where step 1 looks
+      // either, so the hook must not use it.
+      await clear(stub.log);
+      await rm(git.path("packages", "app", "node_modules"), { recursive: true, force: true });
+      await installFactoryStub(git, "", loggingScript("main"));
+
+      const second = git.path("..", "wt2");
+      await git.git("worktree", "add", second, "-b", "wt2");
+      expect(await stubRuns(stub.log)).toEqual([
+        `path:${await realpath(path.join(second, "packages", "app"))}`,
+      ]);
+    });
+
+    test("a bare repository's linked worktrees fall through to PATH", async () => {
+      const { git, stub } = await hooksRepo();
+      const bare = git.path("..", "bare.git");
+      await git.git("clone", "--bare", "--quiet", git.root, bare);
+      await writeStub(
+        path.join(bare, "hooks", "post-checkout"),
+        stub.log,
+        hookScript("post-checkout", ".", "2.0.0"),
+      );
+
+      for (const branch of ["b1", "b2"]) {
+        await git.gitAt(bare, "worktree", "add", git.path("..", `bare-${branch}`), "-b", branch);
+      }
+      await clear(stub.log);
+      const third = git.path("..", "bare-b3");
+      await git.gitAt(bare, "worktree", "add", third, "-b", "b3");
+
+      expect(await stubRuns(stub.log)).toEqual([`path:${await realpath(third)}`]);
+    });
+
+    test("a linked worktree of a submodule falls through to PATH", async () => {
+      const { git, stub } = await hooksRepo();
+      const source = await repo();
+      await source.writeAndCommit(
+        ".factory/metafab.yaml",
+        "agents: all\ngit-hooks: true\n",
+        "factory",
+      );
+      await git.git(
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        "--quiet",
+        source.root,
+        "sub",
+      );
+      await git.git("commit", "--quiet", "-m", "submodule");
+      expect((await syncGitHooks(git.path("sub"), true, "2.0.0")).changed).toHaveLength(3);
+
+      // The submodule's main worktree is its own git directory, which has no
+      // node_modules, so the hook goes on to PATH. Throws if Git fails.
+      const created = git.path("sub-wt");
+      await git.gitAt(git.path("sub"), "worktree", "add", created, "-b", "swt");
+
+      expect(await stubRuns(stub.log)).toEqual([`path:${await realpath(created)}`]);
+    });
+
+    test("a failing main-worktree build prints one line and lets the Git command succeed", async () => {
+      const { git, stub } = await hooksRepo();
+      await installFactoryStub(git, "", loggingScript("main", 1));
+
+      const created = git.path("..", "wt");
+      const result = await git.gitRaw("worktree", "add", created, "-b", "wt");
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toContain("metafab: build failed. Run metafab build.");
+      // A failed build ends the lookup: the stub on PATH does not run.
+      expect(await stubRuns(stub.log)).toEqual([`main:${await realpath(created)}`]);
+    });
+  });
+
+  test("hooks written by an older version are updated once, then left alone", async () => {
+    const git = await repo();
+    await git.writeAndCommit(".factory/metafab.yaml", "agents: all\ngit-hooks: true\n", "factory");
+    await mkdir(git.path(".git", "hooks"), { recursive: true });
+    for (const hook of HOOK_NAMES) {
+      const target = git.path(".git", "hooks", hook);
+      await writeFile(target, await readFile(path.join(OLD_HOOKS, hook), "utf8"));
+      await chmod(target, 0o755);
+    }
+
+    const first = await syncGitHooks(git.root, true, "2.0.0");
+
+    expect(first.changed).toEqual([
+      { hook: "post-checkout", action: "updated" },
+      { hook: "post-merge", action: "updated" },
+      { hook: "post-rewrite", action: "updated" },
+    ]);
+    for (const hook of HOOK_NAMES) {
+      expect(await readFile(git.path(".git", "hooks", hook), "utf8")).toBe(
+        hookScript(hook, ".", "2.0.0"),
+      );
+    }
+    await expect(syncGitHooks(git.root, true, "2.0.0")).resolves.toEqual({
+      changed: [],
+      warnings: [],
+    });
   });
 });
