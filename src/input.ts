@@ -28,6 +28,7 @@ export class NeedsInput extends MetafabError {
     super(`Required input was unavailable in non-interactive mode: ${names}`, {
       exitCode: ExitCode.NeedsInput,
       code: "needs-input",
+      problems: [],
       details: { required },
     });
     this.name = "NeedsInput";

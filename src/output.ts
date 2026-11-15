@@ -5,7 +5,7 @@ export interface CommandResult {
   ok: boolean;
   command: string;
   exitCode: ExitCode;
-  problems?: Problem[];
+  problems: Problem[];
   summary?: string;
   [key: string]: unknown;
 }

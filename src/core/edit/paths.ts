@@ -1,5 +1,5 @@
 import { MetafabError } from "../../errors.js";
-import type { Problem } from "../../errors.js";
+import type { ErrorProblem } from "../../errors.js";
 import { getSkillNameProblems } from "./names.js";
 
 export interface CreatePath {
@@ -8,7 +8,7 @@ export interface CreatePath {
   name: string;
 }
 
-function pathProblem(input: string, message: string, fix: string): Problem {
+function pathProblem(input: string, message: string, fix: string): ErrorProblem {
   return {
     level: "error",
     file: input === "" ? "path" : input,

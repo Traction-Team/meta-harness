@@ -815,7 +815,7 @@ describe("isCacheWriteFailure", () => {
       expect(isCacheWriteFailure(Object.assign(new Error(code), { code }))).toBe(true);
     }
     expect(isCacheWriteFailure(Object.assign(new Error("ENOENT"), { code: "ENOENT" }))).toBe(false);
-    expect(isCacheWriteFailure(new MetafabError("boom"))).toBe(false);
+    expect(isCacheWriteFailure(new MetafabError("boom", { problems: [] }))).toBe(false);
     expect(isCacheWriteFailure("not an error")).toBe(false);
   });
 });

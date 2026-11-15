@@ -2,7 +2,7 @@ import path from "node:path";
 import { isMap } from "yaml";
 import type { Document } from "yaml";
 import { MetafabError } from "../../errors.js";
-import type { Problem } from "../../errors.js";
+import type { ErrorProblem, Problem } from "../../errors.js";
 import { didYouMean } from "../../util/suggest.js";
 import { loadFactory } from "../factory/load.js";
 import type { Skill } from "../factory/types.js";
@@ -39,7 +39,7 @@ export interface RemoveWorkflowResult {
   pipeline: string[];
 }
 
-function problem(file: string, message: string, fix: string): Problem {
+function problem(file: string, message: string, fix: string): ErrorProblem {
   return {
     level: "error",
     file,

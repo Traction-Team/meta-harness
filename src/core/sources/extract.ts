@@ -5,7 +5,7 @@ import path from "node:path";
 import * as tar from "tar";
 import type { ReadEntry } from "tar";
 import { ExitCode, MetafabError } from "../../errors.js";
-import type { Problem } from "../../errors.js";
+import type { ErrorProblem, Problem } from "../../errors.js";
 import { containmentRootAbsolute, isInsideAbsolute } from "./containment.js";
 import {
   FAB_DOWNLOAD_FIX,
@@ -27,7 +27,7 @@ const FACTORY_DIRECTORY = ".factory";
  * An error problem about one archive entry. The `file` is the path inside the
  * archive, so it is already `/`-separated.
  */
-function archiveProblem(file: string, message: string, fix: string = FAB_ENTRY_FIX): Problem {
+function archiveProblem(file: string, message: string, fix: string = FAB_ENTRY_FIX): ErrorProblem {
   return { level: "error", file, message, fix };
 }
 
@@ -319,8 +319,8 @@ function pathCollisionProblems(
   entries: ArchiveEntry[],
   strip: number,
   linkDirectories: Set<string>,
-): Problem[] {
-  const problems: Problem[] = [];
+): ErrorProblem[] {
+  const problems: ErrorProblem[] = [];
   const categories = new Map<string, "directory" | "file" | "link">();
   const directories = new Set<string>();
 
@@ -413,7 +413,7 @@ async function linkTargetType(target: string): Promise<"dir" | "file"> {
   }
 }
 
-function linkProblem(task: LinkTask, error: unknown): Problem {
+function linkProblem(task: LinkTask, error: unknown): ErrorProblem {
   const message = error instanceof Error ? error.message : String(error);
   return archiveProblem(task.path, `links could not be created: ${message}`, LINK_CREATE_FIX);
 }
@@ -437,13 +437,13 @@ async function createHardLink(destination: string, task: LinkTask): Promise<void
 }
 
 interface LinkProblems {
-  problems: Problem[];
+  problems: ErrorProblem[];
   /** Paths whose creation already failed, so verification does not repeat them. */
   failed: Set<string>;
 }
 
 async function createLinks(destination: string, tasks: LinkTask[]): Promise<LinkProblems> {
-  const problems: Problem[] = [];
+  const problems: ErrorProblem[] = [];
   const failed = new Set<string>();
   const symbolic = tasks.filter((task) => task.kind === "symbolic");
   const hard = tasks.filter((task) => task.kind === "hard");
@@ -514,8 +514,8 @@ async function createLinks(destination: string, tasks: LinkTask[]): Promise<Link
   return { problems, failed };
 }
 
-async function verifyLinks(destination: string, tasks: LinkTask[]): Promise<Problem[]> {
-  const problems: Problem[] = [];
+async function verifyLinks(destination: string, tasks: LinkTask[]): Promise<ErrorProblem[]> {
+  const problems: ErrorProblem[] = [];
 
   for (const task of tasks) {
     const target = linkPath(destination, task.path);

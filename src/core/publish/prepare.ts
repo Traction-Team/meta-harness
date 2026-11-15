@@ -1,7 +1,7 @@
 import { stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
-import type { Problem } from "../../errors.js";
+import type { ErrorProblem } from "../../errors.js";
 import { listFiles } from "../../util/fs.js";
 import { CONFIG_FILE } from "../config/parse.js";
 import type { Config, PublishConfig } from "../config/types.js";
@@ -25,7 +25,7 @@ export const PUBLISH_RETRY_FIX =
 export type ValidPublishConfig = PublishConfig & { version: string };
 
 /** A problem about the `publish` section, whose file is the configuration the person edits. */
-export function publishProblem(message: string, fix: string): Problem {
+export function publishProblem(message: string, fix: string): ErrorProblem {
   return {
     level: "error",
     file: CONFIG_FILE,

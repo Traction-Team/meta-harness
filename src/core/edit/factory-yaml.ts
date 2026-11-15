@@ -1,7 +1,7 @@
 import { Document, isAlias, isMap, isNode, isSeq, parseDocument, visit } from "yaml";
 import type { Pair, YAMLSeq } from "yaml";
 import { MetafabError } from "../../errors.js";
-import type { Problem } from "../../errors.js";
+import type { ErrorProblem } from "../../errors.js";
 import { isSingleLine } from "../../util/text.js";
 import { factoryAliasProblems } from "../factory/factory-yaml.js";
 import type { PipelineEntry } from "../factory/types.js";
@@ -22,7 +22,7 @@ export interface AddPipelineEntryOptions {
   stop?: string;
 }
 
-function problem(file: string, message: string, line: number | undefined, fix: string): Problem {
+function problem(file: string, message: string, line: number | undefined, fix: string): ErrorProblem {
   return {
     level: "error",
     file,

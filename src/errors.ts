@@ -7,18 +7,30 @@ export enum ExitCode {
   NotOwned = 5,
 }
 
-export interface Problem {
-  level: "error" | "warning";
+interface ProblemBase {
   file: string;
   line?: number;
   message: string;
+}
+
+/** A problem that failed the command: the person needs the next step. */
+export interface ErrorProblem extends ProblemBase {
+  level: "error";
+  fix: string;
+}
+
+/** A problem that only reports something. A warning has a fix when there is one. */
+export interface WarningProblem extends ProblemBase {
+  level: "warning";
   fix?: string;
 }
+
+export type Problem = ErrorProblem | WarningProblem;
 
 export interface MetafabErrorOptions {
   exitCode?: ExitCode;
   code?: string;
-  problems?: Problem[];
+  problems: Problem[];
   details?: unknown;
   cause?: unknown;
 }
@@ -29,7 +41,7 @@ export class MetafabError extends Error {
   readonly problems?: Problem[];
   readonly details?: unknown;
 
-  constructor(message: string, options: MetafabErrorOptions = {}) {
+  constructor(message: string, options: MetafabErrorOptions) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = "MetafabError";
     this.exitCode = options.exitCode ?? ExitCode.Failed;
