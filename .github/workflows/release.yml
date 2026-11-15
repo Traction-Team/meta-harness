@@ -20,7 +20,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # Trusted publishing needs Node 22.14.0 or later, and `22` on its own
+          # does not say so. The range still picks up Node 22 patch releases.
+          node-version: ">=22.14.0 <23"
           # Writes the npm registry npm publishes to. No dependency cache: a
           # cache written by another run must not reach the publish step.
           registry-url: https://registry.npmjs.org

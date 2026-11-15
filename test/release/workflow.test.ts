@@ -93,6 +93,16 @@ describe("the release workflow", () => {
     expect(semver.gte(minimum!, "11.5.1")).toBe(true);
   });
 
+  test("runs on a Node that can use trusted publishing", () => {
+    const setup = (publishingJob().steps ?? []).find((step) => step.uses?.startsWith("actions/setup-node"));
+    const declared = String(setup?.with?.["node-version"] ?? "");
+    const minimum = semver.minVersion(declared);
+
+    // Trusted publishing needs Node 22.14.0 or later.
+    expect(minimum).not.toBeNull();
+    expect(semver.gte(minimum!, "22.14.0")).toBe(true);
+  });
+
   test("points setup-node at the npm registry", () => {
     const setup = (publishingJob().steps ?? []).find((step) => step.uses?.startsWith("actions/setup-node"));
 
