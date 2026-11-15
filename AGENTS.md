@@ -1,3 +1,66 @@
+# meta-harness
+
+This repository builds **Metafab**: the `metafab` CLI, published as `@seasb/metafab`. It records a software factory in `.factory/`, installs it for agent tools, validates it, and shares it as a fab.
+
+## Read first
+
+- `docs/specs/`: what v1 does. The specs are the acceptance standard for every change.
+- `docs/roadmap.md`: where we are. One checkbox per plan; it is the source of truth for progress.
+- `docs/plans/`: how each piece is built. One plan is one pull request.
+- `docs/factory.md`: this repository's factory settings. The workflows and scripts read it.
+- `prototype/`, and `assets/` are earlier prototypes and material. Do not read or change them unless the person asks.
+
+## Commands
+
+```bash
+npm install
+npm run verify          # typecheck, tests, build, factory: run before every push
+npm run factory         # metafab build and check, then the docs check; fails when the AGENTS.md block is stale
+node dist/cli.js <cmd>  # the CLI from this checkout
+node .factory/scripts/check.mjs   # validates plans, roadmap, intake and changelog
+node .factory/scripts/next.mjs    # plans that can be built next
+```
+
+In this repository `metafab` is `node dist/cli.js`: run `npm run build` first.
+
+## Rules
+
+- **Specs first.** When the code has to differ from a spec, change the spec in the same pull request and say so in its body. Never let them drift.
+- **One plan, one pull request.** Change only the paths in the plan's `owns`; widen `owns` in the plan when you must, and say why.
+- Conventional Commits with no scope: `feat`, `fix`, `refactor`, `docs`, `chore`, `test`, `ci`, `build`. Branches are `<type>/<slug>`. A plan's branch carries its number: `<type>/<plan file name without .md>`, such as `feat/1.005-check`.
+- Code reaches `main` only through a pull request; see "Publishing docs changes" for what counts as docs.
+- Coding sub-agents run as `subagent_type: "agent-coding"` and review sub-agents as `subagent_type: "agent-review"`, both defined in `opencode.json`, even when the Agent tool does not list them. In Amp, each sub-agent is a separate thread on the same models; `build-plan` says how.
+- Run child processes with `execFile` and an argument list, never through a shell.
+- Tests use temporary directories and local fixtures (a local registry, local bare Git repositories). No test reaches the network.
+
+## Publishing docs changes
+
+Docs are `docs/`. They still go straight to `main`, and so does a `metafab update` that leaves `.factory/scripts/` alone. When the person asks you to save, publish, commit or push docs changes, do the round trip yourself:
+
+```bash
+git switch main && git pull --ff-only
+npm run build && node dist/cli.js build                         # regenerates the root blocks from .factory/
+git add docs/<files> AGENTS.md                                  # stage the regenerated root block too
+git diff --cached --name-only | grep -vE '^(docs/|AGENTS\.md$)'   # must print nothing
+node dist/cli.js diff                                           # must print "No local edits since ..."
+node .factory/scripts/check.mjs                                 # fix what it reports
+npm run factory                                                 # builds and checks; passes once the regenerated root block is staged
+git commit -m "docs: <what changed>"
+git push
+```
+
+A docs-only commit runs `node .factory/scripts/check.mjs`. A `metafab update` also runs `npm run factory`, because the `AGENTS.md` block is committed and an update that changes it regenerates root `AGENTS.md`, which is staged with the update.
+
+If anything outside `docs/`, `.factory/` (outside `.factory/scripts/`) and the `AGENTS.md` block the build regenerates is staged, it goes in a pull request instead. A change to `.factory/metafab.yaml` (for example `agents`) can regenerate `.gitignore`; that is not docs, so that change goes in a pull request.
+
+### The factory is upstream-owned
+
+`.factory/` arrives from [fab-basic](https://github.com/Traction-Team/fab-basic), whose `.factory/` is its source. Its workflows, skills, templates, scripts, `AGENTS.md` and `factory.yaml` are maintained there, and this repository's own values live in `docs/factory.md`, which an update never touches.
+
+- **A factory change** — a workflow, a skill, a template, `.factory/AGENTS.md` or `factory.yaml` — is made in fab-basic (`github:Traction-Team/fab-basic`), released there as a new version, and taken here with `node dist/cli.js update`. Commit that update in a pull request when it touches `.factory/scripts/`, and straight to `main` otherwise.
+- **A direct edit to `.factory/` outside `.factory/scripts/`** is a docs-only stopgap at most: `node dist/cli.js diff` lists it until it is upstreamed to fab-basic. Make one only to unblock the person, and say in the commit that it waits on an upstream change.
+- **`.factory/scripts/` is never edited locally.** It is code, so it goes in a pull request in fab-basic.
+
 <!-- factory:start -->
 <!-- Generated by metafab build from .factory/. Edit the source, then run metafab build. -->
 
