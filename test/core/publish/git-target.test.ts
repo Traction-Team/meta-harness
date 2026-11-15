@@ -10,6 +10,7 @@ import { loadRepo, makePublishRepo } from "./fixtures.js";
 import type { RepoFiles, TempRepo } from "../../helpers/makeRepo.js";
 import {
   commitMessage,
+  disableAutoMaintenance,
   fileUrl,
   gitPublishSection,
   handCommit,
@@ -145,6 +146,27 @@ describe("the Git target", { timeout: 30_000 }, () => {
     expect(await listRemoteRefs(bare.repo)).toEqual([
       "refs/heads/main",
       "refs/tags/v1.2.0",
+    ]);
+  });
+
+  it("names a file URL without its credentials and keeps an @ in the path", async () => {
+    const bare = track(await makeBareFabRepo());
+    // Git accepts a userinfo on a `file://localhost/` URL. The message must not
+    // write it down, and the path's own `@` is not userinfo, so it stays whole.
+    const repo = path.join(bare.root, "user@corp", "fab.git");
+    await mkdir(path.dirname(repo), { recursive: true });
+    await runGitIn(bare.root, ["init", "--quiet", "--bare", "--initial-branch=main", repo]);
+    await disableAutoMaintenance(repo);
+    const posix = repo.split(path.sep).join("/");
+
+    const result = await publish(`file://user:token@localhost${posix}`, VERSION);
+
+    expect(result.targets).toEqual([
+      {
+        target: "git",
+        status: "published",
+        detail: `Published ${VERSION} to main in file://localhost${posix}.`,
+      },
     ]);
   });
 
