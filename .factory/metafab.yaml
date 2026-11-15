@@ -5,4 +5,4 @@ git-hooks: true
 upstream:
   source: github:Traction-Team/fab-basic
   requested: feat/environments
-  commit: 1cd95b22dce0323cf98932bb96eb847649ef926f
+  commit: 7edb0a1cd10d6b11c667eccdd5835e6ad3e826c9
