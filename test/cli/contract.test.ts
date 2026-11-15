@@ -8,7 +8,8 @@ import type { CommandDefinition } from "../../src/commands/types.js";
 import { ExitCode } from "../../src/errors.js";
 import type { Problem } from "../../src/errors.js";
 import type { RequiredValue } from "../../src/input.js";
-import { copyFileWithMode, listFiles } from "../../src/util/fs.js";
+import { copyFileWithMode, copyTree, listFiles } from "../../src/util/fs.js";
+import { runGit } from "../../src/util/git.js";
 import { makeRepo } from "../helpers/makeRepo.js";
 import type { TempRepo } from "../helpers/makeRepo.js";
 import { runCli } from "../helpers/runCli.js";
@@ -26,6 +27,7 @@ import type { RunCliResult } from "../helpers/runCli.js";
 const FIXTURES = fileURLToPath(new URL("../fixtures", import.meta.url));
 const MARK4_SOURCE = path.join(FIXTURES, "build", "mark4-like", "source");
 const VALID_FAB = path.join(FIXTURES, "fabs", "valid-fab");
+const ENV_FACTORY = path.join(FIXTURES, "env", "factory");
 const INVALID_FAB = path.join(FIXTURES, "fabs", "invalid-fab");
 
 /** The fix line every unexpected error carries. */
@@ -97,6 +99,15 @@ async function copyFixture(source: string, destination: string): Promise<void> {
 async function mark4(): Promise<string> {
   const root = await newDirectory();
   await copyFixture(MARK4_SOURCE, root);
+  return root;
+}
+
+/** A format 2 factory that declares `env`, in a Git repository `env set` can write to. */
+async function envFactory(): Promise<string> {
+  const root = await newDirectory();
+  await copyTree(ENV_FACTORY, root);
+  const init = await runGit(["init", "--quiet"], { cwd: root });
+  expect(init.exitCode, init.stderr).toBe(0);
   return root;
 }
 
@@ -196,6 +207,34 @@ const CASES: readonly ContractCase[] = [
       return root;
     },
     exitCode: ExitCode.Failed,
+  },
+  {
+    command: "env",
+    name: "a format 1 factory declares no variables",
+    args: ["env"],
+    prepare: mark4,
+    exitCode: ExitCode.Ok,
+    also: (json) => {
+      expect(json.variables).toEqual([]);
+      expect(json.problems).toEqual([]);
+    },
+  },
+  {
+    command: "env set",
+    name: "an undeclared value exits 1 with the declared values",
+    args: ["env", "set", "harness=zed"],
+    prepare: envFactory,
+    exitCode: ExitCode.Failed,
+  },
+  {
+    command: "env unset",
+    name: "a key that is not set is not an error",
+    args: ["env", "unset", "harness"],
+    prepare: envFactory,
+    exitCode: ExitCode.Ok,
+    also: (json) => {
+      expect(json.removed).toBe(false);
+    },
   },
   {
     command: "import",

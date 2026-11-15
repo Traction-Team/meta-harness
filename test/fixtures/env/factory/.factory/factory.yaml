@@ -1,0 +1,13 @@
+format: 2
+name: dragonfly
+
+env:
+  harness:
+    description: The agent tool that runs the workflows
+    values:
+      opencode: { label: In OpenCode }
+      claude: { label: In Claude Code }
+      amp: { label: In Amp (AMP_THREAD_ID is set) }
+  workspace:
+    values: [orca, worktree]
+    default: worktree

@@ -23,6 +23,7 @@ import { checkCommand } from "./commands/check.js";
 import { createCommand } from "./commands/create.js";
 import { detachCommand } from "./commands/detach.js";
 import { diffCommand } from "./commands/diff.js";
+import { envCommand, envSetCommand, envUnsetCommand } from "./commands/env.js";
 import { importCommand } from "./commands/import.js";
 import { initCommand } from "./commands/init.js";
 import { mapCommand } from "./commands/map.js";
@@ -40,6 +41,9 @@ export const COMMANDS: readonly CommandDefinition[] = [
   pipelineRemoveCommand,
   mapCommand,
   checkCommand,
+  envCommand,
+  envSetCommand,
+  envUnsetCommand,
   importCommand,
   updateCommand,
   diffCommand,
@@ -150,7 +154,7 @@ function renderHelp(
   const result: CommandResult = { ok: true, command: "help", exitCode: ExitCode.Ok, problems: [] };
 
   if (target.kind === "command") {
-    const help = commandHelp(target.definition);
+    const help = commandHelp(target.definition, commands);
     result.help = help;
     if (!json) result.summary = renderCommandHelp(help);
   } else if (target.kind === "group") {
@@ -329,6 +333,14 @@ export async function main(
       candidates = commands
         .filter((command) => command.name.startsWith("pipeline "))
         .map((command) => command.name);
+    } else if (first === "env") {
+      // Unlike `pipeline`, `env` alone is a command: only `set` and `unset`
+      // name a subcommand, and any other word is an argument `env` refuses.
+      const second = tokens[1];
+      if (second === "set" || second === "unset") {
+        requested = `env ${second}`;
+        consumed = 2;
+      }
     }
 
     const definition = findCommand(commands, requested);

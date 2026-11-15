@@ -358,3 +358,39 @@ describe("check command", () => {
     },
   );
 });
+
+const ENV_FACTORY = `format: 2
+name: demo
+
+env:
+  harness:
+    values: [opencode, claude]
+  workspace:
+    values: [orca, worktree]
+    default: worktree
+`;
+
+describe("check command --env", () => {
+  test("accepts a selection", async () => {
+    const repo = await checkRepo({ ".factory/factory.yaml": ENV_FACTORY });
+    await build(repo.root);
+
+    const result = await runCli(["check", "--env", "harness=claude"], {
+      cwd: repo.root,
+      tty: false,
+    });
+
+    expect(result.code).toBe(ExitCode.Ok);
+    expect(result.stdout.trim()).toBe("0 errors, 0 warnings");
+  });
+
+  test("an unknown variable exits 1 with only that error", async () => {
+    const repo = await checkRepo({ ".factory/factory.yaml": ENV_FACTORY });
+
+    const result = await runCli(["check", "--env", "nope=claude"], { cwd: repo.root, tty: false });
+
+    expect(result.code).toBe(ExitCode.Failed);
+    const errors = result.stderr.split("\n").filter((line) => line.includes(": error:"));
+    expect(errors).toEqual(['.factory/factory.yaml: error: --env names unknown variable "nope"']);
+  });
+});

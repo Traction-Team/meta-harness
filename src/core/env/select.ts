@@ -32,6 +32,18 @@ export function splitValues(text: string): string[] {
   return values;
 }
 
+/**
+ * The `--env` option's arguments: `parseArgs` gives one string, a list of them,
+ * or a boolean when the option is written with no value.
+ */
+export function envOptions(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+  return [];
+}
+
 export interface ResolveOptions {
   root: string;
   /** Raw `--env` arguments. */
@@ -42,7 +54,8 @@ export interface ResolveOptions {
   readConfig?: EnvConfigReader;
 }
 
-function declaredFix(names: readonly string[]): string {
+/** The fix line for a variable or value a factory does not declare. */
+export function declaredVariablesFix(names: readonly string[]): string {
   return names.length === 0
     ? "This factory declares no environment variables"
     : `Declared variables: ${names.join(", ")}`;
@@ -78,7 +91,7 @@ function parseOptions(
         level: "error",
         file: FILE,
         message: `--env names unknown variable "${name}"`,
-        fix: didYouMean(name, declared) ?? declaredFix(declared),
+        fix: didYouMean(name, declared) ?? declaredVariablesFix(declared),
       });
       continue;
     }

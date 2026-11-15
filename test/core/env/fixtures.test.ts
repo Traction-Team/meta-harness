@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, test } from "vitest";
 import type { Problem } from "../../../src/errors.js";
 import { parseFactoryYaml } from "../../../src/core/factory/index.js";
+import { pathExists } from "../../../src/util/fs.js";
 
 const FIXTURES = fileURLToPath(new URL("../../fixtures/env/", import.meta.url));
 const FILE = ".factory/factory.yaml";
@@ -32,10 +33,15 @@ function compare(left: ExpectedProblem, right: ExpectedProblem): number {
   return left.message < right.message ? -1 : left.message > right.message ? 1 : 0;
 }
 
-const fixtureNames = (await readdir(FIXTURES, { withFileTypes: true }))
-  .filter((entry) => entry.isDirectory())
-  .map((entry) => entry.name)
-  .sort();
+const fixtureNames: string[] = [];
+for (const entry of await readdir(FIXTURES, { withFileTypes: true })) {
+  if (!entry.isDirectory()) continue;
+  // A declaration fixture carries its expected problems; `factory` is a whole
+  // factory that the CLI tests copy, so it has none.
+  if (!(await pathExists(path.join(FIXTURES, entry.name, "expected.json")))) continue;
+  fixtureNames.push(entry.name);
+}
+fixtureNames.sort();
 
 describe("env fixtures", () => {
   test.each(fixtureNames)("%s reports exactly the expected problems", async (name) => {

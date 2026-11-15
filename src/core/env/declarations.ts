@@ -34,7 +34,7 @@ function nodeText(node: unknown): string {
 }
 
 /** A variable name starts with a letter, because Git config names must. */
-function isVariableName(name: string): boolean {
+export function isVariableName(name: string): boolean {
   return /^[a-z]/.test(name) && isNameFormatted(name);
 }
 

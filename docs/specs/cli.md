@@ -23,20 +23,20 @@ The npm package is `@seasb/metafab`. It provides the `metafab` command and requi
 
 Use the scoped package name with `npx` unless the project already installs it. The unscoped `metafab` package is unrelated.
 
-Git is required only for Git-based fab sources.
+Git is required only for Git-based fab sources, and to read or write an [environment selection](environments.md#selecting-an-environment) in Git config.
 
 ## Command behaviour
 
 All commands follow these rules:
 
-1. Repository files contain all persistent project state.
-2. The download cache is the only state outside the repository. It lives at `~/.metafab/cache/`.
+1. Repository files contain all persistent project state. A developer's [environment selection](environments.md#selecting-an-environment) is personal, not project state: it lives in Git config (`factory.env.*`) or the process environment.
+2. Besides the `factory.env.*` keys that `metafab env set` and `env unset` write to Git config, the download cache is the only state Metafab keeps outside the repository's files. It lives at `~/.metafab/cache/`.
 3. A command never stages, commits, or pushes changes in the project repository. `publish` with a Git target commits and pushes only to the configured fab repository.
 4. Every command supports `--json`.
 5. A command never prompts when standard input is not a terminal.
 6. Missing non-interactive input produces exit code 2 and a machine-readable list of required values.
 7. `import` and `update` never run package scripts or factory scripts. They create a required file only by copying its template.
-8. Repeated `init`, `build`, `map`, and `check` commands are safe.
+8. Repeated `init`, `build`, `map`, `check`, and `env` commands are safe.
 9. `metafab <command> --help` (or `-h`) prints the command's usage line, its one-line description, its arguments and its options, and exits 0. It does not read the factory, run Git, use the network or prompt. With `--json` it writes the same as one JSON object. `metafab pipeline --help` lists the `pipeline` subcommands. `metafab --help` lists the commands, and `metafab --help <command>` is the same as `metafab <command> --help`.
 10. When standard input ends before a prompt is answered, the value is missing input: the command exits with code 2 and the machine-readable list of required values, and writes nothing. Every prompt comes before the command's first write.
 
@@ -61,9 +61,9 @@ The CLI creates files but does not provide an interactive editor. A person or ag
 | Command | Behaviour |
 | --- | --- |
 | `metafab init [--agents <list>] [--adopt] [--git-hooks \| --no-git-hooks]` | Creates missing factory files, then runs `build` |
-| `metafab build` | Compiles the factory for the agent tools in `metafab.yaml` and removes obsolete output owned by Metafab |
+| `metafab build [--env <variable>=<values>]...` | Compiles the factory for the agent tools in `metafab.yaml` and the selected environment, and removes obsolete output owned by Metafab |
 
-`build` takes no options. Edit [`metafab.yaml`](configuration.md) to change what it writes. To remove all output, set `agents: []` and run `build`.
+`build` takes one option, `--env`, which [selects an environment](environments.md#selecting-an-environment) for this run. It never changes which agent tools `build` writes for: edit [`metafab.yaml`](configuration.md) for that. To remove all output, set `agents: []` and run `build`.
 
 `init` creates these entries when they are missing:
 
@@ -146,9 +146,19 @@ Metafab does not create templates, scripts, or other files. Create them directly
 
 With `--json`, `map` also includes each skill's path and frontmatter.
 
+### Select an environment
+
+| Command | Behaviour |
+| --- | --- |
+| `metafab env` | Shows each declared variable, its selected values and the source of each. `--env` previews another selection |
+| `metafab env set <variable>=<values> [--global]` | Replaces `factory.env.<variable>` in repository Git config, or global config with `--global`, then runs `build` |
+| `metafab env unset <variable> [--global]` | Removes the key from that scope, then runs `build` |
+
+`env` with no variables declared prints `This factory declares no environment variables.` and exits 0. `env set` and `env unset` warn when a higher-priority source (a `FACTORY_ENV_*` variable, or Git config in a higher scope) still overrides the value they wrote.
+
 ### Validate a factory
 
-`metafab check` validates the following, and reports their problems in this order:
+`metafab check [--env <variable>=<values>]...` validates the following, and reports their problems in this order:
 
 1. The [factory format](factory-format.md#validation)
 2. [`metafab.yaml`](configuration.md#validation)
@@ -158,6 +168,8 @@ With `--json`, `map` also includes each skill's path and frontmatter.
 6. Remaining `.upstream` conflict files
 7. Installed skill copies, the generated `AGENTS.md` block and the installed `metafab` skill
 8. Warnings from planning the build output
+
+With `--env`, `check` compares the installed output with a build for that selection.
 
 When items 1 to 4 include an error, items 7 and 8 are not checked, and `check` says so with one warning.
 
@@ -185,7 +197,9 @@ The `upstream` key in `metafab.yaml` records the fab that the factory came from.
 
 With `--json`, a command writes one JSON object to standard output. Human-readable messages go to standard error. Every result contains `ok`, `command`, `exitCode` (the process exit code) and `problems`. A result for missing input (exit 2) contains `required` instead of `problems`.
 
-A help result has `command: "help"`, `exitCode: 0` and empty `problems`. `metafab --help` adds `commands`, a list of `{ command, usage, description }`. `metafab <command> --help` adds `help`: `{ command, usage, description, arguments, options }`, where each argument is `{ name, description, optional }` and each option is `{ flag, value, description }` (`value` only for an option that takes one, such as `<list>`); `options` ends with `--json` and `-h, --help`. `metafab pipeline --help` adds `help`: `{ command: "pipeline", subcommands }`, a list of `{ command, usage, description }`. The JSON help result has no `summary`.
+A help result has `command: "help"`, `exitCode: 0` and empty `problems`. `metafab --help` adds `commands`, a list of `{ command, usage, description }`. `metafab <command> --help` adds `help`: `{ command, usage, description, arguments, options }`, where each argument is `{ name, description, optional }` and each option is `{ flag, value, description }` (`value` only for an option that takes one, such as `<list>`); `options` ends with `--json` and `-h, --help`. `metafab pipeline --help` adds `help`: `{ command: "pipeline", subcommands }`, a list of `{ command, usage, description }`. `metafab env --help` adds the same `subcommands` to its `help`, naming `env set` and `env unset`. The JSON help result has no `summary`.
+
+`env` adds `variables`, a list of `{ name, description?, values: [{ name, label }], selected, source, scope?, from? }` in declaration order. `selected` is a list of value names (`string[]`) in the order `values` declares them, and `source`, `scope` and `from` say where that variable's selection came from. `source` is `option`, `environment`, `git`, `default` or `all`; `scope` (`worktree`, `local`, `global` or `system`) is set for `git`, and `from` (such as `FACTORY_ENV_HARNESS`) for `environment`. `build` adds `env` in the same shape when the factory declares variables.
 
 Example failed check:
 
