@@ -20,19 +20,28 @@ check_node() {
   echo "node $(node -v), npm $(npm -v)"
 }
 
-# npm ci keeps package-lock.json untouched; npm install can rewrite it.
 unshallow() {
   # build-plan and finish-plan merge the pull request's base, which fails in a shallow clone.
-  if [[ "$(git rev-parse --is-shallow-repository)" == "true" ]]; then
-    git fetch --quiet --unshallow origin
-  else
+  # They also unshallow before that merge, so a failure here only warns: in a new orb the
+  # GitHub credentials can arrive after setup starts.
+  if [[ "$(git rev-parse --is-shallow-repository)" != "true" ]]; then
     echo "already a full clone"
+    return
+  fi
+  local -a fetch=(git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 fetch --quiet --unshallow origin)
+  if command -v timeout >/dev/null 2>&1; then
+    fetch=(timeout 120 "${fetch[@]}")
+  fi
+  if ! GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never "${fetch[@]}"; then
+    echo "warning: could not unshallow the clone (GitHub credentials may not be ready yet)." >&2
+    echo "warning: build-plan and finish-plan unshallow before they merge the base; to do it now, run: git fetch --unshallow origin" >&2
   fi
 }
 
 step "Check Node" check_node
-step "Unshallow the clone" unshallow
+# npm ci keeps package-lock.json untouched; npm install can rewrite it.
 step "Install dependencies" npm ci --no-audit --no-fund
 step "Build dist/" npm run build --silent
 # The factory skills in .agents/skills/ (which Amp reads) are generated, not committed.
 step "Install factory skills" node dist/cli.js build
+step "Unshallow the clone" unshallow
