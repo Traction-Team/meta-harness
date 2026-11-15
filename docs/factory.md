@@ -23,7 +23,7 @@ The workflows and scripts read this file. Fill in every `<set me>` value; leave 
 | `intake` | `docs/intake` | Where intake notes and their sightings folders live. |
 | `changelog` | `docs/changelog` | Where changelog entries live. |
 | `features` |  | Feature docs directory; empty turns feature docs and plan codes off. |
-| `stacking` | `off` | `on`: a plan whose need is still building stacks on its branch; `off`: it waits for the need to merge. |
+| `stacking` | `on` | `on`: a plan whose need is still building stacks on its branch; `off`: it waits for the need to merge. |
 | `review-bots` |  | Comment that asks a bot to review, such as a bot handle plus `review`. |
 | `docs-changes` | `direct` | `direct` pushes docs to the trunk; `pull-request` opens a docs pull request. |
 | `approvers` |  | Who approves, quoted by the workflows. |
