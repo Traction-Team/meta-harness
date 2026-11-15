@@ -1,11 +1,25 @@
 format: 1
-name: meta-harness
-description: Plan, build, and review the metafab CLI one pull request at a time, with a person at each decision.
+name: basic
+description: Plan, build and review work one pull request at a time, with a person at each decision.
 
 pipeline:
   - file-work
-  - prioritise-roadmap: { stop: the person running it agrees what is next on docs/roadmap.md }
-  - plan-feature: { stop: a person approves the plans }
-  - start-plan: { stop: a person confirms each wave }
+  - prioritise-roadmap: { stop: The person running it agrees what is next on the roadmap }
+  - plan-feature: { stop: A person approves the plans }
+  - start-plan: { stop: A person confirms each wave }
   - build-plan
-  - finish-plan: { stop: the developer says done and a person merges the pull request }
+  - finish-plan: { stop: The developer says done and a person merges the pull request }
+
+requires:
+  - path: docs/factory.md
+    description: This repository's settings (trunk, verify command, Orca repo, docs paths) that the workflows and scripts read; set every <set me> value
+    template: .factory/templates/setup/factory.md
+  - path: opencode.json
+    description: Defines the agent-coding, agent-review and agent-planning sub-agents the workflows start; when it exists, add any of the three it lacks. Change the models if you like, but keep agent-review on a different model family from agent-coding
+    template: .factory/templates/setup/opencode.json
+  - path: orca.yaml
+    description: Runs metafab build in each new Orca worktree; when it exists, add `npx --yes @seasb/metafab build` to scripts.setup
+    template: .factory/templates/setup/orca.yaml
+  - path: docs/roadmap.md
+    description: The roadmap prioritise-roadmap writes and start-plan reads; set `roadmap` in docs/factory.md if yours lives elsewhere
+    template: .factory/templates/setup/roadmap.md

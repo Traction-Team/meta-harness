@@ -1,14 +1,15 @@
 ---
-title: <the PR title>
-date: YYYY-MM-DD       # the day it was landed
+title: <the pull request title>
+date: YYYY-MM-DD       # the day the landing commit was last refreshed
 pr: <n>
-plan: docs/plans/<plan>.md   # or none
+plan: <plans>/<plan>.md   # or none
+switch:                # optional: the switch it is behind, its state, and who turns it on
 ---
 
-# <What is true now, in one line>
+# <What is true now, in one line a non-engineer can read>
 
-<Two to five lines: what a `metafab` user can do now, with the command that shows it. Say what did not change if someone would expect it to.>
+<Two to five lines: what changed, for whom, and where to see it. Name the command, screen or job. Say what did not change if someone would expect it to.>
 
 ## Still to come
 
-<Optional: the next plan that builds on this, or follow-ups filed to intake.>
+<Optional: the next plan for the same work, follow-ups filed to intake, or the switch still to turn on.>
