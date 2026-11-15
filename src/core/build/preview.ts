@@ -1,4 +1,5 @@
-import { chmod, lstat, mkdir, readdir, realpath, rm, rmdir, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readdir, realpath, rm, rmdir, stat } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import type { Stats } from "node:fs";
 import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
@@ -192,8 +193,11 @@ export async function planPreview(
 }
 
 export interface PreviewIo {
-  /** Default: `writeFile(target, content, { flag: "wx" })`, which never overwrites. */
-  writeFile?: (target: string, content: Buffer) => Promise<void>;
+  /**
+   * Default: `file.writeFile(content)`. Tests inject one that fails after the
+   * file exists, so a failure part way through a file is exercised.
+   */
+  write?: (file: FileHandle, content: Buffer) => Promise<void>;
   /** Default: removes one file, or one empty directory. */
   remove?: (target: string) => Promise<void>;
 }
@@ -277,8 +281,10 @@ async function missingChain(target: string): Promise<string[]> {
 
 /**
  * Creates the preview's directories and files exclusively, so it never writes
- * into an entry it did not make. On a failure it removes every entry it created,
- * deepest first, and leaves a directory that existed before the run in place.
+ * into an entry it did not make. Each file is recorded as soon as its exclusive
+ * create succeeds, so a write that fails part way through still removes it. On a
+ * failure it removes every entry it created, deepest first, and leaves a
+ * directory that existed before the run in place.
  */
 export async function writePreview(
   plan: PreviewPlan,
@@ -287,9 +293,9 @@ export async function writePreview(
   if (plan.writes.length === 0) return [];
 
   const write =
-    io.writeFile ??
-    (async (target: string, content: Buffer) => {
-      await writeFile(target, content, { flag: "wx" });
+    io.write ??
+    (async (file: FileHandle, content: Buffer) => {
+      await file.writeFile(content);
     });
   const remove = io.remove ?? removeEntry;
 
@@ -352,8 +358,12 @@ export async function writePreview(
         await create(directory);
       }
 
+      let file: FileHandle;
       try {
-        await write(target, entry.content);
+        // Exclusive, so the file is either this run's or one that appeared after
+        // the preflight. Recorded the moment it exists, so a failure part way
+        // through the content still removes it.
+        file = await open(target, "wx");
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "EEXIST") {
           throw new PreviewStop(conflictProblem(target), ExitCode.NotOwned);
@@ -361,12 +371,14 @@ export async function writePreview(
         throw new PreviewStop(writeProblem(target, error), ExitCode.Failed);
       }
       record(target, false);
-      if (entry.mode !== undefined) {
-        try {
-          await chmod(target, entry.mode);
-        } catch (error) {
-          throw new PreviewStop(writeProblem(target, error), ExitCode.Failed);
-        }
+      try {
+        await write(file, entry.content);
+        if (entry.mode !== undefined) await chmod(target, entry.mode);
+        await file.close();
+      } catch (error) {
+        // Best effort: the file is recorded, so rollback removes it either way.
+        await file.close().catch(() => undefined);
+        throw new PreviewStop(writeProblem(target, error), ExitCode.Failed);
       }
       changes.push({ path: entry.path, action: "created" });
     }
