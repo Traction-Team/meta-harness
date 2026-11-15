@@ -195,7 +195,9 @@ The `upstream` key in `metafab.yaml` records the fab that the factory came from.
 
 ## JSON output
 
-With `--json`, a command writes one JSON object to standard output. Human-readable messages go to standard error. Every result contains `ok`, `command`, `exitCode` (the process exit code) and `problems`. A result for missing input (exit 2) contains `required` instead of `problems`.
+With `--json`, a command writes one JSON object to standard output. Human-readable messages go to standard error. Every result contains `ok`, `command`, `exitCode` (the process exit code) and `problems`, including a successful result with nothing to report, where `problems` is empty, and `metafab --version --json`, which adds `version`. A result for missing input (exit 2) contains `required` instead of `problems`.
+
+Each problem has `level` (`error` or `warning`), `file`, `message`, and `line` when it is known. Every error also has `fix`: the next step the person can take. A warning has `fix` when there is one. `file` uses `/` separators on every platform, also when it starts with a local path the person typed; the message may repeat that path as typed. A failed command (exit 1, 3, 4 or 5) reports at least one error, so without `--json` standard error shows at least one `fix:` line.
 
 A help result has `command: "help"`, `exitCode: 0` and empty `problems`. `metafab --help` adds `commands`, a list of `{ command, usage, description }`. `metafab <command> --help` adds `help`: `{ command, usage, description, arguments, options }`, where each argument is `{ name, description, optional }` and each option is `{ flag, value, description }` (`value` only for an option that takes one, such as `<list>`); `options` ends with `--json` and `-h, --help`. `metafab pipeline --help` adds `help`: `{ command: "pipeline", subcommands }`, a list of `{ command, usage, description }`. `metafab env --help` adds the same `subcommands` to its `help`, naming `env set` and `env unset`. The JSON help result has no `summary`.
 
