@@ -1,0 +1,41 @@
+name: Release
+
+# Publishes @seasb/metafab from a pushed tag `v<version>`.
+#
+# Authentication is npm trusted publishing: this job asks GitHub for an OIDC
+# token and npm exchanges it for a short-lived publish token, so there is no npm
+# token secret here. The trust is configured for this workflow on npmjs.com.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write # request the OIDC token npm authenticates with
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # Trusted publishing needs Node 22.14.0 or later, and `22` on its own
+          # does not say so. The range still picks up Node 22 patch releases.
+          node-version: ">=22.14.0 <23"
+          # Writes the npm registry npm publishes to. No dependency cache: a
+          # cache written by another run must not reach the publish step.
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm 11.5.1 or later; Node 22 ships npm 10.
+      - run: npm install --global npm@^11.5.1
+      - run: npm ci
+      - name: Check the tag names this version
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not name package.json version $version"
+            exit 1
+          fi
+      - run: npm run verify
+      - run: npm publish
