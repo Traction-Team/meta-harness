@@ -67,8 +67,10 @@ function parseOutput(stdout: string): EnvConfigEntry[] | undefined {
     const value = newline === -1 ? "" : record.slice(newline + 1);
     if (!key.startsWith("factory.env.")) continue;
 
-    const variable = key.slice(key.lastIndexOf(".") + 1);
-    if (variable === "") continue;
+    // The variable is the whole suffix. A subsection, such as
+    // `factory.env.other.harness`, names no variable, so it is skipped.
+    const variable = key.slice("factory.env.".length);
+    if (variable === "" || variable.includes(".")) continue;
 
     entries.push({ scope, variable, value });
   }

@@ -295,4 +295,19 @@ describe("readEnvConfig", () => {
 
     expect(await read("/repo")).toEqual({ entries: [], warnings: [] });
   });
+
+  test("a key under a subsection names no variable", async () => {
+    const root = await repo();
+    await git(root, "config", "--global", "factory.env.other.harness", "amp");
+
+    expect(await readEnvConfig(root)).toEqual({ entries: [], warnings: [] });
+
+    const result = await resolveSelection([HARNESS], { root, processEnv: {} });
+    expect(result.variables[0]).toEqual({
+      variable: "harness",
+      values: ["claude"],
+      source: "default",
+    });
+    expect(result.warnings).toEqual([]);
+  });
 });
