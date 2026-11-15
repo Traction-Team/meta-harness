@@ -9,7 +9,7 @@
  *
  * The host's stack merge box shows no bypass, and `gh pr merge --admin` is refused for a pull request in a stack. The asynchronous merge API takes `bypass_rules`, but only for the bottom unmerged pull request of a stack, so a whole stack cannot land in one call. This script merges them one at a time: it squash-merges the bottom one, waits until the host has retargeted the next one to the trunk, and merges that, until the named pull request has merged.
  *
- * It refuses to start when any pull request in the chain is a draft or has a check that is failing or still running, because the bypass skips required checks as well as reviews. It does not wait for checks to run again after each retarget: the code it merges is the code those checks passed on. It never runs for anyone without bypass rights; the host refuses the first merge and the script stops.
+ * It refuses to start when any pull request in the chain is a draft or has a check that is failing or still running, because the bypass skips required checks as well as reviews. It does not wait for checks to run again after each retarget: the code it merges is the code those checks passed on. It pins each merge to the head it inspected: the merge request carries that commit as `sha`, and the head is read again just before the request, so a push during the run stops the script instead of merging a head nobody checked. It never runs for anyone without bypass rights; the host refuses the first merge and the script stops.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -40,7 +40,7 @@ function ghJson(ghArgs) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const FIELDS = 'number,title,state,isDraft,baseRefName,headRefName,statusCheckRollup';
+const FIELDS = 'number,title,state,isDraft,baseRefName,headRefName,headRefOid,statusCheckRollup';
 const OK_CHECK = ['SUCCESS', 'SKIPPED', 'NEUTRAL'];
 
 /** The named pull request and each one below it, followed down base branches to the trunk, bottom first. */
@@ -76,9 +76,14 @@ async function waitFor(what, test, { every = 5000, tries = 60 } = {}) {
 
 async function merge(pr) {
   await waitFor(`#${pr.number} to be retargeted to ${trunk}`, () => ghJson(['pr', 'view', String(pr.number), '--json', 'baseRefName']).baseRefName === trunk);
+  // The checks were read on this head at preflight. A retarget keeps it, but a push after preflight replaces it with a head nobody inspected, and the bypass would merge that code untested. Read the head again here and refuse when it moved; the request repeats it as `sha` for the host to enforce.
+  const head = ghJson(['pr', 'view', String(pr.number), '--json', 'headRefOid']).headRefOid;
+  if (head !== pr.headRefOid) {
+    throw new Error(`#${pr.number}'s head moved from ${pr.headRefOid} to ${head} after its checks were read, so the bypass would merge code nobody inspected; wait for the new head to pass and run this script again`);
+  }
   let started;
   try {
-    started = ghJson(['api', '-X', 'PUT', `repos/{owner}/{repo}/pulls/${pr.number}/merge-async`, '-f', 'merge_method=squash', '-f', 'merge_action=direct_merge', '-F', 'bypass_rules=true']);
+    started = ghJson(['api', '-X', 'PUT', `repos/{owner}/{repo}/pulls/${pr.number}/merge-async`, '-f', 'merge_method=squash', '-f', 'merge_action=direct_merge', '-F', 'bypass_rules=true', '-f', `sha=${pr.headRefOid}`]);
   } catch (e) {
     // gh exits non-zero on a 4xx but still prints the host's JSON reply, which says why.
     started = JSON.parse(e.stdout || '{}');

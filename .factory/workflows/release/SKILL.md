@@ -38,7 +38,9 @@ Stop. The repair for both is the back-merge in the `release-guide` ("Hotfixes", 
 
 ## 3. Show what ships
 
-`git log --first-parent --oneline origin/<trunk>..origin/<release-branch>` is the release: one line per merged pull request. If it prints nothing, there is nothing to release. Say so and stop.
+`git log --first-parent --oneline origin/<release-branch>..origin/<trunk>` is the release: one line per merged pull request on the trunk that the release branch does not have yet. If it prints nothing, there is nothing to release. Say so and stop.
+
+The range runs from the release branch to the trunk, never the other way round: `origin/<trunk>..origin/<release-branch>` lists what the release branch has and the trunk does not, which is empty before a release and would read as nothing to ship.
 
 ```bash
 git diff --name-only origin/<release-branch>...origin/<trunk>

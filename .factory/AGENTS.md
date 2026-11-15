@@ -5,7 +5,7 @@ The whole process is in [.factory/docs/process.md](.factory/docs/process.md): th
 ## Rules
 
 - **One plan, one pull request.** Change only the paths in the plan's `owns`. Widen `owns` in the plan when you must, and say why in the pull request.
-- **A pull request that claims a plan changes only through `build-plan`.** Its first body line is `**Plan:** <plans>/<plan>.md`. Feedback, fixes, review comments, restacks and "done" all go through `build-plan`'s after-the-draft steps, in this session or any other, because every push refreshes the landing commit.
+- **A pull request that claims a plan changes only through `build-plan`, then through `finish-plan` once it is handed over.** Its first body line is `**Plan:** <plans>/<plan>.md`. `build-plan` owns the branch from the claim to the handoff, a merge-safe draft pull request and a TL;DR. After the handoff, feedback, fixes, review comments, restacks, "looks good" and "land it" all go through `finish-plan`, in this session or any other, because every push refreshes the landing commit and the TL;DR.
 - **Specs first.** When `specs` names a directory, the specs in it are the acceptance standard for every change. When the code has to differ from a spec, change the spec in the same pull request and say so in its body. Never let them drift. When `specs` is empty, the spec steps in the workflows are skipped.
 - **Conventional Commits, with no scope:** `feat`, `fix`, `refactor`, `docs`, `chore`, `test`, `ci`, `build`. A branch is `<type>/<slug>`. A plan's branch carries the plan file's stem: `feat/1.005-check` for `<plans>/1.005-check.md`, `feat/2026-11-02-onb-2-second` for a dated plan.
 - **Code reaches `trunk` only through a pull request.** The `trunk` setting names that branch.

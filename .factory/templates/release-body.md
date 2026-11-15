@@ -37,7 +37,7 @@ Written for the person who approves the release and has not read every pull requ
 
 ## Ships
 
-<!-- Every line of `git log --first-parent --oneline origin/<trunk>..origin/<release-branch>`, grouped, newest first in each group. Plain list items, never a code block, so the host links each commit and pull request. Drop a group that has no lines. -->
+<!-- Every line of `git log --first-parent --oneline origin/<release-branch>..origin/<trunk>`, grouped, newest first in each group. Plain list items, never a code block, so the host links each commit and pull request. Drop a group that has no lines. -->
 
 Features and fixes
 - <sha> feat: <title> (#<pr>)

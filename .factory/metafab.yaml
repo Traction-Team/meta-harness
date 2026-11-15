@@ -5,5 +5,5 @@ git-hooks: false
 upstream:
   source: github:Traction-Team/fab-basic
   requested: ^0.1.0
-  version: 0.1.0
-  commit: fa06fe14757421bb5061e1d98a481d4020213480
+  version: 0.1.1
+  commit: 645672a544126a1a37531bfaa50ba30befb0dd58
