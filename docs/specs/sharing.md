@@ -285,6 +285,8 @@ A factory can have only one upstream fab. If `metafab.yaml` already contains an 
 
 With `--force`, the realignment happens before the copy: the local entry is renamed to the fab's spelling, a local-only file beneath it moves with it, and nothing is deleted. The result is the same on every filesystem. A local file where the fab has a directory is still replaced by that directory.
 
+`import` keeps a local factory file that the fab does not have, with or without `--force`, unless it is inside a local directory that `--force` replaces with a file of the same path. The review summary lists each file it kept, so the person can remove the ones the fab replaces.
+
 ### Creating required files
 
 A fab's `factory.yaml` can list repository files its workflows need under [`requires`](factory-format.md#required-repository-files). During the preflight, `import` looks at each one in the repository:
@@ -424,10 +426,13 @@ The summary uses this order:
 4. Workflows
 5. Skills
 6. Other files, such as templates
-7. Preserved local edits
-8. Conflicts
+7. Local files kept, not in the fab (`import` only)
+8. Preserved local edits
+9. Conflicts
 
 `import` lists every requirement; `update` lists only the requirements that are new in the update. Each line is `A <path> created from <template>`, `<path> present: <description>` when the requirement has a template (the template was not used, so the description is how the person learns what the existing file needs), `<path> present` when it has none, `<path> missing: <description>`, `<path> not created: declined`, `<path> blocked: <reason>`, or `<path> not created: <error>`.
+
+"Local files kept, not in the fab" lists every file and link in `.factory/` after the import that the fab does not have. It does not list `metafab.yaml`, or the skills that adoption moved in, which are listed as added. Each line is the path alone. The group is empty, and so not shown, when `import` created `.factory/`.
 
 The summary also calls out:
 

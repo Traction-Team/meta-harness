@@ -15,6 +15,7 @@ export type SummaryGroupKey =
   | "setup"
   | "workflows"
   | "skills"
+  | "kept"
   | "preserved"
   | "conflicts"
   | "other";
@@ -50,6 +51,8 @@ export interface SummaryGroup {
 export interface SummaryContext {
   /** First line of the summary, such as `@seasb/fab-mark4 1.2.0 -> 1.3.0`. */
   title: string;
+  /** Local factory files the fab does not have, which `import` kept. */
+  kept?: string[];
   /** Paths whose local edits a merge preserved (`update` only). */
   preserved?: string[];
   /** Paths that contain conflict markers (`update` only). */
@@ -281,6 +284,7 @@ const HEADINGS: Record<SummaryGroupKey, string> = {
   setup: "Repository files the factory needs",
   workflows: "Workflows",
   skills: "Skills",
+  kept: "Local files kept, not in the fab",
   preserved: "Local edits preserved",
   conflicts: "Conflicts",
   other: "Other",
@@ -319,8 +323,8 @@ function requirementEntry(result: RequirementResult): SummaryEntry {
  * Compare two factory snapshots and group the changes by the risk they carry.
  *
  * The groups follow the spec order: code, every-session files, required
- * repository files, workflows, skills, other files, preserved local edits, and
- * conflicts.
+ * repository files, workflows, skills, other files, local files the fab does
+ * not have, preserved local edits, and conflicts.
  */
 export function summarise(before: FileTree, after: FileTree, ctx: SummaryContext): Summary {
   const conflicts = new Set(ctx.conflicts ?? []);
@@ -344,6 +348,7 @@ export function summarise(before: FileTree, after: FileTree, ctx: SummaryContext
     setup: [],
     workflows: [],
     skills: [],
+    kept: [],
     preserved: [],
     conflicts: [],
     other: [],
@@ -386,6 +391,10 @@ export function summarise(before: FileTree, after: FileTree, ctx: SummaryContext
     entries.setup.push(requirementEntry(requirement));
   }
 
+  for (const path of ctx.kept ?? []) {
+    entries.kept.push({ path });
+  }
+
   for (const path of preserved) {
     entries.preserved.push({ path });
   }
@@ -405,6 +414,7 @@ export function summarise(before: FileTree, after: FileTree, ctx: SummaryContext
     "workflows",
     "skills",
     "other",
+    "kept",
     "preserved",
     "conflicts",
   ];

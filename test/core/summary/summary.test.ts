@@ -482,4 +482,33 @@ describe("summarise", () => {
     expectRow(rendered, "ops.yaml", "blocked: ops.yaml is a directory");
     expectRow(rendered, "run.sh", "not created: EACCES");
   });
+
+  test("lists kept local files between Other and preserved, as bare sorted paths", () => {
+    const after = makeTree({ "templates/report.md": textFile("# Report\n") });
+
+    const summary = summarise(makeTree({}), after, {
+      ...CONTEXT,
+      kept: ["skills/local-only.md", "README.md"],
+      preserved: ["workflows/build-slice/SKILL.md"],
+    });
+
+    expect(summary.groups.map((group) => group.key)).toEqual(["other", "kept", "preserved"]);
+    const kept = summary.groups.find((group) => group.key === "kept");
+    expect(kept?.heading).toBe("Local files kept, not in the fab");
+    // A kept entry is a bare path, sorted, like a preserved one.
+    expect(kept?.entries).toEqual([{ path: "README.md" }, { path: "skills/local-only.md" }]);
+    const rendered = lines(summary);
+    const heading = rendered.indexOf("Local files kept, not in the fab");
+    expect(rendered.slice(heading + 1, heading + 3)).toEqual([
+      "  README.md",
+      "  skills/local-only.md",
+    ]);
+  });
+
+  test("shows no kept heading without kept files", () => {
+    const summary = summarise(makeTree({}), makeTree({ "AGENTS.md": textFile("# Agents\n") }), CONTEXT);
+
+    expect(summary.groups.map((group) => group.key)).toEqual(["session"]);
+    expect(renderSummary(summary)).not.toContain("Local files kept");
+  });
 });
