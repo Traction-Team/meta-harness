@@ -29,7 +29,7 @@ Metafab never writes `.cursor/`, `.codex/`, `.opencode/`, or `.github/skills/`. 
 
 ### Duplicate skills
 
-Cursor, opencode, and Copilot read both `.agents/skills/` and `.claude/skills/`. When `claude` and any other target are selected, these tools find two copies of each skill, with the same name and content. opencode lists each skill once, so it needs no setting. Cursor and Copilot are verified in the release plan. A team that uses only Claude Code, or uses no Claude Code, avoids duplicates by selecting only the targets it uses.
+Cursor, opencode, and Copilot read both `.agents/skills/` and `.claude/skills/`. When `claude` and any other target are selected, these tools find two copies of each skill, with the same name and content. opencode lists each skill once, so it needs no setting. The results for Cursor and Copilot are pending; see [the verification record](../verification.md#agent-tools). A team that uses only Claude Code, or uses no Claude Code, avoids duplicates by selecting only the targets it uses.
 
 ## Target selection
 
@@ -68,7 +68,7 @@ Before changing any file, `build` checks selected destinations for unowned entri
 
 Installed skills are ignored by Git, so they are missing after a fresh clone or a new worktree, and stale after a pull, a branch switch, a merge, or a rebase that changes `.factory/`. Three mechanisms keep them current:
 
-1. **Git hooks.** With `git-hooks: true` in [`metafab.yaml`](configuration.md), `build` installs Git hooks that run `metafab build` after a branch checkout, a merge, and a rebase. Git shares one hooks directory across every worktree of a clone, so `git worktree add` builds the new worktree too. A fresh clone has no hooks until its first `metafab build`.
+1. **Git hooks.** With `git-hooks: true` in [`metafab.yaml`](configuration.md), `build` installs Git hooks that run `metafab build` after a branch checkout, a merge, and a rebase. Git shares one hooks directory across every worktree of a clone, so `git worktree add` builds the new worktree too. A new worktree has no `node_modules/` yet, so its hook finds `metafab` on `PATH`, or falls back to `npx`, which needs the network. A project dependency alone does not build a new worktree; a worktree setup script that installs dependencies first does. A fresh clone has no hooks until its first `metafab build`.
 2. **Worktree setup scripts.** Tools that create a worktree and then run a setup script should run `metafab build` in that script. Orca reads `scripts.setup` from a committed `orca.yaml`. `init` suggests this step when it finds `orca.yaml`.
 3. **Agents.** The `AGENTS.md` block and the [built-in `metafab` skill](#built-in-metafab-skill) tell agents to run `metafab build` after they edit `.factory/`.
 
@@ -83,6 +83,8 @@ Metafab has no watch mode and installs no agent session hooks.
 | `post-checkout` | `git checkout` or `git switch` of a branch, and `git worktree add`. Not a file checkout |
 | `post-merge` | `git merge` and `git pull` |
 | `post-rewrite` | `git rebase`. Not `git commit --amend` |
+
+On Windows, Git for Windows runs the hooks with its bundled `sh`, which finds npm's extensionless `metafab` shim.
 
 Metafab owns a hook file when it contains the line `# metafab:start`. It owns the whole file, and rewrites it when its content differs from what `build` would write, for example after a CLI upgrade, or sets its mode to 0755 when its content matches and its mode is not 0755. `build` follows these rules:
 

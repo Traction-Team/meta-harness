@@ -266,16 +266,34 @@ describe("unexpected errors", () => {
     },
   };
 
-  test("renders { ok: false, exitCode, error } in JSON mode and exits 1", async () => {
+  test("renders { ok: false, command, exitCode, error, problems } in JSON mode and exits 1", async () => {
     const result = await runCli(["check", "--json"], { cwd: repo.root, tty: false, commands: [broken] });
     expect(result.code).toBe(ExitCode.Failed);
     expect(result.stderr).toBe("");
-    expect(JSON.parse(result.stdout)).toEqual({ ok: false, exitCode: ExitCode.Failed, error: "boom" });
+    expect(JSON.parse(result.stdout)).toEqual({
+      ok: false,
+      command: "check",
+      exitCode: ExitCode.Failed,
+      error: "boom",
+      problems: [
+        {
+          level: "error",
+          file: "metafab",
+          message: "boom",
+          fix: "This is a bug in metafab. Report it with the command you ran and this message",
+        },
+      ],
+    });
+    expect(result.stdout).not.toContain("stack");
   });
 
   test("prints the stack in human mode and exits 1", async () => {
     const result = await runCli(["check"], { cwd: repo.root, tty: false, commands: [broken] });
     expect(result.code).toBe(ExitCode.Failed);
     expect(result.stderr).toContain("boom");
+    expect(result.stderr).toMatch(/^ {4}at /m);
+    expect(result.stderr).toContain(
+      "  fix: This is a bug in metafab. Report it with the command you ran and this message",
+    );
   });
 });

@@ -66,6 +66,9 @@ interface GlobalFlags {
 
 const GLOBAL_FLAGS = new Set(["--json", "--json=true", "--help", "-h", "--version"]);
 
+/** The fix line an unexpected error carries: it is a defect in Metafab, not in the repository. */
+const BUG_FIX = "This is a bug in metafab. Report it with the command you ran and this message";
+
 function splitGlobalFlags(argv: readonly string[]): GlobalFlags {
   let json = false;
   let help = false;
@@ -189,8 +192,8 @@ function fromMetafabError(command: string, error: MetafabError): CommandResult {
     exitCode: error.exitCode,
     code: error.code,
     summary: error.message,
+    problems: error.problems ?? [],
   };
-  if (error.problems !== undefined) result.problems = error.problems;
   if (error.details !== undefined) result.details = error.details;
   return result;
 }
@@ -214,13 +217,34 @@ function renderNeedsInput(error: NeedsInput, command: string, json: boolean, std
   return error.exitCode;
 }
 
-function renderBug(error: unknown, json: boolean, stdout: Write, stderr: Write): number {
+function renderBug(
+  error: unknown,
+  command: string,
+  json: boolean,
+  stdout: Write,
+  stderr: Write,
+): number {
+  const message = error instanceof Error ? error.message : String(error);
+
   if (json) {
-    const message = error instanceof Error ? error.message : String(error);
-    stdout(`${JSON.stringify({ ok: false, exitCode: ExitCode.Failed, error: message }, null, 2)}\n`);
+    // A stack helps a person reporting a bug, but is noise in a machine-read
+    // result, so the JSON branch writes the bug as a problem instead.
+    stdout(
+      `${JSON.stringify(
+        {
+          ok: false,
+          command,
+          exitCode: ExitCode.Failed,
+          error: message,
+          problems: [{ level: "error", file: "metafab", message, fix: BUG_FIX }],
+        },
+        null,
+        2,
+      )}\n`,
+    );
   } else {
     const text = error instanceof Error ? error.stack ?? error.message : String(error);
-    stderr(`${text}\n`);
+    stderr(`${text}\n  fix: ${BUG_FIX}\n`);
   }
   return ExitCode.Failed;
 }
@@ -378,7 +402,7 @@ export async function main(
     if (error instanceof MetafabError) {
       return emit(fromMetafabError(commandName, error), json, stdout, stderr);
     }
-    return renderBug(error, json, stdout, stderr);
+    return renderBug(error, commandName, json, stdout, stderr);
   } finally {
     // An open reader on process.stdin would keep the process alive.
     closeInput();

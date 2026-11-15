@@ -4,9 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   verify:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     strategy:
       fail-fast: false
       matrix:
@@ -22,7 +28,173 @@ jobs:
       - run: npm ci
       - run: npm run verify
 
+  hooks:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash          # Git Bash on Windows: the same sh family that runs the hooks
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build and pack
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+          npm pack --pack-destination "$RUNNER_TEMP"
+      - name: Stub npx
+        run: |
+          set -euo pipefail
+          tmp="${RUNNER_TEMP//\\//}"
+          mkdir -p "$tmp/stub"
+          printf '%s\n' '#!/bin/sh' 'echo "npx stub reached" >&2' 'exit 1' > "$tmp/stub/npx"
+          chmod +x "$tmp/stub/npx"
+          echo "$tmp/stub" >> "$GITHUB_PATH"
+      - name: Project dependency
+        run: |
+          set -euo pipefail
+          tmp="${RUNNER_TEMP//\\//}"
+          tarball=$(echo "$tmp"/seasb-metafab-*.tgz)
+          dep="$tmp/dep"
+          LOG=""
+
+          fail() {
+            echo "::error::$*"
+            if [ -n "$LOG" ] && [ -f "$LOG" ]; then
+              echo "--- $LOG"
+              cat "$LOG"
+            fi
+            exit 1
+          }
+
+          # D1: install the packed CLI as a project dependency and build once.
+          if command -v metafab >/dev/null 2>&1; then
+            fail "a global metafab is already on PATH, so D2 cannot prove the local shim"
+          fi
+          rm -rf "$dep"
+          mkdir -p "$dep"
+          cd "$dep"
+          git init --quiet
+          npm init --yes >/dev/null
+          npm install --save-dev "$tarball" >/dev/null
+          mkdir -p .factory/skills/demo .factory/workflows/flow
+          printf 'agents: [claude]\ngit-hooks: true\n' > .factory/metafab.yaml
+          printf 'format: 1\nname: dep\npipeline: [flow]\n' > .factory/factory.yaml
+          printf '%s\n' '---' 'name: demo' 'description: Demo skill. Use when testing hooks.' '---' '' '# Demo' > .factory/skills/demo/SKILL.md
+          printf '%s\n' '---' 'name: flow' 'description: Demo workflow. Use when testing hooks.' '---' '' '# Flow' > .factory/workflows/flow/SKILL.md
+          printf 'node_modules/\n' > .gitignore
+          ./node_modules/.bin/metafab build >/dev/null
+          git add -A
+          git -c user.name=ci -c user.email=ci@example.invalid commit --quiet -m "scratch factory"
+
+          # D2: a branch switch rebuilds through node_modules/.bin/metafab.
+          rm -rf .claude/skills
+          LOG="$dep/hook.log"
+          git switch -c b1 2> "$LOG"
+          [ -f .claude/skills/metafab/SKILL.md ] || fail "D2: the hook did not rebuild .claude/skills/metafab/SKILL.md"
+          if grep -q "metafab: build failed" "$LOG"; then fail "D2: the hook reported a failed build"; fi
+          if grep -q "npx stub reached" "$LOG"; then fail "D2: the hook fell through to the npx stub"; fi
+          echo "D2: passed"
+
+          # D3: a new worktree has no node_modules, so a project dependency
+          # alone does not build it.
+          LOG="$dep/hook.log"
+          git worktree add ../dep-wt -b b2 2> "$LOG"
+          [ ! -d ../dep-wt/.claude/skills ] || fail "D3: the new worktree was built from a project dependency alone"
+          grep -q "npx stub reached" "$LOG" || fail "D3: the hook did not fall through to the npx stub"
+          grep -q "metafab: build failed" "$LOG" || fail "D3: the hook did not report the failed build"
+          echo "D3: passed"
+
+          # D4: without the local shim, nothing is rebuilt. This is D2's control.
+          rm -f node_modules/.bin/metafab node_modules/.bin/metafab.cmd node_modules/.bin/metafab.ps1
+          rm -rf .claude/skills
+          LOG="$dep/hook.log"
+          git switch -c b3 2> "$LOG"
+          [ ! -d .claude/skills ] || fail "D4: something rebuilt .claude/skills without the local shim"
+          grep -q "npx stub reached" "$LOG" || fail "D4: the hook did not fall through to the npx stub"
+          echo "D4: passed"
+      - name: Global install
+        run: |
+          set -euo pipefail
+          tmp="${RUNNER_TEMP//\\//}"
+          tarball=$(echo "$tmp"/seasb-metafab-*.tgz)
+          glob="$tmp/glob"
+          LOG=""
+
+          fail() {
+            echo "::error::$*"
+            if [ -n "$LOG" ] && [ -f "$LOG" ]; then
+              echo "--- $LOG"
+              cat "$LOG"
+            fi
+            exit 1
+          }
+
+          # A prefix of this job's own, not npm's global one: on Linux and macOS
+          # npm's global prefix is Node's install directory, whose bin/ holds the
+          # real npx, so putting it first on PATH would hide the stub that G3
+          # must reach. With a private prefix the only shim on PATH is metafab's.
+          gbin="$tmp/gprefix"
+          rm -rf "$gbin"
+          mkdir -p "$gbin"
+          # npm needs the native prefix, but PATH splits on ":", so a Windows
+          # prefix such as D:/a/_temp/gprefix would truncate the entry. Use the
+          # POSIX form (cygpath) for PATH and keep the native form for npm.
+          gpath="$gbin"
+          if command -v cygpath >/dev/null 2>&1; then
+            gpath=$(cygpath -u "$gbin")
+          fi
+          export PATH="$gpath/bin:$gpath:$PATH"
+
+          # G1: a repository with no node_modules, built through a global install.
+          rm -rf "$glob"
+          mkdir -p "$glob"
+          cd "$glob"
+          git init --quiet
+          npm init --yes >/dev/null
+          npm install --global --prefix "$gbin" "$tarball" >/dev/null
+          command -v metafab >/dev/null 2>&1 || fail "G1: the global metafab shim is not on PATH"
+          mkdir -p .factory/skills/demo .factory/workflows/flow
+          printf 'agents: [claude]\ngit-hooks: true\n' > .factory/metafab.yaml
+          printf 'format: 1\nname: glob\npipeline: [flow]\n' > .factory/factory.yaml
+          printf '%s\n' '---' 'name: demo' 'description: Demo skill. Use when testing hooks.' '---' '' '# Demo' > .factory/skills/demo/SKILL.md
+          printf '%s\n' '---' 'name: flow' 'description: Demo workflow. Use when testing hooks.' '---' '' '# Flow' > .factory/workflows/flow/SKILL.md
+          printf 'node_modules/\n' > .gitignore
+          metafab build >/dev/null
+          git add -A
+          git -c user.name=ci -c user.email=ci@example.invalid commit --quiet -m "scratch factory"
+
+          # G2: a new worktree builds through the global shim.
+          LOG="$glob/hook.log"
+          git worktree add ../glob-wt -b g2 2> "$LOG"
+          [ -f ../glob-wt/.claude/skills/metafab/SKILL.md ] || fail "G2: the hook did not build the new worktree through the global shim"
+          if grep -q "metafab: build failed" "$LOG"; then fail "G2: the hook reported a failed build"; fi
+          if grep -q "npx stub reached" "$LOG"; then fail "G2: the hook fell through to the npx stub"; fi
+          echo "G2: passed"
+
+          # G3: without the global shim, the hook reaches the npx stub. This is
+          # G2's control.
+          npm uninstall --global --prefix "$gbin" @seasb/metafab >/dev/null
+          # bash caches command locations: drop the shim found for G1.
+          hash -r
+          if command -v metafab >/dev/null 2>&1; then
+            fail "G3: the global metafab shim is still on PATH"
+          fi
+          LOG="$glob/hook.log"
+          git worktree add ../glob-wt2 -b g3 2> "$LOG"
+          [ ! -d ../glob-wt2/.claude/skills ] || fail "G3: the new worktree was built without a global shim"
+          grep -q "npx stub reached" "$LOG" || fail "G3: the hook did not fall through to the npx stub"
+          echo "G3: passed"
+
   factory:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
