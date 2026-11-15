@@ -1,8 +1,6 @@
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -12,143 +10,92 @@ const require = createRequire(import.meta.url);
 
 /** This checkout, from any test directory in it. */
 export const repoRoot = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
-export const cliPath = path.join(repoRoot, "dist", "cli.js");
 
 const tscPath = path.join(path.dirname(require.resolve("typescript/package.json")), "bin", "tsc");
 
 /**
- * One `tsc` run per checkout and test run. The marker is written only after a
- * successful compile and is stamped against every file `tsc` reads; while it is
- * fresh no test file compiles again, so a spawned `node dist/cli.js` never reads
- * a file another file's `tsc` is rewriting. It is keyed by this checkout, because
- * each worktree has its own `dist/`.
+ * Where the private builds live: under the checkout's own `node_modules`, which
+ * Git ignores, so `dist/cli.js` still walks up to the dependencies it imports.
  */
-const buildMarker = path.join(
-  tmpdir(),
-  `metafab-cli-build-${createHash("sha256").update(repoRoot).digest("hex").slice(0, 16)}.done`,
-);
+const buildsParent = path.join(repoRoot, "node_modules", ".cache", "metafab-cli");
+
+/** A build directory older than this belongs to a run that was killed. */
+const SWEEP_AFTER_MS = 24 * 60 * 60 * 1000;
+
+/** A private compile of this checkout: `<root>/dist/cli.js`, with package.json and resources/ beside it. */
+export interface BuiltCli {
+  root: string;
+  cliPath: string;
+  cleanup(): Promise<void>;
+}
 
 /**
- * `tsc` still takes one lock while it compiles, for the first run in a fresh
- * checkout and for two test files that start at the same time: one compiles and
- * writes the marker, the other finds the marker fresh once it holds the lock.
+ * Removes the build directories a run that was killed left behind, and only
+ * those: a directory younger than a day may belong to another run still using
+ * it. Best effort, because a directory that will not go only costs disk.
  */
-const buildLock = path.join(tmpdir(), "metafab-cli-build.lock");
-const ownerFile = path.join(buildLock, "pid");
-/** Longer than any `tsc` run this checkout needs; the spawn timeout is 120 s. */
-const STALE_AFTER_MS = 5 * 60_000;
-const WAIT_LIMIT_MS = 2 * 60_000;
-const POLL_MS = 100;
+export async function sweepOld(parent: string, now: number = Date.now()): Promise<void> {
+  const names = await readdir(parent).catch(() => [] as string[]);
 
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
+  for (const name of names) {
+    const dir = path.join(parent, name);
+    const info = await stat(dir).catch(() => undefined);
+    if (info === undefined || !info.isDirectory()) continue;
+    if (now - info.mtimeMs <= SWEEP_AFTER_MS) continue;
+    await rm(dir, { recursive: true, force: true, maxRetries: 5 }).catch(() => undefined);
   }
 }
 
-/**
- * True when no build can hold the lock any more: the process that took it is
- * gone, or the lock is older than a build can be. A run killed mid-build
- * leaves its lock behind, and that must not make the next run time out.
- */
-async function lockIsStale(): Promise<boolean> {
-  const info = await stat(buildLock).catch(() => undefined);
-  if (info === undefined) return false;
-  if (Date.now() - info.mtimeMs > STALE_AFTER_MS) return true;
-
-  const owner = await readFile(ownerFile, "utf8").catch(() => "");
-  const pid = Number.parseInt(owner, 10);
-  return Number.isInteger(pid) && pid > 0 && !isProcessAlive(pid);
-}
-
-async function takeLock(): Promise<boolean> {
-  try {
-    await mkdir(buildLock);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    return false;
-  }
-  await writeFile(ownerFile, String(process.pid), "utf8");
-  return true;
-}
+let compiled: Promise<BuiltCli> | undefined;
 
 /**
- * Takes over a stale lock. Two waiters can see the same stale lock, so the lock
- * is moved aside with `rename`: only the waiter that wins the rename removes it,
- * and the other finds it gone (ENOENT) and waits for the new owner instead of
- * deleting a fresh lock another waiter just took.
+ * Compiles this checkout once per test file, into a directory no other file or
+ * run uses, so a spawned CLI never reads a `dist/` another file is writing.
+ * `package.json` and `resources/` are copied beside `dist/`, because the CLI
+ * reads both at run time. Callers run `cleanup` in `afterAll`.
  */
-async function takeOverStaleLock(): Promise<void> {
-  const moved = `${buildLock}.${process.pid}.${Date.now()}.stale`;
+export function buildCli(): Promise<BuiltCli> {
+  compiled ??= compile();
+  return compiled;
+}
+
+async function compile(): Promise<BuiltCli> {
+  await sweepOld(buildsParent);
+  await mkdir(buildsParent, { recursive: true });
+  const root = await mkdtemp(path.join(buildsParent, `${process.pid}-`));
+  // The retries are for Windows, where a spawned process that is closing can
+  // still hold a file.
+  const cleanup = (): Promise<void> => rm(root, { recursive: true, force: true, maxRetries: 5 });
+
   try {
-    await rename(buildLock, moved);
+    await cp(path.join(repoRoot, "package.json"), path.join(root, "package.json"));
+    await cp(path.join(repoRoot, "resources"), path.join(root, "resources"), { recursive: true });
+    const cliPath = path.join(root, "dist", "cli.js");
+    await runTsc(path.join(root, "dist"));
+    await chmod(cliPath, 0o755);
+    return { root, cliPath, cleanup };
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    await cleanup().catch(() => undefined);
     throw error;
   }
-  await rm(moved, { recursive: true, force: true });
 }
 
-/** The newest modification time among the files `tsc` reads. */
-async function newestInputMtime(): Promise<number> {
-  let newest = 0;
-  const inputs = [
-    path.join(repoRoot, "tsconfig.json"),
-    path.join(repoRoot, "package.json"),
-    path.join(repoRoot, "src"),
-  ];
-
-  for (const input of inputs) {
-    const info = await stat(input).catch(() => undefined);
-    if (info === undefined) continue;
-    if (info.isFile()) {
-      newest = Math.max(newest, info.mtimeMs);
-      continue;
-    }
-    for (const name of await readdir(input, { recursive: true })) {
-      const file = await stat(path.join(input, name)).catch(() => undefined);
-      if (file !== undefined && file.isFile()) newest = Math.max(newest, file.mtimeMs);
-    }
-  }
-
-  return newest;
+/** Compiles the repository's own dist/ with tsc, always. Only the release test calls it. */
+export async function buildDist(): Promise<void> {
+  await runTsc(path.join(repoRoot, "dist"));
+  await chmod(path.join(repoRoot, "dist", "cli.js"), 0o755);
 }
 
-/** True when `dist/cli.js` exists and was compiled after every input changed. */
-async function buildIsCurrent(): Promise<boolean> {
-  const marker = await stat(buildMarker).catch(() => undefined);
-  if (marker === undefined) return false;
-  const built = await stat(cliPath).catch(() => undefined);
-  if (built === undefined) return false;
-  return marker.mtimeMs >= (await newestInputMtime());
-}
-
-/** Compiles the CLI once per test run, taking turns with every other test file that does. */
-export async function buildCli(): Promise<void> {
-  if (await buildIsCurrent()) return;
-
-  const deadline = Date.now() + WAIT_LIMIT_MS;
-
-  for (;;) {
-    if (await takeLock()) break;
-    if (await lockIsStale()) {
-      await takeOverStaleLock();
-      continue;
-    }
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${buildLock}`);
-    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-  }
-
+/** Runs `tsc` into `outDir`, and rethrows with its output so the test shows the type error. */
+async function runTsc(outDir: string): Promise<void> {
   try {
-    // Another test file may have compiled while this one waited for the lock.
-    if (await buildIsCurrent()) return;
-    await execFileAsync(process.execPath, [tscPath], { cwd: repoRoot, timeout: 120_000 });
-    // Writing the marker last is what makes the compile count.
-    await writeFile(buildMarker, new Date().toISOString(), "utf8");
-  } finally {
-    await rm(buildLock, { recursive: true, force: true });
+    await execFileAsync(process.execPath, [tscPath, "--outDir", outDir], {
+      cwd: repoRoot,
+      timeout: 120_000,
+    });
+  } catch (error) {
+    const failure = error as { stdout?: string; stderr?: string; message?: string };
+    const output = `${failure.stdout ?? ""}${failure.stderr ?? ""}`.trim();
+    throw new Error(output === "" ? failure.message : output, { cause: error });
   }
 }

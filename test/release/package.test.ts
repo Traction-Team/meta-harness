@@ -7,15 +7,17 @@ import { promisify } from "node:util";
 import * as tar from "tar";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { npmInvocation } from "../../src/core/sources/npm-cli.js";
-import { buildCli } from "../cli/build.js";
+import { buildDist } from "../cli/build.js";
 
 /**
  * The package as npm publishes it: the files `npm pack` writes, the manifest
  * fields trusted publishing needs, and the packed CLI installed and run from a
  * temporary directory.
  *
- * `npm run verify` runs the tests before the build, so this file builds first
- * through the helper every spawned-CLI test uses.
+ * `npm run verify` runs the tests before the build, so this file compiles the
+ * repository's own `dist/` first. `npm pack` packs this checkout, because the
+ * test "leaves the repository's own files out" checks the `files` list against
+ * the real tree. No other test file reads or writes `dist/`.
  */
 
 const execFileAsync = promisify(execFile);
@@ -129,7 +131,7 @@ function offlineLockfile(
 }
 
 beforeAll(async () => {
-  await buildCli();
+  await buildDist();
   manifest = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8")) as Manifest;
   repoLock = JSON.parse(await readFile(path.join(repoRoot, "package-lock.json"), "utf8")) as Lockfile;
   packDir = await mkdtemp(path.join(tmpdir(), "metafab-release-pack-"));
