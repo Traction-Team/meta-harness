@@ -253,6 +253,26 @@ pipeline:
     expect(result.stderr).toContain("A pipeline entry must name a workflow.");
     expect(result.stderr).toContain("fix: Name the workflow: metafab pipeline add <workflow>");
   });
+
+  test("a backslash workflow name in a problem file uses / and keeps the message as typed", async () => {
+    const created = await repo();
+
+    const result = await runCli(["pipeline", "add", "workflows\\nope", "--json"], {
+      cwd: created.root,
+      tty: false,
+    });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toBe("");
+    const output = JSON.parse(result.stdout) as {
+      code: string;
+      problems: { file: string; message: string }[];
+    };
+    expect(output.code).toBe("pipeline-missing-workflow");
+    expect(output.problems[0]?.file).toBe(".factory/workflows/workflows/nope/SKILL.md");
+    expect(output.problems[0]?.file).not.toContain("\\");
+    expect(output.problems[0]?.message).toContain('No workflow named "workflows\\nope".');
+  });
 });
 
 const ALIASED_SOURCE = `format: 1

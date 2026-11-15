@@ -213,6 +213,23 @@ describe("extractTarball", () => {
     }
   });
 
+  test("normalizes a backslash entry path in a problem file", async () => {
+    const base = await tempDir();
+    try {
+      const archive = path.join(base, "evil.tar");
+      await makeRawTar(archive, [{ path: ".factory\\..\\escape", type: "File", body: "evil" }]);
+
+      const failure = await expectInvalid(archive, path.join(base, "out"));
+
+      expect(failure.problems?.[0]?.file).toBe(".factory/../escape");
+      expect(failure.problems?.[0]?.file).not.toContain("\\");
+      expect(failure.problems?.[0]?.fix).toBe(FAB_ENTRY_FIX);
+      expect(await pathExists(path.join(base, "escape"))).toBe(false);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
   test("rejects an absolute path", async () => {
     const base = await tempDir();
     try {
@@ -751,7 +768,7 @@ describe("extractTarball", () => {
 
       expect(failure.message).toContain("Cannot extract");
       expect(failure.problems).toEqual([
-        { level: "error", file: archive, message: failure.message, fix: FAB_DOWNLOAD_FIX },
+        { level: "error", file: archive.replace(/\\/g, "/"), message: failure.message, fix: FAB_DOWNLOAD_FIX },
       ]);
     } finally {
       await rm(base, { recursive: true, force: true });

@@ -39,10 +39,14 @@ export interface RemoveWorkflowResult {
   pipeline: string[];
 }
 
+/**
+ * A problem about a pipeline edit. A workflow name is person-typed and reaches
+ * `file` inside a path, so the separators are normalized for the JSON contract.
+ */
 function problem(file: string, message: string, fix: string): ErrorProblem {
   return {
     level: "error",
-    file,
+    file: file.replace(/\\/g, "/"),
     message,
     fix,
   };

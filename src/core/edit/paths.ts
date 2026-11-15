@@ -8,10 +8,15 @@ export interface CreatePath {
   name: string;
 }
 
+/**
+ * A problem about a path the person typed. The JSON contract requires `/`
+ * separators in `file` on every platform, while the message keeps the path as
+ * typed.
+ */
 function pathProblem(input: string, message: string, fix: string): ErrorProblem {
   return {
     level: "error",
-    file: input === "" ? "path" : input,
+    file: input === "" ? "path" : input.replace(/\\/g, "/"),
     message,
     fix,
   };

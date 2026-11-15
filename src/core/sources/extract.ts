@@ -25,10 +25,12 @@ const FACTORY_DIRECTORY = ".factory";
 
 /**
  * An error problem about one archive entry. The `file` is the path inside the
- * archive, so it is already `/`-separated.
+ * archive, so it uses `/` separators on every platform. An archive entry name
+ * may carry a backslash, which the checks here read as a separator, so the
+ * `file` is normalized and the message keeps the entry name as recorded.
  */
 function archiveProblem(file: string, message: string, fix: string = FAB_ENTRY_FIX): ErrorProblem {
-  return { level: "error", file, message, fix };
+  return { level: "error", file: file.replace(/\\/g, "/"), message, fix };
 }
 
 export interface ExtractTarballOptions {
