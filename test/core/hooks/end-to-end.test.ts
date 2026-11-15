@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -160,6 +161,17 @@ exit 1
 
 async function clear(log: string): Promise<void> {
   await writeFile(log, "", "utf8");
+}
+
+/** Whether this file system can hold a directory whose name contains a newline. */
+async function newlinePathsWork(): Promise<boolean> {
+  try {
+    const dir = await mkdtemp(path.join(tmpdir(), "metafab-hooks-\n"));
+    await rm(dir, { recursive: true, force: true });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // Windows coverage is the `hooks` job in .github/workflows/ci.yml; lift this
@@ -383,6 +395,22 @@ describe.skipIf(process.platform === "win32")("Git hooks end to end", () => {
       expect(await stubRuns(stub.log)).toEqual([`path:${await realpath(created)}`]);
     });
 
+    test("a main worktree whose path contains a newline is skipped", async (context) => {
+      // The lookup reads the first line of `git worktree list`, so it truncates
+      // such a path and the hook goes on to PATH. Not every file system can
+      // hold a newline in a name; skip where it cannot.
+      if (!(await newlinePathsWork())) context.skip();
+
+      const { git, stub } = await hooksRepo({ rootName: "main\nnewline" });
+      await installFactoryStub(git, "", loggingScript("main"));
+
+      const created = git.path("..", "wt");
+      const result = await git.gitRaw("worktree", "add", created, "-b", "wt");
+
+      expect(result.exitCode).toBe(0);
+      expect(await stubRuns(stub.log)).toEqual([`path:${await realpath(created)}`]);
+    });
+
     test("a worktree's own dependency wins over the main worktree's", async () => {
       const { git, stub } = await hooksRepo();
       await installFactoryStub(git, "", loggingScript("main"));
@@ -433,6 +461,13 @@ describe.skipIf(process.platform === "win32")("Git hooks end to end", () => {
         path.join(bare, "hooks", "post-checkout"),
         stub.log,
         hookScript("post-checkout", ".", "2.0.0"),
+      );
+      // Git lists the bare directory as the first worktree, so a stub of its
+      // own there proves the hook skips it instead of running it.
+      await writeStub(
+        path.join(bare, "node_modules", ".bin", "metafab"),
+        stub.log,
+        loggingScript("bare"),
       );
 
       for (const branch of ["b1", "b2"]) {

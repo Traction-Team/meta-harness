@@ -53,13 +53,15 @@ export interface MakeTestRepoOptions {
   git?: boolean;
   /** Prefix for the temporary container, so a test can put a space or `é` in every path. */
   containerPrefix?: string;
+  /** The main checkout's directory name inside the container, so a test can put a newline in it. */
+  rootName?: string;
 }
 
 export async function makeTestRepo(options: MakeTestRepoOptions = {}): Promise<TestRepo> {
   const container = await mkdtemp(
     path.join(tmpdir(), options.containerPrefix ?? "metafab-hooks-"),
   );
-  const root = path.join(container, "repo");
+  const root = path.join(container, options.rootName ?? "repo");
   await mkdir(root, { recursive: true });
 
   const useGit = options.git ?? true;

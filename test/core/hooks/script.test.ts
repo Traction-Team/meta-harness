@@ -11,7 +11,7 @@ const specExample = `#!/bin/sh
 cd "$(git rev-parse --show-toplevel)/." 2>/dev/null || exit 0
 [ -d .factory ] || exit 0
 if [ -x node_modules/.bin/metafab ]; then node_modules/.bin/metafab build
-elif main=$(git -c core.quotePath=false worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p') && [ -n "$main" ] && [ -x "$main/./node_modules/.bin/metafab" ]; then "$main/./node_modules/.bin/metafab" build
+elif main=$(git -c core.quotePath=false worktree list --porcelain 2>/dev/null | sed -n '1{s/^worktree //;h;d;};/^bare$/q;g;p;q') && [ -n "$main" ] && [ -x "$main/./node_modules/.bin/metafab" ]; then "$main/./node_modules/.bin/metafab" build
 elif command -v metafab >/dev/null 2>&1; then metafab build
 else npx --yes @seasb/metafab@1.0.0 build
 fi || echo "metafab: build failed. Run metafab build." >&2
@@ -85,7 +85,7 @@ describe("hookScript", () => {
 describe("hookCommand", () => {
   test("is the single-line form from the plan", () => {
     expect(hookCommand(".", "1.0.0")).toBe(
-      `(cd "$(git rev-parse --show-toplevel)/." && if [ -x node_modules/.bin/metafab ]; then node_modules/.bin/metafab build; elif main=$(git -c core.quotePath=false worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p') && [ -n "$main" ] && [ -x "$main/./node_modules/.bin/metafab" ]; then "$main/./node_modules/.bin/metafab" build; elif command -v metafab >/dev/null 2>&1; then metafab build; else npx --yes @seasb/metafab@1.0.0 build; fi) || true`,
+      `(cd "$(git rev-parse --show-toplevel)/." && if [ -x node_modules/.bin/metafab ]; then node_modules/.bin/metafab build; elif main=$(git -c core.quotePath=false worktree list --porcelain 2>/dev/null | sed -n '1{s/^worktree //;h;d;};/^bare$/q;g;p;q') && [ -n "$main" ] && [ -x "$main/./node_modules/.bin/metafab" ]; then "$main/./node_modules/.bin/metafab" build; elif command -v metafab >/dev/null 2>&1; then metafab build; else npx --yes @seasb/metafab@1.0.0 build; fi) || true`,
     );
   });
 
@@ -95,7 +95,7 @@ describe("hookCommand", () => {
 
     const steps = [
       "if [ -x node_modules/.bin/metafab ]; then node_modules/.bin/metafab build",
-      `elif main=$(git -c core.quotePath=false worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p') && [ -n "$main" ] && [ -x "$main/./node_modules/.bin/metafab" ]; then "$main/./node_modules/.bin/metafab" build`,
+      `elif main=$(git -c core.quotePath=false worktree list --porcelain 2>/dev/null | sed -n '1{s/^worktree //;h;d;};/^bare$/q;g;p;q') && [ -n "$main" ] && [ -x "$main/./node_modules/.bin/metafab" ]; then "$main/./node_modules/.bin/metafab" build`,
       "elif command -v metafab >/dev/null 2>&1; then metafab build",
       "else npx --yes @seasb/metafab@3.4.5 build",
     ];
