@@ -8,10 +8,11 @@ import { parse } from "yaml";
 /**
  * `.github/workflows/release.yml` is the only thing that publishes, so its
  * guards are checked here: a pushed `v*` tag, the OIDC permission npm trusted
- * publishing exchanges, the tag naming the version in `package.json`, and the
- * full verification run, all before `npm publish`. The verification runs in a
- * job without the OIDC token: with it, npm signs provenance for the tests'
- * own publishes to their local registry, which rejects them.
+ * publishing exchanges, the tag naming the version in `package.json`, the
+ * dist-tag the publish writes, and the full verification run, all before
+ * `npm publish`. The verification runs in a job without the OIDC token: with
+ * it, npm signs provenance for the tests' own publishes to their local
+ * registry, which rejects them.
  */
 
 const repoRoot = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -63,6 +64,21 @@ function runIndex(pattern: RegExp): number {
   return runs().findIndex((run) => pattern.test(run));
 }
 
+/** The command lines of a step's run block: comments and blank lines dropped. */
+function commandLines(run: string): string[] {
+  return run
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && !line.startsWith("#"));
+}
+
+/** Every step's command lines, across every job. */
+function commands(): string[] {
+  return Object.values(workflow.jobs ?? {})
+    .flatMap((job) => job.steps ?? [])
+    .flatMap((step) => commandLines(step.run ?? ""));
+}
+
 beforeAll(async () => {
   source = await readFile(WORKFLOW, "utf8");
   workflow = parse(source) as Workflow;
@@ -87,6 +103,37 @@ describe("the release workflow", () => {
     expect(check).toBeLessThan(runIndex(/npm publish/));
     expect(runs()[check]).toMatch(/package\.json/);
     expect(runs()[check]).toMatch(/exit 1/);
+  });
+
+  test("publishes under the dist-tag dist-tag.mjs prints for the package version", () => {
+    const publish = commandLines(runs()[runIndex(/\bnpm publish\b/)]!);
+
+    // The tag comes from the script and the version comes from package.json, so
+    // a prerelease cannot land on `latest` and no literal tag goes stale.
+    expect(publish).toContain(`version=$(node -p "require('./package.json').version")`);
+    expect(publish).toContain('tag=$(node .github/scripts/dist-tag.mjs "$version")');
+    expect(publish).toContain('npm publish --tag "$tag"');
+  });
+
+  test("computes the tag after the tag check, in the job that waits for verify", () => {
+    const check = runIndex(/GITHUB_REF_NAME/);
+    const tag = runIndex(/dist-tag\.mjs/);
+
+    expect(check).toBeGreaterThanOrEqual(0);
+    expect(tag).toBeGreaterThan(check);
+    expect(tag).toBeLessThanOrEqual(runIndex(/\bnpm publish\b/));
+    expect([publishingJob().needs ?? []].flat()).toContain(jobRunning(/npm run verify/));
+  });
+
+  test("never runs npm publish without a tag", () => {
+    const publishes = commands().filter((line) => /^npm publish\b/.test(line));
+
+    expect(publishes.length).toBeGreaterThan(0);
+    for (const line of publishes) expect(line).toMatch(/^npm publish --tag \S+$/);
+  });
+
+  test("never moves a dist-tag by hand", () => {
+    expect(commands().filter((line) => /\bnpm dist-tag\b/.test(line))).toEqual([]);
   });
 
   test("verifies in a job the publish job waits for", () => {
