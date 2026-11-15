@@ -7,7 +7,7 @@ Version 1 has four responsibilities:
 1. Store the factory in an open `.factory/` format.
 2. Install the factory into supported agent tools.
 3. Validate the factory and its installed files.
-4. Share the factory as a fab, published to npm or a Git repository.
+4. Share the factory as a fab: a Git repository by default, or an npm package.
 
 Version 1 installs files in the locations supported agent tools read. It does not run workflows, invoke an agent tool, or verify how an agent behaves after loading those files. Runtime execution and monitoring are outside the version 1 product boundary.
 
@@ -61,7 +61,7 @@ Metafab installs factory parts as follows:
 ## Terminology
 
 - **Factory:** The `.factory/` directory in a repository.
-- **Fab:** A factory published for reuse, as an npm package such as `@seasb/fab-basic` or a Git fab repository such as `github:Traction-Team/fab-basic`.
+- **Fab:** A factory shared for reuse, as a Git repository such as `github:Traction-Team/fab-basic` or an npm package such as `@seasb/fab-basic`.
 - **Fab repository:** A Git repository that holds only published fab releases. `metafab publish` writes it.
 - **Metafab:** The product and its `metafab` CLI, published as `@seasb/metafab`.
 - **Upstream fab:** The fab from which a factory was copied. A factory has zero or one upstream fab.
@@ -103,11 +103,11 @@ The format reserves `scorers/`, `rules/`, and `runtimes/`, and the pipeline opti
 
 ## Example
 
-Create a factory from a published fab:
+Create a factory from a fab:
 
 ```sh
 cd my-repo
-npx @seasb/metafab import @seasb/fab-basic --agents claude,codex --setup
+npx @seasb/metafab import github:Traction-Team/fab-basic --agents claude,codex --setup
 git add .factory AGENTS.md .gitignore .gitattributes opencode.json orca.yaml docs/
 git commit -m "Add the fab-basic factory"
 ```

@@ -1,6 +1,6 @@
 # Sharing a factory
 
-A **fab** is a factory packaged for reuse. Version 1 publishes fabs to npm, to a Git fab repository, or to both. `import` also accepts HTTPS tarballs and local paths.
+A **fab** is a factory packaged for reuse. The usual way to share one is a Git repository with `.factory/` at its root and a version tag for each release. Version 1 can also publish fabs to npm. `import` also accepts HTTPS tarballs and local paths.
 
 `metafab import` copies a fab into a repository. The receiving team owns that copy and can edit any file.
 
@@ -22,7 +22,7 @@ A repository does not need a `package.json` to use a fab. It needs Node.js only 
 
 ## Fab layout
 
-A fab has this layout, in an npm package and in a fab repository:
+A fab has this layout, in a Git repository and in an npm package:
 
 ```text
 package.json         npm only
@@ -62,7 +62,18 @@ Fab requirements:
 
 Anyone can publish a fab. Recommended names are `fab-<name>` and `@<scope>/fab-<name>`, for npm packages and fab repositories alike.
 
-The Metafab project publishes its own fabs under `@seasb/`.
+The Metafab project shares its own fabs as Git repositories in the `Traction-Team` GitHub organization, such as `github:Traction-Team/fab-basic`, and also publishes them to npm under `@seasb/`.
+
+## Sharing a Git repository
+
+The simplest fab is a Git repository whose `.factory/` you already use. To release a version, tag a commit `v<version>` and push the tag:
+
+```sh
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+Others import it with `metafab import github:<owner>/<repo>`, and `update` follows its version tags (see [Git refs](#git-refs)). This needs no `publish` step and no npm account. The repository shares its whole `.factory/`, so keep it free of project-specific files, or use `metafab publish` with `publish.exclude` to release a filtered fab instead.
 
 ## Publishing
 
@@ -74,7 +85,7 @@ Run this command in the repository that contains the source `.factory/`.
 
 ### Publishing from a project repository
 
-A fab does not need a hand-maintained repository. Publish it from the project repository whose factory you use every day:
+Use `metafab publish` when you want to leave project-specific files out of the fab, or to publish it to npm. Publish it from the project repository whose factory you use every day:
 
 1. Keep working in `.factory/` as usual.
 2. Add a `publish` section to `metafab.yaml` once.
@@ -88,10 +99,10 @@ A fab does not need a hand-maintained repository. Publish it from the project re
 
 | Target | Setting | Result |
 | --- | --- | --- |
-| npm | `publish.name` | An npm package |
 | Git | `publish.git` | A commit and version tag in a fab repository |
+| npm | `publish.name` | An npm package |
 
-Configure one target or both. Both targets carry the same staged fab in the same published version: the `.factory/` tree after `publish.exclude`, and the README at its root. The npm target also carries a generated `package.json`; the Git target never does. When npm is a target, staging also leaves out the names `npm pack` never packs (see [Steps](#steps)), and reports each path it left out, so the Git fab then carries the same files as the npm tarball apart from `package.json`. A Git-only publish keeps those files. A path Git reads as a `.git` directory is refused when the Git target is configured. An npm-only publish leaves out only the case spellings of `.git` itself (`.git`, `.GIT`, and so on) with a warning, because `npm pack` never carries those, and refuses every other name Git reads as `.git`: one with trailing spaces or dots, with the code points HFS+ ignores, with a `:` stream suffix, or with the 8.3 short name `git~1`, any of which npm would pack.
+Configure one target or both. Git is the recommended target; npm is optional. Both targets carry the same staged fab in the same published version: the `.factory/` tree after `publish.exclude`, and the README at its root. The npm target also carries a generated `package.json`; the Git target never does. When npm is a target, staging also leaves out the names `npm pack` never packs (see [Steps](#steps)), and reports each path it left out, so the Git fab then carries the same files as the npm tarball apart from `package.json`. A Git-only publish keeps those files. A path Git reads as a `.git` directory is refused when the Git target is configured. An npm-only publish leaves out only the case spellings of `.git` itself (`.git`, `.GIT`, and so on) with a warning, because `npm pack` never carries those, and refuses every other name Git reads as `.git`: one with trailing spaces or dots, with the code points HFS+ ignores, with a `:` stream suffix, or with the 8.3 short name `git~1`, any of which npm would pack.
 
 The printed file list and total size describe the npm package when npm is a target, `package.json` included, and the Git fab when it is the only target.
 
@@ -187,9 +198,9 @@ A published version cannot be changed:
 
 | Source | Example | Retrieval method |
 | --- | --- | --- |
-| npm package | `@seasb/fab-mark4@^1.2.0` | npm registry with the user's `.npmrc` configuration |
 | GitHub repository | `github:seasb/fab-mark4#v1.2.0` | Git |
 | Other Git repository | `git+ssh://git@example.com/fab-acme.git`, `git+https://example.com/fab-acme.git` or `git+file:///srv/fabs/fab-acme.git` | Git |
+| npm package | `@seasb/fab-mark4@^1.2.0` | npm registry with the user's `.npmrc` configuration |
 | HTTPS tarball | `https://example.com/fab-acme-1.0.0.tgz` | HTTPS |
 | Local path | `../platform/.factory` or `file:../fab-acme` | Local file system |
 
@@ -227,7 +238,7 @@ The part after `#` selects a Git version. Version tags are `v<version>` or `<ver
 
 ### Versioned and unversioned sources
 
-npm packages and Git repositories are **versioned** sources. Metafab can download any earlier version again, so `update` can merge.
+Git repositories and npm packages are **versioned** sources. Metafab can download any earlier version again, so `update` can merge.
 
 HTTPS tarballs and local paths are **unversioned** sources. Metafab cannot download the earlier version, so `update` overwrites `.factory/` with the current source files (see [Updating from an unversioned source](#updating-from-an-unversioned-source)).
 
