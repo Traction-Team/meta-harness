@@ -53,7 +53,7 @@ A team can publish a factory as a fab and other teams can import and update it.
 - [x] [1.021 Source hardening](plans/1.021-source-hardening.md): `git+file://` sources, safe cache and mirror swaps, cache write errors exit 3, npm size checked before download
 - [x] [1.023 Factory requirements](plans/1.023-factory-requires.md): `requires:` in `factory.yaml`; `import` and `update` offer to create missing repository files from templates, `check` warns
 - [x] [1.022 Verification](plans/1.022-verification.md): agent tools, Windows, git hooks under Git for Windows, the CI recipe against `mark4-like`, the error message and `--json` contract, recorded in `docs/verification.md`
-- [ ] [1.024 First fab](plans/1.024-first-fab.md): the Dragonfly factory generalised as `@seasb/fab-basic`, and this repository imports it
+- [x] [1.024 First fab](plans/1.024-first-fab.md): the Dragonfly factory generalised as `@seasb/fab-basic`, and this repository imports it
 - [ ] [1.012 Release v1](plans/1.012-release.md): package `README.md`, release workflow with provenance, `@seasb/metafab@1.0.0`
 - [ ] [1.025 Git hooks on here](plans/1.025-git-hooks-on.md): `@seasb/metafab` as a devDependency and `git-hooks: true` in this repository, once 1.0.0 is on npm
 
@@ -138,7 +138,7 @@ Record answered questions here with the date and the commit that applied them.
 
 | Date | Decision | Applied in |
 | --- | --- | --- |
-| 2026-11-15 | The first fab is `@seasb/fab-basic` (`github:seasb/fab-basic`), not `fab-orca`: a factory named after one harness or runner conflicts with environments, and the fab describes a process | [1.024](plans/1.024-first-fab.md#decisions), [1.012](plans/1.012-release.md) |
+| 2026-11-15 | The first fab is `@seasb/fab-basic` (`github:Traction-Team/fab-basic`, since GitHub has no `seasb` account; changed while building #28), not `fab-orca`: a factory named after one harness or runner conflicts with environments, and the fab describes a process | [1.024](plans/1.024-first-fab.md#decisions), [1.012](plans/1.012-release.md) |
 | 2026-11-15 | PR #25 (Amp orbs and Amp workers) merges before 1.024 is built; 1.024 carries its Amp flow into fab-basic as hand-written variants, and 2.015 turns them into `switch` blocks in fab-basic, never as local edits here | [1.024](plans/1.024-first-fab.md#decisions), [2.015](plans/2.015-dogfood-environments.md#decisions) |
 | 2026-11-15 | Harness values are `opencode`, `claude` and `amp`. Claude Code sub-agents live in `.claude/agents/`, shipped by fab-basic as setup templates under `requires`; partials never hard-code sub-agent names but use the `sub-agent-*` settings in `docs/factory.md` | [2.015](plans/2.015-dogfood-environments.md#decisions) |
 | 2026-11-15 | After 2.014, publish `@seasb/metafab@2.0.0-next.1` under the npm dist-tag `next`; fab-basic 0.2.0 and this repository (the 1.025 devDependency) pin it until 2.0.0 ships. 1.012's release workflow needs a `--tag next` change first | [2.015](plans/2.015-dogfood-environments.md#decisions), [2.016](plans/2.016-prerelease-next.md) |
