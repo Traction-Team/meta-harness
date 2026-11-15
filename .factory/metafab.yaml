@@ -4,6 +4,5 @@ git-hooks: true
 # Written by metafab import. Do not edit.
 upstream:
   source: github:Traction-Team/fab-basic
-  requested: ^0.1.0
-  version: 0.1.1
-  commit: 645672a544126a1a37531bfaa50ba30befb0dd58
+  requested: feat/environments
+  commit: 1cd95b22dce0323cf98932bb96eb847649ef926f

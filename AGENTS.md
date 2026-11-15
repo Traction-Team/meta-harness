@@ -76,7 +76,16 @@ The whole process is in [.factory/docs/process.md](.factory/docs/process.md): th
 - **Conventional Commits, with no scope:** `feat`, `fix`, `refactor`, `docs`, `chore`, `test`, `ci`, `build`. A branch is `<type>/<slug>`. A plan's branch carries the plan file's stem: `feat/1.005-check` for `<plans>/1.005-check.md`, `feat/2026-11-02-onb-2-second` for a dated plan.
 - **Code reaches `trunk` only through a pull request.** The `trunk` setting names that branch.
 - **`.factory/scripts/` is code.** A change to it goes in a pull request, never straight to `trunk`.
-- **Sub-agents.** Start task and fix sub-agents as `subagent_type: "<sub-agent-coding>"`, reviews as `subagent_type: "<sub-agent-review>"`, planning as `subagent_type: "<sub-agent-planning>"`. The values come from `docs/factory.md`; `opencode.json` defines them. The opencode-claude-bridge plugin replaces the Agent tool's list with Claude Code's built-ins (`general-purpose`, `Explore`, `Plan`), so those names may not appear: call them anyway, they run. Fall back to `general-purpose` only when the call fails with an unknown-agent error, and say so in one line. In Amp, each sub-agent is a separate thread; the workflows say how. How each harness starts a session or a sub-agent is in the `agent-harnesses` skill.
+- **Sub-agents.** The sub-agent names and models are settings in `docs/factory.md`: `sub-agent-coding` for a task or fix, `sub-agent-review` for a review and `sub-agent-planning` for planning, plus `amp-model-coding` and `amp-model-review` for Amp threads.
+
+  **In OpenCode (OPENCODE=1 is set):**
+  Start one with the Task tool, `subagent_type` set to the setting's value; `opencode.json` defines all three. The opencode-claude-bridge plugin may not list them: call them anyway, and fall back to `general-purpose` only on an unknown-agent error.
+
+  **In Claude Code (CLAUDECODE=1 is set):**
+  Start one with the Agent tool, choosing the sub-agent whose name is the setting's value; `.claude/agents/` defines all three and pins no model.
+
+  **In Amp (AMP_THREAD_ID is set):**
+  Start one as its own Amp thread with `create_thread`, on the `amp-model-coding` value for a task or fix and `amp-model-review` for a review; it reports back with `send_thread_message`.
 
 ## Factory workflows
 
@@ -88,8 +97,8 @@ Delivery work runs through these workflows. Each is installed as a skill. When a
 | `prioritise-roadmap` | "What's next", re-ordering the roadmap, reviewing intake or open questions |
 | `plan-feature` | "Plan <thing>", a roadmap line with no plan, or a bug too big for a bug plan |
 | `review-plan` | After writing plans, always in a new sub-agent. "Cold review this plan", "poke holes in this plan" |
-| `start-plan` | On `trunk`: "start the next plan", "pull the next chunk", "keep going", "what's ready". The orchestrator: one worker per plan, as a new Amp thread in its own orb, or an Orca worktree and OpenCode worker |
-| `build-plan` | On a feature branch, usually as a worker in its own Amp thread or Orca worktree: "build docs/plans/<plan>.md". Stops at a merge-safe draft pull request and a TL;DR |
+| `start-plan` | On `trunk`: "start the next plan", "pull the next chunk", "keep going", "what's ready". The orchestrator: one worker per plan, each in a workspace of its own |
+| `build-plan` | On a feature branch, usually as a worker in its own workspace: "build docs/plans/<plan>.md". Stops at a merge-safe draft pull request and a TL;DR |
 | `review-branch` | After any implementation, always in a new sub-agent. "Cold review this branch" |
 | `finish-plan` | On a plan's branch, after the TL;DR: testing feedback, "looks good", review comments, "land it" |
 | `release` | Only when the `release` setting is `on`: "release", "deploy", "ship a hotfix". Standalone, so the pipeline never suggests it; it stops at once when `release` is `off` |

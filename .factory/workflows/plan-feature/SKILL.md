@@ -73,9 +73,9 @@ For the body, follow the template: the specs it implements, design, steps as che
 
 The review is not optional. Do not ask the person to approve the plans until a `review-plan` sub-agent has returned a verdict on them.
 
-**OpenCode and Claude Code:** start one **new** review sub-agent with the `sub-agent-review` name (`run_in_background: false`). The `agent-harnesses` skill says how each harness starts one; the opencode-claude-bridge makes the name callable even when the Agent tool does not list it.
+<!-- factory:import ../../partials/sub-agents.md -->
 
-**Amp** (`AMP_THREAD_ID` is set, or the session has the `create_thread` tool): start a new review thread with `create_thread`, `executor: orb`, `intent: delegation`, and the model in `amp-model-review` (empty keeps the thread's own mode). Push the plans first, so the thread can read them, and follow `docs-changes` for where they go: with `direct`, push to `trunk` when the person agrees; with `pull-request`, push to a docs branch. Tell the thread which ref to read them from.
+Start one **new** review sub-agent, as the sub-agents section says. Push the plans first when the sub-agent reads them from its own checkout, and tell it which ref to read them from; follow `docs-changes` for where they go: with `direct`, push to `trunk` when the person agrees; with `pull-request`, push to a docs branch.
 
 Do not review the plans yourself. Give it only this prompt:
 
