@@ -1,7 +1,11 @@
 {
   "name": "@seasb/metafab",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Create, validate, install, and share software factories.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Traction-Team/meta-harness.git"
+  },
   "type": "module",
   "bin": {
     "metafab": "dist/cli.js"
@@ -14,6 +18,10 @@
     "resources",
     "README.md"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
