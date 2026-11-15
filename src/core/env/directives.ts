@@ -1,3 +1,5 @@
+import { realpath } from "node:fs/promises";
+import path from "node:path";
 import type { Problem } from "../../errors.js";
 import { didYouMean } from "../../util/suggest.js";
 import { isNameFormatted } from "../factory/validate.js";
@@ -10,6 +12,8 @@ import {
 } from "./condition.js";
 import type { Condition } from "./condition.js";
 import { isVariableName } from "./declarations.js";
+import { importTarget, realDisplayPath, resolveImport } from "./imports.js";
+import type { ImportCache } from "./imports.js";
 import { MAX_COMBINATIONS, combinations } from "./scenarios.js";
 import type { EnvVariable } from "./types.js";
 
@@ -30,6 +34,15 @@ export type Node =
       variable: string;
       branches: Branch[];
       endLine: number;
+    }
+  | {
+      kind: "import";
+      line: number;
+      /** The path argument as written. */
+      path: string;
+      /** Repository-relative name of the imported file, such as `.factory/partials/x.md`. */
+      file?: string;
+      children: Node[];
     };
 
 export interface Branch {
@@ -54,6 +67,16 @@ export interface ParseOptions {
   /** Line number of the first line of `text` in the source file (the body of SKILL.md starts after its frontmatter). */
   firstLine: number;
   variables: readonly EnvVariable[];
+  /** Resolves imports; one cache per build or `loadFactory`, so a file is read once. */
+  imports: ImportCache;
+  /** Factory-relative POSIX path of this file, such as `workflows/build-plan/SKILL.md`. */
+  route: string;
+  /**
+   * Realpaths being expanded, the importing files before the imported one. A
+   * top-level file passes `[]`; its own realpath is added here, so an import
+   * that leads back to it is a loop.
+   */
+  chain?: readonly string[];
 }
 
 type WhenNode = Extract<Node, { kind: "when" }>;
@@ -92,6 +115,7 @@ const LAST_BRANCH_FIX = "Move the factory:default to the end of the switch";
 const BRANCH_MESSAGE = "factory:<name> must be directly inside a factory:switch";
 const CASE_VALUES_MESSAGE = "factory:case needs one or more value names separated by spaces";
 const CASE_VALUES_FIX = "Write <!-- factory:case <value> [<value> ...] -->";
+const CYCLE_FIX = "Remove one of these imports, so the chain does not lead back to itself";
 
 interface Fence {
   char: string;
@@ -137,12 +161,37 @@ function closesFence(line: string, fence: { char: string; length: number }): boo
 }
 
 /**
+ * The realpaths being expanded, starting with this file. A top-level file passes
+ * an empty chain, so its own realpath is added here: an import that leads back
+ * to the file being parsed is a loop. A file that is not on disk cannot be
+ * imported back, so an empty chain is kept.
+ */
+async function importChain(
+  imports: ImportCache,
+  route: string,
+  chain: readonly string[],
+): Promise<readonly string[]> {
+  if (chain.length > 0) return chain;
+  try {
+    return [await realpath(path.resolve(imports.factoryDir, ...route.split("/")))];
+  } catch {
+    return chain;
+  }
+}
+
+/**
  * Parses a Markdown file into text and directive nodes. Problems carry the file
  * and line, and parsing continues after each one, so a run reports every
- * problem in a file.
+ * problem in a file. An import line is replaced by the nodes of the imported
+ * file, parsed as its own document: block balance, switches and fences are per
+ * file.
  */
-export function parseMarkdown(text: string, options: ParseOptions): MarkdownDocument {
-  const { file, firstLine, variables: declared } = options;
+export async function parseMarkdown(
+  text: string,
+  options: ParseOptions,
+): Promise<MarkdownDocument> {
+  const { file, firstLine, variables: declared, imports, route } = options;
+  const chain = await importChain(imports, route, options.chain ?? []);
   const lines = text.split("\n");
   const nodes: Node[] = [];
   const problems: Problem[] = [];
@@ -392,6 +441,57 @@ export function parseMarkdown(text: string, options: ParseOptions): MarkdownDocu
     );
   };
 
+  /**
+   * Expands one import line: the imported body is parsed as its own document and
+   * its nodes become the import node's children, so its blocks are balanced in
+   * its own file. A failed import, or one that closes a loop, is an error on
+   * this line and inserts nothing.
+   */
+  const expandImport = async (argument: string, line: number): Promise<void> => {
+    const target = importTarget(route, argument);
+    if (!target.ok) {
+      error(line, target.message, target.fix);
+      return;
+    }
+
+    const resolved = await resolveImport(route, argument, imports);
+    if (!resolved.ok) {
+      error(line, resolved.message, resolved.fix);
+      return;
+    }
+
+    // The chain compares realpaths, so a loop through two names of one file is
+    // still a loop; the message names the files from the one that repeats.
+    const start = chain.indexOf(resolved.real);
+    if (start !== -1) {
+      const loop = [...chain.slice(start), resolved.real].map((real) =>
+        realDisplayPath(imports, real),
+      );
+      error(line, `Import cycle: ${loop.join(" → ")}`, CYCLE_FIX);
+      return;
+    }
+
+    problems.push(...resolved.loaded.problems);
+    const imported = await parseMarkdown(resolved.loaded.text, {
+      file: `.factory/${target.target}`,
+      firstLine: resolved.loaded.firstLine,
+      variables: declared,
+      imports,
+      route: target.target,
+      chain: [...chain, resolved.real],
+    });
+    problems.push(...imported.problems);
+    for (const name of imported.variables) names.add(name);
+
+    append({
+      kind: "import",
+      line,
+      path: argument,
+      file: `.factory/${target.target}`,
+      children: imported.nodes,
+    });
+  };
+
   for (const [index, raw] of lines.entries()) {
     const line = firstLine + index;
     const content = stripBom(raw);
@@ -432,8 +532,7 @@ export function parseMarkdown(text: string, options: ParseOptions): MarkdownDocu
         closeBlock(directive, line);
         break;
       case "import":
-        error(line, "factory:import is not supported yet", "Copy the text in for now");
-        appendText(line, raw, false);
+        await expandImport(directive.args ?? "", line);
         break;
       case "start":
       case "end":

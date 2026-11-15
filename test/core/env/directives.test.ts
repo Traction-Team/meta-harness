@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { Problem } from "../../../src/errors.js";
 import { directiveLines, parseMarkdown } from "../../../src/core/env/directives.js";
 import type { MarkdownDocument, ParseOptions } from "../../../src/core/env/directives.js";
+import { createImportCache } from "../../../src/core/env/imports.js";
 import type { EnvVariable } from "../../../src/core/env/types.js";
 
 const FILE = ".factory/skills/demo/SKILL.md";
@@ -36,11 +37,21 @@ const ELEVEN: EnvVariable[] = Array.from({ length: 11 }, (_, index) => ({
   line: index + 1,
 }));
 
+/** A cache whose factory is not on disk: these documents import nothing. */
+const IMPORTS = createImportCache("/nonexistent/.factory");
+
 const CONDITION_FIX =
   "Write env.<variable> == <value>, != <value> or in [<values>], joined with and, or, not and parentheses";
 
-function parse(text: string, options: Partial<ParseOptions> = {}): MarkdownDocument {
-  return parseMarkdown(text, { file: FILE, firstLine: 1, variables: VARIABLES, ...options });
+async function parse(text: string, options: Partial<ParseOptions> = {}): Promise<MarkdownDocument> {
+  return parseMarkdown(text, {
+    file: FILE,
+    firstLine: 1,
+    variables: VARIABLES,
+    imports: IMPORTS,
+    route: "skills/demo/SKILL.md",
+    ...options,
+  });
 }
 
 function error(line: number, message: string, fix: string): Problem {
@@ -76,9 +87,9 @@ const CASES: { name: string; text: string; problems: Problem[] }[] = [
     ],
   },
   {
-    name: "factory:import",
-    text: "<!-- factory:import partials/setup.md -->\n",
-    problems: [error(1, "factory:import is not supported yet", "Copy the text in for now")],
+    name: "factory:import without a path",
+    text: "<!-- factory:import -->\n",
+    problems: [error(1, "factory:import needs a path", "Write <!-- factory:import <path> -->")],
   },
   {
     name: "a when without a condition",
@@ -351,11 +362,11 @@ const CASES: { name: string; text: string; problems: Problem[] }[] = [
 ];
 
 describe("directive parser", () => {
-  test.each(CASES)("$name", ({ text, problems }) => {
-    expect(parse(text).problems).toEqual(problems);
+  test.each(CASES)("$name", async ({ text, problems }) => {
+    expect((await parse(text)).problems).toEqual(problems);
   });
 
-  test("directives inside backtick and tilde fences, and in a fence in a list item, are text", () => {
+  test("directives inside backtick and tilde fences, and in a fence in a list item, are text", async () => {
     const text = [
       "# Skill",
       "",
@@ -376,15 +387,15 @@ describe("directive parser", () => {
       "",
     ].join("\n");
 
-    const document = parse(text);
+    const document = await parse(text);
 
     expect(document.problems).toEqual([]);
     expect(document.nodes.every((node) => node.kind === "text")).toBe(true);
     expect(document.nodes.map((node) => node.text).join("\n")).toBe(text);
   });
 
-  test("a directive without spaces around the comment is a directive", () => {
-    const document = parse("<!--factory:when env.harness == amp-->\ntext\n<!--factory:endwhen-->\n");
+  test("a directive without spaces around the comment is a directive", async () => {
+    const document = await parse("<!--factory:when env.harness == amp-->\ntext\n<!--factory:endwhen-->\n");
 
     expect(document.problems).toEqual([]);
     expect(document.nodes.map((node) => node.kind)).toEqual(["when", "text"]);
@@ -392,8 +403,8 @@ describe("directive parser", () => {
     expect(when?.kind === "when" ? when.children.map((node) => node.kind) : []).toEqual(["text"]);
   });
 
-  test("reports every problem in a file, one per line", () => {
-    const document = parse("<!-- factory:wnen -->\n<!-- factory:when -->\n");
+  test("reports every problem in a file, one per line", async () => {
+    const document = await parse("<!-- factory:wnen -->\n<!-- factory:when -->\n");
 
     expect(document.problems.map((problem) => [problem.line, problem.message])).toEqual([
       [1, 'Unknown directive "factory:wnen"'],
@@ -401,15 +412,15 @@ describe("directive parser", () => {
     ]);
   });
 
-  test("numbers lines from firstLine", () => {
-    const document = parse("text\n<!-- factory:wnen -->\n", { firstLine: 5 });
+  test("numbers lines from firstLine", async () => {
+    const document = await parse("text\n<!-- factory:wnen -->\n", { firstLine: 5 });
 
     expect(document.problems).toEqual([
       error(6, 'Unknown directive "factory:wnen"', 'Did you mean "when"?'),
     ]);
   });
 
-  test("reads the tree of when blocks, switches and text", () => {
+  test("reads the tree of when blocks, switches and text", async () => {
     const text = [
       "  <!-- factory:when env.harness == amp -->",
       "  text",
@@ -426,7 +437,7 @@ describe("directive parser", () => {
       "",
     ].join("\n");
 
-    const document = parse(text);
+    const document = await parse(text);
 
     expect(document.problems).toEqual([]);
     expect(document.nodes).toEqual([
@@ -456,7 +467,7 @@ describe("directive parser", () => {
     expect([...document.variables]).toEqual(["harness", "workspace"]);
   });
 
-  test("a block nested in another reads its own condition", () => {
+  test("a block nested in another reads its own condition", async () => {
     const text = [
       "<!-- factory:when env.harness == amp -->",
       "<!-- factory:when env.workspace == orca -->",
@@ -466,7 +477,7 @@ describe("directive parser", () => {
       "",
     ].join("\n");
 
-    const document = parse(text);
+    const document = await parse(text);
 
     expect(document.problems).toEqual([]);
     const [outer] = document.nodes;
@@ -482,7 +493,7 @@ describe("directive combination limit", () => {
     "env.v6 == a and env.v7 == a and env.v8 == a and env.v9 == a and env.v10 == a and env.v11 == a";
   const five = "env.v1 == a and env.v2 == a and env.v3 == a and env.v4 == a and env.v5 == a";
 
-  test("a nested block over more than 1024 combinations is an error on its line", () => {
+  test("a nested block over more than 1024 combinations is an error on its line", async () => {
     const text = [
       `<!-- factory:when ${five} -->`,
       `<!-- factory:when ${six} -->`,
@@ -492,7 +503,7 @@ describe("directive combination limit", () => {
       "",
     ].join("\n");
 
-    const document = parse(text, { variables: ELEVEN });
+    const document = await parse(text, { variables: ELEVEN });
 
     expect(document.problems).toEqual([
       error(
@@ -503,7 +514,7 @@ describe("directive combination limit", () => {
     ]);
   });
 
-  test("the same variables in sibling blocks are within the limit", () => {
+  test("the same variables in sibling blocks are within the limit", async () => {
     const text = [
       `<!-- factory:when ${six} -->`,
       "six",
@@ -514,10 +525,10 @@ describe("directive combination limit", () => {
       "",
     ].join("\n");
 
-    expect(parse(text, { variables: ELEVEN }).problems).toEqual([]);
+    expect((await parse(text, { variables: ELEVEN })).problems).toEqual([]);
   });
 
-  test("a switch's variable counts toward a block inside its case", () => {
+  test("a switch's variable counts toward a block inside its case", async () => {
     const ten =
       "env.v1 == a and env.v2 == a and env.v3 == a and env.v4 == a and env.v5 == a and env.v6 == a and env.v7 == a and env.v8 == a and env.v9 == a and env.v10 == a";
     const text = [
@@ -532,7 +543,7 @@ describe("directive combination limit", () => {
       "",
     ].join("\n");
 
-    const document = parse(text, { variables: ELEVEN });
+    const document = await parse(text, { variables: ELEVEN });
 
     expect(document.problems).toEqual([
       error(
