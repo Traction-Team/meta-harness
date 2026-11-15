@@ -9,6 +9,7 @@ import { runCli } from "../../helpers/runCli.js";
 import type { RunCliResult } from "../../helpers/runCli.js";
 import { makePublishRepo, withProcessEnv } from "../publish/fixtures.js";
 import {
+  disableAutoMaintenance,
   fileUrl,
   gitPublishSection,
   makeBareFabRepo,
@@ -187,6 +188,7 @@ describe("git+file:// sources", { timeout: 120_000 }, () => {
     const repo = path.join(bare.root, "fab repo #1", "fab.git");
     await mkdir(path.dirname(repo), { recursive: true });
     await runGitIn(bare.root, ["init", "--quiet", "--bare", "--initial-branch=main", repo]);
+    await disableAutoMaintenance(repo);
 
     const source = `git+${pathToFileURL(repo).href}`;
     expect(source).toContain("%20");
@@ -203,6 +205,7 @@ describe("git+file:// sources", { timeout: 120_000 }, () => {
     const repo = path.join(bare.root, "my#fab", "fab.git");
     await mkdir(path.dirname(repo), { recursive: true });
     await runGitIn(bare.root, ["init", "--quiet", "--bare", "--initial-branch=main", repo]);
+    await disableAutoMaintenance(repo);
 
     const posix = repo.split(path.sep).join("/");
     const publishUrl = posix.startsWith("/") ? `file://${posix}` : `file:///${posix}`;
