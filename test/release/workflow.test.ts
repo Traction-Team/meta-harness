@@ -9,7 +9,9 @@ import { parse } from "yaml";
  * `.github/workflows/release.yml` is the only thing that publishes, so its
  * guards are checked here: a pushed `v*` tag, the OIDC permission npm trusted
  * publishing exchanges, the tag naming the version in `package.json`, and the
- * full verification run, all before `npm publish`.
+ * full verification run, all before `npm publish`. The verification runs in a
+ * job without the OIDC token: with it, npm signs provenance for the tests'
+ * own publishes to their local registry, which rejects them.
  */
 
 const repoRoot = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -22,6 +24,7 @@ interface Step {
 }
 
 interface Job {
+  needs?: string | string[];
   permissions?: Record<string, string>;
   steps?: Step[];
 }
@@ -35,12 +38,21 @@ interface Workflow {
 let source = "";
 let workflow: Workflow;
 
-/** The job that publishes, found by the command it runs. */
-function publishingJob(): Job {
-  for (const job of Object.values(workflow.jobs ?? {})) {
-    if ((job.steps ?? []).some((step) => /\bnpm publish\b/.test(step.run ?? ""))) return job;
+/** The name of the job with a step whose command matches, such as the one that runs `npm publish`. */
+function jobRunning(pattern: RegExp): string {
+  for (const [name, job] of Object.entries(workflow.jobs ?? {})) {
+    if ((job.steps ?? []).some((step) => pattern.test(step.run ?? ""))) return name;
   }
-  throw new Error("release.yml has no step that runs npm publish");
+  throw new Error(`release.yml has no step that runs ${pattern}`);
+}
+
+function publishingJob(): Job {
+  return workflow.jobs![jobRunning(/\bnpm publish\b/)]!;
+}
+
+/** A job's permissions, with the workflow's permissions as the default GitHub applies. */
+function permissionsOf(job: Job): Record<string, string> {
+  return job.permissions ?? workflow.permissions ?? {};
 }
 
 function runs(): string[] {
@@ -62,7 +74,7 @@ describe("the release workflow", () => {
   });
 
   test("grants the OIDC token npm trusted publishing exchanges", () => {
-    const permissions = { ...workflow.permissions, ...publishingJob().permissions };
+    const permissions = permissionsOf(publishingJob());
 
     expect(permissions.contents).toBe("read");
     expect(permissions["id-token"]).toBe("write");
@@ -77,11 +89,29 @@ describe("the release workflow", () => {
     expect(runs()[check]).toMatch(/exit 1/);
   });
 
-  test("verifies before publishing", () => {
-    const verify = runIndex(/npm run verify/);
+  test("verifies in a job the publish job waits for", () => {
+    const verify = jobRunning(/npm run verify/);
+    const needs = [publishingJob().needs ?? []].flat();
 
-    expect(verify).toBeGreaterThanOrEqual(0);
-    expect(verify).toBeLessThan(runIndex(/npm publish/));
+    expect(verify).not.toBe(jobRunning(/\bnpm publish\b/));
+    expect(needs).toContain(verify);
+  });
+
+  test("runs the tests without the OIDC token", () => {
+    const verify = workflow.jobs![jobRunning(/npm run verify/)]!;
+
+    expect(permissionsOf(verify)["id-token"]).toBeUndefined();
+    expect(workflow.permissions?.["id-token"]).toBeUndefined();
+  });
+
+  test("builds without install scripts before publishing", () => {
+    const install = runIndex(/^npm ci\b/);
+    const build = runIndex(/npm run build/);
+
+    expect(runs()[install]).toMatch(/--ignore-scripts/);
+    expect(build).toBeGreaterThan(install);
+    expect(build).toBeLessThan(runIndex(/npm publish/));
+    expect(runs().some((run) => /npm (run )?test|npm run verify|vitest/.test(run))).toBe(false);
   });
 
   test("publishes with an npm that can use trusted publishing", () => {
