@@ -1,15 +1,15 @@
 ---
 name: build-plan
-description: Builds one plan on the current feature branch, usually as the worker start-plan started (an Amp thread in its own orb, or an agent in its own Orca worktree). It renames the worktree branch, claims the plan with a draft pull request, or adds it to the branch's open pull request, stacking it when stacking is on, delegates implementation tasks to coding sub-agents (separate threads in Amp), runs the narrower checks when they are set and verify otherwise, always runs the review-branch workflow in a fresh sub-agent, triages its findings and sends accepted ones to a fix sub-agent, re-reviews the fix commits, records proof, and writes the landing commit (plan merged, roadmap ticked, changelog, feature table), so the branch is safe to merge as it stands. It stops with a draft pull request and a TL;DR handoff for the developer. On the trunk it does not build; it sends the person to start-plan. Use it for "build <plans>/<plan>.md". It never marks a pull request ready and never merges.
+description: Builds one plan on the current feature branch, usually as the worker start-plan started in its own workspace. It renames the branch, claims the plan with a draft pull request, or adds it to the branch's open pull request, stacking it when stacking is on, delegates implementation tasks to coding sub-agents, runs the narrower checks when they are set and verify otherwise, always runs the review-branch workflow in a fresh sub-agent, triages its findings and sends accepted ones to a fix sub-agent, re-reviews the fix commits, records proof, and writes the landing commit (plan merged, roadmap ticked, changelog, feature table), so the branch is safe to merge as it stands. It stops with a draft pull request and a TL;DR handoff for the developer. On the trunk it does not build; it sends the person to start-plan. Use it for "build <plans>/<plan>.md". It never marks a pull request ready and never merges.
 ---
 
 # build-plan
 
-Manage one plan. Delegate implementation and review to sub-agents. Pass concise reports between sub-agents, not complete transcripts. You own the task order, checks, and pull request.
+Manage one plan. Pass concise reports between sub-agents, not complete transcripts. You own the task order, checks, and pull request.
 
-You are usually a **worker**: `start-plan` started you with a short brief, either as an Amp thread in your own orb or as a session in your own Orca worktree. Stay thin. Do not read the source, the specs in depth, or the diff in full yourself; the sub-agents hold that context and it ends with them. Read the diff from git only when a later step needs it.
+You are usually a **worker**: `start-plan` started you with a short brief, in a workspace of its own. Stay thin. Do not read the source, the specs in depth, or the diff in full yourself; the sub-agents hold that context and it ends with them. Read the diff from git only when a later step needs it.
 
-**Sub-agents.** In Amp (`AMP_THREAD_ID` is set, or you have the `create_thread` tool), every sub-agent is a separate Amp thread; follow *Sub-agents in Amp* below. Elsewhere, task and fix sub-agents run as `subagent_type: "<sub-agent-coding>"` and review sub-agents as `subagent_type: "<sub-agent-review>"`. The repository's `opencode.json` defines both, and the review sub-agent should be on a different family from the coding one, so the review is not the code's own family. They exist even when the Agent tool does not list them: the opencode-claude-bridge plugin replaces the tool description with Claude Code's fixed list (`general-purpose`, `Explore`, `Plan`). Pass them anyway. Never fall back to `general-purpose` unless one of the named calls fails; then say so in the final report.
+<!-- factory:import ../../partials/sub-agents.md -->
 
 The current feature branch is where the plan is built. A plan usually gets its own pull request, but when the branch already has one, the plan joins it. Never build on the trunk.
 
@@ -21,29 +21,7 @@ The plan's file name follows `plan-names`: `numbered` (`<round>.<NNN>-<slug>.md`
 
 **Never** mark the pull request ready or merge it. Do not edit `.factory/`, or a plan the pull request does not list, or the roadmap beyond the landing edits in step 8. Change only paths in the `owns` lists of the plans the pull request lists, those plans, and the spec sections they implement when the code has to differ (say so in the pull request). If the implementation requires another path, add it to `owns` in the plan and explain why in the pull request.
 
-The settings are read from `docs/factory.md`: `trunk`, `setup`, `verify`, `check-changed`, `test-file`, `stacking`, `features`, `dev-server`, `plans`, `roadmap`, `changelog`, the sub-agent keys, and `amp-model-coding` for task and fix threads and `amp-model-review` for review threads.
-
-### Sub-agents in Amp
-
-Wherever this workflow starts a sub-agent, start a new Amp thread with `create_thread` instead, one at a time, and give it the same brief:
-
-- `executor`: `orb`. `intent`: `delegation`. `title`: `<plan number> <task n, fix n or review n>`.
-- `model` (`agent_mode` in older Amp versions): the `amp-model-coding` value for task and fix threads, and the `amp-model-review` value for review threads. Empty keeps the thread's own mode.
-- `prompt`: the brief, then the lines below.
-
-The new thread runs in its own orb, which starts on `trunk`, and it cannot see your checkout. So `git push` the branch before each thread starts, and end every brief with:
-
-```text
-Your orb starts on the trunk. First run: git fetch origin && git switch <branch>
-<Task and fix threads only:> Commit as asked, then git push origin <branch>.
-Do the work in this thread; do not create other threads.
-When finished, send your report to <this thread's URL> with send_thread_message,
-and end with the same report as your final message.
-```
-
-In a review brief, `Worktree:` is `your own checkout of <branch>`. Then end your turn: the report arrives as a message in this thread. Do not read the thread while it works. After a task or fix thread reports, run `git pull --ff-only` before the next step. If a thread stops without sending its report, read its final message with `read_thread`. Each hand-off ends your turn, so one build spans several turns.
-
-This repository may be owned by a GitHub organization, so Amp's CI and pull request subscriptions can fail with "Only a workspace subscription can watch". Skip them, in this thread and in the threads you start. CI does not run on draft pull requests, so `gh pr checks` on the draft shows every job skipped; the local checks are the check before the handoff. CI runs when `finish-plan` marks the pull request ready.
+The settings are read from `docs/factory.md`: `trunk`, `setup`, `verify`, `check-changed`, `test-file`, `stacking`, `features`, `dev-server`, `plans`, `roadmap`, `changelog`, the sub-agent keys, `amp-model-coding` and `amp-model-review`.
 
 ## 0. Check the branch
 
@@ -58,16 +36,9 @@ node .factory/scripts/next.mjs --json                         # inFlight shows e
 
 If the body's first line says the branch is **Stacked on** a pull request but `baseRefName` is now `trunk`, the parent has merged: run *Restack after the parent merged* before anything else.
 
-**The worktree branch.** Orca names a new worktree's branch `<git user>/<flattened name>`, for example `<user>/feat-1.005-check`. If the branch has that shape, has no commit beyond its base, and has no pull request, rename it now, before the claim, and treat it as case 3:
+<!-- factory:import ../../partials/worker-setup.md -->
 
-```bash
-git branch -m <type>/<plan-file-stem>   # the type comes from the plan's title; the stem is the file name without .md
-git branch --show-current               # must print the new name
-```
-
-**The Amp branch.** An Amp worker's orb starts on the trunk. Its brief tells it to create the plan's branch first (`git fetch origin && git switch -c <type>/<plan-file-stem> <base>`), or to switch to one that already exists; do what it says, then take the case below that matches, usually case 3. The orb ran the repository's setup script, so dependencies and the skills are ready.
-
-**The setup.** With Orca, `start-plan` created the worktree with `--setup run`, which runs the repository's setup hook. If the first command fails on missing dependencies, read the hook with `orca repo list --json` (`hookSettings.scripts.setup`) and run it. Run the `setup` command by hand only when the hook is empty or failed, and say which in the final report and the TL;DR. When `setup` is empty, use the repository's install command from its README. `start-plan` proved the trunk green before it started you, so do not run `verify` as a baseline.
+`start-plan` proved the trunk green before it started you, so do not run `verify` as a baseline.
 
 Then take the first case that matches:
 
@@ -117,15 +88,15 @@ Add the task list to the pull request's build log before implementation starts. 
 
 ## 3. Use one sub-agent for each task
 
-Run tasks in order, one `sub-agent-coding` sub-agent each (`run_in_background: false`; in Amp, one task thread each). The sub-agent reads the plan sections, specs and source itself, writes the code and tests, and commits. Do not re-read the files it read or restate its work. Give each sub-agent:
+Run tasks in order, one `sub-agent-coding` sub-agent each, started as the sub-agents section says. The sub-agent reads the plan sections, specs and source itself, writes the code and tests, and commits. Do not re-read the files it read or restate its work. Give each sub-agent:
 
 - The plan's title, `owns`, and `proves`.
 - The plan's opening paragraph, the plan sections the task touches, and the spec sections they link. When `specs` is empty, say so and give no spec sections.
 - The task goal and the reports from completed tasks. For a joined plan, a two-line summary of what the branch's other plans changed.
 - The requirement to change only paths in `owns` and follow `AGENTS.md`.
 - The requirement to run the checks: `check-changed` when it is set, so only the changed scope is checked, and the `verify` command otherwise. If it wrote or changed a test file and `test-file` is set, run that file with its path in place of `<path>`.
-- The requirement to create a short commit and not push it (in Amp, push it to the branch, as *Sub-agents in Amp* says).
-- That it is already a sub-agent: it does the work itself and dispatches no sub-agent of its own. Its role ends at the commit and the report; it does not edit the pull request or review, and pushes only in Amp.
+- The requirement to create a short commit, and to push only when the sub-agents section says it must.
+- That it is already a sub-agent: it does the work itself and dispatches no sub-agent of its own. Its role ends at the commit and the report; it does not edit the pull request or review.
 
 Require a report of fewer than 20 lines: what it built, which files changed, what it could not complete, and any out-of-scope work it found. Add one build-log row per report, and tick the plan's **Steps** checkboxes it completed.
 
@@ -137,7 +108,7 @@ After the final task, run the checks once: `check-changed` when it is set, so on
 
 Start this step as soon as step 4 ends, including when step 4 stopped on a failure.
 
-Start one **new** review sub-agent (`subagent_type: "<sub-agent-review>"`, `run_in_background: false`; in Amp, a new review thread on `amp-model-review`). Do not review the branch yourself, and do not reuse a task or fix sub-agent. Give it only this prompt:
+Start one **new** review sub-agent, as the sub-agents section says. Do not review the branch yourself, and do not reuse a task or fix sub-agent. Give it only this prompt:
 
 ```text
 Load the review-branch workflow and follow it. Return its report as your final message.
@@ -187,7 +158,7 @@ First merge the pull request's base: `git fetch origin && git merge origin/<base
 
 Complete the body sections: TL;DR, changes, proof, review, **For the developer**, build log, found while building. In **For the developer**, include uncertainties and a short *try this* list of commands. Leave the pull request as a draft. CI does not run on the draft: do not wait for it, and do not report its skipped checks as passing.
 
-Leave a worktree the orchestrator can remove after the merge: `git status --porcelain` must print nothing. Ignored files do not block removal, so clean nothing more.
+Leave the workspace clean so the orchestrator can remove it after the merge: `git status --porcelain` must print nothing. Ignored files do not block removal, so clean nothing more.
 
 ### Screenshots, when `dev-server` is set
 
@@ -202,11 +173,20 @@ gh pr edit <n> --body-file <body> --attach /tmp/…/report.png
 
 `gh` uploads each file and rewrites the reference to the hosted URL, so later rounds keep the images without attaching them again. When `dev-server` is empty, or you cannot run the app, leave the section out and add the screen to *try this* instead. Never put images in the repository to link to them.
 
-The developer switches between several worker sessions and reads each one cold. End with this handoff as your final message, and put the same text (without the last line) in the body's **TL;DR** section. Write it for someone who has not read the plan, in user terms, not file lists. Keep it under 20 lines:
+The developer switches between several worker sessions and reads each one cold. End with this handoff as your final message, and put the same text (without the last line) in the body's **TL;DR** section. Write it for someone who has not read the plan, in user terms, not file lists. Keep it under 20 lines.
+
+**Where it runs.** For `<where it runs>` in the TL;DR:
+
+<!-- factory:switch env.workspace -->
+<!-- factory:case orca worktree -->
+the worktree's absolute path.
+<!-- factory:case orb -->
+`this thread in Amp`.
+<!-- factory:endswitch -->
 
 ```text
 ## <plan number and name>: ready for your review
-#<pr> (draft) · <branch> · <worktree path, or this thread in Amp>
+#<pr> (draft) · <branch> · <where it runs>
 
 **What the plan was for:** one or two sentences: the problem and what could not be done before.
 **What it does now:** two to four bullets a user would notice.
@@ -214,7 +194,7 @@ The developer switches between several worker sessions and reads each one cold. 
 **Needs your eye:** decisions you made that the plan did not, spec changes, uncertainties, open
 questions you answered. Write "nothing" if there is nothing.
 **Try it:** two to four commands, runnable from a checkout of this branch.
-**Setup notes:** only if something unexpected happened (a hand-run setup command, a general-purpose fallback).
+**Setup notes:** only if something unexpected happened (a hand-run setup command, a fallback sub-agent).
 
 The landing bookkeeping is already on the branch, so it is safe to merge as it is. Give feedback
 here and I will apply it, or say "looks good" and I will bring it up to date with the trunk, re-run

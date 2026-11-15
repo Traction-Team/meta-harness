@@ -4,7 +4,7 @@ How work moves from an idea to merged code, and then to a release. One plan is o
 
 `.factory/` is the factory. This doc is the process; the files in `.factory/workflows/` are its steps, installed as skills. Everything a repository decides for itself lives in one settings file, `docs/factory.md`, so this doc and the workflows read the same in every repository that uses them.
 
-`.factory/docs/` is a team-added top-level directory. Metafab format version 1 allows one, and nothing in it installs as a skill. It travels with every import and every update, so the process stays one click from the roadmap.
+`.factory/docs/` is a team-added top-level directory. Metafab allows one, and nothing in it installs as a skill. It travels with every import and every update, so the process stays one click from the roadmap.
 
 ## The words
 
@@ -57,14 +57,15 @@ People keep five decisions: what is next, the plan, each wave, "done", and the m
 
 ```text
 .factory/
-  factory.yaml                 factory name and pipeline (Metafab format 1)
+  factory.yaml                 factory name, pipeline, environments and required files (Metafab format 2)
   AGENTS.md                    standing instructions, the source of the root AGENTS.md block
   metafab.yaml                 tools and publishing; never copied by import
   docs/process.md              this file
   workflows/<name>/SKILL.md    how work moves; installed as skills
-  skills/<name>/SKILL.md       reusable know-how, such as agent harnesses and stacked pull requests
+  skills/<name>/SKILL.md       reusable know-how, such as stacked pull requests
+  partials/*.md                one procedure per environment, imported by the workflows and AGENTS.md
   templates/                   plan.md, plan-bug.md, feature.md, intake.md, intake-sighting.md, changelog.md, pr-body.md, release-body.md
-  templates/setup/             factory.md, opencode.json, orca.yaml, roadmap.md: copied once by import, when missing
+  templates/setup/             factory.md, opencode.json, orca.yaml, roadmap.md and claude-agents/: copied once by import, when missing
   scripts/                     dependency-free Node: check, next, feature, merge-stack
 ```
 
@@ -84,8 +85,8 @@ The repository owns one file, `docs/factory.md`, created on import from `.factor
 | `trunk` | `main` | Branch plans start from and merge into |
 | `verify` | `<set me>` | Command that proves a branch green |
 | `setup` | empty | Command a new worktree runs before its first check; empty means the repository's install command from its README |
-| `metafab` | `npx --yes @seasb/metafab` | How to run Metafab here |
-| `agent` | `opencode` | Agent `start-plan` starts in a worktree; empty asks the `agent-harnesses` skill to detect one |
+| `metafab` | `npx --yes @seasb/metafab@next` | How to run Metafab here |
+| `agent` | `opencode` | Agent `start-plan` starts in an Orca worktree; empty uses the harness the person names |
 | `orca-repo` | empty | `--repo` for `orca worktree create`; empty means `git worktree add` |
 | `sub-agent-coding` | `agent-coding` | Sub-agent that builds tasks and fixes |
 | `sub-agent-review` | `agent-review` | Sub-agent that reviews plans and branches |
@@ -180,25 +181,42 @@ With `stacking` on, the `stacked-prs` skill has the git side: linking a GitHub s
 
 ## Workers
 
-`start-plan` is the orchestrator. It runs on `trunk`, cuts the ready plans into waves whose `owns` paths do not collide (four plans, five at the most), gets the person's approval, proves `trunk` green once with the `verify` command, then starts one worker per plan. The worker runs `build-plan` on the plan's branch. The orchestrator never follows a worker: it does not read its worktree or transcript.
+`start-plan` is the orchestrator. It runs on `trunk`, cuts the ready plans into waves whose `owns` paths do not collide (four plans, five at the most), gets the person's approval, proves `trunk` green once with the `verify` command, then starts one worker per plan. The worker runs `build-plan` on the plan's branch. The orchestrator never follows a worker: it does not read its workspace or transcript.
 
-There are two runtimes. Both run every plan in its own workspace, and neither watches the pull requests.
+Every plan gets a workspace of its own, and neither the worker nor the orchestrator watches the pull requests. Two things decide what a workflow says to you:
 
-### In Amp
+- The **workspace** is where a worker's checkout comes from: an Amp orb, an Orca worktree, or a plain `git worktree`.
+- The **harness** is the agent tool that runs the session: OpenCode, Claude Code or Amp.
 
-The orchestrator runs in an Amp thread. It detects Amp when `AMP_THREAD_ID` is set, or when the session has the `create_thread` tool. That rule is the one every Amp variant branches on.
+They are independent: an OpenCode session can run in an Orca worktree, a plain worktree or an orb, and so can Claude Code or Amp. The factory declares both, and ships one procedure per case, so each session reads only its own. With nothing selected you get every case, labelled, so a repository that has not chosen yet still works.
 
-- **Worker.** One new Amp thread per plan, each in its own orb, started with `create_thread` (`executor: orb`, `intent: parallel-work`). A fresh orb checks out `trunk` and runs `.agents/setup`, so the skills are installed and nothing needs setting up by hand. The brief tells the worker to create the plan's branch from its base, then run `build-plan`.
-- **Sub-agents.** The worker hands every task, fix and review to a new thread of its own, with `create_thread`: tasks and fixes on `amp-model-coding`, reviews on `amp-model-review` (empty keeps the thread's own mode). Each thread checks out the plan's branch in its own orb, pushes its commits, and sends its report back to the worker with `send_thread_message`. If a thread stops without reporting, `read_thread` reads its last message. The branch is pushed before each thread starts, because the thread cannot see the worker's checkout.
-- **Clean up.** There is no worktree to remove: the orb belongs to the worker thread, which the person can archive after the merge. The orchestrator offers to archive it.
-- **Subscriptions.** Amp's CI and pull request subscriptions need a workspace subscription when the repository belongs to an organization; when they fail, CI is checked with `gh pr checks` instead.
+### Choosing what your agents read
 
-### With Orca and OpenCode
+A selection is personal, so it is never committed. It lives in Git config, which every worktree of a clone shares:
 
-- **Worktree and branch.** `orca worktree create --repo <orca-repo> --base-branch origin/<trunk> --no-parent --setup run --agent <agent>`, or `git worktree add ../<repository directory name>-<branch with / as -> -b <branch> origin/<trunk>` when `orca-repo` is empty. `--setup run` runs the repository's Orca setup hook; when that hook is empty or failed, run the `setup` command by hand and say which. Orca names the branch `<git user>/<flattened name>`; the worker renames it to `<type>/<plan-file-stem>` before the claim. Without Orca, the Orca board cannot see the worktree.
-- **Session.** The worker is an agent session that reads a short brief and runs `build-plan`. `agent` names its CLI; when that setting is empty, the `agent-harnesses` skill detects one.
-- **Sub-agents.** The worker stays thin and dispatches every task and fix to the `sub-agent-coding` value and every cold review to `sub-agent-review`. The heavy build context ends with each sub-agent.
-- **Clean up.** On its next run the orchestrator reads origin with `gh`, removes the worktree of each merged plan with `orca worktree rm`, and cuts the next wave.
+```bash
+metafab env set harness=opencode           # or harness=amp, or harness=claude
+metafab env set harness=opencode,claude    # if you use more than one
+metafab env set workspace=orca             # or workspace=orb, workspace=worktree
+metafab env set harness=opencode --global  # every repository on this machine
+metafab env                                 # the selection, and where each value came from
+```
+
+`metafab env set` and `metafab env unset` write `factory.env.*` to Git config and rebuild the installed skills. `FACTORY_ENV_HARNESS` and `FACTORY_ENV_WORKSPACE` do the same for one process, which is what a CI job or a setup script uses. `metafab build --env harness=claude --out <dir>` writes what a teammate on another harness receives, and `metafab check` validates every case whatever the selection is.
+
+An Amp orb is the one place the selection is written for you: `.agents/setup` sets `harness` to `amp` and `workspace` to `orb` in the orb's own Git config before it builds.
+
+### The workspace
+
+- **An Amp orb.** One new thread per plan, each in its own orb, started with `create_thread` (`executor: orb`, `intent: parallel-work`). A fresh orb checks out the trunk and runs `.agents/setup`, so the skills are installed and nothing needs setting up by hand. The brief tells the worker to create the plan's branch from its base, then run `build-plan`. There is no worktree to remove: after the merge the orchestrator offers to archive the worker's thread.
+- **An Orca worktree.** `orca worktree create --repo <orca-repo> --base-branch origin/<trunk> --no-parent --setup run --agent <agent>`. `--setup run` runs the repository's Orca setup hook; when that hook is empty or failed, run the `setup` command by hand and say which. Orca names the branch `<git user>/<flattened name>`; the worker renames it to `<type>/<plan-file-stem>` before the claim. After the merge the orchestrator removes the worktree with `orca worktree rm`.
+- **A plain git worktree.** `git worktree add ../<repository directory name>-<branch with / as -> -b <branch> origin/<trunk>`. Run the `setup` command, then show the person the `cd` and the command that starts their harness. No setup hook ran, and the Orca board cannot see the worktree. After the merge the orchestrator removes it with `git worktree remove`.
+
+### The harness
+
+- **OpenCode.** Sub-agents start with the Task tool, `subagent_type` set to the `sub-agent-coding`, `sub-agent-review` or `sub-agent-planning` value; `opencode.json` defines all three. The opencode-claude-bridge plugin replaces the Task tool's list with Claude Code's fixed one, so the names may not appear: call them anyway, and fall back to `general-purpose` only on an unknown-agent error.
+- **Claude Code.** Sub-agents start with the Agent tool, choosing the sub-agent of that name; `.claude/agents/` defines all three and pins no model, so each runs on the session's model.
+- **Amp.** A sub-agent is a new Amp thread started with `create_thread`, on `amp-model-coding` for a task or fix and `amp-model-review` for a review (empty keeps the thread's own mode). Each thread checks out the plan's branch in its own orb, pushes its commits, and sends its report back with `send_thread_message`. If a thread stops without reporting, `read_thread` reads its last message.
 
 ### An Amp orb setup script
 
