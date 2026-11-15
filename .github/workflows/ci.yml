@@ -116,7 +116,7 @@ jobs:
           set -euo pipefail
           tmp="${RUNNER_TEMP//\\//}"
           tarball=$(echo "$tmp"/seasb-metafab-*.tgz)
-          dep="$tmp/dep"
+          dep="$tmp/dep space"
           LOG=""
 
           fail() {
@@ -157,13 +157,14 @@ jobs:
           if grep -q "npx stub reached" "$LOG"; then fail "D2: the hook fell through to the npx stub"; fi
           echo "D2: passed"
 
-          # D3: a new worktree has no node_modules, so a project dependency
-          # alone does not build it.
+          # D3: a new worktree has no node_modules, so the hook runs the main
+          # checkout's copy of the project dependency, which builds the new
+          # worktree.
           LOG="$dep/hook.log"
           git worktree add ../dep-wt -b b2 2> "$LOG"
-          [ ! -d ../dep-wt/.claude/skills ] || fail "D3: the new worktree was built from a project dependency alone"
-          grep -q "npx stub reached" "$LOG" || fail "D3: the hook did not fall through to the npx stub"
-          grep -q "metafab: build failed" "$LOG" || fail "D3: the hook did not report the failed build"
+          [ -f ../dep-wt/.claude/skills/metafab/SKILL.md ] || fail "D3: the hook did not build the new worktree from the main checkout's project dependency"
+          if grep -q "npx stub reached" "$LOG"; then fail "D3: the hook fell through to the npx stub"; fi
+          if grep -q "metafab: build failed" "$LOG"; then fail "D3: the hook reported a failed build"; fi
           echo "D3: passed"
 
           # D4: without the local shim, nothing is rebuilt. This is D2's control.
@@ -174,6 +175,14 @@ jobs:
           [ ! -d .claude/skills ] || fail "D4: something rebuilt .claude/skills without the local shim"
           grep -q "npx stub reached" "$LOG" || fail "D4: the hook did not fall through to the npx stub"
           echo "D4: passed"
+
+          # D5: with no dependency anywhere, the hook reaches the npx stub and
+          # builds nothing. This is D3's control.
+          LOG="$dep/hook.log"
+          git worktree add ../dep-wt2 -b b4 2> "$LOG"
+          [ ! -d ../dep-wt2/.claude/skills ] || fail "D5: the new worktree was built without a project dependency"
+          grep -q "npx stub reached" "$LOG" || fail "D5: the hook did not fall through to the npx stub"
+          echo "D5: passed"
       - name: Global install
         run: |
           set -euo pipefail
