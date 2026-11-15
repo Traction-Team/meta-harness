@@ -53,7 +53,7 @@ Metafab installs factory parts as follows:
 | Skill | Agent Skill |
 | Standing instructions | Text in the generated factory block in `AGENTS.md` |
 | Pipeline (`factory.yaml`) | Ordered workflow list in the generated factory block in `AGENTS.md` |
-| Template | Not installed. Workflows use its repository path |
+| Template | Not installed. Workflows use its repository path. A template named by `requires` in `factory.yaml` is copied by `import` and `update` to create a missing repository file (Plan 1.023) |
 | Script | Not installed. Workflows use its repository path |
 
 `metafab build` compiles `.factory/` like source code. The installed skills are generated copies of the source Agent Skills.
@@ -61,7 +61,7 @@ Metafab installs factory parts as follows:
 ## Terminology
 
 - **Factory:** The `.factory/` directory in a repository.
-- **Fab:** A factory published for reuse, as an npm package such as `@seasb/fab-mark4` or a Git fab repository such as `github:seasb/fab-mark4`.
+- **Fab:** A factory published for reuse, as an npm package such as `@seasb/fab-basic` or a Git fab repository such as `github:Traction-Team/fab-basic`.
 - **Fab repository:** A Git repository that holds only published fab releases. `metafab publish` writes it.
 - **Metafab:** The product and its `metafab` CLI, published as `@seasb/metafab`.
 - **Upstream fab:** The fab from which a factory was copied. A factory has zero or one upstream fab.
@@ -107,10 +107,12 @@ Create a factory from a published fab:
 
 ```sh
 cd my-repo
-npx @seasb/metafab import @seasb/fab-mark4 --agents claude,codex
-git add .factory AGENTS.md .gitignore .gitattributes
-git commit -m "Add the mark4 factory"
+npx @seasb/metafab import @seasb/fab-basic --agents claude,codex --setup
+git add .factory AGENTS.md .gitignore .gitattributes opencode.json orca.yaml docs/
+git commit -m "Add the fab-basic factory"
 ```
+
+`--setup` creates the repository files the fab's workflows need from its templates, so the commit stages them. A repository that already has a `CLAUDE.md` stages that too.
 
 Update it later:
 
@@ -118,7 +120,7 @@ Update it later:
 npx @seasb/metafab update
 git diff
 npx @seasb/metafab check
-git commit -am "Update the mark4 factory to 1.3.0"
+git commit -am "Update the fab-basic factory to 1.3.0"
 ```
 
 `update` changes the working tree and prints a review summary. It does not create a commit.
