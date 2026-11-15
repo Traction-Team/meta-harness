@@ -24,7 +24,8 @@ export interface RequirementResult {
   /**
    * For a `blocked` case variant: what kind of entry has the other spelling, so
    * a fix line offers a rename only when renaming gives the required path what
-   * it needs (a directory at a parent, or a file at the path itself).
+   * it needs (a directory at a parent, or any non-directory entry at the path
+   * itself, which inspection would then report as present).
    */
   clashKind?: RequirementClashKind;
 }
