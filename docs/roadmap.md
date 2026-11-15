@@ -68,7 +68,7 @@ Fixes to 1.0 found by the reviews and verification of Milestone 3. They ship in 
 
 ## Milestone 4: Environments (version 2)
 
-A team compiles one factory for each developer's environment: the factory declares variables such as `harness` and `workspace`, each developer selects values in Git config, and `build` installs only the instructions that apply, with `when`, `switch` and `import` directives and conditional skills. What to build: [Environments](specs/environments.md). 2.011 to 2.014 and 2.016 are approved (2026-11-15); 2.015 stays a draft until its prerequisites land.
+A team compiles one factory for each developer's environment: the factory declares variables such as `harness` and `workspace`, each developer selects values in Git config, and `build` installs only the instructions that apply, with `when`, `switch` and `import` directives and conditional skills. What to build: [Environments](specs/environments.md). 2.011 to 2.016 are approved (2026-11-15). 2.015 is built against the unreleased branches first, for evaluation, and pins the releases before it merges.
 
 - [x] [2.011 Environment declarations and selection](plans/2.011-environment-selection.md): `format: 2`, `env` in `factory.yaml`, selection from `--env`, `FACTORY_ENV_*` and Git config, `metafab env`, `env set`, `env unset`
 - [x] [2.012 Conditional blocks and skills](plans/2.012-conditional-blocks.md): `when` and `switch` directives, labels for partial matches, `skills:` conditions, `check` validates every branch
@@ -151,6 +151,7 @@ Record answered questions here with the date and the commit that applied them.
 
 | Date | Decision | Applied in |
 | --- | --- | --- |
+| 2026-11-15 | Approve Plan 2.015 as written, including its proposed decisions. It is built against the unreleased branches first (fab-basic on a branch with a draft pull request, the CLI from its own stacked checkout) so the person can evaluate the environments stack, and it pins `2.0.0-next.1` and fab-basic `^0.2.0` once both are released. Stacked plans are linked as GitHub stacks so a whole stack can merge at once | [2.015](plans/2.015-dogfood-environments.md) |
 | 2026-11-15 | `update` merges frontmatter line by line, as 1.010 shipped. A field-level merge waits until someone files a real conflict | [Sharing](specs/sharing.md), [1.010](plans/1.010-update-diff-detach.md#open-questions) |
 | 2026-11-15 | Duplicate skills: Copilot CLI 1.0.112 lists each skill once, as opencode does. Cursor and VS Code Copilot Chat were not verified in 1.0. No setting to avoid duplicates in v1: a team selects only the targets it uses | [Building](specs/building.md#duplicate-skills), [README](specs/README.md#open-questions), [verification](verification.md#agent-tools) |
 | 2026-11-15 | fab-basic is a Git repository only: `github:Traction-Team/fab-basic`, released by pushing a `v<version>` tag. The `@seasb/fab-basic` npm mirror is unpublished and its `publish` block removed from fab-basic, so no release of ours runs `metafab publish`. Metafab still supports npm fabs | [Sharing](specs/sharing.md), [2.015](plans/2.015-dogfood-environments.md) |
