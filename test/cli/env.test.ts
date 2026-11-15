@@ -291,6 +291,26 @@ describe("metafab env set", () => {
     expect(await configValues(root)).toEqual(["amp"]);
   });
 
+  test("--json keeps the build's warnings about ignored values", async () => {
+    const root = await envRepo();
+    process.env.FACTORY_ENV_HARNESS = "zed";
+
+    const result = await env(["env", "set", "harness=amp", "--json"], root);
+
+    expect(result.code).toBe(ExitCode.Ok);
+    const parsed = JSON.parse(result.stdout) as { problems: unknown[] };
+    expect(parsed.problems).toEqual([
+      {
+        level: "warning",
+        file: ".factory/factory.yaml",
+        line: 5,
+        message: 'Ignored "zed" from FACTORY_ENV_HARNESS: harness does not declare it',
+        fix: "Declared values: opencode, claude, amp",
+      },
+    ]);
+    expect(await configValues(root)).toEqual(["amp"]);
+  });
+
   test("warns when a higher scope still decides the selection", async () => {
     const root = await envRepo();
     await git(root, ["config", KEY, "claude"]);

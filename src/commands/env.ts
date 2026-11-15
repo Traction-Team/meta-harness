@@ -362,13 +362,17 @@ async function runEnvWrite(context: CommandContext, mode: WriteMode): Promise<Co
     ...(mode === "set" ? { values: target.values } : { removed: !notSet }),
     changed: build.changed,
     hooks: build.hooks,
-    problems: [...warnings],
+    problems: [...(build.problems ?? []), ...warnings],
   };
 
   if (build.exitCode !== ExitCode.Ok) {
     result.ok = false;
     result.exitCode = build.exitCode;
-    result.problems = [...(build.problems ?? []), notRebuilt(target.variable, declared)];
+    result.problems = [
+      ...(build.problems ?? []),
+      ...warnings,
+      notRebuilt(target.variable, declared),
+    ];
     if (context.options.json !== true) result.summary = summary;
     return result;
   }
