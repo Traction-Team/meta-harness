@@ -60,6 +60,7 @@ The CI evidence would be the `hooks` job for W1 and the recipe test for W2 and W
 | Hooks: D1–D4, project dependency | CI `hooks` job | 2026-11-15 | not run | GitHub Actions did not start the job: account billing (run https://github.com/Traction-Team/meta-harness/actions/runs/43656797008), 2026-11-15. D1–D4 were simulated locally on macOS and passed |
 | Hooks: G1–G3, global install | CI `hooks` job | 2026-11-15 | not run | GitHub Actions did not start the job: account billing (run https://github.com/Traction-Team/meta-harness/actions/runs/43656797008), 2026-11-15. G1–G3 were simulated locally on macOS and passed |
 | Real `npx` fallback | — | 2026-11-15 | not run | `@seasb/metafab@<version>` is not on npm until 1.0, and after 1.0 the check needs the network |
+| CI runs only on ready pull requests and on `main` | `.github/workflows/ci.yml` | 2026-11-15 | pending | The trigger skips draft pull requests and cancels a superseded pull-request run, so the jobs run when the pull request is marked ready. Developer request: the Actions budget was going too fast. The evidence is the run started by marking the pull request ready |
 
 ## Error messages and exit codes
 
