@@ -398,3 +398,14 @@ The three `test.fails` rows are defects pinned until their intake note is fixed:
 | `metafab` | an unexpected error is reported as a bug (exit 1; JSON has `command` and `problems`, no stack; human output keeps the stack and adds the fix line) | yes | yes | no | ok | `renderBug`, fixed in this PR |
 | `import` (Windows) | a relative path source written with backslashes | not run | not run | not run | not run | GitHub Actions did not start the job: account billing (run https://github.com/Traction-Team/meta-harness/actions/runs/43656797008), 2026-11-15; the Windows case is unverified |
 | `create` (Windows) | a backslash path with `--description` | not run | not run | not run | not run | GitHub Actions did not start the job: account billing (run https://github.com/Traction-Team/meta-harness/actions/runs/43656797008), 2026-11-15; the Windows case is unverified |
+
+## Release
+
+The checks below ran on 2026-11-15 against `@seasb/metafab@1.0.0` from npm, published by run [43683277001](https://github.com/Traction-Team/meta-harness/actions/runs/43683277001). `npm view @seasb/metafab@1.0.0 dist.attestations` shows SLSA provenance (`https://slsa.dev/provenance/v1`). Each import ran in a new, empty Git repository: `npx --yes @seasb/metafab@1.0.0 import github:Traction-Team/fab-basic --agents claude,codex --setup`, then `npx --yes @seasb/metafab@1.0.0 check`. The import resolved fab-basic 0.1.1.
+
+| Check | Node / Git | OS | Date | Steps | Result | Notes / finding |
+| --- | --- | --- | --- | --- | --- | --- |
+| Import with `--setup` | Node 24.21.0, npm 11.19.0 | macOS 26.6.2 | 2026-11-15 | R1 | pass | Import exited 0 and created `docs/factory.md`, `opencode.json`, `orca.yaml` and `docs/roadmap.md` from the fab's templates, and installed `.claude/skills/` and `.agents/skills/`. `check` printed "0 errors, 0 warnings" |
+| Import with `--setup` | Node 22.23.5, Git 2.39.5 | Linux, Debian 12 (Docker image `node:22`) | 2026-11-15 | R1 | pass | Same result as macOS: the four files created, `check` printed "0 errors, 0 warnings" |
+| Import with `--setup` | — | Windows 11 | 2026-11-15 | R1 | pending | person, on a Windows machine |
+| `orca.yaml` setup in a new Orca worktree | Orca 1.4.258 | macOS 26.6.2 | 2026-11-15 | R2 | pass | The macOS repository from R1 was committed, added with `orca repo add`, and given a worktree with `orca worktree create --setup run`. The Setup terminal ran `npx --yes @seasb/metafab build` from the generated `orca.yaml` and reported "24 files changed": the twelve skills in `.claude/skills/` and `.agents/skills/`, which `.gitignore` excludes. `check` in the worktree printed "0 errors, 0 warnings" |
