@@ -14,6 +14,30 @@ function generatedComment(cliVersion: string): string {
 }
 
 /**
+ * The `if`/`elif`/`elif`/`else` chain that finds a CLI, one line per branch:
+ * the factory root's own dependency, the same path in the main worktree, then
+ * `PATH`, then `npx`. `hookScript` joins the lines with newlines and
+ * `hookCommand` with `; `, so the two forms never drift.
+ *
+ * The main-worktree step is lazy: `git worktree list` runs only when the
+ * factory root has no dependency of its own. The `sed` script takes the path
+ * from the first record and stops at that record's second line: a bare
+ * repository has `bare` there, so it prints nothing. `[ -n "$main" ]` stops a
+ * failed, empty or bare lookup from testing the file system root.
+ */
+function cliLookup(factoryRelDir: string, cliVersion: string, args: string): string[] {
+  const mainCli = `"$main/${factoryRelDir}/node_modules/.bin/metafab"`;
+  const mainWorktree = "sed -n '1{s/^worktree //;h;d;};/^bare$/q;g;p;q'";
+
+  return [
+    `if [ -x node_modules/.bin/metafab ]; then node_modules/.bin/metafab ${args}`,
+    `elif main=$(git -c core.quotePath=false worktree list --porcelain 2>/dev/null | ${mainWorktree}) && [ -n "$main" ] && [ -x ${mainCli} ]; then ${mainCli} ${args}`,
+    `elif command -v metafab >/dev/null 2>&1; then metafab ${args}`,
+    `else npx --yes @seasb/metafab@${cliVersion} ${args}`,
+  ];
+}
+
+/**
  * The full text Metafab writes for one hook. Pure; unit-tested on every platform.
  *
  * The script is valid POSIX `sh`, because Git for Windows runs hooks with its
@@ -28,9 +52,7 @@ export function hookScript(hook: HookName, factoryRelDir: string, cliVersion: st
   lines.push(
     `cd "${HOOK_CD_PREFIX}${factoryRelDir}" 2>/dev/null || exit 0`,
     "[ -d .factory ] || exit 0",
-    "if [ -x node_modules/.bin/metafab ]; then node_modules/.bin/metafab build",
-    "elif command -v metafab >/dev/null 2>&1; then metafab build",
-    `else npx --yes @seasb/metafab@${cliVersion} build`,
+    ...cliLookup(factoryRelDir, cliVersion, "build"),
     'fi || echo "metafab: build failed. Run metafab build." >&2',
     "exit 0",
     HOOK_END_MARKER,
@@ -46,5 +68,5 @@ export function hookScript(hook: HookName, factoryRelDir: string, cliVersion: st
  * package version.
  */
 export function hookCommand(factoryRelDir: string, cliVersion: string): string {
-  return `(cd "${HOOK_CD_PREFIX}${factoryRelDir}" && if [ -x node_modules/.bin/metafab ]; then node_modules/.bin/metafab build; elif command -v metafab >/dev/null 2>&1; then metafab build; else npx --yes @seasb/metafab@${cliVersion} build; fi) || true`;
+  return `(cd "${HOOK_CD_PREFIX}${factoryRelDir}" && ${cliLookup(factoryRelDir, cliVersion, "build").join("; ")}; fi) || true`;
 }
