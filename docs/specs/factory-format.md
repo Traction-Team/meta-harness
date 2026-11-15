@@ -35,6 +35,7 @@ A factory adds a pipeline to plain Agent Skills. `factory.yaml` lists the workfl
   skills/<name>/SKILL.md     reusable project knowledge
   templates/*                reusable document templates
   scripts/*                  scripts called by workflows
+  partials/*                 Markdown that skills and AGENTS.md import (a convention, not a reserved name; see Environments)
   metafab.yaml               Metafab configuration and upstream (see configuration.md)
 ```
 
@@ -234,7 +235,7 @@ A factory is valid when all the following statements are true:
 11. No `SKILL.md` sits directly in a reserved top-level directory: `workflows/`, `skills/`, `templates/`, `scripts/`, `scorers/`, `rules/` or `runtimes/` (see [Reserved names](#reserved-names)), such as `.factory/workflows/SKILL.md`. Those directories hold skills; they are not skills.
 12. Each `requires` path is a safe repository path outside Metafab's own files. It is relative and uses `/` separators. It has no empty, `.` or `..` segment, no trailing `/`, no `\`, `:`, `*`, `?`, `"`, `<`, `>`, `|` or control character, no segment that ends in a dot or a space, no Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`, `LPT1` to `LPT9`, with or without an extension), and no segment Git reads as `.git`. It is not one of these forbidden targets and not below one, nor a directory that holds one (`.claude`, `.agents`): `.factory`, `.claude/skills`, `.agents/skills`, and the root `AGENTS.md`, `CLAUDE.md`, `.gitignore` and `.gitattributes` (so `.gitignore/x`, `.claude/skills` itself and `.claude` itself are refused too, while `.claude/settings.json` is allowed). These comparisons ignore letter case. No two paths are equal when letter case is ignored, and no path is below another.
 13. Each `requires` template starts with `.factory/templates/`, follows the path rules of rule 12 for the part after that prefix, and names an existing regular file. Its real path, with every link resolved at the template itself and in any parent directory, is inside `.factory/`. Its name is not `SKILL.md` in any letter case, and no directory from `.factory/templates/` down to the template's own directory holds an entry named `SKILL.md` in any letter case, so the template is never part of an installed skill. Directories whose name starts with `.` are checked the same way, although `build` ignores them.
-14. `env` and `skills` appear only with `format: 2`, and a format 2 factory follows [Environments: Validation](environments.md#validation) rules 1 to 4 and 6: its variables, conditional skills, directives, conditions and switches are valid in every branch.
+14. `env` and `skills` appear only with `format: 2`, and a format 2 factory follows [Environments: Validation](environments.md#validation) rules 1 to 6: its variables, conditional skills, directives, conditions and switches are valid in every branch, and every import resolves inside `.factory/` without a loop.
 
 `metafab check` reports each error with a file path, line number, and suggested fix.
 

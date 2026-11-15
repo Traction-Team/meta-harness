@@ -113,7 +113,7 @@ describe("compileSkill", () => {
       const withoutRenderer = await compileSkill(demo, { factoryDir: repo.path(".factory") });
       const withRenderer = await compileSkill(demo, {
         factoryDir: repo.path(".factory"),
-        render: (file) => file.text,
+        render: async (file) => file.text,
       });
 
       for (const result of [withoutRenderer, withRenderer]) {

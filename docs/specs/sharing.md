@@ -271,6 +271,7 @@ Metafab never copies `metafab.yaml` from a source. A Git source that is a projec
 Fab validation rejects:
 
 - Unknown factory format versions (Metafab 2 knows 1 and 2)
+- In a format 2 fab, a directive, condition, switch or import that breaks [Environments: Validation](environments.md#validation)
 - Paths that escape `.factory/`
 - Paths that collide with `.factory/`, such as a case variant or a name ending in dots or spaces
 - Links that point outside `.factory/`
