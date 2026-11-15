@@ -460,6 +460,62 @@ describe("git sources", { timeout: 60_000 }, () => {
     }
   });
 
+  test("accepts a format 2 fab", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "metafab-git-format-2-"));
+    const work = path.join(root, "work");
+    const repo = path.join(root, "repo.git");
+    try {
+      await runGitIn(root, ["init", "-q", "-b", "main", work]);
+      await runGitIn(work, ["config", "user.name", "Metafab Test"]);
+      await runGitIn(work, ["config", "user.email", "metafab@example.com"]);
+      await mkdir(path.join(work, ".factory"), { recursive: true });
+      await writeFile(
+        path.join(work, ".factory", "factory.yaml"),
+        "format: 2\nname: sample\nenv:\n  harness:\n    values: [amp, claude]\n",
+      );
+      await runGitIn(work, ["add", "-A"]);
+      await runGitIn(work, ["commit", "-qm", "format 2 factory"]);
+      await runGitIn(root, ["clone", "-q", "--bare", work, repo]);
+
+      const resolved = await resolveGit(gitSpec(repo));
+      const fetched = await fetchFab(resolved, options());
+
+      expect(await pathExists(path.join(fetched.factoryDir, "factory.yaml"))).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses an unknown factory format with the upgrade fix", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "metafab-git-format-3-"));
+    const work = path.join(root, "work");
+    const repo = path.join(root, "repo.git");
+    try {
+      await runGitIn(root, ["init", "-q", "-b", "main", work]);
+      await runGitIn(work, ["config", "user.name", "Metafab Test"]);
+      await runGitIn(work, ["config", "user.email", "metafab@example.com"]);
+      await mkdir(path.join(work, ".factory"), { recursive: true });
+      await writeFile(path.join(work, ".factory", "factory.yaml"), "format: 3\nname: sample\n");
+      await runGitIn(work, ["add", "-A"]);
+      await runGitIn(work, ["commit", "-qm", "format 3 factory"]);
+      await runGitIn(root, ["clone", "-q", "--bare", work, repo]);
+
+      const resolved = await resolveGit(gitSpec(repo));
+      await expect(fetchFab(resolved, options())).rejects.toMatchObject({
+        exitCode: ExitCode.InvalidFab,
+        code: "invalid-fab",
+        problems: [
+          {
+            message: "Unknown factory format 3",
+            fix: "Use format 1 or 2, or upgrade @seasb/metafab",
+          },
+        ],
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("fetches fab content byte for byte whatever core.autocrlf says", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "metafab-git-eol-"));
     const work = path.join(root, "work");

@@ -2,7 +2,7 @@
 
 A factory is an open, repository-local description of how people and agents do work. It lives in `.factory/`.
 
-Metafab format version: **1**.
+Metafab format versions: **1** and **2**. Format 2 adds [environments](environments.md). Metafab 2 reads both. Metafab 1 reports `format: 2` as a rule 7 error, so its `check` and `build` exit 1 on a format 2 factory and its `import` refuses a format 2 fab with exit 4.
 
 ## Core rule
 
@@ -141,11 +141,12 @@ requires:
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `format` | Yes | Format version. Version 1 requires the number `1` |
+| `format` | Yes | Format version: `1` or `2` |
 | `name` | Yes | Factory name. It uses lowercase ASCII letters, digits, and hyphens |
 | `description` | No | One-line description |
 | `pipeline` | No | Ordered list of workflows |
 | `requires` | No | Repository files outside `.factory/` that the workflows need |
+| `env` | No | Format 2. Variables that describe a developer's environment. See [Environments](environments.md#declaring-variables) |
 
 These fields are required only when `factory.yaml` exists.
 
@@ -194,9 +195,9 @@ Metafab parses YAML as YAML 1.2. YAML documents and skill frontmatter must be ma
 
 Aliases must not expand a document past 100 values. An alias counts as the anchor's use count times the count of the anchor's largest value, where the use count is one for the anchored node plus one for each alias to it. Aliases inside those values count the same way, so counts multiply through a chain of anchors instead of adding: two aliases to an anchor whose largest value counts 2 count 4, not 3. The error names the alias that crosses the limit. An alias that refers to its own anchor is also an error.
 
-`factory.yaml` accepts only `format`, `name`, `description`, `pipeline`, and `requires`. Unknown fields are errors. Field values have these types:
+`factory.yaml` accepts only `format`, `name`, `description`, `pipeline`, and `requires`, and, with format 2, `env`. Unknown fields are errors. Field values have these types:
 
-- `format` is the integer `1`.
+- `format` is the integer `1` or `2`.
 - `name` is a non-empty string that follows the factory name rule above.
 - `description` is an optional non-empty, single-line string.
 - `pipeline` is an optional list.
@@ -213,7 +214,7 @@ Unknown skill frontmatter fields are preserved and are not errors.
 
 ## Validation
 
-A version 1 factory is valid when all the following statements are true:
+A factory is valid when all the following statements are true:
 
 1. Every `SKILL.md` contains `name` and `description`.
 2. Each skill name matches its directory name.
@@ -221,13 +222,14 @@ A version 1 factory is valid when all the following statements are true:
 4. Every skill name is unique across the complete factory.
 5. Skill names use only lowercase ASCII letters, digits, and hyphens. A name does not start or end with a hyphen, does not contain two consecutive hyphens, and is at most 64 characters.
 6. YAML, frontmatter, and field values follow the grammar above.
-7. `factory.yaml`, when present, contains `format` and `name`.
+7. `factory.yaml`, when present, contains `format` and `name`, and `format` is `1` or `2`.
 8. Each pipeline entry names an existing workflow, and no workflow appears twice.
 9. Pipeline entries use only the `stop` option. Reserved options are errors in version 1.
 10. No factory skill name starts with `metafab`.
 11. No `SKILL.md` sits directly in a reserved top-level directory: `workflows/`, `skills/`, `templates/`, `scripts/`, `scorers/`, `rules/` or `runtimes/` (see [Reserved names](#reserved-names)), such as `.factory/workflows/SKILL.md`. Those directories hold skills; they are not skills.
 12. Each `requires` path is a safe repository path outside Metafab's own files. It is relative and uses `/` separators. It has no empty, `.` or `..` segment, no trailing `/`, no `\`, `:`, `*`, `?`, `"`, `<`, `>`, `|` or control character, no segment that ends in a dot or a space, no Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`, `LPT1` to `LPT9`, with or without an extension), and no segment Git reads as `.git`. It is not one of these forbidden targets and not below one, nor a directory that holds one (`.claude`, `.agents`): `.factory`, `.claude/skills`, `.agents/skills`, and the root `AGENTS.md`, `CLAUDE.md`, `.gitignore` and `.gitattributes` (so `.gitignore/x`, `.claude/skills` itself and `.claude` itself are refused too, while `.claude/settings.json` is allowed). These comparisons ignore letter case. No two paths are equal when letter case is ignored, and no path is below another.
 13. Each `requires` template starts with `.factory/templates/`, follows the path rules of rule 12 for the part after that prefix, and names an existing regular file. Its real path, with every link resolved at the template itself and in any parent directory, is inside `.factory/`. Its name is not `SKILL.md` in any letter case, and no directory from `.factory/templates/` down to the template's own directory holds an entry named `SKILL.md` in any letter case, so the template is never part of an installed skill. Directories whose name starts with `.` are checked the same way, although `build` ignores them.
+14. `env` follows [Environments: Declaring variables](environments.md#declaring-variables), and appears only with `format: 2`.
 
 `metafab check` reports each error with a file path, line number, and suggested fix.
 

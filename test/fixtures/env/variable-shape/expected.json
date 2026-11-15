@@ -1,0 +1,23 @@
+[
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 5,
+    "message": "Variable \"harness\" must be a mapping with values",
+    "fix": "Write harness: { values: [...] }"
+  },
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 8,
+    "message": "Unknown key \"descrption\" in variable \"workspace\"",
+    "fix": "Did you mean \"description\"?"
+  },
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 9,
+    "message": "Variable \"agent\" is missing \"values\"",
+    "fix": "Add a values: [<name>, ...] list"
+  }
+]

@@ -45,6 +45,27 @@ describe("buildPackageJson", () => {
     expect("license" in packageJson).toBe(false);
   });
 
+  test("writes the factory's format version", async () => {
+    const target = await repo({
+      files: {
+        ".factory/factory.yaml": [
+          "format: 2",
+          "name: demo",
+          "description: A demo factory.",
+          "env:",
+          "  harness:",
+          "    values: [amp, claude]",
+          "",
+        ].join("\n"),
+      },
+    });
+    const { factory, config } = await loadRepo(target);
+
+    const packageJson = buildPackageJson(factory, config.publish ?? {}, {});
+
+    expect(packageJson.metafab).toEqual({ format: 2 });
+  });
+
   test("publish.description wins and license appears only when set", async () => {
     const target = await repo({
       publish: [

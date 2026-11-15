@@ -1,0 +1,15 @@
+format: 2
+name: dragonfly
+
+env:
+  harness:
+    description: ""
+    values: [opencode, claude]
+    default: amp
+  workspace:
+    values: [orca, worktree]
+    default: []
+  agent:
+    values: [amp]
+    description: "Two\nlines"
+    default: [amp, amp]

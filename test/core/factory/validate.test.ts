@@ -144,7 +144,7 @@ describe("YAML aliases", () => {
         file: FILE,
         line: 3,
         message: 'Unknown field "x-build" in factory.yaml',
-        fix: "Remove the field or use a known name: format, name, description, pipeline, requires",
+        fix: "Remove the field or use a known name: format, name, description, pipeline, requires, env",
       },
     ]);
     expect(result.problems.some((problem) => problem.message.includes("must be a workflow name"))).toBe(
@@ -169,14 +169,25 @@ describe("YAML aliases", () => {
 });
 
 describe("format", () => {
-  test.each(["1", "01", "+1", "0x1", "0o1"])("accepts the YAML 1.2 integer literal %s", (literal) => {
+  test.each([
+    ["1", 1],
+    ["01", 1],
+    ["+1", 1],
+    ["0x1", 1],
+    ["0o1", 1],
+    ["2", 2],
+    ["02", 2],
+    ["+2", 2],
+    ["0x2", 2],
+    ["0o2", 2],
+  ])("accepts the YAML 1.2 integer literal %s as format %i", (literal, format) => {
     const result = parse(`format: ${literal}\nname: mark4\n`);
 
     expect(result.problems).toEqual([]);
-    expect(result.yaml?.format).toBe(1);
+    expect(result.yaml?.format).toBe(format);
   });
 
-  test.each(["1.0", "1.00", "1e0"])("rejects the non-integer literal %s", (literal) => {
+  test.each(["1.0", "1.00", "1e0", "2.0", '"2"', "3"])("rejects the format %s", (literal) => {
     const result = parse(`format: ${literal}\nname: mark4\n`);
 
     expect(result.yaml).toBeUndefined();
@@ -185,8 +196,8 @@ describe("format", () => {
         level: "error",
         file: FILE,
         line: 1,
-        message: '"format" must be the integer 1',
-        fix: "Set format to 1",
+        message: '"format" must be 1 or 2',
+        fix: "Set format: 2 to use env, or format: 1",
       },
     ]);
   });
@@ -233,7 +244,7 @@ describe("fallback fixes", () => {
         file: FILE,
         line: 3,
         message: 'Unknown field "zzz" in factory.yaml',
-        fix: "Remove the field or use a known name: format, name, description, pipeline, requires",
+        fix: "Remove the field or use a known name: format, name, description, pipeline, requires, env",
       },
     ]);
   });

@@ -97,7 +97,7 @@ describe("loadFactory", () => {
 
   test("reports pipeline problems even when factory.yaml is invalid", async () => {
     const repo = await makeRepo({
-      ".factory/factory.yaml": "format: 2\nname: mark4\npipeline:\n  - nope\n",
+      ".factory/factory.yaml": "format: 3\nname: mark4\npipeline:\n  - nope\n",
     });
     try {
       const factory = await loadFactory(repo.root);
@@ -108,8 +108,8 @@ describe("loadFactory", () => {
           level: "error",
           file: ".factory/factory.yaml",
           line: 1,
-          message: '"format" must be the integer 1',
-          fix: "Set format to 1",
+          message: '"format" must be 1 or 2',
+          fix: "Set format: 2 to use env, or format: 1",
         },
         {
           level: "error",

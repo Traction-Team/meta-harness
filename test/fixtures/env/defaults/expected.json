@@ -1,0 +1,30 @@
+[
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 6,
+    "message": "\"description\" of \"harness\" must be a non-empty, single-line string",
+    "fix": "Write the description on one line"
+  },
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 8,
+    "message": "Default \"amp\" of \"harness\" is not one of its values",
+    "fix": "Use one of: opencode, claude"
+  },
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 11,
+    "message": "\"default\" of \"workspace\" must be a value name or a non-empty list of value names",
+    "fix": "Write default: <name> or default: [<name>, ...]"
+  },
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 14,
+    "message": "\"description\" of \"agent\" must be a non-empty, single-line string",
+    "fix": "Write the description on one line"
+  }
+]

@@ -1,0 +1,30 @@
+[
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 5,
+    "message": "Variable name \"2fa\" must start with a letter and use lowercase letters, digits and single hyphens",
+    "fix": "Use a name like \"v2fa\""
+  },
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 7,
+    "message": "Variable name \"Harness\" must start with a letter and use lowercase letters, digits and single hyphens",
+    "fix": "Use a name like \"harness\""
+  },
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 9,
+    "message": "Variable name \"Good-Name\" must start with a letter and use lowercase letters, digits and single hyphens",
+    "fix": "Use a name like \"good-name\""
+  },
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 11,
+    "message": "Variable name \"harness_name\" must start with a letter and use lowercase letters, digits and single hyphens",
+    "fix": "Use a name like \"harness-name\""
+  }
+]

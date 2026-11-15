@@ -59,5 +59,5 @@ export interface ValidateFabOptions {
 
 export interface ValidatedFab {
   factoryDir: string;
-  format: 1;
+  format: 1 | 2;
 }

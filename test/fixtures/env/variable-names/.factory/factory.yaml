@@ -1,0 +1,12 @@
+format: 2
+name: dragonfly
+
+env:
+  2fa:
+    values: [opencode]
+  Harness:
+    values: [amp]
+  Good-Name:
+    values: [amp]
+  harness_name:
+    values: [amp]

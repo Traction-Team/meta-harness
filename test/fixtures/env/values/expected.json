@@ -1,0 +1,51 @@
+[
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 8,
+    "message": "Value \"OpenCode\" of \"harness\" must use lowercase letters, digits and single hyphens",
+    "fix": "Use a name like \"opencode\""
+  },
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 9,
+    "message": "Value \"1\" of \"harness\" must use lowercase letters, digits and single hyphens",
+    "fix": "Write the value name as a string"
+  },
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 10,
+    "message": "Value \"opencode\" of \"harness\" repeats",
+    "fix": "Remove one of the values"
+  },
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 13,
+    "message": "Value \"orca\" of \"workspace\" must be null or { label: <text> }",
+    "fix": "Use null, or { label: <text> }"
+  },
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 15,
+    "message": "Unknown key \"name\" in value \"worktree\"",
+    "fix": "Remove the key or use label"
+  },
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 17,
+    "message": "\"label\" of value \"orb\" must be a non-empty, single-line string",
+    "fix": "Write the label on one line"
+  },
+  {
+    "level": "error",
+    "file": ".factory/factory.yaml",
+    "line": 19,
+    "message": "\"label\" of value \"claude\" must be a non-empty, single-line string",
+    "fix": "Write the label on one line"
+  }
+]

@@ -1,5 +1,6 @@
 import type { Document } from "yaml";
 import type { Problem } from "../../errors.js";
+import type { EnvVariable } from "../env/types.js";
 
 export interface Factory {
   root: string;
@@ -11,12 +12,14 @@ export interface Factory {
 }
 
 export interface FactoryYaml {
-  format: 1;
+  format: 1 | 2;
   name: string;
   description?: string;
   pipeline: PipelineEntry[];
   /** Repository files the workflows need outside `.factory/`; empty when none. */
   requires: Requirement[];
+  /** Format 2: the variables a developer selects values for; empty when none. */
+  env: EnvVariable[];
   doc: Document.Parsed;
 }
 

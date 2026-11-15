@@ -5,9 +5,11 @@ import { didYouMean } from "../../util/suggest.js";
 import { isSingleLine } from "../../util/text.js";
 import { aliasProblems, parseYaml } from "../../util/yaml.js";
 import type { YamlDocument } from "../../util/yaml.js";
+import { parseEnvField } from "../env/declarations.js";
+import type { EnvVariable } from "../env/types.js";
 import type { FactoryYaml, PipelineEntry, Requirement } from "./types.js";
 import {
-  isFormatOne,
+  knownFormat,
   KNOWN_FACTORY_FIELDS,
   rule6FactoryDescription,
   rule6FactoryName,
@@ -361,6 +363,8 @@ export function parseFactoryYaml(text: string, file: string): FactoryYamlParseRe
   const descriptionField = field("description", parsed);
   const pipelineField = field("pipeline", parsed);
   const requiresField = field("requires", parsed);
+  const envField = field("env", parsed);
+  const format = formatField === undefined ? undefined : knownFormat(formatField);
 
   problems.push(
     ...rule7FactoryYaml(file, {
@@ -430,14 +434,21 @@ export function parseFactoryYaml(text: string, file: string): FactoryYamlParseRe
     }
   }
 
+  const env: EnvVariable[] = [];
+  if (envField !== undefined) {
+    const node = envField.node;
+    env.push(...parseEnvField({ node, line: envField.line }, parsed, file, format, problems));
+  }
+
   const yaml: FactoryYaml | undefined =
-    formatField !== undefined && isFormatOne(formatField) && name !== undefined
+    format !== undefined && name !== undefined
       ? {
-          format: 1,
+          format,
           name,
           ...(description === undefined ? {} : { description }),
           pipeline,
           requires,
+          env,
           doc: parsed.document,
         }
       : undefined;

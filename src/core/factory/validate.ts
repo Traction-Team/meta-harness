@@ -6,7 +6,14 @@ import { requirementPathProblem } from "../requires/paths.js";
 import { descriptionLine, nameLine } from "./lines.js";
 import type { Factory, PipelineEntry, Requirement, Skill } from "./types.js";
 
-export const KNOWN_FACTORY_FIELDS = ["format", "name", "description", "pipeline", "requires"] as const;
+export const KNOWN_FACTORY_FIELDS = [
+  "format",
+  "name",
+  "description",
+  "pipeline",
+  "requires",
+  "env",
+] as const;
 export const RESERVED_PIPELINE_OPTIONS = ["stage", "find", "where"] as const;
 export const RESERVED_CONTAINERS = [
   "workflows",
@@ -37,6 +44,11 @@ export function slugify(value: string): string {
     .slice(0, MAX_SKILL_NAME_LENGTH)
     .replace(/-+$/g, "");
   return slug === "" ? "skill" : slug;
+}
+
+/** Rule 5's name rules, which env variable and value names follow too. */
+export function isNameFormatted(name: string): boolean {
+  return name.length <= MAX_SKILL_NAME_LENGTH && SKILL_NAME_PATTERN.test(name);
 }
 
 export function rule1RequiredFields(skill: Skill): Problem[] {
@@ -134,7 +146,7 @@ export function rule4UniqueNames(skills: Skill[]): Problem[] {
 export function rule5NameFormat(skill: Skill): Problem[] {
   const name = skill.frontmatter.name;
   if (typeof name !== "string" || name === "") return [];
-  if (name.length <= MAX_SKILL_NAME_LENGTH && SKILL_NAME_PATTERN.test(name)) return [];
+  if (isNameFormatted(name)) return [];
 
   return [
     {
@@ -192,10 +204,15 @@ export interface FactoryField {
   node?: unknown;
 }
 
-export function isFormatOne(field: FactoryField): boolean {
-  if (field.node === undefined) return field.value === 1;
-  if (!isScalar(field.node) || field.node.type !== "PLAIN" || field.node.value !== 1) return false;
-  return typeof field.node.source === "string" && YAML_INTEGER_PATTERN.test(field.node.source);
+/** The format a `format` field declares, when it is the plain YAML integer 1 or 2. */
+export function knownFormat(field: FactoryField): 1 | 2 | undefined {
+  const node = field.node;
+  const value = node === undefined ? field.value : isScalar(node) ? node.value : undefined;
+  if (value !== 1 && value !== 2) return undefined;
+  if (node === undefined) return value;
+  if (!isScalar(node) || node.type !== "PLAIN") return undefined;
+  if (typeof node.source !== "string" || !YAML_INTEGER_PATTERN.test(node.source)) return undefined;
+  return value;
 }
 
 export function rule7FactoryYaml(
@@ -212,13 +229,13 @@ export function rule7FactoryYaml(
       message: 'factory.yaml is missing "format"',
       fix: "Add format: 1",
     });
-  } else if (!isFormatOne(fields.format)) {
+  } else if (knownFormat(fields.format) === undefined) {
     problems.push({
       level: "error",
       file,
       line: fields.format.line,
-      message: '"format" must be the integer 1',
-      fix: "Set format to 1",
+      message: '"format" must be 1 or 2',
+      fix: "Set format: 2 to use env, or format: 1",
     });
   }
 
