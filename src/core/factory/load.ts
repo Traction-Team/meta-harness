@@ -3,6 +3,7 @@ import path from "node:path";
 import type { Problem } from "../../errors.js";
 import { normalizeProblemPath } from "../../util/fs.js";
 import { toLF } from "../../util/text.js";
+import { environmentProblems } from "../env/validate.js";
 import { discoverSkills } from "./discovery.js";
 import { parseFactoryYaml } from "./factory-yaml.js";
 import { requirementTemplateProblems } from "./requires.js";
@@ -80,6 +81,7 @@ export async function loadFactory(root: string): Promise<Factory> {
   }
 
   factory.problems.push(...validateFactory(factory));
+  factory.problems.push(...(await environmentProblems(factory)));
   return factory;
 }
 

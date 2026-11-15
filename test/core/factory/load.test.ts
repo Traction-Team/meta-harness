@@ -109,7 +109,7 @@ describe("loadFactory", () => {
           file: ".factory/factory.yaml",
           line: 1,
           message: '"format" must be 1 or 2',
-          fix: "Set format: 2 to use env, or format: 1",
+          fix: "Set format: 2 to use env and skills, or format: 1",
         },
         {
           level: "error",

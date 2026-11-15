@@ -13,6 +13,7 @@ export const KNOWN_FACTORY_FIELDS = [
   "pipeline",
   "requires",
   "env",
+  "skills",
 ] as const;
 export const RESERVED_PIPELINE_OPTIONS = ["stage", "find", "where"] as const;
 export const RESERVED_CONTAINERS = [
@@ -235,7 +236,7 @@ export function rule7FactoryYaml(
       file,
       line: fields.format.line,
       message: '"format" must be 1 or 2',
-      fix: "Set format: 2 to use env, or format: 1",
+      fix: "Set format: 2 to use env and skills, or format: 1",
     });
   }
 

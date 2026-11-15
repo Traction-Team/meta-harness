@@ -171,6 +171,8 @@ With `--json`, `map` also includes each skill's path and frontmatter.
 
 With `--env`, `check` compares the installed output with a build for that selection.
 
+In a format 2 factory, `check` validates every directive branch and every conditional skill whatever the selection; only the comparison with installed output depends on it.
+
 When items 1 to 4 include an error, items 7 and 8 are not checked, and `check` says so with one warning.
 
 Each problem includes a path, line number, and suggested fix. Errors return exit code 1. Warnings do not change the exit code.

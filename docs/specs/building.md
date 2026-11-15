@@ -127,7 +127,10 @@ For each factory skill, `build` performs these steps:
 
 1. Copy the skill directory, including all supporting files.
 2. Keep the frontmatter unchanged.
-3. Add a generated-file comment after the frontmatter.
+3. In a format 2 factory, render every `.md` file below its frontmatter for the [selection](environments.md#rendering).
+4. Add a generated-file comment after the frontmatter, and for a skill that [applies only in some environments](environments.md#conditional-skills), the line `**Applies only <label>.**` after it.
+
+A format 2 factory does not install a skill whose condition is false for the selection.
 
 Agent tools use a flat skill namespace. A nested skill such as `.factory/review/security/` installs as `security`. All skill names must therefore be unique across the factory.
 
@@ -168,7 +171,7 @@ The generated-file comment marks ownership. Metafab owns an installed skill dire
 
 If an unowned entry directly in a managed destination is in the way, `build` stops with exit code 5. It does not replace or remove the entry. This includes an installed copy whose generated-file comment was deleted by hand. Entries inside an owned directory are not preflighted; `build` reconciles them with the source.
 
-When a skill is removed from `.factory/`, the next `build` removes the owned directories that have no source. When a target is no longer selected, the next `build` removes the owned directories in its destination.
+When a skill is removed from `.factory/`, or its condition becomes false for the selection, the next `build` removes the owned directories that have no source. When a target is no longer selected, the next `build` removes the owned directories in its destination.
 
 `metafab check` fails when an installed copy differs from the output that `build` would write. This includes manual edits, stale copies, and unowned entries in a managed destination.
 
@@ -215,6 +218,7 @@ Metafab applies these rules to the block:
 5. It does not list workflows or skills. Their installed skill directories and `description` fields provide the discovery metadata expected by agent tools.
 6. It includes the pipeline only when `factory.yaml` defines one.
 7. It warns when the generated block exceeds 300 lines.
+8. In a format 2 factory, it renders `.factory/AGENTS.md` for every declared value of every variable, whatever the selection, and labels each block that does not apply to every value ([Environments](environments.md#root-agentsmd)).
 
 The pipeline is the only part of the factory that is not represented by individual skills. It is therefore the only factory content that the block adds beyond `.factory/AGENTS.md`. A factory that wants a table of its workflows writes one in `.factory/AGENTS.md`.
 
