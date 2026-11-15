@@ -59,6 +59,13 @@ interface ContractCase {
   windowsOnly?: boolean;
   /** The defect this case pins, by intake note. The case is registered with `test.fails`. */
   intake?: string;
+  /**
+   * A Windows-only defect this case pins: a problem's `file` is a native
+   * absolute path, so rule 4's `\` check cannot hold there. Rule 4 skips that
+   * check on Windows for this case, and a separate `test.fails` case below
+   * asserts it, with this note in its comment.
+   */
+  windowsPathIntake?: string;
   also?: (json: JsonObject, cwd: string) => void | Promise<void>;
   humanAlso?: (run: RunCliResult) => void;
 }
@@ -199,6 +206,8 @@ const CASES: readonly ContractCase[] = [
   {
     command: "import",
     name: "an invalid fab exits 4",
+    // The `file` rule on Windows: docs/intake/2026-11-15-import-problem-files-use-native-windows-paths.md
+    windowsPathIntake: "docs/intake/2026-11-15-import-problem-files-use-native-windows-paths.md",
     args: ["import", INVALID_FAB],
     prepare: () => newDirectory(),
     exitCode: ExitCode.InvalidFab,
@@ -401,6 +410,9 @@ async function expectContract(spec: ContractCase): Promise<void> {
       if (problem.level !== "error") continue;
       expect(typeof problem.fix, `${label}: ${problem.message} has a fix`).toBe("string");
       expect(problem.fix!.trim(), `${label}: ${problem.message} fix is not empty`).not.toBe("");
+      // On Windows a path source echoes its native absolute path, so its problems
+      // keep backslashes (`windowsPathIntake`); the separate case below pins it.
+      if (process.platform === "win32" && spec.windowsPathIntake !== undefined) continue;
       expect(problem.file, `${label}: ${problem.message} file uses /`).not.toContain("\\");
     }
   }
@@ -463,6 +475,27 @@ describe("contract sweep", () => {
   });
 
   for (const spec of CASES) register(spec);
+
+  // Windows only: `import` of a path source echoes the source label, which on
+  // Windows is the native absolute path, so its validation problems' `file`
+  // keeps backslashes and breaks rule 4. The fix belongs in src/core, which
+  // this plan does not own, so the case above skips that check on Windows and
+  // this case pins the defect:
+  // docs/intake/2026-11-15-import-problem-files-use-native-windows-paths.md
+  test.skipIf(process.platform !== "win32").fails(
+    "import: an invalid fab reports a / separated file on Windows",
+    async () => {
+      const cwd = await newDirectory();
+      const result = await runCli(["import", INVALID_FAB, "--json"], { cwd, tty: false });
+      expect(result.code).toBe(ExitCode.InvalidFab);
+      const json = JSON.parse(result.stdout) as JsonObject;
+      const errors = (json.problems ?? []).filter((problem) => problem.level === "error");
+      expect(errors.length).toBeGreaterThan(0);
+      for (const problem of errors) {
+        expect(problem.file, `${problem.message} file uses /`).not.toContain("\\");
+      }
+    },
+  );
 
   // Windows only: a backslash path is the same path as its `/` form, or a
   // usage error that names a fix. The contract's `problems` rule is not

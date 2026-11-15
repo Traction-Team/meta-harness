@@ -1,4 +1,4 @@
-import { chmod, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -7,6 +7,7 @@ import type { Problem } from "../../src/errors.js";
 import { copyFileWithMode, listFiles } from "../../src/util/fs.js";
 import { runGit } from "../../src/util/git.js";
 import type { GitResult } from "../../src/util/git.js";
+import { toLF } from "../../src/util/text.js";
 import { isolateGitConfig } from "../core/hooks/helpers.js";
 import { makeRepo, writeRepoFiles } from "../helpers/makeRepo.js";
 import type { TempRepo } from "../helpers/makeRepo.js";
@@ -99,15 +100,29 @@ async function teamGitOk(cwd: string, ...args: string[]): Promise<GitResult> {
   return result;
 }
 
+/** True when the bytes are UTF-8 text, so a CRLF checkout can be normalised to LF. */
+function isText(bytes: Buffer): boolean {
+  return !bytes.includes(0) && Buffer.from(bytes.toString("utf8"), "utf8").equals(bytes);
+}
+
 /** Copies the fixture tree, renaming its `gitignore.txt` to `.gitignore`. */
 async function copyFixture(source: string, destination: string): Promise<void> {
   for (const relativePath of await listFiles(source)) {
     const segments = relativePath.split("/");
     if (segments[segments.length - 1] === "gitignore.txt") segments[segments.length - 1] = ".gitignore";
-    await copyFileWithMode(
-      path.join(source, ...relativePath.split("/")),
-      path.join(destination, ...segments),
-    );
+    const from = path.join(source, ...relativePath.split("/"));
+    const to = path.join(destination, ...segments);
+    // `actions/checkout` can give this repository's fixtures CRLF on Windows, and
+    // a team repository must commit LF wherever it was checked out: then a clone's
+    // line endings come from that clone's own `core.autocrlf` alone, which is what
+    // the LF and CRLF cases below assert.
+    const bytes = await readFile(from);
+    if (isText(bytes)) {
+      await mkdir(path.dirname(to), { recursive: true });
+      await writeFile(to, toLF(bytes.toString("utf8")));
+    } else {
+      await copyFileWithMode(from, to);
+    }
   }
 }
 

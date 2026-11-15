@@ -172,7 +172,11 @@ describe("createRequirements", () => {
     expect(await readFile(created.path("opencode.json"))).toEqual(
       Buffer.from("{\r\n  \"a\": 1\r\n}\r\n"),
     );
-    expect((await stat(created.path("opencode.json"))).mode & 0o777).toBe(0o644);
+    // Windows has no POSIX modes: `chmod` is a no-op there and the filesystem
+    // reports 0o666, so only POSIX asserts the 0644 from Sharing: Importing.
+    if (!cannotCheckMode) {
+      expect((await stat(created.path("opencode.json"))).mode & 0o777).toBe(0o644);
+    }
   });
 
   test("creates missing parent directories", async () => {

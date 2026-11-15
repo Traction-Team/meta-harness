@@ -137,8 +137,13 @@ jobs:
             exit 1
           }
 
-          gbin="${npm_config_prefix:-$(npm prefix -g)}"
-          gbin="${gbin//\\//}"
+          # A prefix of this job's own, not npm's global one: on Linux and macOS
+          # npm's global prefix is Node's install directory, whose bin/ holds the
+          # real npx, so putting it first on PATH would hide the stub that G3
+          # must reach. With a private prefix the only shim on PATH is metafab's.
+          gbin="$tmp/gprefix"
+          rm -rf "$gbin"
+          mkdir -p "$gbin"
           export PATH="$gbin/bin:$gbin:$PATH"
 
           # G1: a repository with no node_modules, built through a global install.
@@ -170,6 +175,9 @@ jobs:
           # G3: without the global shim, the hook reaches the npx stub. This is
           # G2's control.
           npm uninstall --global --prefix "$gbin" @seasb/metafab >/dev/null
+          if command -v metafab >/dev/null 2>&1; then
+            fail "G3: the global metafab shim is still on PATH"
+          fi
           LOG="$glob/hook.log"
           git worktree add ../glob-wt2 -b g3 2> "$LOG"
           [ ! -d ../glob-wt2/.claude/skills ] || fail "G3: the new worktree was built without a global shim"
