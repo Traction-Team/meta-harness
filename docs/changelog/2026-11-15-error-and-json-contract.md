@@ -11,4 +11,4 @@ When a command fails (exit 1, 3, 4 or 5), standard error now shows at least one 
 
 ## Still to come
 
-The type change means a new error with no fix, or a result with no `problems`, no longer compiles. The Windows contract case runs on `windows-latest` once this pull request is marked ready.
+The type change means a new error with no fix, or a result with no `problems`, no longer compiles, so the contract holds for new commands too.

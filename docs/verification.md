@@ -518,13 +518,15 @@ The three `test.fails` rows are defects pinned until their intake note is fixed:
 
 ### Recheck after Plan 1.026
 
-Checked on 2026-11-15 against the CLI built from `fix/1.026-error-and-json-contract`. Each row is one of the three `filed` rows of the table above, or a case this plan added to `test/cli/contract.test.ts`. Each command ran from a temporary directory with `--json` and stdin at `/dev/null`, and again without `--json` for the error cases, where stderr showed a `  fix: ` line.
+Checked on 2026-11-15 against the CLI built from `fix/1.026-error-and-json-contract`. Each row is one of the three `filed` rows of the table above, a Windows case the table above left `not run`, or a case this plan added to `test/cli/contract.test.ts`. The Windows rows come from the `windows-latest` CI job on the ready pull request. Each command ran from a temporary directory with `--json` and stdin at `/dev/null`, and again without `--json` for the error cases, where stderr showed a `  fix: ` line.
 
 | Command | Case | One JSON object | `exitCode` matches | Reads stdin without a terminal | Verdict | Finding |
 | --- | --- | --- | --- | --- | --- | --- |
 | `map` | the `mark4-like` factory maps (exit 0, `problems: []`) | yes | yes | no | ok | [1.026](plans/1.026-error-and-json-contract.md) |
 | `import` | a path that does not exist exits 3 with a fix | yes | yes | no | ok | [1.026](plans/1.026-error-and-json-contract.md) |
-| `import` (Windows) | an invalid fab exits 4 reports a `/`-separated `file` | not run | not run | not run | not run | `windows-latest` runs only once the pull request is ready, so the case has not run; the POSIX runs assert rule 4 in full |
+| `import` (Windows) | an invalid fab exits 4 reports a `/`-separated `file` | yes | yes | no | ok | `verify (windows-latest, 22)` passed in run https://github.com/Traction-Team/meta-harness/actions/runs/43697048790, with no Windows case skipped |
+| `import` (Windows) | a relative path source written with backslashes | yes | yes | no | ok | same run |
+| `create` (Windows) | a backslash path with `--description` reports `problems` | yes | yes | no | ok | same run |
 | `create` | a path with `--description` creates a workflow (exit 0, `problems: []`) | yes | yes | no | ok | — |
 | `pipeline add` | a workflow outside the pipeline is added (exit 0, `problems: []`) | yes | yes | no | ok | — |
 | `pipeline remove` | a pipeline workflow is removed (exit 0, `problems: []`) | yes | yes | no | ok | — |
