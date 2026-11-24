@@ -13,4 +13,4 @@ The first `build`, `init`, `import` or `update` with this version rewrites the t
 
 ## Still to come
 
-This repository's own hooks run the published devDependency, so it gets the new lookup once that moves to a 2.0 prerelease (Plans 2.016 and 2.015). The CI `hooks` job proves the new step on Linux and Windows when this pull request is marked ready.
+This repository's own hooks run the published devDependency, so it gets the new lookup once that moves to a 2.0 prerelease that contains this change. `2.0.0-next.1`, from Plan 2.016, was published before this change and does not contain it.
