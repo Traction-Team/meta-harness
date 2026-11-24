@@ -1,6 +1,6 @@
 ---
 title: "feat: build --out previews another environment and the metafab skill teaches environments"
-date: 2026-11-15
+date: 2026-11-24
 pr: 40
 plan: docs/plans/2.014-preview-and-guidance.md
 ---
