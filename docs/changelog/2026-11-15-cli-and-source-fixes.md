@@ -17,4 +17,4 @@ An `ssh://` or `file://` `publish.git` with `#` gets an `import` line in the REA
 
 ## Still to come
 
-Two more Git test fixtures may race Git's auto maintenance when they clean up, four private `isAbsentError` copies remain, and Plan 2.003 needs `src/commands/not-implemented.ts` back. All three are filed in `docs/intake/`.
+Two more Git test fixtures may race Git's auto maintenance when they clean up, four private `isAbsentError` copies remain, and Plan 2.003 needs `src/commands/not-implemented.ts` back. All three are filed in `docs/intake/`. So is `import` from a `git+file://localhost/C:/…` URL on Windows, which publish now handles and import does not yet.
