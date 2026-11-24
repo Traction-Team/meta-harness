@@ -1,6 +1,6 @@
 ---
 title: "chore: publish metafab 2.0.0-next.1 under the next dist-tag"
-date: 2026-11-15
+date: 2026-11-24
 pr: 42
 plan: docs/plans/2.016-prerelease-next.md
 ---

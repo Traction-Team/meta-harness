@@ -2,8 +2,8 @@
 title: The git-target test for a fab file whose name contains a newline failed once with ENOTEMPTY
 kind: tooling
 status: new
-filed: 2026-11-15
-reported-by: build-plan worker for 2.016, task 2 of PR #42, 15 Nov
+filed: 2026-11-24
+reported-by: build-plan worker for 2.016, task 2 of PR #42, 24 Nov
 source: https://github.com/Traction-Team/meta-harness/pull/42
 links: []
 ---
