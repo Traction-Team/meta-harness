@@ -1,4 +1,4 @@
-format: 1
+format: 2
 name: basic
 description: Plan, build and review work one pull request at a time, with a person at each decision.
 
@@ -10,6 +10,20 @@ pipeline:
   - build-plan
   - finish-plan: { stop: The developer says done and a person merges the pull request }
 
+env:
+  harness:
+    description: The agent tool that runs the workflows
+    values:
+      opencode: { label: In OpenCode (OPENCODE=1 is set) }
+      claude:   { label: In Claude Code (CLAUDECODE=1 is set) }
+      amp:      { label: In Amp (AMP_THREAD_ID is set) }
+  workspace:
+    description: Where start-plan gives each plan's worker its own checkout
+    values:
+      orca:     { label: With Orca worktrees }
+      orb:      { label: In Amp orbs (workers start with create_thread) }
+      worktree: { label: With plain git worktrees }
+
 requires:
   - path: docs/factory.md
     description: This repository's settings (trunk, verify command, Orca repo, docs paths) that the workflows and scripts read; set every <set me> value
@@ -17,8 +31,17 @@ requires:
   - path: opencode.json
     description: Defines the agent-coding, agent-review and agent-planning sub-agents the workflows start; when it exists, add any of the three it lacks. Change the models if you like, but keep agent-review on a different model family from agent-coding
     template: .factory/templates/setup/opencode.json
+  - path: .claude/agents/agent-coding.md
+    description: Defines the agent-coding sub-agent for Claude Code; when it exists, check it has the tools the workflows need
+    template: .factory/templates/setup/claude-agents/agent-coding.md
+  - path: .claude/agents/agent-review.md
+    description: Defines the agent-review sub-agent for Claude Code; when it exists, check it has the tools the workflows need
+    template: .factory/templates/setup/claude-agents/agent-review.md
+  - path: .claude/agents/agent-planning.md
+    description: Defines the agent-planning sub-agent for Claude Code; when it exists, check it has the tools the workflows need
+    template: .factory/templates/setup/claude-agents/agent-planning.md
   - path: orca.yaml
-    description: Runs metafab build in each new Orca worktree; when it exists, add `npx --yes @seasb/metafab build` to scripts.setup
+    description: Runs metafab build in each new Orca worktree; when it exists, add `npx --yes @seasb/metafab@next build` to scripts.setup
     template: .factory/templates/setup/orca.yaml
   - path: docs/roadmap.md
     description: The roadmap prioritise-roadmap writes and start-plan reads; set `roadmap` in docs/factory.md if yours lives elsewhere

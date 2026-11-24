@@ -1,13 +1,15 @@
 ---
 name: finish-plan
-description: Completes the developer-led stages of a plan after build-plan hands over a merge-safe draft pull request with a TL;DR. It applies feedback through sub-agents in the plan's worktree or Amp thread, keeps the landing commit (plan merged, roadmap ticked, changelog, feature table) and the TL;DR current with every change, brings the branch up to date with the trunk, runs final checks, marks the pull request ready when the developer approves it and watches CI, runs the remote review-bot loop when review-bots is set, restacks a stacked branch whose parent merged, and answers review comments. Use it for testing feedback, "looks good" or "done", pull request review comments, or "land it".
+description: Completes the developer-led stages of a plan after build-plan hands over a merge-safe draft pull request with a TL;DR. It applies feedback through sub-agents in the plan's workspace, keeps the landing commit (plan merged, roadmap ticked, changelog, feature table) and the TL;DR current with every change, brings the branch up to date with the trunk, runs final checks, marks the pull request ready when the developer approves it and watches CI, runs the remote review-bot loop when review-bots is set, restacks a stacked branch whose parent merged, and answers review comments. Use it for testing feedback, "looks good" or "done", pull request review comments, or "land it".
 ---
 
 # finish-plan
 
 The developer decides when the plan's pull request is complete. Manage the process around that decision. Give each fix to a sub-agent with a precise brief. Do not make fixes directly in this session.
 
-Run in the plan's workspace or Amp thread, where `build-plan` left it, usually in the same session. **Sub-agents.** In Amp (`AMP_THREAD_ID` is set, or you have the `create_thread` tool), each fix and review is a new Amp thread, as `build-plan`'s *Sub-agents in Amp* says, on `amp-model-coding` for a fix and `amp-model-review` for a review (empty keeps the thread's own mode), with `git push` before each thread. Elsewhere, fixes run as `subagent_type: "<sub-agent-coding>"` and reviews as `subagent_type: "<sub-agent-review>"`, which exist even when the Agent tool does not list them. `general-purpose` is only the fallback when one of those calls fails. The values come from `docs/factory.md`.
+Run in the plan's workspace, where `build-plan` left it, usually in the same session.
+
+<!-- factory:import ../../partials/sub-agents.md -->
 
 **Never** merge the pull request. **Never** resolve a review thread a person started. Mark the pull request ready only after the developer says the work is complete.
 
@@ -49,7 +51,7 @@ Do each check for every plan the `**Plan:**` line lists. If the branch has no `d
 - Every *Found while building* note added since is filed with `file-work`.
 - The **TL;DR** in the body describes the branch as it is now.
 
-Run `node .factory/scripts/check.mjs`. Commit any change as `docs: update landing for <plan-slug>` and push. Check `git status --porcelain` prints nothing, so the worktree can be removed. Do not remove the worktree: after the merge, `start-plan` removes it, or offers to archive the Amp thread.
+Run `node .factory/scripts/check.mjs`. Commit any change as `docs: update landing for <plan-slug>` and push. Check `git status --porcelain` prints nothing, so the workspace can be removed. Do not remove the workspace: after the merge, `start-plan` cleans it up.
 
 ## D. Done: mark it ready and watch CI
 

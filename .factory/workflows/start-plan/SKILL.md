@@ -1,6 +1,6 @@
 ---
 name: start-plan
-description: The orchestrator. It reads the ready plans from the roadmap and cuts them into waves whose owns paths do not collide when stacking is off, or into stacked chains when stacking is on, gets the person's approval, proves the trunk green once with setup then verify, and starts one worker per plan, which runs build-plan on the plan's branch, as a new Amp thread in its own orb when the session is in Amp, otherwise an agent in its own Orca worktree or a plain git worktree. It does not watch the pull requests; on its next run it removes the worktree of each merged plan, or offers to archive the Amp thread, and cuts the next wave. It also answers what is ready, blocked and in flight. It never builds, marks ready, or merges. Use it on the trunk for "start the next plan", "pull the next chunk", "keep going", "run the queue", "start <plan>", or "what's ready".
+description: The orchestrator. It reads the ready plans from the roadmap and cuts them into waves whose owns paths do not collide when stacking is off, or into stacked chains when stacking is on, gets the person's approval, proves the trunk green once with setup then verify, and starts one worker per plan, which runs build-plan on the plan's branch in a workspace of its own. It does not watch the pull requests; on its next run it removes or archives the workspace of each merged plan, and cuts the next wave. It also answers what is ready, blocked and in flight. It never builds, marks ready, or merges. Use it on the trunk for "start the next plan", "pull the next chunk", "keep going", "run the queue", "start <plan>", or "what's ready".
 ---
 
 # start-plan
@@ -75,78 +75,11 @@ Run the gate once, here, for the whole wave or chain:
 
 `setup` is the command a new workspace runs before its first check. When it is empty, run the repository's install command from its README, and say which command you ran. A red gate stops the run: fix `trunk` on a branch of its own, then start again. Every worker branches from this same `origin/<trunk>`, so `build-plan` does not take a baseline of its own.
 
-Then start one worker per approved plan. How depends on where this session runs:
+Then start one worker per approved plan.
 
-- **Amp** (`AMP_THREAD_ID` is set, or you have the `create_thread` tool): follow *In Amp* below.
-- **Orca and OpenCode** (otherwise): follow *With Orca* below.
-
-Either way, the brief is the first thing the worker reads, so write it for a session with no other context. Name the plan and nothing about how to build it. The worker reads the plan itself.
+<!-- factory:import ../../partials/workers.md -->
 
 **Do not follow a worker.** Do not open its workspace or thread and do not read its terminal or transcript to see how it is going. Its fresh context is the reason it builds the plan well.
-
-### In Amp
-
-Each worker is a new Amp thread in its own orb. A fresh orb checks out the repository's default branch and runs the repository's orb setup script when it has one, so the worker starts on `trunk` with the skills installed and nothing to set up, and it creates the plan's branch itself.
-
-Call `create_thread` once per approved plan, all in one turn:
-
-- `executor`: `orb`. Leave `project` unset (it defaults to this one) and `agent_mode` as this thread's mode.
-- `intent`: `parallel-work`. `title`: `<label> <plan-file-stem>`, such as `A1 1.020-cli-fixes`.
-- `prompt`: the brief below.
-
-```text
-You are the worker for <plans>/<plan>.md (<label>), in your own Amp orb.
-Create the plan's branch first: git fetch origin && git switch -c <type>/<plan-file-stem> <base>
-Then load the build-plan workflow and build <plans>/<plan>.md on that branch.
-<Stacked on <branch> (#<pr>).> The trunk was proved green at <sha>; do not re-run the baseline.
-Start every sub-agent as its own thread, as build-plan's *Sub-agents in Amp* says; create no other threads.
-End with build-plan's TL;DR as your final message.
-```
-
-`<base>` is `origin/<trunk>`, or `origin/<branch below>` for a stacked plan. The plan's stem is its file name without `.md`; take the type from the plan's title.
-
-`create_thread` nests each worker under this thread. Once the workers are started, move each one to the top level with `update_thread` (`thread`: the worker's thread, `parent_thread: null`; it is in the `amp` module, through `code_exec`), one call per worker, so every plan sits in the thread list on its own. Leave the workers' own sub-agent threads nested under their worker.
-
-Do not ask the workers to reply to this thread and do not wait for them: each worker's TL;DR is in its own thread, where the developer reviews it. Keep each thread URL; step 6 reports them.
-
-### With Orca
-
-```bash
-orca worktree create --name <type>/<plan-file-stem> \
-  --repo <orca-repo> \
-  --base-branch <base> --no-parent --setup run \
-  --agent <agent> --prompt "<brief>" --json
-```
-
-- **`--repo` is `orca-repo`.** It is required, because Orca otherwise infers the repository from the caller's worktree, and a plain checkout infers nothing or the wrong one. When `orca-repo` is empty, use the fallback below.
-- **`--base-branch`** is `origin/<trunk>`, or `origin/<branch below>` for a stacked plan. Always use the remote ref: Orca records it as the worktree's base, and the Orca board can only rebase against a remote ref.
-- **`--name`** sets the display name, and Orca derives the branch from it: it flattens the slash and adds the git user, so `--name feat/1.005-check` gives the branch `<git user>/feat-1.005-check`. There is no flag for the branch. The worker renames it to `<type>/<plan-file-stem>` in `build-plan` step 0, before the claim.
-- **`--agent`** is the `agent` setting. When it is empty, ask the `agent-harnesses` skill to detect one. Do not override the agent.
-- **`--setup run`** runs the repository's setup hook in the new checkout. `--no-parent` is deliberate: each plan is independent work.
-
-The brief:
-
-```text
-You are the worker for <plans>/<plan>.md (<label>), in its own Orca worktree.
-Load the build-plan workflow and build <plans>/<plan>.md. You are the worker:
-step 0 renames this branch to <type>/<plan-file-stem> before the claim.
-<Stacked on <branch> (#<pr>).> The trunk was proved green at <sha>; do not re-run the baseline.
-Dispatch every task and fix sub-agent with subagent_type "<sub-agent-coding>" and
-every review sub-agent with subagent_type "<sub-agent-review>", even though the
-Agent tool's list does not show them. The calls work.
-```
-
-From the JSON, keep `result.path` and `result.agentTerminalHandle` (an older runtime returns only `result.startupTerminal.handle`). Step 6 reports both.
-
-#### Without Orca
-
-Use this when `orca-repo` is empty or `orca` is not installed:
-
-```bash
-git worktree add ../<repository directory name>-<branch with / as -> -b <branch> <base>
-```
-
-The path is derived, with no setting: the repository directory's name, a dash, then the branch with every `/` turned into `-`. Run the `setup` command in the new worktree, then show the person the `cd` and the agent command that starts the session, with the brief above. Say in the report that no setup hook ran and that the Orca board cannot see the worktree.
 
 ### Then
 
@@ -154,25 +87,14 @@ When the workers are started, go to step 6 and report. Do not watch the pull req
 
 ## 4. Clean up merged plans
 
-On a later run ("keep going", "start the next plan"), first find the workers from earlier waves whose pull requests have left the open set. Origin is the record:
+On a later run ("keep going", "start the next plan"):
 
-```bash
-orca worktree list   # Orca only; in Amp, take the branches from the plans you sent
-gh pr list --head <branch> --state all --json number,state --jq '.[0] // empty | "\(.state) #\(.number)"'
-```
+<!-- factory:import ../../partials/worker-cleanup.md -->
 
 `build-plan` already wrote the landing commit on the branch, so the merge leaves nothing to write on `trunk`. For each merged pull request:
 
 1. `git switch <trunk> && git pull --ff-only`.
 2. Check that the plan reads `status: merged` and its roadmap box is ticked on `trunk`. If either is missing, tell the person and offer to write the landing as a docs-only commit on `trunk` (`docs: land <plan-slug>`, as `build-plan` step 8 describes); write it only when they agree.
-3. In Amp there is nothing to remove: the worker's orb belongs to its thread, so offer to `archive` the worker thread. With Orca, remove the worktree, and offer to `archive` the thread too when the same plan was built in Amp:
-
-   ```bash
-   orca worktree list
-   orca worktree rm --worktree name:<type>/<plan-file-stem>
-   ```
-
-   `--force` is for a tree the worker left dirty. Say so when you use it.
 
 A pull request closed without merging keeps its branch on origin. Report it and stop there. Whether the plan goes back on the queue is the person's call.
 
@@ -186,8 +108,16 @@ Stop once the workers are started, when nothing is ready, when every remaining p
 
 1. The waves or chains you sent. Per plan: its label, the branch, the title, and the base it branched from.
 2. Each ready plan you left out, and why.
-3. For every worker you started: its thread URL (Amp), or its worktree path and terminal handle (Orca).
-4. Each merge you cleaned up: the plan, the pull request, and the worktree you removed or the thread you archived.
+3. For every worker you started, where it runs:
+   <!-- factory:switch env.workspace -->
+   <!-- factory:case orca -->
+   its worktree path and terminal handle.
+   <!-- factory:case orb -->
+   its thread URL.
+   <!-- factory:case worktree -->
+   its worktree path and the agent command you gave the person.
+   <!-- factory:endswitch -->
+4. Each merge you cleaned up: the plan, the pull request, and the workspace you removed or archived.
 5. Each pull request closed without merging, and the branch it left on origin.
 6. What stopped the run.
-7. What happens next: each worker opens a merge-safe draft pull request and ends with a TL;DR in its thread or session; the developer reviews it there, gives feedback or says "looks good", a person merges, and then `start-plan` runs again.
+7. What happens next: each worker opens a merge-safe draft pull request and ends with a TL;DR in its own workspace; the developer reviews it there, gives feedback or says "looks good", a person merges, and then `start-plan` runs again.
