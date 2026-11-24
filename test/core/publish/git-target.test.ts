@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ExitCode, MetafabError } from "../../../src/errors.js";
 import { PUBLISH_RETRY_FIX, prepareFab, publishFab, verifyGitIndex } from "../../../src/core/publish/index.js";
 import { addFailure } from "../../../src/core/publish/git-target.js";
+import { gitTransportUrl, sourceWithoutCredentials } from "../../../src/core/sources/parse.js";
 import type { PublishConfig } from "../../../src/core/config/types.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
 import { loadRepo, makePublishRepo } from "./fixtures.js";
@@ -158,16 +159,31 @@ describe("the Git target", { timeout: 30_000 }, () => {
     await runGitIn(bare.root, ["init", "--quiet", "--bare", "--initial-branch=main", repo]);
     await disableAutoMaintenance(repo);
     const posix = repo.split(path.sep).join("/");
+    // A drive path has no leading slash (`C:/…`), and the URL needs one between
+    // the authority and the path; a POSIX path already starts with one.
+    const afterHost = posix.startsWith("/") ? posix : `/${posix}`;
 
-    const result = await publish(`file://user:token@localhost${posix}`, VERSION);
+    const result = await publish(`file://user:token@localhost${afterHost}`, VERSION);
 
     expect(result.targets).toEqual([
       {
         target: "git",
         status: "published",
-        detail: `Published ${VERSION} to main in file://localhost${posix}.`,
+        detail: `Published ${VERSION} to main in file://localhost${afterHost}.`,
       },
     ]);
+  });
+
+  it("hands Git a local path for a localhost file URL with a Windows drive", () => {
+    // Windows reads `file://localhost/C:/…` as a UNC path to a share called
+    // `C:`, and a userinfo as part of the server name, so the URL Git is given
+    // drops the authority and keeps the three-slash form Git reads everywhere.
+    const source = "file://user:token@localhost/C:/Users/x/user@corp/fab.git";
+
+    expect(gitTransportUrl(source)).toBe("file:///C:/Users/x/user@corp/fab.git");
+    expect(sourceWithoutCredentials(source)).toBe(
+      "file://localhost/C:/Users/x/user@corp/fab.git",
+    );
   });
 
   it("skips a version whose tag already carries identical content", async () => {

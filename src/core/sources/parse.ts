@@ -138,6 +138,25 @@ function drivePathFileUrl(after: string): string | undefined {
 }
 
 /**
+ * The three-slash `file://` URL Git reads for a `localhost` authority, with or
+ * without userinfo (`file://localhost/srv/fab.git` and the credential form
+ * `file://user:pw@localhost/srv/fab.git`). `localhost` names this machine, so
+ * the path after it is the local path and the userinfo has nothing to
+ * authenticate. Windows reads `file://host/…` as a UNC path, where `localhost`
+ * would be the server and a userinfo part of its name, so the authority cannot
+ * stay.
+ */
+function localhostFileUrl(after: string): string | undefined {
+  const withoutUserinfo = stripFileUserinfo(`file://${after}`).slice("file://".length);
+  if (!/^localhost\//i.test(withoutUserinfo)) return undefined;
+  const path = withoutUserinfo.slice("localhost".length);
+  const drive = DRIVE_AFTER_AUTHORITY.exec(path);
+  return drive === null
+    ? `file://${path}`
+    : `file:///${(drive[1] as string).replace(/\\/g, "/")}`;
+}
+
+/**
  * What follows `//` in a `file:` or `git+file:` URL: a path, no path, or a
  * host. `localhost` is Git's name for this machine, so `localhost` with nothing
  * after it names no path at all, just as `""` and a run of slashes do. The
@@ -360,15 +379,20 @@ export function parseSource(input: string, options: ParseSourceOptions): SourceS
  * The URL to hand to Git: `git+https://`, `git+ssh://` and `git+file://` lose
  * `git+`. The scheme is lower-cased because Git compares it case-sensitively,
  * and the rest of the text is kept byte for byte. An scp form has no scheme
- * with `//`, so it is returned unchanged. A `file://` Windows drive path is
- * turned into the three-slash form Git reads, as `parseGitFileUrl` does.
+ * with `//`, so it is returned unchanged. A `file://` URL that names this
+ * machine is turned into the three-slash form Git reads, as `parseGitFileUrl`
+ * does: a Windows drive path written after `//` (`file://C:/…`), and a
+ * `localhost` authority, which loses its userinfo
+ * (`file://user:pw@localhost/…`). Windows reads `file://host/…` as a UNC path,
+ * so there `localhost` would name a server and the userinfo its name.
  */
 export function gitTransportUrl(url: string): string {
   const match = SCHEME.exec(url);
   if (match === null) return url;
   const scheme = (match[1] as string).replace(/^git\+/i, "").toLowerCase();
   const after = url.slice(match[0].length);
-  const fileUrl = scheme === "file" ? drivePathFileUrl(after) : undefined;
+  const fileUrl =
+    scheme === "file" ? (drivePathFileUrl(after) ?? localhostFileUrl(after)) : undefined;
   return fileUrl ?? `${scheme}://${after}`;
 }
 
