@@ -32,14 +32,27 @@ export interface BareFabRepo {
   cleanup(): Promise<void>;
 }
 
+/**
+ * Turns off the automatic maintenance Git starts in a repository it pushes to.
+ * Git 2.55 runs `git maintenance run --auto --detach` after every push, so a
+ * detached process can still be walking `objects/` when a test removes the
+ * repository, and `rm` then fails with ENOTEMPTY.
+ */
+export async function disableAutoMaintenance(repo: string): Promise<void> {
+  await runGitIn(repo, ["config", "maintenance.auto", "false"]);
+  await runGitIn(repo, ["config", "gc.auto", "0"]);
+}
+
 export async function makeBareFabRepo(branch = "main"): Promise<BareFabRepo> {
   const root = await mkdtemp(path.join(tmpdir(), "metafab-fab-repo-"));
   const repo = path.join(root, "fab.git");
   await runGitIn(root, ["init", "--quiet", "--bare", `--initial-branch=${branch}`, repo]);
+  await disableAutoMaintenance(repo);
   return {
     root,
     repo,
-    cleanup: () => rm(root, { recursive: true, force: true }),
+    // The retries are a second guard, for a file a detached process still holds.
+    cleanup: () => rm(root, { recursive: true, force: true, maxRetries: 5 }),
   };
 }
 

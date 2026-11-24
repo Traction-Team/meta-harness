@@ -193,6 +193,32 @@ describe("metafab publish", () => {
     expect(JSON.stringify(json)).not.toContain("x-access-token");
   });
 
+  it("labels the Git target without reading a path as userinfo", async () => {
+    // A Windows drive path is not a URL authority, so its `@` is part of the
+    // path: the label prints the whole value instead of `file://C@corp\fab.git`.
+    // An HTTPS credential is userinfo, so it is still dropped. The dry run
+    // never runs Git, so this runs on every platform.
+    const cases: Array<[git: string, label: string]> = [
+      ["file://C:\\Users\\bob@corp\\fab.git", "git (file://C:\\Users\\bob@corp\\fab.git)"],
+      ["https://user:token@example.com/fab.git", "git (https://example.com/fab.git)"],
+    ];
+
+    for (const [git, label] of cases) {
+      const repo = track(
+        await makePublishRepo({
+          publish: ["publish:", `  git: ${JSON.stringify(git)}`, "  version: 1.2.0", ""].join("\n"),
+        }),
+      );
+      await rm(repo.path(".factory", "README.md"));
+      await build(repo);
+
+      const result = await runCli(["publish", "--dry-run"], { cwd: repo.root });
+
+      expect(result.code, git).toBe(0);
+      expect(result.stdout, git).toContain(label);
+    }
+  });
+
   it("emits the publish report as JSON", async () => {
     const bare = track(await makeBareFabRepo());
     const repo = track(

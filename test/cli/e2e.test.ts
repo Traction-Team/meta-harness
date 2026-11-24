@@ -1,10 +1,11 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdtemp, readFile, rm, stat, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { beforeAll, describe, expect, test } from "vitest";
-import { buildCli, cliPath, repoRoot } from "./build.js";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { buildCli, repoRoot, sweepOld } from "./build.js";
+import type { BuiltCli } from "./build.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -23,6 +24,8 @@ const V1_COMMANDS = [
   "publish",
 ];
 
+let built: BuiltCli;
+
 async function runEntry(entry: string, ...args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
   try {
     const result = await execFileAsync(process.execPath, [entry, ...args], { cwd: repoRoot });
@@ -38,15 +41,18 @@ async function runEntry(entry: string, ...args: string[]): Promise<{ stdout: str
 }
 
 function runCli(...args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
-  return runEntry(cliPath, ...args);
+  return runEntry(built.cliPath, ...args);
 }
 
-describe("spawned cli", () => {
-  beforeAll(async () => {
-    await buildCli();
-    await chmod(cliPath, 0o755);
-  }, 180_000);
+beforeAll(async () => {
+  built = await buildCli();
+}, 180_000);
 
+afterAll(async () => {
+  await built?.cleanup();
+});
+
+describe("spawned cli", () => {
   test("package.json bin.metafab points at the built entry", async () => {
     const pkg = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8")) as {
       bin?: Record<string, string>;
@@ -54,14 +60,14 @@ describe("spawned cli", () => {
     const bin = pkg.bin?.metafab;
     expect(typeof bin).toBe("string");
     expect(path.isAbsolute(bin ?? "")).toBe(false);
-    expect((await stat(path.join(repoRoot, ...(bin ?? "").split("/")))).isFile()).toBe(true);
+    expect((await stat(path.join(built.root, ...(bin ?? "").split("/")))).isFile()).toBe(true);
   });
 
   test("the built entry starts with a node shebang and is executable", async () => {
-    const content = await readFile(cliPath, "utf8");
+    const content = await readFile(built.cliPath, "utf8");
     expect(content.startsWith("#!/usr/bin/env node\n")).toBe(true);
     if (process.platform !== "win32") {
-      expect((await stat(cliPath)).mode & 0o111).not.toBe(0);
+      expect((await stat(built.cliPath)).mode & 0o111).not.toBe(0);
     }
   });
 
@@ -85,7 +91,7 @@ describe("spawned cli", () => {
 
     try {
       const link = path.join(dir, "metafab");
-      await symlink(cliPath, link);
+      await symlink(built.cliPath, link);
       const pkg = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8")) as {
         version: string;
       };
@@ -95,5 +101,49 @@ describe("spawned cli", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// These run after the spawned tests above, because the last one removes the
+// build every test in this file shares.
+describe("the test build", () => {
+  test("buildCli compiles once, into a directory that carries what the CLI reads", async () => {
+    const again = await buildCli();
+
+    expect(again.root).toBe(built.root);
+    expect((await stat(path.join(again.root, "package.json"))).isFile()).toBe(true);
+    expect((await stat(path.join(again.root, "resources", "metafab-skill"))).isDirectory()).toBe(true);
+    expect((await stat(again.cliPath)).isFile()).toBe(true);
+    if (process.platform !== "win32") {
+      expect((await stat(again.cliPath)).mode & 0o111).not.toBe(0);
+    }
+  });
+
+  test("sweepOld removes a build a killed run left and keeps a fresh one", async () => {
+    const parent = await mkdtemp(path.join(tmpdir(), "metafab-sweep-"));
+
+    try {
+      const old = path.join(parent, "old");
+      const fresh = path.join(parent, "fresh");
+      await mkdir(old);
+      await mkdir(fresh);
+      const longAgo = new Date(Date.now() - 25 * 60 * 60 * 1000);
+      await utimes(old, longAgo, longAgo);
+
+      await sweepOld(parent);
+
+      expect(await stat(old).catch(() => undefined)).toBeUndefined();
+      expect((await stat(fresh)).isDirectory()).toBe(true);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
+  test("cleanup removes the build directory", async () => {
+    const { root, cleanup } = await buildCli();
+
+    await cleanup();
+
+    expect(await stat(root).catch(() => undefined)).toBeUndefined();
   });
 });

@@ -46,6 +46,7 @@ import type { Summary } from "../summary.js";
 import { copyFactoryTree, FAB_ROOT_EXCLUDES } from "./copy.js";
 import { findImportConflicts, localFilesForImport } from "./conflicts.js";
 import { emptyTree, snapshotDirectories, snapshotFactory, snapshotTree } from "./file-tree.js";
+import type { FileTree } from "./file-tree.js";
 import { alignFactorySpelling } from "../update/spelling.js";
 
 export interface ImportOptions {
@@ -139,6 +140,31 @@ function importTitle(upstream: UpstreamEntry): string {
     case "unversioned":
       return `Imported ${upstream.source}`;
   }
+}
+
+/**
+ * Local factory files the fab does not have, which the import kept.
+ *
+ * The paths come from the `after` snapshot, so a local-only file that a case
+ * realignment moved is listed under its new spelling, and a file the copy
+ * replaced is not listed at all. `metafab.yaml` is configuration, and the skills
+ * adoption moved in are listed as added, so both are left out.
+ */
+function keptLocalFiles(fabTree: FileTree, after: FileTree, moves: AdoptionMove[]): string[] {
+  const fabFiles = new Set(
+    Object.keys(fabTree).filter(
+      (relativePath) => relativePath.includes("/") || !FAB_ROOT_EXCLUDES.has(relativePath),
+    ),
+  );
+  const adopted = moves.map((move) => path.posix.relative(".factory", move.to));
+  return Object.keys(after).filter(
+    (relativePath) =>
+      relativePath !== CONFIG_FILENAME &&
+      !fabFiles.has(relativePath) &&
+      !adopted.some(
+        (directory) => relativePath === directory || relativePath.startsWith(`${directory}/`),
+      ),
+  );
 }
 
 function declinedReport(
@@ -309,6 +335,7 @@ export async function runImport(options: ImportOptions): Promise<ImportReport> {
     const copied = await copyFactoryTree(fetched.factoryDir, factoryDir);
     await setUpstream(factoryDir, fetched.upstream);
     const after = await snapshotFactory(root);
+    const kept = keptLocalFiles(fabTree, after, plan.moves);
 
     // The factory is copied and recorded, so a file that cannot be created is a
     // warning and the import continues. Creation happens after the copy (the
@@ -365,6 +392,7 @@ export async function runImport(options: ImportOptions): Promise<ImportReport> {
       review: summarise(before, after, {
         title: importTitle(fetched.upstream),
         requirements,
+        kept,
       }),
       declined: false,
     };

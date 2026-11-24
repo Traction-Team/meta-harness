@@ -8,8 +8,8 @@ import type { Problem } from "../../errors.js";
 import { copyTree, listFiles } from "../../util/fs.js";
 import type { PublishConfig } from "../config/types.js";
 import { disabledHooksConfig, gitEnvironment, gitMessage, VERBATIM_TEXT_ATTRIBUTES } from "../sources/git-process.js";
-import { gitTransportUrl } from "../sources/parse.js";
-import { redact, stripSourceCredentials } from "../sources/redact.js";
+import { gitTransportUrl, sourceWithoutCredentials } from "../sources/parse.js";
+import { redact } from "../sources/redact.js";
 import { PUBLISH_RETRY_FIX, publishProblem } from "./prepare.js";
 import type { PublishOptions } from "./types.js";
 
@@ -221,8 +221,15 @@ async function addFabFiles(
   if (!result.ok) throw addFailure(gitMessage(result), failure);
 }
 
+interface GitTarget {
+  /** The URL Git is given. */
+  url: string;
+  /** The configured source without credentials, for messages. */
+  source: string;
+}
+
 /** `publish.git` is required for the Git target; a missing URL is a config error. */
-function gitUrl(publish: PublishConfig): string {
+function gitUrl(publish: PublishConfig): GitTarget {
   if (publish.git === undefined) {
     throw new MetafabError("The Git target requires publish.git.", {
       exitCode: ExitCode.Failed,
@@ -237,20 +244,26 @@ function gitUrl(publish: PublishConfig): string {
       ],
     });
   }
-  // `check` accepts the import form, so `publish.git` may be written as
-  // `git+https://`, `git+ssh://` or `git+file://`. Git has no `git+` transport
-  // and would fail with `remote-git+https is not a git command`.
-  return gitTransportUrl(publish.git);
+  return {
+    // `check` accepts the import form, so `publish.git` may be written as
+    // `git+https://`, `git+ssh://` or `git+file://`. Git has no `git+` transport
+    // and would fail with `remote-git+https is not a git command`.
+    url: gitTransportUrl(publish.git),
+    // A message names the source as configured, without its credentials. The
+    // URL Git is given is not that source: it may lose `git+`, or gain the
+    // three-slash form a local path needs on Windows.
+    source: sourceWithoutCredentials(publish.git),
+  };
 }
 
-async function cloneFab(url: string, parent: string, context: GitContext): Promise<string> {
+async function cloneFab(target: GitTarget, parent: string, context: GitContext): Promise<string> {
   const repo = path.join(parent, "fab");
   await runGit(
-    ["clone", "--", url, repo],
+    ["clone", "--", target.url, repo],
     parent,
     context,
     [],
-    gitFailureError(`Cannot clone fab repository ${stripSourceCredentials(url)}`),
+    gitFailureError(`Cannot clone fab repository ${target.source}`),
   );
   // The clone has already checked its branch out, and the attributes apply to
   // every checkout and add that follows, so the publish and the
@@ -261,14 +274,18 @@ async function cloneFab(url: string, parent: string, context: GitContext): Promi
   return repo;
 }
 
-async function tagExistsRemotely(url: string, tag: string, context: GitContext): Promise<boolean> {
+async function tagExistsRemotely(
+  target: GitTarget,
+  tag: string,
+  context: GitContext,
+): Promise<boolean> {
   const ref = `refs/tags/${tag}`;
   const output = await runGit(
-    ["ls-remote", "--tags", "--refs", "--", url],
+    ["ls-remote", "--tags", "--refs", "--", target.url],
     process.cwd(),
     context,
     [],
-    gitFailureError(`Cannot read tags from fab repository ${stripSourceCredentials(url)}`),
+    gitFailureError(`Cannot read tags from fab repository ${target.source}`),
   );
   return output.split("\n").some((line) => line.split("\t")[1]?.trim() === ref);
 }
@@ -467,17 +484,17 @@ export async function gitVersionState(
   root: string,
   options: PublishOptions = {},
 ): Promise<GitVersionState> {
-  const url = gitUrl(publish);
+  const target = gitUrl(publish);
   const context = gitContext(options);
   const tag = `v${version}`;
 
-  if (!(await tagExistsRemotely(url, tag, context))) {
+  if (!(await tagExistsRemotely(target, tag, context))) {
     return { tagExists: false, identical: false };
   }
 
   const scratch = await mkdtemp(path.join(tmpdir(), "metafab-publish-check-"));
   try {
-    const repo = await cloneFab(url, scratch, context);
+    const repo = await cloneFab(target, scratch, context);
     return { tagExists: true, identical: await tagTreeMatches(repo, tag, root, context) };
   } finally {
     await rm(scratch, { recursive: true, force: true });
@@ -601,9 +618,9 @@ async function identityConfig(repo: string, context: GitContext): Promise<string
   return ["-c", `user.name=${FALLBACK_NAME}`, "-c", `user.email=${FALLBACK_EMAIL}`];
 }
 
-function versionExistsError(version: string, url: string): MetafabError {
+function versionExistsError(version: string, target: GitTarget): MetafabError {
   return new MetafabError(
-    `The fab repository ${stripSourceCredentials(url)} already has tag v${version}.`,
+    `The fab repository ${target.source} already has tag v${version}.`,
     {
       exitCode: ExitCode.Failed,
       code: "publish-version-exists",
@@ -630,13 +647,13 @@ export async function publishGitFab(
   root: string,
   options: PublishOptions = {},
 ): Promise<string> {
-  const url = gitUrl(publish);
+  const target = gitUrl(publish);
   const context = gitContext(options);
   const tag = `v${version}`;
   const scratch = await mkdtemp(path.join(tmpdir(), "metafab-publish-push-"));
 
   try {
-    const repo = await cloneFab(url, scratch, context);
+    const repo = await cloneFab(target, scratch, context);
     const remoteDefault = await defaultBranch(repo, context);
     const branch = publish.branch ?? remoteDefault ?? "main";
     await checkoutBranch(repo, branch, context);
@@ -646,7 +663,7 @@ export async function publishGitFab(
       repo,
       context,
     );
-    if (existing.ok) throw versionExistsError(version, url);
+    if (existing.ok) throw versionExistsError(version, target);
 
     await publishOwnsHead(repo, branch, context);
 
@@ -687,10 +704,10 @@ export async function publishGitFab(
       repo,
       context,
       [],
-      gitFailureError(`Cannot push ${tag} to ${stripSourceCredentials(url)}`),
+      gitFailureError(`Cannot push ${tag} to ${target.source}`),
     );
 
-    return `Published ${version} to ${branch} in ${stripSourceCredentials(url)}.`;
+    return `Published ${version} to ${branch} in ${target.source}.`;
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }

@@ -69,6 +69,16 @@ function fromPosixPath(value: string): string {
   return value.split("/").join(path.sep);
 }
 
+/**
+ * True when the error says the path is not there at all: `ENOENT`, or
+ * `ENOTDIR` when a parent of it is a file. Every other error is a real
+ * failure, and must not be read as absence.
+ */
+export function isAbsentError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
 export async function pathExists(target: string): Promise<boolean> {
   try {
     await stat(target);

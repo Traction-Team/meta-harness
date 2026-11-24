@@ -6,8 +6,14 @@ import { isAlias, isMap, isScalar, isSeq } from "yaml";
 import type { Document, Node, Pair, Scalar, YAMLMap, YAMLSeq } from "yaml";
 import type { Problem } from "../../errors.js";
 import { didYouMean } from "../../util/suggest.js";
-import { importSourceForGitUrl, parseSource, sourceWithoutCredentials } from "../sources/parse.js";
-import { classifySource } from "./source.js";
+import {
+  fileUrlAuthority,
+  importSourceForGitUrl,
+  isScpGit,
+  parseSource,
+  sourceWithoutCredentials,
+} from "../sources/parse.js";
+import { classifySource, sourceProblem } from "./source.js";
 import { TARGETS } from "./types.js";
 
 export const TOP_LEVEL_KEYS = ["agents", "metafab-skill", "git-hooks", "publish", "upstream"] as const;
@@ -37,7 +43,6 @@ const GIT_URL =
   /^(?:git@[^\s:]+:[^\s]+|(?:git\+)?ssh:\/\/[^\s]+|(?:git\+)?https:\/\/[^\s]+|(?:git\+)?file:\/\/[^\s]+)$/i;
 
 const FILE_URL = /^(?:git\+)?file:\/\//i;
-const DRIVE_PATH = /^[A-Za-z]:[\\/]/;
 
 /**
  * True when a `file:` URL names a host after `//`. Git ignores that host and
@@ -48,9 +53,33 @@ const DRIVE_PATH = /^[A-Za-z]:[\\/]/;
 function fileUrlNamesHost(value: string): boolean {
   const match = FILE_URL.exec(value);
   if (match === null) return false;
-  const after = value.slice(match[0].length);
-  if (after === "") return false;
-  return !after.startsWith("/") && !/^localhost\//i.test(after) && !DRIVE_PATH.test(after);
+  return fileUrlAuthority(value.slice(match[0].length)) === "host";
+}
+
+const HTTPS_URL = /^(?:git\+)?https:\/\//i;
+
+/**
+ * The rule 7 problem for a `#` that no `import` line can name, or undefined.
+ * Git's HTTP transport drops everything after a literal `#`, so the push would
+ * go to a different repository; an scp URL has nowhere to write `%23`, because
+ * Git sends its path literally and a source reads the `#` as the ref. An
+ * `ssh://` URL is fine: Git decodes `%23` there, so the README encodes it.
+ */
+function publishGitHashProblem(value: string): { message: string; fix: string } | undefined {
+  const https = HTTPS_URL.exec(value);
+  if (https !== null && value.slice(https[0].length).includes("#")) {
+    return {
+      message: `"publish.git" has a # in an https:// URL.`,
+      fix: "Write the # as %23, such as https://example.com/my%23fab.git: Git over HTTPS drops everything after a #.",
+    };
+  }
+  if (isScpGit(value) && value.includes("#")) {
+    return {
+      message: `"publish.git" has a # in a git@host:path URL, which an import source cannot name.`,
+      fix: "Use an ssh:// URL with # written as %23, such as ssh://git@example.com/~/my%23fab.git.",
+    };
+  }
+  return undefined;
 }
 
 /**
@@ -328,21 +357,26 @@ function validatePublish(
 
   const git = entries.get("git");
   const gitText = git === undefined ? undefined : stringNodeValue(resolvedNode(git.value, doc));
-  if (gitText !== undefined && !isGitUrl(gitText, repositoryRoot ?? process.cwd())) {
-    if (fileUrlNamesHost(gitText)) {
-      report(
-        "error",
-        `"publish.git" names a host in a file URL.`,
-        pairNode(git),
-        `Write the path with three slashes, such as file:///srv/fabs/fab.git.`,
-      );
-    } else {
-      report(
-        "error",
-        `"publish.git" is not a Git URL.`,
-        pairNode(git),
-        `Use git@host:path, ssh://, git+ssh://, https://, git+https://, file:// or git+file://.`,
-      );
+  if (gitText !== undefined) {
+    const hashProblem = publishGitHashProblem(gitText);
+    if (hashProblem !== undefined) {
+      report("error", hashProblem.message, pairNode(git), hashProblem.fix);
+    } else if (!isGitUrl(gitText, repositoryRoot ?? process.cwd())) {
+      if (fileUrlNamesHost(gitText)) {
+        report(
+          "error",
+          `"publish.git" names a host in a file URL.`,
+          pairNode(git),
+          `Write the path with three slashes, such as file:///srv/fabs/fab.git.`,
+        );
+      } else {
+        report(
+          "error",
+          `"publish.git" is not a Git URL.`,
+          pairNode(git),
+          `Use git@host:path, ssh://, git+ssh://, https://, git+https://, file:// or git+file://.`,
+        );
+      }
     }
   }
 
@@ -405,6 +439,7 @@ function validateUpstream(
   report: Report,
   map: YAMLMap,
   anchor: Node | null | undefined,
+  repositoryRoot: string | undefined,
   doc: Document,
 ): void {
   const entries = mapEntries(map);
@@ -429,6 +464,16 @@ function validateUpstream(
 
   if (sourceText.trim() === "") {
     report("error", `"upstream" requires "source".`, anchor, `Add "source" to "upstream".`);
+    return;
+  }
+
+  // A source `import` refuses is reported with `import`'s own message and fix,
+  // and the version and commit rules are skipped: `update`, `diff` and `detach`
+  // re-parse the source and fail on it anyway, so a missing version or commit
+  // would only hide the real problem.
+  const problem = sourceProblem(sourceText, repositoryRoot ?? process.cwd());
+  if (problem !== undefined) {
+    report("error", problem.message, pairNode(source), problem.fix);
     return;
   }
 
@@ -512,7 +557,7 @@ export function validateDocument(doc: Document, options: ValidateDocumentOptions
     if (!isMap(upstreamValue)) {
       report("error", `"upstream" must be a map.`, pairNode(upstream), `Write "upstream" as a map of keys`);
     } else {
-      validateUpstream(report, upstreamValue, pairNode(upstream), doc);
+      validateUpstream(report, upstreamValue, pairNode(upstream), options.repositoryRoot, doc);
     }
   }
 
