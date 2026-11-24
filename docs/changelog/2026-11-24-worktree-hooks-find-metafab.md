@@ -1,6 +1,6 @@
 ---
 title: "feat: git hooks find the main worktree's metafab, so git worktree add builds the new worktree"
-date: 2026-11-15
+date: 2026-11-24
 pr: 44
 plan: docs/plans/1.028-worktree-hooks-find-metafab.md
 ---
