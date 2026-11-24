@@ -57,4 +57,13 @@ jobs:
             exit 1
           fi
       - run: npm run build
-      - run: npm publish
+      # The tag is always written out: npm 11 refuses to publish a prerelease
+      # version without `--tag`, and an older npm would move `latest` to it, so
+      # `npx @seasb/metafab` would start installing a prerelease. dist-tag.mjs
+      # prints `next` for a prerelease and `latest` for every other version.
+      - name: Publish under the version's dist-tag
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          tag=$(node .github/scripts/dist-tag.mjs "$version")
+          npm publish --tag "$tag"
