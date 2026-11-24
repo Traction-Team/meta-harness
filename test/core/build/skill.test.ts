@@ -8,6 +8,7 @@ import {
   generatedComment,
   isOwned,
 } from "../../../src/core/build/skill.js";
+import { directiveLines } from "../../../src/core/env/directives.js";
 import type { Problem } from "../../../src/errors.js";
 import { makeRepo, writeRepoFiles } from "../../helpers/makeRepo.js";
 
@@ -113,7 +114,7 @@ describe("compileSkill", () => {
       const withoutRenderer = await compileSkill(demo, { factoryDir: repo.path(".factory") });
       const withRenderer = await compileSkill(demo, {
         factoryDir: repo.path(".factory"),
-        render: (file) => file.text,
+        render: async (file) => file.text,
       });
 
       for (const result of [withoutRenderer, withRenderer]) {
@@ -407,5 +408,28 @@ describe("dedupeReadErrors", () => {
       warning,
       directoryProblem,
     ]);
+  });
+});
+
+describe("built-in metafab skill", () => {
+  const builtin = {
+    dir: fileURLToPath(new URL("../../../resources/metafab-skill", import.meta.url)),
+    name: "metafab",
+    sourcePath: "resources/metafab-skill",
+  };
+
+  test("teaches environments with every directive example inside a fence", async () => {
+    const result = await compileSkill(builtin, {
+      factoryDir: builtin.dir,
+      comment: builtinComment("1.0.0"),
+    });
+    const skill = result.files.find((file) => file.path === "SKILL.md")!.content.toString("utf8");
+
+    expect(result.problems).toEqual([]);
+    expect(skill).toContain("## Write one factory for several environments");
+    expect(skill).toContain("<!-- factory:switch env.workspace -->");
+    // The examples are documentation, so no line outside a fence is a directive
+    // and the skill reads the same in a format 1 and a format 2 factory.
+    expect(directiveLines(skill)).toEqual([]);
   });
 });

@@ -33,6 +33,13 @@ function renderNodes(
       continue;
     }
 
+    // An import has no text of its own: its children are rendered in place,
+    // classified with the conditions that enclose the import line.
+    if (node.kind === "import") {
+      lines.push(...renderNodes(node.children, enclosing, context));
+      continue;
+    }
+
     if (node.kind === "when") {
       const applies = classify(node.condition, enclosing, context.selection, context.variables);
       if (applies.kind === "none") continue;

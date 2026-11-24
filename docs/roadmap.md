@@ -72,9 +72,9 @@ A team compiles one factory for each developer's environment: the factory declar
 
 - [x] [2.011 Environment declarations and selection](plans/2.011-environment-selection.md): `format: 2`, `env` in `factory.yaml`, selection from `--env`, `FACTORY_ENV_*` and Git config, `metafab env`, `env set`, `env unset`
 - [x] [2.012 Conditional blocks and skills](plans/2.012-conditional-blocks.md): `when` and `switch` directives, labels for partial matches, `skills:` conditions, `check` validates every branch
-- [ ] [2.013 Imports and partials](plans/2.013-imports.md): `factory:import`, shared partials in `.factory/partials/`, path rules and import loops
-- [ ] [2.014 Preview and authoring guidance](plans/2.014-preview-and-guidance.md): `build --out`, the `metafab` skill's Environments section, the workflow guidance rule
-- [ ] [2.016 Prerelease 2.0.0-next.1](plans/2.016-prerelease-next.md): the release workflow publishes a prerelease version under the npm dist-tag `next` and never moves `latest`; `@seasb/metafab@2.0.0-next.1`
+- [x] [2.013 Imports and partials](plans/2.013-imports.md): `factory:import`, shared partials in `.factory/partials/`, path rules and import loops
+- [x] [2.014 Preview and authoring guidance](plans/2.014-preview-and-guidance.md): `build --out`, the `metafab` skill's Environments section, the workflow guidance rule
+- [x] [2.016 Prerelease 2.0.0-next.1](plans/2.016-prerelease-next.md): the release workflow publishes a prerelease version under the npm dist-tag `next` and never moves `latest`; `@seasb/metafab@2.0.0-next.1`
 - [ ] [2.015 This repository's factory uses environments](plans/2.015-dogfood-environments.md): fab-basic 0.2.0 declares `harness` and `workspace` with partials for sub-agents and workers; this repository updates to it, pins 2.0.0-next.1, and `.agents/setup` selects Amp and orbs
 
 ## Milestone 5: Store (version 2, draft plans)

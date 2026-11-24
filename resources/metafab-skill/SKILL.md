@@ -23,7 +23,80 @@ Run `metafab create <path> --description "<when to use it>"`. The last path segm
 
 The description is the discovery metadata agent tools use. Write it so a matching request finds the skill: say what it does and when to use it. Put supporting files beside `SKILL.md`.
 
-Keep a workflow about one operation. Do not name a specific agent tool in a workflow; put tool-specific commands in a separate harness skill and refer to it.
+Keep a workflow about one operation. Do not name a specific agent tool in a workflow: in a format 2 factory, put tool-specific commands in a `when` or `switch` block, or in a partial the workflow imports, so each agent reads only its own; in a format 1 factory, put them in a separate harness skill and refer to it.
+
+## Write one factory for several environments
+
+When the people who use this factory work in different agent harnesses or workspace tools, one workflow otherwise says "in Amp do this, in Orca do that", and every agent reads every variant. Declare the difference as an environment instead: `build` compiles the factory for the selection, so each agent reads only its own steps.
+
+Declare the variables in `.factory/factory.yaml`, which needs `format: 2`:
+
+```yaml
+format: 2
+name: dragonfly
+
+env:
+  harness:
+    values:
+      opencode: { label: In OpenCode }
+      claude:   { label: In Claude Code }
+      amp:      { label: In Amp (AMP_THREAD_ID is set) }
+  workspace:
+    values: [orca, orb, worktree]
+    default: worktree
+```
+
+A label says, in words an agent can act on, where it is when that value applies, such as `In Amp (AMP_THREAD_ID is set)`. A value with no label is labelled `When <variable> is <value>`, and a `default` applies when the developer selects nothing.
+
+Choose the tool by what the text needs:
+
+- `when` for a few lines that apply to some environments, such as one setup step.
+- `switch` where every value needs its own text. `check` then lists every switch that a new value has to be added to, which `when` cannot.
+- `import` from `.factory/partials/` when several workflows share one procedure. A partial is a Markdown file that is never installed on its own.
+- A `skills:` entry in `factory.yaml` when a whole skill applies only somewhere.
+
+A directive is an HTML comment on a line of its own, so the source still renders and a `SKILL.md` still loads as a normal Agent Skill. `build` removes directive lines from the output:
+
+```md
+<!-- factory:when env.workspace == orca -->
+Create the slice's checkout with the Orca worktree tool.
+<!-- factory:endwhen -->
+
+<!-- factory:switch env.workspace -->
+<!-- factory:case orca -->
+Create the slice's checkout with the Orca worktree tool.
+<!-- factory:case orb -->
+Start a new orb for the slice.
+<!-- factory:default -->
+Run `git worktree add` for the slice.
+<!-- factory:endswitch -->
+```
+
+A workflow that shares a procedure imports it. The path is relative to the file that holds the directive, uses `/`, ends in `.md`, and must stay inside `.factory/`:
+
+```md
+<!-- factory:import ../../partials/worktree.md -->
+```
+
+A skill that applies only in some environments says so in `factory.yaml`, not in its frontmatter:
+
+```yaml
+skills:
+  orca-worktrees: { when: env.workspace == orca }
+  amp-threads:    { when: env.harness == amp }
+```
+
+Rules to keep:
+
+- Frontmatter is the same in every environment: no directive in a `SKILL.md`'s `name`, `description` or any other field. Write descriptions that do not depend on the harness.
+- A directive is a whole line. Every `when` closes with `endwhen` and every `switch` with `endswitch`, in the same file. Blocks may nest.
+- Each branch must read correctly on its own, because `build` removes text without renumbering lists or reflowing prose.
+
+`metafab env` shows each variable, its selected values and the source of each. `metafab env set harness=opencode,claude` replaces the selection in the repository's Git config and rebuilds; add `--global` for every repository on the machine, and `metafab env unset harness` removes it. A setup script sets `FACTORY_ENV_HARNESS=amp` before `metafab build`. A value that Git config or `FACTORY_ENV_*` names and the factory does not declare is ignored with a warning; an undeclared name in `--env` is an error. A variable with no selection falls back to its `default`, then to every value.
+
+`metafab check` validates every branch and every import, whatever the local selection is. To see what a teammate on another harness receives, run `metafab build --env harness=amp --out /tmp/preview-amp`: it writes the compiled skills and the `AGENTS.md` block into a directory that must not exist or must be empty, and changes nothing else in the repository.
+
+The root `AGENTS.md` block is rendered for every declared value, with a label on each block that does not apply to all of them, so it is the same for every developer. Never put a per-developer instruction there.
 
 ## Add workflows to the pipeline
 
@@ -35,7 +108,7 @@ Only workflows can appear in the pipeline. A `stop` entry names the person who a
 
 Run `metafab build` after every change to `.factory/`. It writes the root `AGENTS.md` block, the `CLAUDE.md` import block, the `.gitignore` block, and the installed skills for the targets in `.factory/metafab.yaml`. With `git-hooks: true`, the installed Git hooks also run it after a checkout, merge, or rebase.
 
-Targets are chosen with `agents` in `.factory/metafab.yaml`, for example `agents: [claude, codex]`. `metafab build` has no command-line override. Set `agents: []` to remove all installed output.
+Targets are chosen with `agents` in `.factory/metafab.yaml`, for example `agents: [claude, codex]`. `metafab build` has no option that overrides them. Set `agents: []` to remove all installed output.
 
 Build removes owned output that no longer has a source. It stops with exit code 5 when it finds anything directly in a selected skill destination that Metafab did not generate. Hand edits inside an installed skill are overwritten by the next build. Run `metafab init` to adopt existing repository skills.
 
@@ -91,6 +164,7 @@ Do not start from a template. Ask the person how work moves today, where people 
 - Put the pipeline in the order the work actually moves.
 - Add a stop wherever a person decides before work continues. Name who decides and what they approve.
 - Split reusable knowledge into skills rather than repeating it in workflows.
+- If people work in different harnesses, declare `harness` in `env` before writing tool-specific steps.
 - Start with four to eight workflows. Add more only when a step genuinely repeats.
 - List files outside `.factory/` that the workflows need under `requires` in `factory.yaml`, with a template in `.factory/templates/` when Metafab can create them.
 - Put per-repository values in a file a template creates, never in `.factory/`.

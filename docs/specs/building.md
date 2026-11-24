@@ -128,7 +128,7 @@ For each factory skill, `build` performs these steps:
 
 1. Copy the skill directory, including all supporting files.
 2. Keep the frontmatter unchanged.
-3. In a format 2 factory, render every `.md` file below its frontmatter for the [selection](environments.md#rendering).
+3. In a format 2 factory, render every `.md` file, and `SKILL.md` below its frontmatter, for the [selection](environments.md#rendering), replacing each [import](environments.md#import) with the imported body.
 4. Add a generated-file comment after the frontmatter, and for a skill that [applies only in some environments](environments.md#conditional-skills), the line `**Applies only <label>.**` after it.
 
 A format 2 factory does not install a skill whose condition is false for the selection.
@@ -245,6 +245,7 @@ The skill tells an agent how to:
 
 - Find and edit factory source files
 - Create workflows and skills
+- Write one factory for several environments: `env`, `when`, `switch`, `import` and partials, conditional skills, harness-neutral descriptions, `metafab env`, and `build --env ... --out` previews
 - Add workflows to the pipeline
 - Run `metafab build` after an edit
 - Keep installed skills current after a clone, a pull, a branch switch, or a new worktree: Git hooks, worktree setup scripts such as `orca.yaml`, cloud agent setup steps, and the CI recipe
