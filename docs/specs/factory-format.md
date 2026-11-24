@@ -73,10 +73,10 @@ Workflows install exactly like other skills. Their descriptions are written for 
 
 1. The `description` must say when to use the workflow. It is the discovery metadata available to agent tools; no other file lists the workflow for discovery.
 2. The final step should say when the agent must stop for a person.
-3. A workflow should describe an operation without naming a specific agent tool. Put tool-specific instructions in a separate skill and refer to it explicitly.
+3. A workflow's `description` should not name a specific agent tool. In a format 2 factory, put each tool's steps in a [`when` or `switch` block](environments.md#directives), or in a partial that the workflow imports, so each developer's agent reads only its own. In a format 1 factory, put them in a separate skill and refer to it explicitly.
 4. A workflow must refer to templates and scripts by repository-relative path, such as `.factory/templates/plan.md`.
 
-For example, write "open a new worktree for this slice" in a workflow. Put the tool-specific command in a harness skill.
+For example, describe "open a new worktree for this slice" in the workflow, and put each tool's command in a `switch` over `env.workspace` in a partial the workflow imports.
 
 ## Skills
 

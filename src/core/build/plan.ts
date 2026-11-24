@@ -25,10 +25,9 @@ import {
   AGENTS_MARKERS,
   CLAUDE_MARKERS,
   GITIGNORE_MARKERS,
-  agentsBlockLineCount,
   claudeBlockBody,
   gitignoreBlockBody,
-  renderAgentsBlockBody,
+  renderAgentsBlock,
 } from "./agents.js";
 import {
   appendMarkerBlock,
@@ -217,12 +216,22 @@ function claudeBlock(): string {
   return [CLAUDE_MARKERS.start, claudeBlockBody(), CLAUDE_MARKERS.end].join("\n");
 }
 
-interface DesiredSkill {
+/**
+ * The body between the markers of a full AGENTS.md block from
+ * `renderAgentsBlock`, which is the text `planBlockFile` merges into the root
+ * file.
+ */
+function blockBody(block: string): string {
+  return block.split("\n").slice(1, -1).join("\n");
+}
+
+export interface DesiredSkill {
   name: string;
   files: { path: string; content: Buffer; mode: number }[];
 }
 
-function skillWrites(destination: string, skill: DesiredSkill): BuildWrite[] {
+/** The installed paths for one skill in one destination, relative to the root. */
+export function skillWrites(destination: string, skill: DesiredSkill): BuildWrite[] {
   return skill.files.map((file) => ({
     path: `${destination}/${skill.name}/${file.path}`,
     content: file.content,
@@ -303,15 +312,15 @@ async function standingInstructions(
  */
 async function compileFactorySkills(
   factory: Factory,
-  plan: BuildPlan,
+  selection: EnvSelection,
   imports: ImportCache,
+  errors: Problem[],
 ): Promise<DesiredSkill[]> {
   const desired: DesiredSkill[] = [];
   const yaml = factory.factoryYaml;
   const formatTwo = yaml?.format === 2;
   const variables = yaml?.env ?? [];
   const conditions = formatTwo ? yaml.skills : [];
-  const selection = plan.selection.selection;
 
   for (const skill of factory.skills) {
     const sourcePath = `.factory/${skill.relDir}`;
@@ -339,7 +348,7 @@ async function compileFactorySkills(
       },
     );
 
-    if (compiled.problems.length > 0) plan.errors.push(...compiled.problems);
+    if (compiled.problems.length > 0) errors.push(...compiled.problems);
     desired.push({
       name: compiled.name,
       files: compiled.files.map((file) => ({
@@ -375,6 +384,73 @@ async function compileBuiltinSkill(
       mode: file.mode,
     })),
   };
+}
+
+export interface DesiredOutput {
+  /** Destination directory (".agents/skills", ".claude/skills") → skills, for the selected agents. */
+  skills: Map<string, DesiredSkill[]>;
+  /**
+   * The full AGENTS.md block, markers included, rendered for every value (never
+   * for the selection), or undefined when no target is selected.
+   */
+  agentsBlock?: string;
+  errors: Problem[];
+  warnings: Problem[];
+}
+
+/**
+ * Everything `build` would install for a selection. `planBuild` and the preview
+ * both start here, so they cannot disagree about what a build produces; neither
+ * the repository scan nor the writes are part of it.
+ */
+export async function desiredOutput(
+  factory: Factory,
+  config: Config,
+  cliVersion: string,
+  selection: ResolvedSelection,
+): Promise<DesiredOutput> {
+  const errors: Problem[] = [];
+  const warnings: Problem[] = [];
+
+  for (const problem of [...factory.problems, ...config.problems]) {
+    if (problem.level === "error") errors.push(problem);
+  }
+
+  // One import cache per run, shared by every skill and the standing
+  // instructions, so a partial is read once however many files import it.
+  const imports = createImportCache(factory.dir);
+  const factorySkills = await compileFactorySkills(
+    factory,
+    selection.selection,
+    imports,
+    errors,
+  );
+  const builtin = await compileBuiltinSkill(config, cliVersion, errors);
+
+  const skills = new Map<string, DesiredSkill[]>();
+  for (const destination of destinations(config.agents)) {
+    const selected = [...factorySkills];
+    if (builtin !== undefined) selected.push(builtin);
+    skills.set(destination.directory, selected);
+  }
+
+  // Rendered for every value, so the committed block is the same for everyone.
+  const standing = skills.size > 0 ? await standingInstructions(factory, imports) : undefined;
+  const agentsBlock = skills.size > 0 ? renderAgentsBlock(factory, standing) : undefined;
+
+  if (agentsBlock !== undefined) {
+    const lineCount = agentsBlock.split("\n").length;
+    if (lineCount > AGENTS_BLOCK_LINE_LIMIT) {
+      warnings.push({
+        level: "warning",
+        file: "AGENTS.md",
+        message: `The generated AGENTS.md block is ${lineCount} lines; the limit is ${AGENTS_BLOCK_LINE_LIMIT}`,
+        fix: "Move detail into .factory/AGENTS.md sections and keep the root block short",
+      });
+    }
+  }
+
+  return { skills, agentsBlock, errors, warnings };
 }
 
 function permissionProblem(relativePath: string, error: unknown): Problem | undefined {
@@ -903,24 +979,14 @@ export async function planBuild(
     errors: [],
   };
 
-  for (const problem of [...factory.problems, ...config.problems]) {
-    if (problem.level === "error") plan.errors.push(problem);
-  }
+  const desired = await desiredOutput(factory, config, cliVersion, selection);
+  plan.errors.push(...desired.errors);
+  plan.warnings.push(...desired.warnings);
 
-  const selectedDestinations = destinations(config.agents);
-  // One import cache per run, shared by every skill and the standing
-  // instructions, so a partial is read once however many files import it.
-  const imports = createImportCache(factory.dir);
-  const factorySkills = await compileFactorySkills(factory, plan, imports);
-  const builtin = await compileBuiltinSkill(config, cliVersion, plan.errors);
-
-  const desiredPerDestination = new Map<string, DesiredSkill[]>();
-  for (const destination of selectedDestinations) {
-    const skills = [...factorySkills];
-    if (builtin !== undefined) skills.push(builtin);
-    desiredPerDestination.set(destination.directory, skills);
+  const desiredPerDestination = desired.skills;
+  for (const [directory, skills] of desiredPerDestination) {
     for (const skill of skills) {
-      plan.writes.push(...skillWrites(destination.directory, skill));
+      plan.writes.push(...skillWrites(directory, skill));
     }
   }
 
@@ -971,37 +1037,24 @@ export async function planBuild(
 
   const agentsFile = "AGENTS.md";
   const agentsEntry = await readRootEntry(root, agentsFile);
-  const agentsSelected = selectedDestinations.length > 0;
-  // Rendered for every value, so the committed block is the same for everyone.
-  const standing = agentsSelected ? await standingInstructions(factory, imports) : undefined;
+  const agentsBlock = desired.agentsBlock;
 
   if (agentsEntry.problem !== undefined) {
     plan.errors.push(agentsEntry.problem);
   } else if (agentsEntry.readError === true) {
     plan.conflicts.push(symlinkReadConflict(agentsFile));
   } else {
-    const agentsResult = agentsSelected
-      ? planBlockFile(
-          agentsEntry.text,
-          AGENTS_MARKERS,
-          agentsFile,
-          renderAgentsBlockBody(factory, standing),
-          true,
-        )
-      : planBlockFile(agentsEntry.text, AGENTS_MARKERS, agentsFile, undefined, true);
+    const agentsResult =
+      agentsBlock === undefined
+        ? planBlockFile(agentsEntry.text, AGENTS_MARKERS, agentsFile, undefined, true)
+        : planBlockFile(
+            agentsEntry.text,
+            AGENTS_MARKERS,
+            agentsFile,
+            blockBody(agentsBlock),
+            true,
+          );
     addBlockPlan(plan, agentsFile, agentsEntry, agentsResult, removals);
-  }
-
-  if (agentsSelected) {
-    const lineCount = agentsBlockLineCount(factory, standing);
-    if (lineCount > AGENTS_BLOCK_LINE_LIMIT) {
-      plan.warnings.push({
-        level: "warning",
-        file: agentsFile,
-        message: `The generated AGENTS.md block is ${lineCount} lines; the limit is ${AGENTS_BLOCK_LINE_LIMIT}`,
-        fix: "Move detail into .factory/AGENTS.md sections and keep the root block short",
-      });
-    }
   }
 
   const claudeFile = "CLAUDE.md";
