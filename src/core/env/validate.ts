@@ -5,8 +5,13 @@ import { didYouMean } from "../../util/suggest.js";
 import { toLF } from "../../util/text.js";
 import { collectSkillFiles, textContent } from "../build/skill.js";
 import type { Factory } from "../factory/types.js";
+import { conditionVariables } from "./condition.js";
 import { directiveLines, parseMarkdown } from "./directives.js";
+import type { MarkdownDocument, Node } from "./directives.js";
+import { createImportCache } from "./imports.js";
 import { markdownParts } from "./markdown.js";
+import { MAX_COMBINATIONS, combinations } from "./scenarios.js";
+import type { EnvVariable } from "./types.js";
 
 const FACTORY_FILE = ".factory/factory.yaml";
 const AGENTS_FILE = ".factory/AGENTS.md";
@@ -55,8 +60,16 @@ export async function environmentProblems(factory: Factory): Promise<Problem[]> 
   const yaml = factory.factoryYaml;
   const format = yaml?.format ?? 1;
   const variables = yaml?.env ?? [];
+  // One cache per run, so a partial imported by several files is read once and
+  // an edited partial is always reread by the next run.
+  const imports = createImportCache(factory.dir);
 
-  const checkFile = (file: string, text: string, frontmatter: boolean): void => {
+  const checkFile = async (
+    file: string,
+    route: string,
+    text: string,
+    frontmatter: boolean,
+  ): Promise<void> => {
     if (format === 1) {
       const lines = directiveLines(text);
       if (lines.length > 0) {
@@ -84,13 +97,16 @@ export async function environmentProblems(factory: Factory): Promise<Problem[]> 
       }
     }
 
-    problems.push(
-      ...parseMarkdown(parts?.body ?? text, {
-        file,
-        firstLine: parts?.firstLine ?? 1,
-        variables,
-      }).problems,
-    );
+    const document = await parseMarkdown(parts?.body ?? text, {
+      file,
+      firstLine: parts?.firstLine ?? 1,
+      variables,
+      imports,
+      route,
+      chain: [],
+    });
+    problems.push(...document.problems);
+    problems.push(...importCombinationProblems(document, variables));
   };
 
   for (const skill of factory.skills) {
@@ -105,16 +121,105 @@ export async function environmentProblems(factory: Factory): Promise<Problem[]> 
       const displayPath = `${sourcePath}/${file.relative}`;
       const text = await readMarkdown(file.target, displayPath, problems);
       if (text === undefined) continue;
-      checkFile(displayPath, text, true);
+      await checkFile(displayPath, `${skill.relDir}/${file.relative}`, text, true);
     }
   }
 
   // `.factory/AGENTS.md` is rendered whole, so it has no frontmatter to protect.
-  if (factory.agentsMd !== undefined) checkFile(AGENTS_FILE, factory.agentsMd, false);
+  if (factory.agentsMd !== undefined) {
+    await checkFile(AGENTS_FILE, "AGENTS.md", factory.agentsMd, false);
+  }
 
   if (format === 2) problems.push(...conditionalSkillProblems(factory));
 
+  return dedupeProblems(problems);
+}
+
+/** One import node's children, with the file they come from and its conditions. */
+interface ImportWalk {
+  /** Repository-relative name of the file holding these nodes. */
+  file: string;
+  /** The nearest enclosing import directive: where a cross-file problem is reported. */
+  origin?: { file: string; line: number };
+  /** Variables named by the conditions above the nearest import. */
+  foreign: ReadonlySet<string>;
+  /** Variables named by the conditions in this file, below the nearest import. */
+  local: ReadonlySet<string>;
+}
+
+/**
+ * The combination limit across an import: a block inside an imported file is
+ * classified together with the conditions around the import line, so the two
+ * files' variables can span more scenarios than either file alone. Each file's
+ * own parse checks its blocks against its own enclosing conditions, so this
+ * reports only the blocks an import pushes over the limit, on the import
+ * directive's line in the importing file.
+ *
+ * Rendering classifies each block over its enclosing conditions, so a renderer
+ * must treat these as errors too: without them it would enumerate every
+ * scenario of a block this reports.
+ */
+export function importCombinationProblems(
+  document: MarkdownDocument,
+  variables: readonly EnvVariable[],
+): Problem[] {
+  const problems: Problem[] = [];
+
+  const walk = (nodes: readonly Node[], state: ImportWalk): void => {
+    for (const node of nodes) {
+      if (node.kind === "text") continue;
+
+      if (node.kind === "import") {
+        walk(node.children, {
+          file: node.file ?? state.file,
+          origin: { file: state.file, line: node.line },
+          foreign: new Set([...state.foreign, ...state.local]),
+          local: new Set<string>(),
+        });
+        continue;
+      }
+
+      const own =
+        node.kind === "when" ? conditionVariables(node.condition) : new Set([node.variable]);
+      const local = new Set([...state.local, ...own]);
+      const all = new Set([...state.foreign, ...local]);
+
+      if (state.origin !== undefined) {
+        const count = combinations(all, variables);
+        if (count > MAX_COMBINATIONS && combinations(local, variables) <= MAX_COMBINATIONS) {
+          problems.push({
+            level: "error",
+            file: state.origin.file,
+            line: state.origin.line,
+            message: `Condition on line ${node.line} of ${state.file} spans too many combinations here: ${count} over ${[...all].join(", ")}; the limit is ${MAX_COMBINATIONS}`,
+            fix: "Import it outside the enclosing blocks, or split the condition",
+          });
+        }
+      }
+
+      const children =
+        node.kind === "when" ? node.children : node.branches.flatMap((branch) => branch.children);
+      walk(children, { ...state, local });
+    }
+  };
+
+  walk(document.nodes, { file: document.file, foreign: new Set(), local: new Set() });
   return problems;
+}
+
+/**
+ * Keeps one problem per file, line and message, so a partial imported by several
+ * files reports each of its own problems once.
+ */
+function dedupeProblems(problems: readonly Problem[]): Problem[] {
+  const seen = new Set<string>();
+
+  return problems.filter((problem) => {
+    const key = `${problem.file}\u0000${problem.line ?? 0}\u0000${problem.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /**
