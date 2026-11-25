@@ -68,7 +68,7 @@ Before changing any file, `build` checks selected destinations for unowned entri
 
 Installed skills are ignored by Git, so they are missing after a fresh clone or a new worktree, and stale after a pull, a branch switch, a merge, or a rebase that changes `.factory/`. Three mechanisms keep them current:
 
-1. **Git hooks.** With `git-hooks: true` in [`metafab.yaml`](configuration.md), `build` installs Git hooks that run `metafab build` after a branch checkout, a merge, and a rebase. Git shares one hooks directory across every worktree of a clone, so `git worktree add` builds the new worktree too. A new worktree has no `node_modules/` yet, so its hook finds `metafab` on `PATH`, or falls back to `npx`, which needs the network. A project dependency alone does not build a new worktree; a worktree setup script that installs dependencies first does. A fresh clone has no hooks until its first `metafab build`.
+1. **Git hooks.** With `git-hooks: true` in [`metafab.yaml`](configuration.md), `build` installs Git hooks that run `metafab build` after a branch checkout, a merge, and a rebase. Git shares one hooks directory across every worktree of a clone, so `git worktree add` builds the new worktree too. A new worktree has no `node_modules/` yet, so its hook runs the `metafab` installed in the repository's main worktree. When the main worktree has not installed it either, the hook finds `metafab` on `PATH`, or falls back to `npx`, which needs the network. A fresh clone has no hooks until its first `metafab build`.
 2. **Worktree setup scripts.** Tools that create a worktree and then run a setup script should run `metafab build` in that script. Orca reads `scripts.setup` from a committed `orca.yaml`. `init` suggests this step when it finds `orca.yaml`.
 3. **Agents.** The `AGENTS.md` block and the [built-in `metafab` skill](#built-in-metafab-skill) tell agents to run `metafab build` after they edit `.factory/`.
 
@@ -99,7 +99,7 @@ Metafab owns a hook file when it contains the line `# metafab:start`. It owns th
 
 Every command that runs `build`, including `init`, `import`, and `update`, applies these rules. `build`, `init`, `import` and `update` list each hook they create, update or remove as `+ git hook <name>`, `~ git hook <name>` or `- git hook <name>`, and return them as `hooks` in `--json`. Hooks live in `.git/`, are never committed, and are not reported by `check`.
 
-A hook runs the first `metafab` it finds: `node_modules/.bin/metafab` in the factory root, then `metafab` on `PATH`, then `npx --yes @seasb/metafab@<version>`, where `<version>` is the CLI version that wrote the hook. A hook never fails the Git command that ran it. If the build fails, it prints one line that says to run `metafab build`, and exits 0.
+A hook runs the first `metafab` it finds: `node_modules/.bin/metafab` in the factory root; then the same path in the main worktree, the first entry of `git worktree list --porcelain`; then `metafab` on `PATH`; then `npx --yes @seasb/metafab@<version>`, where `<version>` is the CLI version that wrote the hook. The main worktree's copy may be a different version from the one the checked-out branch depends on. A bare repository has no main worktree, so its linked worktrees skip that step; so does a main worktree whose path contains a newline. A hook never fails the Git command that ran it. If the build fails, it prints one line that says to run `metafab build`, and exits 0.
 
 Example `post-merge`, written by version 1.0.0 for a factory at the repository root:
 
@@ -110,6 +110,7 @@ Example `post-merge`, written by version 1.0.0 for a factory at the repository r
 cd "$(git rev-parse --show-toplevel)/." 2>/dev/null || exit 0
 [ -d .factory ] || exit 0
 if [ -x node_modules/.bin/metafab ]; then node_modules/.bin/metafab build
+elif main=$(git -c core.quotePath=false worktree list --porcelain 2>/dev/null | sed -n '1{s/^worktree //;h;d;};/^bare$/q;g;p;q') && [ -n "$main" ] && [ -x "$main/./node_modules/.bin/metafab" ]; then "$main/./node_modules/.bin/metafab" build
 elif command -v metafab >/dev/null 2>&1; then metafab build
 else npx --yes @seasb/metafab@1.0.0 build
 fi || echo "metafab: build failed. Run metafab build." >&2
