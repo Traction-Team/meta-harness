@@ -76,8 +76,10 @@ A team compiles one factory for each developer's environment: the factory declar
 - [x] [2.014 Preview and authoring guidance](plans/2.014-preview-and-guidance.md): `build --out`, the `metafab` skill's Environments section, the workflow guidance rule
 - [x] [2.016 Prerelease 2.0.0-next.1](plans/2.016-prerelease-next.md): the release workflow publishes a prerelease version under the npm dist-tag `next` and never moves `latest`; `@seasb/metafab@2.0.0-next.1`
 - [x] [2.015 This repository's factory uses environments](plans/2.015-dogfood-environments.md): fab-basic 0.2.0 declares `harness` and `workspace` with partials for sub-agents and workers; this repository updates to it, pins 2.0.0-next.1, and `.agents/setup` selects Amp and orbs
+- [ ] [2.017 Release 2.0.0](plans/2.017-release-2-0-0.md): `@seasb/metafab@2.0.0` under `latest`, so the plain `npx @seasb/metafab` reads format 2 fabs again; an unknown `factory.yaml` field's fix names upgrading Metafab
+- [ ] [2.018 Use metafab 2.0.0](plans/2.018-use-metafab-2.md): fab-basic 0.2.1 runs plain `npx --yes @seasb/metafab`, and this repository depends on `^2.0.0` and updates to it
 
-## Milestone 5: Store (version 2, draft plans)
+## Milestone 5: Store (version 2.1, draft plans)
 
 A team keeps its factory's working documents and scores in a shared store outside Git, with a local mirror for agents. What to build: [Store](specs/store.md) and [Store protocol](specs/store-protocol.md). These plans are drafts awaiting approval.
 
@@ -91,7 +93,6 @@ A team keeps its factory's working documents and scores in a shared store outsid
 - [ ] [2.008 Scorers](plans/2.008-scorers.md): `.factory/scorers/<name>.md`, `scorer list`, `prompt`, `record`
 - [ ] [2.009 Import, hooks and skill](plans/2.009-import-hooks-and-skill.md): `store import` from Git, `post-checkout` pulls new worktrees, the skill's Store section
 - [ ] [2.010 Git backend](plans/2.010-git-backend.md): `backend: git` keeps the store on `refs/metafab/store` in this repository, or on a branch of a separate one; no server and no login
-- [ ] Release 2.0.0 (needs a plan)
 - [ ] This repository keeps plans, intake and changelog in Metastore Cloud, and its workflows run scorers (needs a plan; after Metastore Cloud's first release, built in `seasb/metafab-metastore` from [its draft](specs/next/metastore-cloud.md))
 
 ## Order and parallel work
@@ -126,13 +127,19 @@ A team keeps its factory's working documents and scores in a shared store outsid
 Milestone 4 is a chain: each plan extends the parser, renderer or command the one before it adds. 2.016 publishes `@seasb/metafab@2.0.0-next.1` under the `next` dist-tag once 2.014 has merged; it changes only the release workflow, its tests and the version, so it shares no paths with 2.011 to 2.014. 2.015 also waits for 2.016 (fab-basic 0.2.0 and this repository pin the prerelease), 1.024 (which imports fab-basic, carrying PR #25's Amp flow as hand-written variants; PR #25 merges before 1.024 is built) and 1.025 (whose devDependency 2.015 moves, so the hooks read format 2). 2.015's factory rewrite happens in fab-basic, outside this repository, before its pull request here. 2.011 introduces `format: 2`, so it comes before the store plans too.
 
 ```text
+2.015 + 2.016 + 1.028 ── 2.017 ── v2.0.0 on npm ── 2.018
+```
+
+2.017 releases `main` as 2.0.0 without the store, which follows as 2.1.0 (decided 2026-11-24). 2.018 starts only after the `v2.0.0` release, not stacked on 2.017's branch, because it installs the published package.
+
+```text
 1.012 + 1.023 ── 2.011 ── 2.001 ── 2.002 ──┐
 1.020 ─────────────────────────────────────┴─ 2.003 ── 2.004 ─┬─ 2.005 ── 2.006 ─┬─ 2.009
                                                               ├─ 2.007 ── 2.008 ─┘
                                                               └─ 2.010
 ```
 
-Milestone 5 is mostly a chain, because each plan builds on the model the one before it adds. 2.001 needs only 2.011 from Milestone 4, but it changes the same factory files as 2.012 and 2.013 (`factory-yaml.ts`, `types.ts`, `validate.ts`, `load.ts`), so it never runs beside them; in roadmap order it starts after 2.014. After 2.004 merges, 2.007 shares no paths with 2.005 and 2.006 and can run beside them. 2.003 registers every later command as a stub, so each later plan owns only its own command files. 2.010 touches only backend and configuration code, so it can run beside 2.005 to 2.009. Release 2.0.0 after 2.009 and 2.010.
+Milestone 5 is mostly a chain, because each plan builds on the model the one before it adds. 2.001 needs only 2.011 from Milestone 4, but it changes the same factory files as 2.012 and 2.013 (`factory-yaml.ts`, `types.ts`, `validate.ts`, `load.ts`), so it never runs beside them; in roadmap order it starts after 2.014. After 2.004 merges, 2.007 shares no paths with 2.005 and 2.006 and can run beside them. 2.003 registers every later command as a stub, so each later plan owns only its own command files. 2.010 touches only backend and configuration code, so it can run beside 2.005 to 2.009. Release 2.1.0 after 2.009 and 2.010.
 
 ## Open questions
 
@@ -151,6 +158,7 @@ Record answered questions here with the date and the commit that applied them.
 
 | Date | Decision | Applied in |
 | --- | --- | --- |
+| 2026-11-24 | Release 2.0.0 now with environments and the v1 fixes; the store ships as 2.1.0. 2.0.0's unknown-field fix names upgrading Metafab. The checks in real OpenCode and Claude Code sessions do not gate the release, and the open 1.x intake bugs go to 2.0.x | [2.017](plans/2.017-release-2-0-0.md), [2.018](plans/2.018-use-metafab-2.md) |
 | 2026-11-15 | Approve Plan 2.015 as written, including its proposed decisions. It is built against the unreleased branches first (fab-basic on a branch with a draft pull request, the CLI from its own stacked checkout) so the person can evaluate the environments stack, and it pins `2.0.0-next.1` and fab-basic `^0.2.0` once both are released. Stacked plans are linked as GitHub stacks so a whole stack can merge at once | [2.015](plans/2.015-dogfood-environments.md) |
 | 2026-11-15 | `update` merges frontmatter line by line, as 1.010 shipped. A field-level merge waits until someone files a real conflict | [Sharing](specs/sharing.md), [1.010](plans/1.010-update-diff-detach.md#open-questions) |
 | 2026-11-15 | Duplicate skills: Copilot CLI 1.0.112 lists each skill once, as opencode does. Cursor and VS Code Copilot Chat were not verified in 1.0. No setting to avoid duplicates in v1: a team selects only the targets it uses | [Building](specs/building.md#duplicate-skills), [README](specs/README.md#open-questions), [verification](verification.md#agent-tools) |
