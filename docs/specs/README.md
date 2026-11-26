@@ -1,4 +1,4 @@
-# Metafab v1 specifications
+# Metafab specifications
 
 Metafab records a software factory in a repository. A factory defines how people and agents do work in that repository.
 
@@ -8,6 +8,8 @@ Version 1 has four responsibilities:
 2. Install the factory into supported agent tools.
 3. Validate the factory and its installed files.
 4. Share the factory as a fab: a Git repository by default, or an npm package.
+
+Version 2 adds environments: one factory compiled for each developer's environment, so each agent reads only the instructions that apply to it ([Environments](environments.md)).
 
 Version 1 installs files in the locations supported agent tools read. It does not run workflows, invoke an agent tool, or verify how an agent behaves after loading those files. Runtime execution and monitoring are outside the version 1 product boundary.
 
@@ -22,16 +24,16 @@ The design comes from [Mark IV](../../prototype/mk4/), but v1 excludes its monit
 | [Sharing](sharing.md) | How teams publish, import, update, and detach fabs |
 | [CLI](cli.md) | Commands, JSON output, and exit codes |
 | [Configuration](configuration.md) | Every key in `.factory/metafab.yaml` |
+| [Environments](environments.md) | One factory compiled for each developer's environment: `env` variables, selection from Git config, `when`, `switch` and `import` directives, conditional skills, and `metafab env` |
 
-### Version 2 (draft)
+### Version 2.1 (draft)
 
-These specifications are drafts for approval. They are the acceptance standard for the version 2 plans (`2.xxx`) only. Each plan lists the edits it makes to the version 1 specifications above.
+These specifications are drafts for approval. They serve the version 2.1 store plans, which ship the store after 2.0.0. Each plan lists the edits it makes to the specifications above.
 
 | File | Scope |
 | --- | --- |
 | [Store](store.md) | Documents and scores in a shared store outside Git: document folders and their rules, the mirror, sync, scores, scorers, the remote, git and local backends, and `metafab store` and `metafab scorer` |
 | [Store protocol](store-protocol.md) | The HTTP API a remote store implements, such as Metastore Cloud |
-| [Environments](environments.md) | One factory compiled for each developer's environment: `env` variables, selection from Git config, `when`, `switch` and `import` directives, conditional skills, and `metafab env` |
 
 ## Architecture
 
@@ -108,7 +110,7 @@ Create a factory from a fab:
 ```sh
 cd my-repo
 npx @seasb/metafab import github:Traction-Team/fab-basic --agents claude,codex --setup
-git add .factory AGENTS.md .gitignore .gitattributes opencode.json orca.yaml docs/
+git add .factory .claude/agents AGENTS.md .gitignore .gitattributes opencode.json orca.yaml docs/
 git commit -m "Add the fab-basic factory"
 ```
 
@@ -120,7 +122,7 @@ Update it later:
 npx @seasb/metafab update
 git diff
 npx @seasb/metafab check
-git commit -am "Update the fab-basic factory to 1.3.0"
+git commit -am "Update the fab-basic factory to 0.2.x"
 ```
 
 `update` changes the working tree and prints a review summary. It does not create a commit.
