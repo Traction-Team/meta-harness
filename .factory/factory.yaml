@@ -41,7 +41,7 @@ requires:
     description: Defines the agent-planning sub-agent for Claude Code; when it exists, check it has the tools the workflows need
     template: .factory/templates/setup/claude-agents/agent-planning.md
   - path: orca.yaml
-    description: Runs metafab build in each new Orca worktree; when it exists, add `npx --yes @seasb/metafab@next build` to scripts.setup
+    description: Runs metafab build in each new Orca worktree; when it exists, add `npx --yes @seasb/metafab build` to scripts.setup
     template: .factory/templates/setup/orca.yaml
   - path: docs/roadmap.md
     description: The roadmap prioritise-roadmap writes and start-plan reads; set `roadmap` in docs/factory.md if yours lives elsewhere

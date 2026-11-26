@@ -85,7 +85,7 @@ The repository owns one file, `docs/factory.md`, created on import from `.factor
 | `trunk` | `main` | Branch plans start from and merge into |
 | `verify` | `<set me>` | Command that proves a branch green |
 | `setup` | empty | Command a new worktree runs before its first check; empty means the repository's install command from its README |
-| `metafab` | `npx --yes @seasb/metafab@next` | How to run Metafab here |
+| `metafab` | `npx --yes @seasb/metafab` | How to run Metafab here |
 | `agent` | `opencode` | Agent `start-plan` starts in an Orca worktree; empty uses the harness the person names |
 | `orca-repo` | empty | `--repo` for `orca worktree create`; empty means `git worktree add` |
 | `sub-agent-coding` | `agent-coding` | Sub-agent that builds tasks and fixes |
