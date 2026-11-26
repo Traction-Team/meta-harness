@@ -130,7 +130,7 @@ Milestone 4 is a chain: each plan extends the parser, renderer or command the on
 2.015 + 2.016 + 1.028 ── 2.017 ── v2.0.0 on npm ── 2.018
 ```
 
-2.017 releases `main` as 2.0.0 without the store, which follows as 2.1.0 (decided 2026-11-24). 2.018 starts only after the `v2.0.0` release, not stacked on 2.017's branch, because it installs the published package.
+2.017 releases `main` as 2.0.0 without the store, which follows as 2.1.0 (decided 2026-11-24). 2.018 stays `draft` until `v2.0.0` is on npm, so it is never stacked on 2.017's branch: it installs the published package.
 
 ```text
 1.012 + 1.023 ── 2.011 ── 2.001 ── 2.002 ──┐
