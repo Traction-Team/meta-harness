@@ -31,7 +31,7 @@
     "factory": "npm run build && node dist/cli.js build && git diff --exit-code -- AGENTS.md CLAUDE.md .gitignore .gitattributes && node dist/cli.js check && node .factory/scripts/check.mjs"
   },
   "devDependencies": {
-    "@seasb/metafab": "2.0.0-next.1",
+    "@seasb/metafab": "^2.0.0",
     "@types/node": "^20.19.43",
     "@types/picomatch": "^4.0.3",
     "@types/semver": "^7.8.0",
