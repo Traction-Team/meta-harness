@@ -420,7 +420,7 @@ export function rule6UnknownFactoryField(file: string, key: string, line: number
       message: `Unknown field "${key}" in factory.yaml`,
       fix:
         suggestion ??
-        `Remove the field or use a known name: ${KNOWN_FACTORY_FIELDS.join(", ")}`,
+        `Remove the field or use a known name (${KNOWN_FACTORY_FIELDS.join(", ")}), or upgrade @seasb/metafab if the factory was written for a newer version`,
     },
   ];
 }

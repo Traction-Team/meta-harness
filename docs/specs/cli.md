@@ -23,6 +23,8 @@ The npm package is `@seasb/metafab`. It provides the `metafab` command and requi
 
 Use the scoped package name with `npx` unless the project already installs it. The unscoped `metafab` package is unrelated.
 
+A factory with `format: 2` needs Metafab 2 or later. Metafab 1 refuses a fab whose factory is format 2 at `import` and `update` with exit code 4 (`Unknown factory format 2`), and reports `"format" must be the integer 1` with exit code 1 when `check`, `build` or `publish` reads a repository's own `.factory/factory.yaml` that is format 2; `publish` fails this way because it runs `check` first. Prereleases are published under the npm dist-tag `next` and never under `latest`.
+
 Git is required only for Git-based fab sources, and to read or write an [environment selection](environments.md#selecting-an-environment) in Git config.
 
 ## Command behaviour

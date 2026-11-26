@@ -21,11 +21,11 @@ In a repository, create a factory from a published fab:
 
 ```sh
 npx @seasb/metafab import github:Traction-Team/fab-basic --agents claude,codex --setup
-git add .factory AGENTS.md .gitignore .gitattributes opencode.json orca.yaml docs/
+git add .factory .claude/agents AGENTS.md .gitignore .gitattributes opencode.json orca.yaml docs/
 git commit -m "Add the fab-basic factory"
 ```
 
-`--setup` creates the repository files the fab's workflows need from its templates. If the repository already has a `CLAUDE.md`, stage that too.
+`--setup` creates the repository files the fab's workflows need from its templates, including the Claude Code sub-agents in `.claude/agents/`. If the repository already has a `CLAUDE.md`, stage that too.
 
 Update the factory later:
 
@@ -33,10 +33,33 @@ Update the factory later:
 npx @seasb/metafab update
 git diff
 npx @seasb/metafab check
-git commit -am "Update the fab-basic factory to 1.3.0"
+git commit -am "Update the fab-basic factory to 0.2.x"
 ```
 
 `update` changes the working tree and prints a review summary. It does not create a commit.
+
+## Choosing what agents read
+
+A format 2 factory can compile each instruction for the developer's environment. fab-basic declares two variables: `harness` (`opencode`, `claude` or `amp`) and `workspace` (`orca`, `orb` or `worktree`). Select yours once per repository:
+
+```sh
+npx @seasb/metafab env set harness=claude
+npx @seasb/metafab env set workspace=worktree
+```
+
+`env set` writes `factory.env.<variable>` to the repository's Git config and rebuilds the installed skills, so each agent reads only the variants that apply to it. With nothing selected, every variant is installed, and each block that applies to only some values is labelled with where it applies. See [Environments](https://github.com/Traction-Team/meta-harness/blob/main/docs/specs/environments.md).
+
+## Staying on 1.x
+
+A fab whose factory is format 2 needs Metafab 2 or later; 1.x refuses it at `import` and `update`. On 1.x, import a fab release that is still format 1, such as `github:Traction-Team/fab-basic#semver:^0.1.0`:
+
+```sh
+npx @seasb/metafab@1 import github:Traction-Team/fab-basic#semver:^0.1.0 --agents claude,codex --setup
+```
+
+## Prereleases
+
+`npx @seasb/metafab@next` installs the newest prerelease. Prereleases are published under the `next` npm dist-tag and never under `latest`, so `@next` can be older than `latest` between prereleases: today it is `2.0.0-next.1`.
 
 ## Documentation
 
@@ -46,3 +69,4 @@ git commit -am "Update the fab-basic factory to 1.3.0"
 - [Building](https://github.com/Traction-Team/meta-harness/blob/main/docs/specs/building.md)
 - [Sharing](https://github.com/Traction-Team/meta-harness/blob/main/docs/specs/sharing.md)
 - [Configuration](https://github.com/Traction-Team/meta-harness/blob/main/docs/specs/configuration.md)
+- [Environments](https://github.com/Traction-Team/meta-harness/blob/main/docs/specs/environments.md): variables, selection, conditional blocks and `metafab env`
