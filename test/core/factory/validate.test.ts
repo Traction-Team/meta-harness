@@ -144,7 +144,7 @@ describe("YAML aliases", () => {
         file: FILE,
         line: 3,
         message: 'Unknown field "x-build" in factory.yaml',
-        fix: "Remove the field or use a known name: format, name, description, pipeline, requires, env, skills",
+        fix: "Remove the field or use a known name (format, name, description, pipeline, requires, env, skills), or upgrade @seasb/metafab if the factory was written for a newer version",
       },
     ]);
     expect(result.problems.some((problem) => problem.message.includes("must be a workflow name"))).toBe(
@@ -235,16 +235,30 @@ describe("factory.yaml keys", () => {
 });
 
 describe("fallback fixes", () => {
-  test("reports an unknown field without a suggestion", () => {
-    const result = parse("format: 1\nname: mark4\nzzz: 1\n");
+  test.each(["zzz", "documents"])("reports an unknown field %s without a suggestion", (key) => {
+    const result = parse(`format: 1\nname: mark4\n${key}: 1\n`);
 
     expect(result.problems).toEqual([
       {
         level: "error",
         file: FILE,
         line: 3,
-        message: 'Unknown field "zzz" in factory.yaml',
-        fix: "Remove the field or use a known name: format, name, description, pipeline, requires, env, skills",
+        message: `Unknown field "${key}" in factory.yaml`,
+        fix: "Remove the field or use a known name (format, name, description, pipeline, requires, env, skills), or upgrade @seasb/metafab if the factory was written for a newer version",
+      },
+    ]);
+  });
+
+  test("a likely typo keeps only its did-you-mean fix", () => {
+    const result = parse("format: 1\nname: mark4\nformatt: 1\n");
+
+    expect(result.problems).toEqual([
+      {
+        level: "error",
+        file: FILE,
+        line: 3,
+        message: 'Unknown field "formatt" in factory.yaml',
+        fix: 'Did you mean "format"?',
       },
     ]);
   });

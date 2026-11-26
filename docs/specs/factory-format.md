@@ -201,7 +201,7 @@ Metafab parses YAML as YAML 1.2. YAML documents and skill frontmatter must be ma
 
 Aliases must not expand a document past 100 values. An alias counts as the anchor's use count times the count of the anchor's largest value, where the use count is one for the anchored node plus one for each alias to it. Aliases inside those values count the same way, so counts multiply through a chain of anchors instead of adding: two aliases to an anchor whose largest value counts 2 count 4, not 3. The error names the alias that crosses the limit. An alias that refers to its own anchor is also an error.
 
-`factory.yaml` accepts only `format`, `name`, `description`, `pipeline`, and `requires`, and, with format 2, `env` and `skills`. Unknown fields are errors. Field values have these types:
+`factory.yaml` accepts only `format`, `name`, `description`, `pipeline`, and `requires`, and, with format 2, `env` and `skills`. Unknown fields are errors. The fix names the closest known field when there is one; otherwise it says to remove the field or use a known name, or to upgrade Metafab if the factory was written for a newer version. Field values have these types:
 
 - `format` is the integer `1` or `2`.
 - `name` is a non-empty string that follows the factory name rule above.
