@@ -20,6 +20,52 @@ export function renderDocument(document: MarkdownDocument, context: RenderContex
   return renderNodes(document.nodes, [], context).join("\n");
 }
 
+/**
+ * True when the document renders at least one non-blank text line for the
+ * selection. `renderDocument` adds a `**<label>:**` line before a block that
+ * applies to only some values, even when the block holds only blank lines, so a
+ * document can render something and still have nothing to do. `check`'s
+ * empty-body rule and `prompt` both ask this, so they agree on what empty means.
+ */
+export function rendersContent(document: MarkdownDocument, context: RenderContext): boolean {
+  return hasContent(document.nodes, [], context);
+}
+
+function hasContent(
+  nodes: readonly Node[],
+  enclosing: readonly Condition[],
+  context: RenderContext,
+): boolean {
+  for (const node of nodes) {
+    if (node.kind === "text") {
+      if (node.text.trim() !== "") return true;
+      continue;
+    }
+
+    // An import has no text of its own: its children count in place.
+    if (node.kind === "import") {
+      if (hasContent(node.children, enclosing, context)) return true;
+      continue;
+    }
+
+    if (node.kind === "when") {
+      const applies = classify(node.condition, enclosing, context.selection, context.variables);
+      if (applies.kind === "none") continue;
+      if (hasContent(node.children, [...enclosing, node.condition], context)) return true;
+      continue;
+    }
+
+    for (const branch of node.branches) {
+      const condition = branchCondition(node, branch);
+      const applies = classify(condition, enclosing, context.selection, context.variables);
+      if (applies.kind === "none") continue;
+      if (hasContent(branch.children, [...enclosing, condition], context)) return true;
+    }
+  }
+
+  return false;
+}
+
 function renderNodes(
   nodes: readonly Node[],
   enclosing: readonly Condition[],
