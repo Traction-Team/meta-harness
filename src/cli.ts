@@ -18,6 +18,9 @@ import type { CommandResult } from "./output.js";
 import { normalizeProblemPath } from "./util/fs.js";
 import { didYouMean } from "./util/suggest.js";
 import { cliVersion } from "./util/version.js";
+import { automationsListCommand } from "./commands/automations-list.js";
+import { automationsPromptCommand } from "./commands/automations-prompt.js";
+import { automationsStubCommand } from "./commands/automations-stub.js";
 import { buildCommand } from "./commands/build.js";
 import { checkCommand } from "./commands/check.js";
 import { createCommand } from "./commands/create.js";
@@ -46,6 +49,9 @@ export const COMMANDS: readonly CommandDefinition[] = [
   pipelineRemoveCommand,
   mapCommand,
   checkCommand,
+  automationsListCommand,
+  automationsPromptCommand,
+  automationsStubCommand,
   envCommand,
   envSetCommand,
   envUnsetCommand,
@@ -222,7 +228,7 @@ function helpTarget(
     const name = names[0]!;
     const definition = findCommand(commands, name);
     if (definition !== undefined) return { kind: "command", definition };
-    if (name === "pipeline") return { kind: "group", group: name };
+    if (name === "pipeline" || name === "automations") return { kind: "group", group: name };
   }
   return { kind: "global" };
 }
@@ -253,8 +259,15 @@ function renderHelp(
 }
 
 function emit(result: CommandResult, json: boolean, stdout: Write, stderr: Write): number {
-  const rendered = renderResult(result, { json });
-  stdout(rendered.stdout);
+  // A command that writes text alone (`textOnly`) puts its whole output in
+  // `summary`, and a failure writes nothing to standard output: its problems
+  // go to standard error. The flag is Metafab's, not part of the result.
+  const textOnly = result.textOnly === true;
+  const shown: CommandResult = { ...result };
+  delete shown.textOnly;
+
+  const rendered = renderResult(shown, { json });
+  if (json || !textOnly || result.exitCode === ExitCode.Ok) stdout(rendered.stdout);
   if (rendered.stderr !== "") stderr(rendered.stderr);
   return result.exitCode;
 }
@@ -421,6 +434,25 @@ export async function main(
       consumed = 2;
       candidates = commands
         .filter((command) => command.name.startsWith("pipeline "))
+        .map((command) => command.name);
+    } else if (first === "automations") {
+      const second = tokens[1];
+      if (second === undefined || second === "--json" || second === "--json=true") {
+        return emit(
+          failure(
+            "automations",
+            "The automations command requires a subcommand.",
+            'Run "metafab automations --help" to see its subcommands.',
+          ),
+          failureJson,
+          stdout,
+          stderr,
+        );
+      }
+      requested = `automations ${second}`;
+      consumed = 2;
+      candidates = commands
+        .filter((command) => command.name.startsWith("automations "))
         .map((command) => command.name);
     } else if (first === "env") {
       // Unlike `pipeline`, `env` alone is a command: only `set` and `unset`

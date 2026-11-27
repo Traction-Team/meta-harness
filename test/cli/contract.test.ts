@@ -115,6 +115,27 @@ async function envFactory(): Promise<string> {
   return root;
 }
 
+const AUTOMATION = [
+  "---",
+  'owner: "*"',
+  "triggers:",
+  '  - schedule: { cron: "0 8 * * 1,4", tz: Australia/Sydney }',
+  "---",
+  "",
+  "# intake",
+  "",
+  "Triage the backlog.",
+  "",
+].join("\n");
+
+/** A format 2 factory with one automation, for the `automations` commands. */
+function automationsFactory(): Promise<string> {
+  return newDirectory({
+    ".factory/factory.yaml": "format: 2\nname: contract\n",
+    ".factory/automations/intake/automation.md": AUTOMATION,
+  });
+}
+
 /** A mark4-like repository whose output is built, so `check` and `publish` have something to compare. */
 async function builtMark4(): Promise<string> {
   const root = await mark4();
@@ -241,6 +262,35 @@ const CASES: readonly ContractCase[] = [
       return root;
     },
     exitCode: ExitCode.Failed,
+  },
+  {
+    command: "automations list",
+    name: "a format 2 factory lists its automation",
+    args: ["automations", "list"],
+    prepare: automationsFactory,
+    exitCode: ExitCode.Ok,
+    also: (json) => {
+      expect(Array.isArray(json.automations)).toBe(true);
+    },
+  },
+  {
+    command: "automations prompt",
+    name: "a valid automation prints its prompt",
+    args: ["automations", "prompt", "intake"],
+    prepare: automationsFactory,
+    exitCode: ExitCode.Ok,
+    also: (json) => {
+      expect(typeof json.prompt).toBe("string");
+      expect(json.prompt).toContain("Run the factory automation `intake` unattended.");
+    },
+  },
+  {
+    command: "automations stub",
+    name: "a missing --target without a terminal needs input",
+    args: ["automations", "stub", "intake"],
+    prepare: automationsFactory,
+    exitCode: ExitCode.NeedsInput,
+    required: [{ name: "target", flag: "--target" }],
   },
   {
     command: "env",

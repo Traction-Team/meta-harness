@@ -30,3 +30,9 @@ export interface Automations {
   runFile?: string;
   problems: Problem[];
 }
+
+/** A harness Metafab can register automations in. */
+export type Target = "orca" | "amp";
+
+/** The targets this version supports, in the order help and errors list them. */
+export const TARGETS: readonly Target[] = ["orca", "amp"];
