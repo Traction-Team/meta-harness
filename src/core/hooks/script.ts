@@ -14,10 +14,22 @@ function generatedComment(cliVersion: string): string {
 }
 
 /**
+ * Quotes a value for POSIX `sh`: wraps it in single quotes, and writes each
+ * `'` in it as `'\''`. Names and factory names are already limited to
+ * `[a-z0-9-]`; the trunk and the factory directory are not, so a command that
+ * puts either in one goes through this and stands outside double quotes.
+ */
+export function shQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+/**
  * The `if`/`elif`/`elif`/`else` chain that finds a CLI, one line per branch:
  * the factory root's own dependency, the same path in the main worktree, then
  * `PATH`, then `npx`. `hookScript` joins the lines with newlines and
- * `hookCommand` with `; `, so the two forms never drift.
+ * `hookCommand` with `; `, so the two forms never drift. `mainCli` is shell
+ * text: the hooks put it inside double quotes, and the stub quotes the factory
+ * directory itself.
  *
  * The main-worktree step is lazy: `git worktree list` runs only when the
  * factory root has no dependency of its own. The `sed` script takes the path
@@ -25,8 +37,7 @@ function generatedComment(cliVersion: string): string {
  * repository has `bare` there, so it prints nothing. `[ -n "$main" ]` stops a
  * failed, empty or bare lookup from testing the file system root.
  */
-function cliLookup(factoryRelDir: string, cliVersion: string, args: string): string[] {
-  const mainCli = `"$main/${factoryRelDir}/node_modules/.bin/metafab"`;
+export function metafabInvocation(mainCli: string, cliVersion: string, args: string): string[] {
   const mainWorktree = "sed -n '1{s/^worktree //;h;d;};/^bare$/q;g;p;q'";
 
   return [
@@ -35,6 +46,11 @@ function cliLookup(factoryRelDir: string, cliVersion: string, args: string): str
     `elif command -v metafab >/dev/null 2>&1; then metafab ${args}`,
     `else npx --yes @seasb/metafab@${cliVersion} ${args}`,
   ];
+}
+
+/** The hooks' main-worktree CLI, inside double quotes as the hook text has always had it. */
+function cliLookup(factoryRelDir: string, cliVersion: string, args: string): string[] {
+  return metafabInvocation(`"$main/${factoryRelDir}/node_modules/.bin/metafab"`, cliVersion, args);
 }
 
 /**
