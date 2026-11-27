@@ -145,6 +145,36 @@ describe("metafab automations prompt: errors that stop it", () => {
     expect(result.stdout.startsWith(FIRST)).toBe(true);
   });
 
+  test("a conflict marker in the automation's own body stops the prompt", async () => {
+    const repo = await factoryRepo({
+      ".factory/automations/intake/automation.md":
+        '---\nowner: "*"\ntriggers:\n  - schedule: { cron: "0 8 * * 1,4", tz: Australia/Sydney }\n---\n\n# intake\n\n<<<<<<< HEAD\nTriage.\n=======\nPlan.\n>>>>>>> other\n',
+    });
+
+    const result = await prompt(repo);
+
+    expect(result.code).toBe(ExitCode.Failed);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(".factory/automations/intake/automation.md:9");
+    expect(result.stderr).toContain("Unresolved conflict marker");
+  });
+
+  test("a conflict marker in a partial the body imports stops the prompt", async () => {
+    const repo = await factoryRepo({
+      ".factory/automations/intake/automation.md":
+        '---\nowner: "*"\ntriggers:\n  - schedule: { cron: "0 8 * * 1,4", tz: Australia/Sydney }\n---\n\n# intake\n\n<!-- factory:import ../../partials/broken.md -->\n',
+      ".factory/partials/broken.md":
+        "# Partial\n\n<<<<<<< HEAD\nA\n=======\nB\n>>>>>>> other\n",
+    });
+
+    const result = await prompt(repo);
+
+    expect(result.code).toBe(ExitCode.Failed);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(".factory/partials/broken.md:3");
+    expect(result.stderr).toContain("Unresolved conflict marker");
+  });
+
   test("a loop through the automation stops the prompt", async () => {
     const repo = await factoryRepo({
       ".factory/automations/intake/automation.md":

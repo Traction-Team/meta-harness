@@ -3,7 +3,8 @@ import path from "node:path";
 import { ExitCode, MetafabError } from "../../errors.js";
 import type { Problem } from "../../errors.js";
 import { toLF } from "../../util/text.js";
-import { textContent } from "../build/skill.js";
+import { dedupeReadErrors, textContent } from "../build/skill.js";
+import { scanFactoryFiles } from "../check/markers.js";
 import { parseMarkdown } from "../env/directives.js";
 import type { MarkdownDocument, Node } from "../env/directives.js";
 import { createImportCache } from "../env/imports.js";
@@ -103,13 +104,17 @@ export async function renderPrompt(
  * route the validator reports problems under, the name on the import node, and
  * the realpath name the import cache records, which differ when a symbolic link
  * is on the route.
+ *
+ * `check`'s scanners report what the loader cannot, such as an unresolved
+ * conflict marker, so their problems for the same files stop the prompt too.
  */
 export async function promptProblems(name: string, factory: Factory): Promise<Problem[]> {
   const automation = factory.automations?.list.find((entry) => entry.name === name);
   if (automation === undefined) return [];
 
   const dependencies = await promptDependencies(factory, automation);
-  return factory.problems.filter(
+  const scanned = await scanFactoryFiles(factory.root);
+  return dedupeReadErrors([...factory.problems, ...scanned]).filter(
     (problem) =>
       problem.level === "error" &&
       (dependencies.has(problem.file) || cycleThrough(problem, name)),
