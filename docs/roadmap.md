@@ -79,6 +79,14 @@ A team compiles one factory for each developer's environment: the factory declar
 - [x] [2.017 Release 2.0.0](plans/2.017-release-2-0-0.md): `@seasb/metafab@2.0.0` under `latest`, so the plain `npx @seasb/metafab` reads format 2 fabs again; an unknown `factory.yaml` field's fix names upgrading Metafab
 - [x] [2.018 Use metafab 2.0.0](plans/2.018-use-metafab-2.md): fab-basic 0.2.1 runs plain `npx --yes @seasb/metafab`, and this repository depends on `^2.0.0` and updates to it
 
+## Milestone 4.1: Automations (version 2.x)
+
+A factory declares work that runs on its own, and Metafab registers it in the harness that schedules it, Orca or Amp. Each run's prompt is rendered for its environment when the run starts. What to build: [Automations](specs/automations.md). The design comes from the Dragonfly factory's automations. 2.019 and 2.020 are approved (2026-11-27).
+
+- [ ] [2.019 Automations format and prompt](plans/2.019-automations-format-and-prompt.md): `.factory/automations/`, `run.md`, validation in `check`, `metafab automations list`, `prompt` and `stub`
+- [ ] [2.020 Automations sync](plans/2.020-automations-sync.md): `sync orca` through the Orca CLI, `plan amp` and the built-in `metafab-automations` skill for Amp
+- [ ] fab-basic's `run.md` with a `switch env.harness` for asking, notifying and chaining, its daily `sync-automations` automation, and this repository's first automation (needs a plan; after 2.020)
+
 ## Milestone 5: Store (version 2.1, draft plans)
 
 A team keeps its factory's working documents and scores in a shared store outside Git, with a local mirror for agents. What to build: [Store](specs/store.md) and [Store protocol](specs/store-protocol.md). These plans are drafts awaiting approval.
@@ -133,6 +141,12 @@ Milestone 4 is a chain: each plan extends the parser, renderer or command the on
 2.017 releases `main` as 2.0.0 without the store, which follows as 2.1.0 (decided 2026-11-24). 2.018 stays `draft` until `v2.0.0` is on npm, so it is never stacked on 2.017's branch: it installs the published package.
 
 ```text
+2.019 ── 2.020
+```
+
+Milestone 4.1 builds on the released environments work (2.011 to 2.014) and on 1.028's `cliLookup`, all merged. 2.019 changes `validate.ts`, `load.ts` and `types.ts` in `src/core/factory/`, as 2.001 does, so the two never run side by side; in roadmap order 2.019 goes first.
+
+```text
 1.012 + 1.023 ── 2.011 ── 2.001 ── 2.002 ──┐
 1.020 ─────────────────────────────────────┴─ 2.003 ── 2.004 ─┬─ 2.005 ── 2.006 ─┬─ 2.009
                                                               ├─ 2.007 ── 2.008 ─┘
@@ -158,6 +172,7 @@ Record answered questions here with the date and the commit that applied them.
 
 | Date | Decision | Applied in |
 | --- | --- | --- |
+| 2026-11-27 | Approve the automations direction: a slim `automation.md` (`owner`, `enabled`, `checkout`, `triggers`, prose body), a registered stub that renders the prompt at run time, harness text in `run.md` with env directives, `sync orca` through the Orca CLI, and `plan amp` applied by the built-in `metafab-automations` skill. Planned as 2.019 and 2.020, because 2.017 and 2.018 became the 2.0.0 release | [Automations](specs/automations.md), [2.019](plans/2.019-automations-format-and-prompt.md), [2.020](plans/2.020-automations-sync.md) |
 | 2026-11-24 | Release 2.0.0 now with environments and the v1 fixes; the store ships as 2.1.0. 2.0.0's unknown-field fix names upgrading Metafab. The checks in real OpenCode and Claude Code sessions do not gate the release, and the open 1.x intake bugs go to 2.0.x | [2.017](plans/2.017-release-2-0-0.md), [2.018](plans/2.018-use-metafab-2.md) |
 | 2026-11-15 | Approve Plan 2.015 as written, including its proposed decisions. It is built against the unreleased branches first (fab-basic on a branch with a draft pull request, the CLI from its own stacked checkout) so the person can evaluate the environments stack, and it pins `2.0.0-next.1` and fab-basic `^0.2.0` once both are released. Stacked plans are linked as GitHub stacks so a whole stack can merge at once | [2.015](plans/2.015-dogfood-environments.md) |
 | 2026-11-15 | `update` merges frontmatter line by line, as 1.010 shipped. A field-level merge waits until someone files a real conflict | [Sharing](specs/sharing.md), [1.010](plans/1.010-update-diff-detach.md#open-questions) |
