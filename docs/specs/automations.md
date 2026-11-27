@@ -121,7 +121,7 @@ When this run ends, start each automation that runs after it, as the run instruc
 Run the factory automation `intake` from the `dragonfly` factory.
 
 1. Run `git status --porcelain --untracked-files=all`. If it prints anything or fails, report that this run needs a clean checkout, and stop.
-2. Run `git fetch origin && git switch --detach origin/main`.
+2. Run `git fetch origin && git switch --detach origin/'main'`.
 3. Run `<metafab> automations prompt intake --target amp`. If it fails, report what it printed, and stop. Otherwise follow what it printed: those are this run's instructions.
 ```
 

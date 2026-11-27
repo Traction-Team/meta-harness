@@ -193,6 +193,16 @@ Each problem includes a path, line number, and suggested fix. Errors return exit
 
 See [Sharing a factory](sharing.md) for source handling, merge rules, and publication behaviour.
 
+### Run work on its own
+
+| Command | Behaviour |
+| --- | --- |
+| `metafab automations list [--json]` | Every automation in name order, with its owner, enabled state, checkout, triggers and the automations that run after it |
+| `metafab automations prompt <name> [--target <target>] [--env <variable>=<values>]...` | Prints one run's prompt |
+| `metafab automations stub <name> --target <orca\|amp> [--branch <trunk>]` | Prints the text a target registers |
+
+See [Automations](automations.md) for the files, the prompt, the stub and validation.
+
 ## Configuration
 
 Metafab reads repository settings from `.factory/metafab.yaml`. [Configuration](configuration.md) defines every key.
