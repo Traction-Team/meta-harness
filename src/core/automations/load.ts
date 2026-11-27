@@ -14,7 +14,7 @@ import {
   automationSkillFileProblem,
   parseAutomation,
 } from "./validate.js";
-import type { Automation, Automations } from "./types.js";
+import type { Automation, AutomationBody, Automations } from "./types.js";
 
 const AUTOMATIONS_DIR = "automations";
 
@@ -94,6 +94,7 @@ async function readAutomation(
   target: string,
   name: string,
   problems: Problem[],
+  bodies: AutomationBody[],
 ): Promise<Automation | undefined> {
   const file = automationFile(name);
 
@@ -115,6 +116,7 @@ async function readAutomation(
 
   const result = parseAutomation(name, parsed);
   problems.push(...result.problems);
+  bodies.push(result.body);
   return result.automation;
 }
 
@@ -128,7 +130,7 @@ export async function loadAutomations(
   factoryDir: string,
   factory: Factory,
 ): Promise<Automations> {
-  const result: Automations = { list: [], problems: [] };
+  const result: Automations = { list: [], bodies: [], problems: [] };
   if (factory.factoryYaml?.format !== 2) return result;
 
   const dir = path.join(factoryDir, AUTOMATIONS_DIR);
@@ -151,7 +153,7 @@ export async function loadAutomations(
         if (walk.readable) result.problems.push(automationMissingFileProblem(entry.name));
         continue;
       }
-      const automation = await readAutomation(walk.file, entry.name, result.problems);
+      const automation = await readAutomation(walk.file, entry.name, result.problems, result.bodies);
       if (automation !== undefined) result.list.push(automation);
       continue;
     }

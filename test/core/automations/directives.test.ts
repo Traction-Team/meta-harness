@@ -122,4 +122,37 @@ describe("directives in an automation body", () => {
       fix: "Move the directive below the closing ---; name and description stay the same in every environment",
     });
   });
+
+  test("reports a body directive when the owner is invalid", async () => {
+    const problems = await loadProblems({
+      ".factory/automations/intake/automation.md": [
+        "---",
+        "owner: not-an-email",
+        "triggers:",
+        '  - schedule: { cron: "0 8 * * 1,4", tz: Australia/Sydney }',
+        "---",
+        "",
+        "# intake",
+        "",
+        "<!-- factory:bogus -->",
+        "",
+      ].join("\n"),
+    });
+
+    expect(problems).toContainEqual({
+      level: "error",
+      file: ".factory/automations/intake/automation.md",
+      line: 2,
+      message: '"owner" must be "*" or one email address',
+      fix: 'Set owner: "*" or the email of the account that runs it',
+    });
+    expect(problems).toContainEqual(
+      expect.objectContaining({
+        level: "error",
+        file: ".factory/automations/intake/automation.md",
+        line: 9,
+        message: 'Unknown directive "factory:bogus"',
+      }),
+    );
+  });
 });

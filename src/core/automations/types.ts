@@ -23,9 +23,23 @@ export interface Automation {
   triggersLine: number;
 }
 
+/** Where one `automation.md` body starts, for checking it on its own. */
+export interface AutomationBody {
+  name: string;
+  file: string;
+  /** First body line, for directive problems. */
+  bodyLine: number;
+}
+
 export interface Automations {
   /** Sorted by name. */
   list: Automation[];
+  /**
+   * Every `automation.md` body whose frontmatter parsed, in name order, so its
+   * directives and emptiness are checked even when the frontmatter yields no
+   * runnable automation.
+   */
+  bodies: AutomationBody[];
   /** `.factory/automations/run.md`, when the factory has one. */
   runFile?: string;
   problems: Problem[];

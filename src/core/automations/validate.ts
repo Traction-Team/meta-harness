@@ -7,7 +7,7 @@ import { didYouMean } from "../../util/suggest.js";
 import type { YamlDocument } from "../../util/yaml.js";
 import { MAX_SKILL_NAME_LENGTH, SKILL_NAME_PATTERN, slugify } from "../factory/validate.js";
 import { cronProblem, validTimeZone } from "./cron.js";
-import type { Automation, Trigger } from "./types.js";
+import type { Automation, AutomationBody, Trigger } from "./types.js";
 
 /** The parsed `automation.md` frontmatter, body and all. */
 export type AutomationFrontmatter = Extract<FrontmatterResult, { ok: true }>;
@@ -255,6 +255,8 @@ function parseAfter(
 
 export interface AutomationParse {
   automation?: Automation;
+  /** The body to check on its own, whatever the frontmatter says. */
+  body: AutomationBody;
   problems: Problem[];
 }
 
@@ -263,6 +265,8 @@ export interface AutomationParse {
  * frontmatter, trigger and cron problem. Rules that need the other automations
  * are in `automationProblems`. The automation is returned when its `owner` is
  * valid, so a broken cron or trigger still leaves it a named `after` target.
+ * The body is returned either way, so it is checked even when there is no
+ * runnable automation.
  */
 export function parseAutomation(name: string, parsed: AutomationFrontmatter): AutomationParse {
   const file = automationFile(name);
@@ -478,7 +482,8 @@ export function parseAutomation(name: string, parsed: AutomationFrontmatter): Au
     });
   }
 
-  if (owner === undefined) return { problems };
+  const body: AutomationBody = { name, file, bodyLine: parsed.endLine + 1 };
+  if (owner === undefined) return { body, problems };
 
   return {
     automation: {
@@ -490,9 +495,10 @@ export function parseAutomation(name: string, parsed: AutomationFrontmatter): Au
       checkout,
       triggers,
       body: parsed.body,
-      bodyLine: parsed.endLine + 1,
+      bodyLine: body.bodyLine,
       triggersLine: keyLine("triggers"),
     },
+    body,
     problems,
   };
 }

@@ -147,17 +147,19 @@ export async function environmentProblems(factory: Factory): Promise<Problem[]> 
       }
     }
 
-    for (const automation of automations.list) {
+    // Every parsed body is checked, including one whose frontmatter has no
+    // valid owner and so yields no runnable automation.
+    for (const body of automations.bodies) {
       const text = await readMarkdown(
-        path.join(factory.dir, "automations", automation.name, "automation.md"),
-        automation.file,
+        path.join(factory.dir, "automations", body.name, "automation.md"),
+        body.file,
         problems,
       );
       if (text === undefined) continue;
 
       const document = await checkFile(
-        automation.file,
-        `automations/${automation.name}/automation.md`,
+        body.file,
+        `automations/${body.name}/automation.md`,
         text,
         true,
       );
@@ -168,9 +170,9 @@ export async function environmentProblems(factory: Factory): Promise<Problem[]> 
       if (!rendersContent(document, { variables, selection: allValues(variables) })) {
         problems.push({
           level: "error",
-          file: automation.file,
-          line: automation.bodyLine,
-          message: `The body of ${automation.name} is empty`,
+          file: body.file,
+          line: body.bodyLine,
+          message: `The body of ${body.name} is empty`,
           fix: "Write what the run does in the body, below the frontmatter",
         });
       }

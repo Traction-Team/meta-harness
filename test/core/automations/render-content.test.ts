@@ -190,4 +190,23 @@ describe("check's empty-body rule", () => {
 
     expect(problems).toEqual([]);
   });
+
+  test("reports an empty body when the frontmatter has no valid owner", async () => {
+    const problems = await checkProblems({
+      ".factory/automations/intake/automation.md": lines(
+        "---",
+        "description: Only a description",
+        "---",
+        "",
+      ),
+    });
+
+    expect(errorsOf(problems)).toContainEqual({
+      level: "error",
+      file: ".factory/automations/intake/automation.md",
+      line: 4,
+      message: "The body of intake is empty",
+      fix: "Write what the run does in the body, below the frontmatter",
+    });
+  });
 });
