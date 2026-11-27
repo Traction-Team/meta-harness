@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
-import { defaultTrunk, renderStub } from "../../../src/core/automations/index.js";
+import { defaultTrunk, relativeFactoryDir, renderStub } from "../../../src/core/automations/index.js";
 import type { Automation, Target } from "../../../src/core/automations/index.js";
 import { runGit } from "../../../src/util/git.js";
 import { buildCli } from "../../cli/build.js";
@@ -301,5 +301,22 @@ describe("defaultTrunk", () => {
     containers.push(container);
 
     expect(await defaultTrunk(container)).toBeUndefined();
+  });
+});
+
+describe("relativeFactoryDir", () => {
+  test("keeps the whitespace in the factory directory's name", async () => {
+    const directory = " fab ";
+    const { clone } = await cloneWithOrigin({
+      [`${directory}/.factory/factory.yaml`]: FACTORY,
+    });
+
+    expect(await relativeFactoryDir(path.join(clone, directory))).toBe(directory);
+  });
+
+  test("is . at the repository root", async () => {
+    const { clone } = await cloneWithOrigin({ "README.md": "hello\n" });
+
+    expect(await relativeFactoryDir(clone)).toBe(".");
   });
 });

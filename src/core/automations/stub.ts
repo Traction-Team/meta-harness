@@ -1,4 +1,5 @@
 import { runGit } from "../../util/git.js";
+import { toLF } from "../../util/text.js";
 import { metafabInvocation, shQuote } from "../hooks/script.js";
 import type { Automation, Target } from "./types.js";
 
@@ -91,6 +92,9 @@ export async function relativeFactoryDir(root: string): Promise<string> {
     return ".";
   }
 
-  const prefix = stdout.trim().replace(/\/+$/, "");
+  // Remove only what Git adds: the terminating newline, and the separator after
+  // the last directory. Trimming would eat a leading space in the directory's
+  // own name.
+  const prefix = toLF(stdout).replace(/\n$/, "").replace(/\/+$/, "");
   return prefix === "" ? "." : prefix;
 }
