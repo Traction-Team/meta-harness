@@ -41,9 +41,9 @@ export function afterOf(name: string, list: readonly Automation[]): string[] {
 
 /**
  * The text of one run, as the spec's The prompt says: the fixed first line, the
- * rendered run instructions when the factory has them, the rendered body, and
- * the line naming the automations that start when this run ends. It ends with
- * one newline.
+ * rendered run instructions when the factory has them, the automation's name as
+ * a heading with the rendered body directly below it, and the line naming the
+ * automations that start when this run ends. It ends with one newline.
  *
  * A selection that leaves the body with no text is an error: the run has
  * nothing to do, and the caller reports it as `has nothing to do in this
@@ -82,7 +82,10 @@ export async function renderPrompt(
   ];
   const run = section(runText);
   if (run !== "") sections.push(run);
-  sections.push(section(renderDocument(body, { variables, selection })));
+  // The template puts the name on its own line directly above the body, so the
+  // body's leading blank lines are trimmed rather than kept.
+  const text = section(renderDocument(body, { variables, selection }));
+  sections.push(`# ${automation.name}\n${text}`);
 
   if (after.length > 0) {
     const names = after.map((name) => `\`${name}\``).join(", ");

@@ -16,7 +16,8 @@ const FIXTURE = fileURLToPath(new URL("../../fixtures/automations/prompt/", impo
 const FIRST = "Run the factory automation `intake` unattended. Nobody is watching this session.";
 const AFTER =
   "When this run ends, start each automation that runs after it, as the run instructions say: `plan-intake`.";
-const BODY = "# intake\n\nTriage the intake backlog with the `file-work` workflow's rules.";
+/** The body section: the automation's name as a heading, then the body itself. */
+const BODY = "# intake\nTriage the intake backlog with the `file-work` workflow's rules.";
 
 const RUN_AMP =
   "# Run instructions\n\nIn Amp, ask with the `ask_user_choice` tool, and notify with `notify_user`.";
@@ -155,6 +156,20 @@ describe("metafab automations prompt", () => {
 
     expect(result.code, result.stderr).toBe(ExitCode.Ok);
     expect(result.stdout).toBe([FIRST, RUN_AMP, BODY].join("\n\n") + "\n");
+  });
+
+  test("puts the name above a body that has no heading of its own", async () => {
+    const repo = await promptRepo({
+      ".factory/automations/intake/automation.md":
+        '---\ndescription: Triage the intake backlog\nowner: "*"\ntriggers:\n  - schedule: { cron: "0 8 * * 1,4", tz: Australia/Sydney }\n---\n\nRead docs/intake and triage each note.\n',
+    });
+
+    const result = await prompt(repo, ["--env", "harness=amp"]);
+
+    expect(result.code, result.stderr).toBe(ExitCode.Ok);
+    expect(result.stdout).toBe(
+      [FIRST, RUN_AMP, "# intake\nRead docs/intake and triage each note.", AFTER].join("\n\n") + "\n",
+    );
   });
 
   test("a selection that empties the body exits 1 with nothing on stdout", async () => {
