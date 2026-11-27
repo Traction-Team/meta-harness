@@ -119,6 +119,20 @@ describe("metafab automations prompt: errors that stop it", () => {
 
   test("an error in an automation on its after line stops the prompt", async () => {
     const repo = await factoryRepo({
+      ".factory/automations/follower/automation.md":
+        '---\nowner: "*"\ntriggers:\n  - after: [intake]\n---\n\n# follower\n\n<!-- factory:when env.harness == amp -->\nAsk first.\n',
+    });
+
+    const result = await prompt(repo);
+
+    expect(result.code).toBe(ExitCode.Failed);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(".factory/automations/follower/automation.md:9");
+    expect(result.stderr).toContain("never closed");
+  });
+
+  test("an error in an automation this one runs after does not stop the prompt", async () => {
+    const repo = await factoryRepo({
       ".factory/automations/intake/automation.md":
         '---\nowner: "*"\ntriggers:\n  - after: [parent]\n---\n\n# intake\n\nTriage.\n',
       ".factory/automations/parent/automation.md":
@@ -127,10 +141,8 @@ describe("metafab automations prompt: errors that stop it", () => {
 
     const result = await prompt(repo);
 
-    expect(result.code).toBe(ExitCode.Failed);
-    expect(result.stdout).toBe("");
-    expect(result.stderr).toContain(".factory/automations/parent/automation.md:4");
-    expect(result.stderr).toContain("99 is outside 0-59");
+    expect(result.code, result.stderr).toBe(ExitCode.Ok);
+    expect(result.stdout.startsWith(FIRST)).toBe(true);
   });
 
   test("a loop through the automation stops the prompt", async () => {

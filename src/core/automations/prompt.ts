@@ -13,6 +13,7 @@ import { renderDocument, rendersContent } from "../env/render.js";
 import type { EnvSelection, EnvVariable } from "../env/types.js";
 import type { Factory } from "../factory/types.js";
 import type { Automation } from "./types.js";
+import { automationFile } from "./validate.js";
 
 /** The prompt's fixed first line, and the last line when a run follows. */
 const FIRST_LINE = "Run the factory automation";
@@ -96,11 +97,12 @@ export async function renderPrompt(
  * ignored, so one broken automation never stops another run.
  *
  * The dependency set is the automation's own file, `run.md`, the automation.md
- * of each name on its `after` line, and every file reached by an import while
- * the body or `run.md` is rendered. An imported file is kept under every name
- * it is known by: the route the validator reports problems under, the name on
- * the import node, and the realpath name the import cache records, which differ
- * when a symbolic link is on the route.
+ * of each enabled automation on its after line (the ones the prompt tells the
+ * run to start), and every file reached by an import while the body or `run.md`
+ * is rendered. An imported file is kept under every name it is known by: the
+ * route the validator reports problems under, the name on the import node, and
+ * the realpath name the import cache records, which differ when a symbolic link
+ * is on the route.
  */
 export async function promptProblems(name: string, factory: Factory): Promise<Problem[]> {
   const automation = factory.automations?.list.find((entry) => entry.name === name);
@@ -129,13 +131,11 @@ async function promptDependencies(
   if (automations === undefined) return dependencies;
   if (automations.runFile !== undefined) dependencies.add(automations.runFile);
 
-  const byName = new Map(automations.list.map((entry) => [entry.name, entry]));
-  for (const trigger of automation.triggers) {
-    if (trigger.kind !== "after") continue;
-    for (const name of trigger.names) {
-      const parent = byName.get(name);
-      if (parent !== undefined) dependencies.add(parent.file);
-    }
+  // The after line names the automations that start when this run ends, so
+  // those are the automation.md files the prompt depends on: not the ones this
+  // automation itself runs after.
+  for (const name of afterOf(automation.name, automations.list)) {
+    dependencies.add(automationFile(name));
   }
 
   const variables = factory.factoryYaml?.env ?? [];
