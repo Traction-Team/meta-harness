@@ -25,9 +25,11 @@ export const RESERVED_CONTAINERS = [
   "rules",
   "runtimes",
 ] as const;
+/** Directories a format 2 factory gives its own meaning; `create` refuses them. */
+export const FORMAT_2_RESERVED = ["automations"] as const;
 
-const MAX_SKILL_NAME_LENGTH = 64;
-const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+export const MAX_SKILL_NAME_LENGTH = 64;
+export const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const FACTORY_NAME_PATTERN = /^[a-z0-9-]+$/;
 const YAML_INTEGER_PATTERN = /^(?:[-+]?[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+)$/;
 const RESERVED_PREFIX = "metafab";

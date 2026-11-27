@@ -1,5 +1,6 @@
 import type { Document } from "yaml";
 import type { Problem } from "../../errors.js";
+import type { Automations } from "../automations/types.js";
 import type { Condition } from "../env/condition.js";
 import type { EnvVariable } from "../env/types.js";
 
@@ -9,6 +10,8 @@ export interface Factory {
   factoryYaml?: FactoryYaml;
   agentsMd?: string;
   skills: Skill[];
+  /** Format 2: what `.factory/automations/` holds; absent in format 1. */
+  automations?: Automations;
   problems: Problem[];
 }
 

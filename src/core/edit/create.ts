@@ -1,11 +1,12 @@
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { MetafabError } from "../../errors.js";
 import type { ErrorProblem, Problem } from "../../errors.js";
 import { readdirTyped } from "../../util/fs.js";
 import { isSingleLine } from "../../util/text.js";
 import { discoverSkills } from "../factory/discovery.js";
-import { RESERVED_CONTAINERS, skillFile } from "../factory/validate.js";
+import { parseFactoryYaml } from "../factory/factory-yaml.js";
+import { FORMAT_2_RESERVED, RESERVED_CONTAINERS, skillFile } from "../factory/validate.js";
 import { writeTextAtomically } from "./files.js";
 import { normaliseCreatePath } from "./paths.js";
 import { skillFileText } from "./skill.js";
@@ -34,6 +35,17 @@ function createError(code: string, message: string, problems: Problem[]): Metafa
 
 function isReservedContainerRelDir(relDir: string): boolean {
   return !relDir.includes("/") && (RESERVED_CONTAINERS as readonly string[]).includes(relDir);
+}
+
+/** The format `factory.yaml` declares; a factory without a valid one is format 1. */
+async function factoryFormat(factoryDir: string): Promise<1 | 2> {
+  let text: string;
+  try {
+    text = await readFile(path.join(factoryDir, "factory.yaml"), "utf8");
+  } catch {
+    return 1;
+  }
+  return parseFactoryYaml(text, ".factory/factory.yaml").yaml?.format ?? 1;
 }
 
 function factoryPath(relDir: string): string {
@@ -92,6 +104,22 @@ export async function planCreate(root: string, input: string): Promise<CreatePla
   const file = `.factory/${resolved.relDir}/SKILL.md`;
 
   const first = resolved.segments[0];
+  const format = await factoryFormat(factoryDir);
+  if (
+    format === 2 &&
+    first !== undefined &&
+    (FORMAT_2_RESERVED as readonly string[]).includes(first)
+  ) {
+    const message = "automations/ holds automations, not skills";
+    throw createError("create-reserved-path", message, [
+      problem(
+        ".factory/automations",
+        message,
+        "Create .factory/automations/<name>/automation.md by hand",
+      ),
+    ]);
+  }
+
   if (resolved.segments.length === 1 && first !== undefined && isReservedContainerRelDir(first)) {
     const message = `The path "${input}" is a reserved directory and cannot be a skill.`;
     throw createError("create-reserved-path", message, [
@@ -147,7 +175,7 @@ export async function planCreate(root: string, input: string): Promise<CreatePla
     ]);
   }
 
-  const discovery = await discoverSkills(root);
+  const discovery = await discoverSkills(root, format);
   const clash = discovery.skills.find(
     (skill) => skill.name === resolved.name || skill.frontmatter.name === resolved.name,
   );

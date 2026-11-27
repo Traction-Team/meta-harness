@@ -2,10 +2,13 @@ import { chmod, mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
+import { planBuild } from "../../../src/core/build/index.js";
+import { loadConfig } from "../../../src/core/config/load.js";
 import { findSkill, loadFactory, workflows } from "../../../src/core/factory/index.js";
 import { makeRepo } from "../../helpers/makeRepo.js";
 
 const FIXTURES = fileURLToPath(new URL("../../fixtures/factories/", import.meta.url));
+const AUTOMATION_FIXTURES = fileURLToPath(new URL("../../fixtures/automations/", import.meta.url));
 
 const SKILL = `---
 name: demo
@@ -448,6 +451,58 @@ describe("loadFactory filesystem errors", () => {
           fix: "Replace it with a regular file",
         },
       ]);
+    } finally {
+      await repo.cleanup();
+    }
+  });
+});
+
+describe("automations", () => {
+  test("a format 1 factory keeps skills below automations/ and warns once", async () => {
+    const factory = await loadFactory(path.join(AUTOMATION_FIXTURES, "format-1"));
+
+    expect(factory.automations).toBeUndefined();
+    expect(factory.skills.map((skill) => skill.name)).toEqual(["foo"]);
+    expect(factory.problems).toEqual([
+      {
+        level: "warning",
+        file: ".factory/automations",
+        line: 1,
+        message: ".factory/automations/ needs format: 2",
+        fix: "Set format: 2 in .factory/factory.yaml",
+      },
+    ]);
+  });
+
+  test("a format 1 factory installs a skill below automations/", async () => {
+    const factory = await loadFactory(path.join(AUTOMATION_FIXTURES, "format-1"));
+    const config = await loadConfig(factory.dir);
+    const plan = await planBuild(factory, config, "2.0.0");
+
+    expect(plan.writes.map((write) => write.path)).toEqual(
+      expect.arrayContaining([".claude/skills/foo/SKILL.md", ".agents/skills/foo/SKILL.md"]),
+    );
+  });
+
+  test("a format 2 factory does not discover a skill below automations/", async () => {
+    const factory = await loadFactory(path.join(AUTOMATION_FIXTURES, "skill-below"));
+
+    expect(factory.skills).toEqual([]);
+    expect(factory.problems.map((problem) => problem.message)).toEqual([
+      "SKILL.md is not allowed below .factory/automations/",
+    ]);
+    expect(factory.automations?.list.map((automation) => automation.name)).toEqual(["intake"]);
+  });
+
+  test("a format 1 factory with an empty automations/ gets no warning", async () => {
+    const repo = await makeRepo({
+      ".factory/factory.yaml": "format: 1\nname: demo\n",
+      ".factory/automations/.gitkeep": "",
+    });
+    try {
+      const factory = await loadFactory(repo.root);
+
+      expect(factory.problems).toEqual([]);
     } finally {
       await repo.cleanup();
     }

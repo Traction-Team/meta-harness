@@ -102,7 +102,10 @@ async function loadSkill(
   return skill;
 }
 
-export async function discoverSkills(root: string): Promise<DiscoveryResult> {
+export async function discoverSkills(
+  root: string,
+  format: 1 | 2 = 1,
+): Promise<DiscoveryResult> {
   const result: DiscoveryResult = { skills: [], problems: [], skipped: [] };
   const factoryDir = path.join(root, ".factory");
 
@@ -154,6 +157,10 @@ export async function discoverSkills(root: string): Promise<DiscoveryResult> {
 
     for (const entry of entries) {
       if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+      // In format 2, `automations/` holds automations, never skills, and the
+      // automations loader reports a SKILL.md below it. Format 1 keeps
+      // discovering skills there.
+      if (format === 2 && relDir === "" && entry.name === "automations") continue;
       const childRelDir = relDir === "" ? entry.name : `${relDir}/${entry.name}`;
       const childParentSkill = hasSkill && relDir !== "" && !isReservedContainer ? relDir : parentSkill;
       await walk(path.join(dir, entry.name), childRelDir, childParentSkill);

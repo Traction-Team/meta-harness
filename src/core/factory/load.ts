@@ -1,8 +1,9 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import type { Problem } from "../../errors.js";
-import { normalizeProblemPath } from "../../util/fs.js";
+import { normalizeProblemPath, readdirTyped } from "../../util/fs.js";
 import { toLF } from "../../util/text.js";
+import { loadAutomations } from "../automations/load.js";
 import { environmentProblems } from "../env/validate.js";
 import { discoverSkills } from "./discovery.js";
 import { parseFactoryYaml } from "./factory-yaml.js";
@@ -54,7 +55,18 @@ export async function loadFactory(root: string): Promise<Factory> {
   const dir = path.join(absoluteRoot, ".factory");
   const factory: Factory = { root: absoluteRoot, dir, skills: [], problems: [] };
 
-  const discovery = await discoverSkills(absoluteRoot);
+  // `factory.yaml` is read first because its format decides whether discovery
+  // skips `automations/`. Its problems are reported below in the order this
+  // function has always used.
+  const factoryFile = normalizeProblemPath(path.join(dir, "factory.yaml"), absoluteRoot);
+  const factoryYamlText = await readTextFile(path.join(dir, "factory.yaml"), factoryFile);
+  const parsedYaml =
+    factoryYamlText.text === undefined
+      ? undefined
+      : parseFactoryYaml(factoryYamlText.text, factoryFile);
+  const format = parsedYaml?.yaml?.format ?? 1;
+
+  const discovery = await discoverSkills(absoluteRoot, format);
   factory.skills = discovery.skills;
   factory.problems.push(...discovery.problems);
 
@@ -63,26 +75,48 @@ export async function loadFactory(root: string): Promise<Factory> {
   if (agentsMd.problem !== undefined) factory.problems.push(agentsMd.problem);
   if (agentsMd.text !== undefined) factory.agentsMd = toLF(agentsMd.text);
 
-  const factoryFile = normalizeProblemPath(path.join(dir, "factory.yaml"), absoluteRoot);
-  const factoryYamlText = await readTextFile(path.join(dir, "factory.yaml"), factoryFile);
   if (factoryYamlText.problem !== undefined) factory.problems.push(factoryYamlText.problem);
-  if (factoryYamlText.text !== undefined) {
-    const parsed = parseFactoryYaml(factoryYamlText.text, factoryFile);
-    if (parsed.yaml !== undefined) factory.factoryYaml = parsed.yaml;
-    factory.problems.push(...parsed.problems);
-    if (parsed.yaml === undefined && parsed.pipeline !== undefined) {
-      factory.problems.push(...rule8PipelineWorkflows(parsed.pipeline, factory.skills));
+  if (parsedYaml !== undefined) {
+    if (parsedYaml.yaml !== undefined) factory.factoryYaml = parsedYaml.yaml;
+    factory.problems.push(...parsedYaml.problems);
+    if (parsedYaml.yaml === undefined && parsedYaml.pipeline !== undefined) {
+      factory.problems.push(...rule8PipelineWorkflows(parsedYaml.pipeline, factory.skills));
     }
-    if (parsed.requires !== undefined) {
+    if (parsedYaml.requires !== undefined) {
       factory.problems.push(
-        ...(await requirementTemplateProblems(factory, parsed.requires, factoryFile)),
+        ...(await requirementTemplateProblems(factory, parsedYaml.requires, factoryFile)),
       );
     }
   }
 
   factory.problems.push(...validateFactory(factory));
+
+  if (format === 2) {
+    factory.automations = await loadAutomations(dir, factory);
+    factory.problems.push(...factory.automations.problems);
+  } else if (await hasAutomations(dir)) {
+    factory.problems.push({
+      level: "warning",
+      file: ".factory/automations",
+      line: 1,
+      message: ".factory/automations/ needs format: 2",
+      fix: "Set format: 2 in .factory/factory.yaml",
+    });
+  }
+
   factory.problems.push(...(await environmentProblems(factory)));
   return factory;
+}
+
+/** True when `.factory/automations/` holds anything but dot entries. */
+async function hasAutomations(factoryDir: string): Promise<boolean> {
+  try {
+    const entries = await readdirTyped(path.join(factoryDir, "automations"));
+    return entries.some((entry) => !entry.name.startsWith("."));
+  } catch {
+    // An unreadable directory is discovery's error to report.
+    return false;
+  }
 }
 
 export function findSkill(factory: Factory, name: string): Skill | undefined {
