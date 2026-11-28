@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { ExitCode } from "../../src/errors.js";
 import { runGit } from "../../src/util/git.js";
 import { isolateGitConfig } from "../core/hooks/helpers.js";
-import { makeRepo } from "../helpers/makeRepo.js";
+import { makeRepo, writeRepoFiles } from "../helpers/makeRepo.js";
 import type { TempRepo } from "../helpers/makeRepo.js";
 import { runCli } from "../helpers/runCli.js";
 import type { RunCliResult } from "../helpers/runCli.js";
@@ -186,6 +186,46 @@ describe("metafab automations sync orca", () => {
       const afterSecond = await fake.read();
       expect(afterSecond.calls.length).toBe(callsAfterFirst + 1);
       expect(afterSecond.calls.at(-1)!.args.slice(0, 2)).toEqual(["automations", "list"]);
+    },
+  );
+
+  test.skipIf(process.platform === "win32")(
+    "writes nothing when a partial an automation imports has an error",
+    async () => {
+      const repo = await syncRepo();
+      await writeRepoFiles(repo.root, {
+        ".factory/partials/broken.md": "<!-- factory:when env.nope == amp -->\nAsk first.\n",
+        ".factory/automations/intake/automation.md": [
+          "---",
+          'owner: "*"',
+          "triggers:",
+          '  - schedule: { cron: "0 8 * * 1,4", tz: Australia/Sydney }',
+          "---",
+          "",
+          "Triage the backlog.",
+          "",
+          "<!-- factory:import ../../partials/broken.md -->",
+          "",
+        ].join("\n"),
+      });
+      const fake = await installFakeOrca();
+
+      const result = await run(repo, [
+        "automations",
+        "sync",
+        "orca",
+        "--agent",
+        "opencode",
+        "--branch",
+        "main",
+      ]);
+
+      expect(result.code).toBe(ExitCode.Failed);
+      expect(result.stderr).toContain(".factory/partials/broken.md:1");
+      expect(result.stderr).toContain('Condition names unknown variable "nope"');
+      const state = await fake.read();
+      expect(state.automations).toEqual([]);
+      expect(state.calls.filter((call) => call.args[1] !== "list")).toEqual([]);
     },
   );
 

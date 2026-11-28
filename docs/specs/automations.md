@@ -149,7 +149,7 @@ A registration is **managed** when its title is `automation: <name>`, its prompt
 
 Every sync:
 
-1. Reads the desired set from the files in the current checkout. If any automation has an error, sync changes nothing and exits 1 with the errors.
+1. Reads the desired set from the files in the current checkout. If any automation has an error, including an error in a file its prompt depends on (as [The prompt](#the-prompt) lists them), sync changes nothing and exits 1 with the errors.
 2. Refuses, changing nothing, when an automation in the set cannot be expressed in the target, naming the automation and the reason (exit 1).
 3. Keeps the oldest of two managed registrations with the same title and removes the others.
 4. Creates a registration for each entry that has none, updates each one that differs, and handles each managed registration that has no entry (see each target).

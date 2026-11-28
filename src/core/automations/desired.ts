@@ -1,8 +1,10 @@
 import { ExitCode, MetafabError } from "../../errors.js";
+import type { Problem } from "../../errors.js";
 import { toLF } from "../../util/text.js";
 import { cliVersion } from "../../util/version.js";
 import type { Factory } from "../factory/types.js";
 import { automationErrors } from "./problems.js";
+import { promptProblems } from "./prompt.js";
 import { relativeFactoryDir, renderStub, stubMarker } from "./stub.js";
 import type { Automation, Target } from "./types.js";
 
@@ -28,10 +30,31 @@ function scheduleOf(automation: Automation): { cron: string; tz: string } | unde
 }
 
 /**
+ * Every problem that stops a sync: the errors in `.factory/automations/`, plus
+ * the dependency errors that stop a prompt for an automation, such as an error
+ * in `run.md` or in a partial either of them imports. A file that several
+ * automations depend on reports each of its problems once.
+ */
+async function syncProblems(factory: Factory): Promise<Problem[]> {
+  const problems = automationErrors(factory);
+  for (const automation of factory.automations?.list ?? []) {
+    problems.push(...(await promptProblems(automation.name, factory)));
+  }
+
+  const seen = new Set<string>();
+  return problems.filter((problem) => {
+    const key = `${problem.file}\u0000${problem.line ?? 0}\u0000${problem.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
  * The set a target's sync makes the target match: one entry per enabled
  * automation with a schedule trigger, owned by `account` or `"*"`, in name
- * order. Any error in `.factory/automations/` stops it before the target is
- * touched.
+ * order. Any automation error, including one in a file its prompt depends on,
+ * stops it before the target is touched.
  */
 export async function desiredSet(
   factory: Factory,
@@ -39,7 +62,7 @@ export async function desiredSet(
   account: string,
   trunk: string,
 ): Promise<DesiredEntry[]> {
-  const problems = automationErrors(factory);
+  const problems = await syncProblems(factory);
   if (problems.length > 0) {
     throw new MetafabError("The automations have errors", {
       exitCode: ExitCode.Failed,
