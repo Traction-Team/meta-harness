@@ -1,0 +1,748 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Metafab monitor · menu bar prototype</title>
+<style>
+:root {
+	--bg: #04070c; --cy: #3df2ff; --am: #ffb648; --gr: #6dffa0; --rd: #ff5d73;
+	--fg: #d8f3ff; --mu: #6a8199; --mu2: #8aa2b8; --line: rgba(61, 242, 255, .2);
+	--panel: rgba(5, 12, 20, .82);
+	--mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #0e1424;
+	font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Inter, sans-serif; }
+button { font: inherit; color: inherit; }
+
+/* ---------- the fake Mac ---------- */
+#desk { position: fixed; inset: 0;
+	background:
+		radial-gradient(1100px 760px at 18% 8%, rgba(120, 82, 220, .75), transparent 62%),
+		radial-gradient(900px 700px at 88% 92%, rgba(26, 128, 160, .7), transparent 60%),
+		radial-gradient(700px 500px at 60% 40%, rgba(220, 90, 150, .25), transparent 70%),
+		linear-gradient(135deg, #1b1442, #0e2238 60%, #0a1a2a); }
+#menubar { position: absolute; top: 0; left: 0; right: 0; height: 26px; z-index: 30; display: flex; align-items: center; gap: 18px;
+	padding: 0 12px 0 16px; color: #fff; font-size: 13px; background: rgba(18, 16, 34, .42); backdrop-filter: blur(22px) saturate(1.7);
+	box-shadow: 0 .5px 0 rgba(255,255,255,.08); user-select: none; }
+#menubar b { font-weight: 600; }
+#menubar .sp { flex: 1; }
+#menubar .sys { opacity: .92; display: flex; align-items: center; }
+#mbi { all: unset; display: flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 5px; font-size: 12.5px; font-variant-numeric: tabular-nums; cursor: default; }
+#mbi:hover, #mbi.on { background: rgba(255,255,255,.22); }
+#mbi .g { width: 15px; height: 15px; display: grid; place-items: center; border: 1.5px solid #fff; border-radius: 4px; font-size: 9px; line-height: 1; }
+#mbd { width: 6px; height: 6px; border-radius: 50%; background: var(--am); box-shadow: 0 0 6px var(--am); display: none; }
+.win { position: absolute; left: 3.5%; top: 58px; width: 57%; height: 76%; border-radius: 11px; overflow: hidden; background: #1d1e23;
+	box-shadow: 0 0 0 .5px rgba(255,255,255,.16), 0 24px 70px rgba(0,0,0,.55); display: grid; grid-template-rows: 32px 1fr; }
+.win .tb { display: flex; align-items: center; gap: 12px; padding: 0 12px; background: #27282e; color: #9aa0a6; font-size: 12px; }
+.win .tb .t { flex: 1; text-align: center; margin-right: 52px; }
+.lights { display: flex; gap: 8px; } .lights i { width: 12px; height: 12px; border-radius: 50%; }
+.win .bd { display: grid; grid-template-columns: 190px 1fr; min-height: 0; }
+.tree { background: #212227; padding: 12px 14px; color: #8b9097; font-size: 12px; line-height: 22px; }
+.tree .on { color: #e6e6e6; background: #34363e; margin: 0 -14px; padding: 0 14px; }
+.code { padding: 14px 0; font: 12px/20px var(--mono); overflow: hidden; }
+.code .ln { display: flex; align-items: center; gap: 6px; height: 20px; }
+.code .no { width: 40px; text-align: right; color: #4b4f57; padding-right: 10px; }
+.code i { height: 7px; border-radius: 3px; opacity: .75; }
+#dock { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; padding: 7px 9px; border-radius: 18px;
+	background: rgba(255,255,255,.14); backdrop-filter: blur(20px); box-shadow: 0 0 0 .5px rgba(255,255,255,.25); }
+#dock i { width: 46px; height: 46px; border-radius: 11px; display: block; }
+
+/* ---------- the popover ---------- */
+:root { --ink:#1d1f24; --ink2:#5d626c; --ink3:#9a9ea7; --hair:rgba(20,22,28,.08); --hair2:rgba(20,22,28,.13);
+	--acc:#5e6ad2; --wait:#c98f3c; --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",system-ui,sans-serif; }
+#arrow { position: fixed; top: 28px; width: 16px; height: 7px; z-index: 41; background: #fbfbfa; clip-path: polygon(50% 0, 100% 100%, 0 100%); transition: opacity .12s; }
+#arrow.hide { opacity: 0; }
+#pop { position: fixed; top: 34px; left: 0; width: 460px; height: 368px; z-index: 40; overflow: hidden; border-radius: 12px; background: #fbfbfa; color: var(--ink);
+	font: 12px/16px var(--sans); letter-spacing: -.01em; -webkit-font-smoothing: antialiased;
+	box-shadow: 0 0 0 .5px rgba(0,0,0,.22), inset 0 .5px 0 rgba(255,255,255,.9), 0 12px 40px rgba(16,18,28,.28), 0 2px 8px rgba(16,18,28,.12);
+	transform-origin: var(--ax, 50%) -6px; transition: opacity .14s ease-out, transform .2s cubic-bezier(.2,1,.3,1); }
+#pop.hide { opacity: 0; transform: scale(.96) translateY(-4px); pointer-events: none; }
+#pop canvas#cv { position: absolute; inset: 0; display: block; cursor: default; touch-action: none; outline: none; }
+#pop canvas#cv.pan { cursor: grabbing; }
+#grip { position: absolute; top: 0; left: 0; right: 0; height: 12px; z-index: 3; display: none; cursor: grab; }
+#pop.pinned #grip { display: block; }
+#pin { position: absolute; top: 7px; right: 7px; z-index: 4; width: 20px; height: 20px; border: 0; border-radius: 5px; background: transparent; color: var(--ink3);
+	display: grid; place-items: center; cursor: default; opacity: 0; transition: opacity .12s; }
+#pop:hover #pin, #pin.on { opacity: 1; }
+#pin:hover { background: rgba(0,0,0,.05); color: var(--ink); }
+#pin.on { color: var(--acc); }
+
+#tip { position: absolute; z-index: 4; pointer-events: none; padding: 5px 8px; max-width: 240px; display: none; background: #fff; border-radius: 6px;
+	box-shadow: 0 0 0 .5px var(--hair2), 0 4px 14px rgba(16,18,28,.12); font-size: 11.5px; line-height: 15px; }
+#tip .m { color: var(--ink3); font-size: 11px; }
+
+/* selection bar */
+#sel { position: absolute; left: 6px; right: 6px; bottom: 6px; height: 40px; z-index: 4; display: flex; align-items: center; gap: 10px; padding: 0 6px 0 10px;
+	background: rgba(255,255,255,.92); backdrop-filter: blur(12px); border-radius: 8px; box-shadow: 0 0 0 .5px var(--hair2), 0 2px 8px rgba(16,18,28,.06);
+	opacity: 0; transform: translateY(6px); pointer-events: none; transition: opacity .14s ease-out, transform .18s cubic-bezier(.2,1,.3,1); }
+#sel.on { opacity: 1; transform: none; pointer-events: auto; }
+#sel .dot { width: 7px; height: 7px; border-radius: 2px; flex: none; }
+#sel .tx { min-width: 0; flex: 1; display: grid; }
+#sel .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+#sel .nm span { color: var(--ink3); font-weight: 400; margin-right: 5px; font-variant-numeric: tabular-nums; }
+#sel .loc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink3); font: 10.5px/14px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0; }
+#sel .acts { display: flex; align-items: center; flex: none; }
+#sel .acts i { width: 1px; height: 14px; background: var(--hair2); margin: 0 2px; }
+#sel button { height: 26px; padding: 0 8px; border: 0; border-radius: 5px; background: transparent; color: var(--ink2); font: 500 11.5px var(--sans); letter-spacing: -.01em;
+	display: flex; align-items: center; gap: 5px; cursor: default; }
+#sel button:hover { background: rgba(0,0,0,.05); color: var(--ink); }
+#sel button svg { width: 13px; height: 13px; }
+
+/* radial commands */
+#radial { position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 5; pointer-events: none; }
+.it { --c: var(--acc); pointer-events: auto; position: absolute; left: 0; top: 0; width: 32px; height: 32px; margin: -16px; border-radius: 50%; padding: 0;
+	border: 0; background: #fff; color: var(--c); cursor: default;
+	box-shadow: 0 0 0 .5px var(--hair2), 0 3px 10px rgba(16,18,28,.14);
+	transform: rotate(calc(var(--a) - 120deg)) translateX(0) rotate(calc(120deg - var(--a))) scale(.3); opacity: 0;
+	transition: transform .38s cubic-bezier(.2,1.25,.35,1) calc(var(--i) * 35ms), opacity .16s calc(var(--i) * 35ms), box-shadow .1s; }
+#radial.open .it { transform: rotate(var(--a)) translateX(var(--r)) rotate(calc(-1 * var(--a))) scale(1); opacity: 1; }
+#radial.closing .it { transition-duration: .14s, .12s; transition-delay: 0s; }
+.it:hover, .it:focus-visible { outline: none; box-shadow: 0 0 0 1.5px var(--c), 0 4px 14px rgba(16,18,28,.18); }
+.it .ic { font-size: 12px; line-height: 32px; display: block; }
+.it .lb { position: absolute; top: 36px; left: 50%; transform: translateX(-50%); white-space: nowrap; font: 500 10.5px/14px var(--sans); color: var(--ink);
+	background: rgba(255,255,255,.94); padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 .5px var(--hair); }
+.it.k-dec { --c: var(--wait); } .it.k-new { --c: #4f9a7c; } .it.k-open { --c: var(--ink2); }
+.it.off { --c: #b9bcc3; } .it.off .lb { color: var(--ink3); }
+
+/* prototype-only controls, outside the product */
+#proto { position: fixed; left: 16px; bottom: 16px; z-index: 20; display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 9px;
+	background: rgba(20,20,28,.55); backdrop-filter: blur(16px); box-shadow: 0 0 0 .5px rgba(255,255,255,.14); font: 500 11.5px var(--sans); color: rgba(255,255,255,.6); }
+#proto span { padding: 0 8px 0 6px; font-weight: 400; color: rgba(255,255,255,.4); }
+#proto button { border: 0; background: transparent; color: inherit; height: 24px; padding: 0 9px; border-radius: 6px; font: inherit; cursor: default; }
+#proto button:hover { color: #fff; }
+#proto button.on { background: rgba(255,255,255,.14); color: #fff; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div id="desk">
+	<div id="menubar">
+		<b>Code</b><span>File</span><span>Edit</span><span>Selection</span><span>View</span><span>Go</span><span>Window</span><span>Help</span>
+		<span class="sp"></span>
+		<button id="mbi" class="on" title="Metafab"><span class="g">◆</span><span id="mbn">0</span><i id="mbd"></i></button>
+		<span class="sys"><svg width="16" height="12" viewBox="0 0 16 12"><path d="M8 11.5 1 4.2a10 10 0 0 1 14 0z" fill="#fff"/></svg></span>
+		<span class="sys"><svg width="24" height="12" viewBox="0 0 24 12"><rect x=".5" y=".5" width="20" height="11" rx="3" fill="none" stroke="#fff" opacity=".6"/><rect x="2" y="2" width="15" height="8" rx="1.5" fill="#fff"/><rect x="21.5" y="4" width="1.5" height="4" rx=".7" fill="#fff" opacity=".6"/></svg></span>
+		<span class="sys"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#fff" stroke-width="1.6"/><path d="m9.3 9.3 3.5 3.5" stroke="#fff" stroke-width="1.6"/></svg></span>
+		<span id="clock"></span>
+	</div>
+	<div class="win">
+		<div class="tb"><span class="lights"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></span><span class="t">meta-harness — docs/plans/2.004-pull-and-status.md</span></div>
+		<div class="bd">
+			<div class="tree">▾ meta-harness<br>&nbsp;&nbsp;▸ .factory<br>&nbsp;&nbsp;▾ docs<br>&nbsp;&nbsp;&nbsp;&nbsp;▸ intake<br>&nbsp;&nbsp;&nbsp;&nbsp;▾ plans<div class="on">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.004-pull-and…</div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.005-push-and…<br>&nbsp;&nbsp;&nbsp;&nbsp;▸ specs<br>&nbsp;&nbsp;&nbsp;&nbsp;roadmap.md<br>&nbsp;&nbsp;▸ src<br>&nbsp;&nbsp;▸ test<br>&nbsp;&nbsp;AGENTS.md<br>&nbsp;&nbsp;package.json</div>
+			<div class="code"></div>
+		</div>
+	</div>
+	<div id="dock">
+		<i style="background:linear-gradient(#5ec8ff,#1677ff)"></i><i style="background:linear-gradient(#3b3b45,#16161c)"></i><i style="background:linear-gradient(#2fa4ff,#0060df)"></i><i style="background:linear-gradient(#ffd25e,#ff8a00)"></i><i style="background:linear-gradient(#1f2937,#04070c);box-shadow:inset 0 0 0 1px rgba(61,242,255,.5)"></i><i style="background:linear-gradient(#e9e9ee,#b9bac4)"></i>
+	</div>
+</div>
+<div id="arrow"></div>
+<div id="pop">
+	<canvas id="cv" tabindex="0" aria-label="Factory map"></canvas>
+	<div id="grip"></div>
+	<button id="pin" title="Pin as a floating window"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2l4 4-3 1-3 3 .5 3L6 15.5l-6-6L2.5 7 5.5 7.5l3-3z" transform="scale(.9) translate(1 0)"/></svg></button>
+	<div id="sel"></div>
+	<div id="tip"></div>
+	<div id="radial"></div>
+</div>
+<div id="proto"><span>Prototype</span>
+	<button data-v="repo" class="sc on" title="This repository, 28 Nov 2026">Snapshot</button>
+	<button data-v="review" class="sc" title="Example data">Pile-up</button>
+	<button data-v="drought" class="sc" title="Example data">Drought</button>
+	<button id="play" title="Simulate (space)">Play</button>
+</div>
+<script>
+
+{
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const DAY = 864e5, TODAY = Date.parse('2026-11-28');
+const COL = { cy: '#5e6ad2', am: '#d6a15a', idle: '#c9ccd2', gr: '#8fb6a3', fg: '#1d1f24', mu: '#9a9ea7', rd: '#d0636b' };
+const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
+
+// ---- The factory: zones are queries over any source. Workflows are verbs that run on a zone or on one unit in it.
+const KIND = { files: '▤', lines: '☰', branches: '⑂', prs: '⇄', tickets: '◈' };
+const Z = [
+	{ id: 'intake', name: 'Intake', x: 0, y: 0, w: 9, h: 7, exit: [9, 3.5], person: true, src: ['files', 'docs/intake/*.md', 'not closed'] },
+	{ id: 'roadmap', name: 'Roadmap', x: 12, y: 0, w: 7, h: 7, entry: [12, 3.5], exit: [19, 3.5], src: ['lines', 'docs/roadmap.md', '- [ ] with no plan'] },
+	{ id: 'draft', name: 'Draft plans', x: 22, y: 0, w: 9, h: 7, entry: [22, 3.5], exit: [26.5, 7], person: true, src: ['files', 'docs/plans/*.md', 'status: draft'] },
+	{ id: 'ready', name: 'Ready plans', x: 22, y: 10, w: 9, h: 6, entry: [26.5, 10], exit: [22, 13], person: true, src: ['files', 'docs/plans/*.md', 'status: ready, no branch'] },
+	{ id: 'building', name: 'Building', x: 12, y: 10, w: 7, h: 6, entry: [19, 13], exit: [12, 13], src: ['branches', 'feat/* fix/*', 'no pull request yet'] },
+	{ id: 'review', name: 'Pull requests', x: 0, y: 10, w: 9, h: 6, entry: [9, 13], exit: [4.5, 16], person: true, src: ['prs', 'is:open', 'not merged'] },
+	{ id: 'landed', name: 'Landed', x: 0, y: 19, w: 31, h: 4, entry: [4.5, 19], src: ['prs', 'is:merged', 'last 7 days'] },
+];
+const zi = id => Z.findIndex(z => z.id === id);
+const ZB = id => Z[zi(id)];
+
+// Commands. flow = a workflow starts a session; dec = a person decides, which changes the source; open = look at it.
+const F = (w, sub, takes, x = {}) => ({ k: takes === 'new' ? 'new' : 'flow', w, lb: w, sub, takes, ic: takes === 'new' ? '✚' : takes === 'all' ? '◎' : '▶', ...x });
+const D = (lb, sub, fn, ic = '✓') => ({ k: 'dec', lb, sub, fn, ic });
+const O = (lb = 'Open', sub = 'in editor') => ({ k: 'open', lb, sub, ic: '↗' });
+const ONE = {
+	intake: () => [D('Add to roadmap', 'writes a roadmap line', p => advance(p)), D('Close', 'status: closed', p => closeUnit(p), '✕')],
+	roadmap: () => [F('plan-feature', 'writes a draft plan', 'one')],
+	draft: () => [F('review-plan', 'cold review', 'one'), D('Approve', 'status: ready', p => advance(p))],
+	ready: () => [F('start-plan', 'start this plan', 'one')],
+	building: () => [F('build-plan', 'resume the build', 'one')],
+	review: () => [F('finish-plan', 'apply feedback', 'one'), F('review-branch', 'cold review', 'one'), D('Merge', 'merges the PR', p => advance(p), '⇲')],
+	landed: () => [],
+};
+const ALL = {
+	intake: () => [F('file-work', 'log a new note', 'new'), F('prioritise-roadmap', 'triage the zone', 'all')],
+	roadmap: () => [F('prioritise-roadmap', 'reorder lines', 'all')],
+	draft: () => [F('review-plan', 'review every draft', 'all')],
+	ready: () => [F('start-plan', 'launch next wave', 'all')],
+	building: () => [F('start-plan', "what's in flight?", 'all')],
+	review: () => [F('review-branch', 'review every PR', 'all')],
+	landed: () => [F('release', 'off in this repo', 'all', { off: true })],
+};
+
+// ---- Scenarios
+const d = s => Date.parse(s);
+const REPO = () => [
+	...[
+		['2026-11-08', 'restore-special-entries', "A failed update's restore removes a special entry inside a local-only directory"],
+		['2026-11-15', 'git-fixtures-race', "Two Git test fixtures can race Git's detached auto maintenance"],
+		['2026-11-15', 'isolate-git-config', 'isolateGitConfig() never removes the temporary directory it creates'],
+		['2026-11-15', 'map-skill-conditions', "metafab map should show each skill's skills condition"],
+		['2026-11-15', 'npm-tests-time-out', 'Two npm integration tests time out at 5000 ms under load'],
+		['2026-11-15', 'plan-2003-needs', 'Plan 2.003 uses not-implemented.ts, which Plan 1.027 deleted'],
+		['2026-11-15', 'isabsenterror-copies', 'Four more private isAbsentError copies remain'],
+		['2026-11-15', 'publish-otp', 'metafab publish cannot pass an npm 2FA code'],
+		['2026-11-15', 'unused-partial', 'metafab check could warn about a partial that no file imports'],
+		['2026-11-24', 'confirm-environments', 'Confirm the environments rendering in real sessions'],
+		['2026-11-24', 'git-target-enotempty', 'The git-target newline test failed once with ENOTEMPTY'],
+		['2026-11-24', 'localhost-drive-url', 'import of git+file://localhost/C:/… may fail on Windows'],
+		['2026-11-26', 'npm-10-strips-libc', 'npm 10 in an Amp orb drops libc fields from package-lock.json'],
+	].map(([s, l, t]) => ({ z: 'intake', since: d(s), label: l, title: t, ref: `docs/intake/${s}-${l}.md` })),
+	{ z: 'roadmap', since: d('2026-11-15'), label: 'metastore-dogfood', title: 'Keep plans, intake and changelog in Metastore Cloud', ref: 'docs/roadmap.md · Milestone 5' },
+	{ z: 'roadmap', since: d('2026-11-27'), label: 'first-automation', title: "fab-basic's run.md and this repository's first automation", ref: 'docs/roadmap.md · Milestone 4.1' },
+	...['Document folders', 'Store model and local backend', 'Remote backend and login', 'Pull and status', 'Push and conflicts', 'Sync windows and ls', 'Scores', 'Scorers', 'Import, hooks and skill', 'Git backend']
+		.map((t, i) => { const n = `2.0${String(i + 1).padStart(2, '0')}`; return { z: 'draft', since: d('2026-11-15'), label: n, title: t, ref: `docs/plans/${n}-….md` }; }),
+	{ z: 'review', since: d('2026-11-15'), label: '#46', title: 'fix: bump verdaccio to 6.11.2 for security advisories', ref: 'PR #46 · fix/verdaccio-6.11.2-security' },
+	{ z: 'review', since: d('2026-11-27'), label: '#50', title: "feat: a factory declares automations and metafab renders each run's prompt", ref: 'PR #50 · feat/2.019-automations-format-and-prompt' },
+	{ z: 'review', since: d('2026-11-27'), label: '#51', title: 'feat: metafab automations sync registers automations in orca and amp', ref: 'PR #51 · feat/2.020-automations-sync' },
+	...[['2026-11-24', 'imports'], ['2026-11-24', 'prerelease-next'], ['2026-11-24', 'preview-and-guidance'], ['2026-11-24', 'worktree-hooks'], ['2026-11-26', 'release-2-0-0'], ['2026-11-26', 'use-metafab-2']]
+		.map(([s, l]) => ({ z: 'landed', since: d(s), label: l, title: `Landed: ${l}`, ref: `docs/changelog/${s}-${l}.md` })),
+];
+const ex = (z, n, ageMax, pre, title, sess = 0) => Array.from({ length: n }, (_, i) => ({
+	z, since: TODAY - ((i * 37) % (ageMax + 1)) * DAY, label: `${pre}${i + 1}`, title: `${title} ${i + 1} (example)`, ref: 'example',
+	session: i < sess ? { w: 'build-plan', prog: (i * 0.3) % 1 } : null,
+}));
+const SCEN = {
+	repo: REPO,
+	review: () => [...ex('intake', 4, 6, 'note-', 'Intake note'), ...ex('roadmap', 1, 3, 'line-', 'Roadmap line'), ...ex('draft', 2, 2, 'p', 'Draft plan'), ...ex('ready', 3, 4, 'r', 'Ready plan'), ...ex('building', 4, 3, 'b', 'Branch', 3), ...ex('review', 17, 11, '#', 'Pull request'), ...ex('landed', 3, 6, 'c', 'Merged PR')],
+	drought: () => [...ex('intake', 26, 20, 'note-', 'Intake note'), ...ex('roadmap', 11, 14, 'line-', 'Roadmap line'), ...ex('building', 1, 1, 'b', 'Branch', 1), ...ex('review', 1, 2, '#', 'Pull request'), ...ex('landed', 2, 6, 'c', 'Merged PR')],
+};
+
+// ---- State
+const S = { scen: 'repo', pieces: [], runs: [], sel: null, selZone: null, hover: null, playing: false, tick: 0, nextId: 1 };
+const now = () => TODAY + S.tick * 0.05 * DAY;
+const age = p => Math.max(0, Math.round((now() - p.since) / DAY));
+const status = p => p.z === 'landed' ? 'landed' : p.session ? 'session' : ZB(p.z).person ? 'waits' : 'idle';
+const colOf = st => ({ session: COL.cy, waits: COL.am, idle: COL.idle, landed: COL.gr }[st]);
+const stateText = p => ({ session: `${p.session?.w} running`, waits: 'waits on you', idle: 'idle, no session', landed: 'landed' }[status(p)]);
+const fx = [];   // particles, rings, floating text
+
+function load() {
+	S.pieces = SCEN[S.scen]().map(p => ({ session: null, note: null, ...p, id: S.nextId++, path: [], trail: [] }));
+	S.runs = []; S.sel = null; S.selZone = null; closeRadial(true);
+	layout(); hud();
+	log(S.scen === 'repo' ? 'LIVE: read docs/intake, docs/roadmap.md, docs/plans, open and merged PRs' : 'SIM: example data loaded');
+}
+
+// Each zone fills from its way out, so the oldest work queues at the exit.
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+function cellsOf(z) {
+	if (z._cells) return z._cells;
+	const out = [], t = z.exit || [z.x, z.y + 1];
+	for (let j = 0; j < z.h - 2; j++) for (let i = 0; i < z.w - 1; i++) out.push([z.x + 1 + i, z.y + 2 + j]);
+	out.sort((a, b) => dist(a, t) - dist(b, t) || a[1] - b[1] || a[0] - b[0]);
+	return z._cells = out;
+}
+function layout() {
+	for (const z of Z) {
+		const ps = S.pieces.filter(p => p.z === z.id).sort((a, b) => z.id === 'landed' ? b.since - a.since : a.since - b.since);
+		const cells = cellsOf(z), cap = cells.length;
+		ps.forEach((p, i) => {
+			p.hidden = i >= cap;
+			p.over = i === cap - 1 && ps.length > cap ? ps.length - cap + 1 : 0;
+			const c = cells[Math.min(i, cap - 1)];
+			if (p.x == null) { p.x = c[0]; p.y = c[1]; p.cell = c; return; }
+			if (p.cell === c && p.from == null) return;
+			const pts = [];
+			if (p.from != null) { pts.push(Z[p.from].exit, z.entry); p.from = null; p.arrive = true; }
+			pts.push(c); p.path = pts.map(q => [q[0], q[1]]); p.cell = c;
+		});
+	}
+}
+
+// ---- Rules of the simulation
+function advance(p, w) {
+	const i = zi(p.z); if (i >= Z.length - 1) return;
+	p.from = i; p.z = Z[i + 1].id; p.since = now(); p.note = null;
+	p.session = w ? { w, prog: 0 } : null;
+}
+function closeUnit(p) {
+	burst(p.x, p.y, COL.rd, 22);
+	S.pieces = S.pieces.filter(x => x !== p);
+	if (S.sel === p) S.sel = null;
+}
+function spawnNote(by) {
+	const p = { z: 'intake', since: now(), label: `new-${S.nextId}`, title: 'A new note logged by file-work', ref: `docs/intake/2026-11-28-new-${S.nextId}.md`, session: null, note: null, id: S.nextId++, path: [], trail: [], x: -2.5, y: 3.5 };
+	S.pieces.push(p);
+	log(`<span class="gr">${by}</span> logged <b>${p.label}</b> → INTAKE`);
+}
+function doneOne(w, p) {
+	const from = ZB(p.z).name;
+	if (w === 'plan-feature' || w === 'build-plan') advance(p);
+	else if (w === 'start-plan') advance(p, 'build-plan');
+	else { p.note = w === 'finish-plan' ? 'feedback applied' : 'reviewed'; floatText(p.x, p.y - 0.7, '✓ ' + p.note, COL.cy); }
+	const moved = ZB(p.z).name !== from;
+	log(`<span class="cy">${w}</span> finished on <b>${esc(p.label)}</b>${moved ? ` → ${ZB(p.z).name.toUpperCase()}` : ''}`);
+}
+function doneAll(r) {
+	const q = id => S.pieces.filter(x => x.z === id && !x.session).sort((a, b) => a.since - b.since);
+	const z = ZB(r.z);
+	if (r.w === 'prioritise-roadmap' && r.z === 'intake') { const m = q('intake').slice(0, 3); m.forEach(p => advance(p)); log(`<span class="cy">prioritise-roadmap</span> moved ${m.length} notes → ROADMAP`); }
+	else if (r.w === 'prioritise-roadmap') log(`<span class="cy">prioritise-roadmap</span> reordered the roadmap`);
+	else if (r.w === 'review-plan' || r.w === 'review-branch') { const m = S.pieces.filter(x => x.z === r.z); m.forEach(p => { p.note = 'reviewed'; }); log(`<span class="cy">${r.w}</span> reviewed ${m.length} in ${z.name.toUpperCase()}`); }
+	else if (r.w === 'start-plan' && r.z === 'ready') { const m = q('ready').slice(0, 3); m.forEach(p => advance(p, 'build-plan')); log(`<span class="cy">start-plan</span> launched a wave of ${m.length} → BUILDING`); }
+	else if (r.w === 'start-plan') { const b = S.pieces.filter(x => x.z === 'building'); log(`<span class="cy">start-plan</span> reports ${b.filter(x => x.session).length} building, ${b.filter(x => !x.session).length} stalled`); }
+	shock(z.x + z.w / 2, z.y + z.h / 2, COL.cy, Math.max(z.w, z.h) * 0.7);
+}
+
+setInterval(() => {
+	S.tick++;
+	for (const p of [...S.pieces]) if (p.session) {
+		p.session.prog += 0.06 + ((p.id * 7 + S.tick) % 5) / 50;
+		if (p.session.prog >= 1) { const w = p.session.w; p.session = null; doneOne(w, p); }
+	}
+	for (const r of S.runs) r.prog += 0.08;
+	S.runs.filter(r => r.prog >= 1).forEach(doneAll);
+	S.runs = S.runs.filter(r => r.prog < 1);
+	if (S.playing) {
+		const running = S.pieces.filter(p => p.session).length;
+		const idle = S.pieces.filter(p => status(p) === 'idle').sort((a, b) => a.since - b.since);
+		if (running < 4 && idle.length && S.tick % 3 === 0) {
+			const p = idle[0]; p.session = { w: p.z === 'roadmap' ? 'plan-feature' : 'build-plan', prog: 0 };
+			shock(p.x, p.y, COL.cy, 1.2); log(`<span class="cy">${p.session.w}</span> picked up <b>${esc(p.label)}</b>`);
+		}
+		if (S.tick % 8 === 0) spawnNote('file-work');
+	}
+	layout(); hud();
+}, 600);
+
+// ---- Effects
+function burst(x, y, col, n = 14) { for (let i = 0; i < n; i++) { const a = Math.random() * 6.28, v = 1.5 + Math.random() * 3.5; fx.push({ t: 'p', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.5 + Math.random() * 0.4, age: 0, col }); } }
+function shock(x, y, col, r = 1.4) { fx.push({ t: 'r', x, y, r, age: 0, life: 0.6, col }); }
+function floatText(x, y, text, col) { fx.push({ t: 'f', x, y, text, age: 0, life: 1.4, col }); }
+
+// The event feed is gone; the map itself shows what changed.
+const log = () => {};
+
+// ---- Camera
+const cv = $('cv'), ctx = cv.getContext('2d');
+let VW = 0, VH = 0, DPR = 1, fitS = 1;
+const cam = { x: 15.5, y: 11.5, s: 30 }; let camT = null;
+const toS = (x, y) => [(x - cam.x) * cam.s + VW / 2, (y - cam.y) * cam.s + VH / 2];
+const toW = (x, y) => [(x - VW / 2) / cam.s + cam.x, (y - VH / 2) / cam.s + cam.y];
+const pop = $('pop');
+const L = e => { const r = pop.getBoundingClientRect(), k = r.width / pop.offsetWidth || 1; return [(e.clientX - r.left) / k, (e.clientY - r.top) / k]; };
+function resize() { DPR = devicePixelRatio || 1; VW = pop.clientWidth; VH = pop.clientHeight; cv.width = VW * DPR; cv.height = VH * DPR; cv.style.width = VW + 'px'; cv.style.height = VH + 'px'; }
+function fitView(snap) {
+	const top = 12, bottom = 12;
+	const s = Math.max(8, Math.min((VW - 20) / 32, (VH - top - bottom) / 24));
+	const t = { s, x: 15.5, y: 11.5 - (top - bottom) / 2 / s };
+	fitS = s;
+	if (snap) Object.assign(cam, t); else camT = t;
+}
+function flyTo(z) {
+	const s = Math.min(70, Math.min((VW - 80) / (z.w + 3), (VH - 70) / (z.h + 3)));
+	camT = { x: z.x + z.w / 2, y: z.y + z.h / 2, s };
+}
+new ResizeObserver(() => { resize(); fitView(true); }).observe(pop);
+
+// ---- Drawing
+const hotZone = () => { let best = -1, n = 0; Z.forEach((z, i) => { const c = S.pieces.filter(p => p.z === z.id && status(p) === 'waits').length; if (c > n) { n = c; best = i; } }); return best; };
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+function brackets(z, col, L, lw) {
+	ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.shadowColor = col; ctx.shadowBlur = 8;
+	const { x, y, w, h } = z; ctx.beginPath();
+	ctx.moveTo(x, y + L); ctx.lineTo(x, y); ctx.lineTo(x + L, y);
+	ctx.moveTo(x + w - L, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + L);
+	ctx.moveTo(x + w, y + h - L); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w - L, y + h);
+	ctx.moveTo(x + L, y + h); ctx.lineTo(x, y + h); ctx.lineTo(x, y + h - L);
+	ctx.stroke(); ctx.shadowBlur = 0;
+}
+function perim(z, u) { // point at distance u along a zone's edge
+	const { x, y, w, h } = z, P = 2 * (w + h); u = ((u % P) + P) % P;
+	if (u < w) return [x + u, y]; if (u < w + h) return [x + w, y + u - w];
+	if (u < 2 * w + h) return [x + w - (u - w - h), y + h]; return [x, y + h - (u - 2 * w - h)];
+}
+
+function draw(t) {
+	const s = cam.s, px = 1 / s;
+	ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+	ctx.fillStyle = '#fbfbfa'; ctx.fillRect(0, 0, VW, VH);
+	// floor grid
+	const [x0, y0] = toW(0, 0), [x1, y1] = toW(VW, VH);
+	ctx.lineWidth = 1;
+	ctx.fillStyle = '#e8e8e6';
+	for (let x = Math.floor(x0); x <= x1; x++) for (let y = Math.floor(y0); y <= y1; y++) {
+		const [X,Y] = toS(x,y); ctx.fillRect(X,Y,1,1);
+	}
+
+	ctx.setTransform(DPR * s, 0, 0, DPR * s, DPR * (VW / 2 - cam.x * s), DPR * (VH / 2 - cam.y * s));
+	// conduits: the way work usually flows
+	for (let i = 0; i < Z.length - 1; i++) {
+		const a = Z[i].exit, b = Z[i + 1].entry;
+		ctx.strokeStyle = '#e0e1e3'; ctx.lineWidth = 0.25; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+		ctx.setLineDash([0.16, 0.38]); ctx.lineDashOffset = -t * 1.3;
+		ctx.strokeStyle = '#bcc4d1'; ctx.lineWidth = 0.07; ctx.stroke(); ctx.setLineDash([]);
+	}
+	// zones
+	const hot = hotZone();
+	Z.forEach((z, i) => {
+		rr(z.x, z.y, z.w, z.h, 0.42); ctx.fillStyle = '#ffffff';
+		ctx.shadowColor = 'rgba(16,18,28,.05)'; ctx.shadowBlur = 3; ctx.shadowOffsetY = 1; ctx.fill();
+		ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+		ctx.strokeStyle = S.selZone === z.id ? COL.cy : 'rgba(20,22,28,.09)'; ctx.lineWidth = (S.selZone === z.id ? 1.5 : 1) * px; ctx.stroke();
+	});
+	// stage-level runs: a snake patrols the zone's edge
+	for (const r of S.runs) {
+		const z = ZB(r.z);
+		for (let k = 0; k < 10; k++) {
+			const [qx, qy] = perim(z, t * 7 - k * 0.45), sz = 0.42 - k * 0.025;
+			ctx.globalAlpha = 1 - k * 0.09; ctx.fillStyle = COL.cy; ctx.shadowBlur = 0;
+			rr(qx - sz / 2, qy - sz / 2, sz, sz, 0.08); ctx.fill();
+		}
+		ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+	}
+	// units
+	const order = S.pieces.filter(p => !p.hidden).sort((a, b) => (a.path.length > 0) - (b.path.length > 0));
+	for (const p of order) {
+		const st = status(p), col = colOf(st), h = 0.36;
+		p.trail.forEach((q, k) => { ctx.globalAlpha = 0.45 - k * 0.07; ctx.fillStyle = col; const sz = 0.5 - k * 0.06; rr(q[0] - sz / 2, q[1] - sz / 2, sz, sz, 0.08); ctx.fill(); });
+		ctx.globalAlpha = 1;
+		if (p.over) { ctx.fillStyle = COL.mu; ctx.font = `0.38px ui-monospace, monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(`+${p.over}`, p.x, p.y); continue; }
+		const pulse = st === 'waits' && age(p) >= 10 ? 0.55 + 0.45 * Math.sin(t * 4 + p.id) : 1;
+		ctx.shadowColor = 'rgba(16,18,28,.12)'; ctx.shadowBlur = 1.5; ctx.shadowOffsetY = .5;
+		if (st === 'landed') { rr(p.x - h, p.y - h, 2 * h, 2 * h, 0.08); ctx.strokeStyle = rgba(COL.gr, .7); ctx.lineWidth = 1.4 * px; ctx.stroke(); }
+		else {
+			rr(p.x - h, p.y - h, 2 * h, 2 * h, 0.19);
+			const tile = ctx.createLinearGradient(0,p.y-h,0,p.y+h);
+			tile.addColorStop(0,rgba(col,.82)); tile.addColorStop(1,col); ctx.fillStyle=tile; ctx.fill(); ctx.shadowBlur=0; ctx.shadowOffsetY=0;
+			
+			if (p.note) { ctx.fillStyle = COL.fg; ctx.beginPath(); ctx.arc(p.x + h - 0.06, p.y - h + 0.06, 0.07, 0, 7); ctx.fill(); }
+		}
+		ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+		if (st === 'session') { // a snake circles the unit it works on, with its progress arc
+			for (let k = 0; k < 6; k++) {
+				const a = t * 3.2 + p.id - k * 0.32, R = 0.62, sz = 0.2 - k * 0.022;
+				ctx.globalAlpha = 1 - k * 0.15; ctx.fillStyle = COL.cy; ctx.shadowBlur = 0;
+				rr(p.x + Math.cos(a) * R - sz / 2, p.y + Math.sin(a) * R - sz / 2, sz, sz, 0.04); ctx.fill();
+			}
+			ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+			ctx.strokeStyle = rgba(COL.cy, .9); ctx.lineWidth = 2 * px; ctx.beginPath();
+			ctx.arc(p.x, p.y, 0.48, -Math.PI / 2, -Math.PI / 2 + Math.min(1, p.session.prog) * Math.PI * 2); ctx.stroke();
+		}
+		if (S.sel === p) {
+			ctx.setLineDash([]); ctx.strokeStyle = COL.cy; ctx.lineWidth = 1.5 * px;
+			ctx.beginPath(); ctx.arc(p.x, p.y, 0.72, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+		} else if (S.hover === p) { rr(p.x - h - 0.08, p.y - h - 0.08, 2 * h + 0.16, 2 * h + 0.16, 0.12); ctx.strokeStyle = COL.fg; ctx.lineWidth = 1.2 * px; ctx.stroke(); }
+	}
+	// effects
+	for (const f of fx) {
+		const k = f.age / f.life;
+		if (f.t === 'p') { ctx.globalAlpha = 1 - k; ctx.fillStyle = f.col; ctx.fillRect(f.x - 0.05, f.y - 0.05, 0.1, 0.1); }
+		else if (f.t === 'r') { ctx.globalAlpha = 1 - k; ctx.strokeStyle = f.col; ctx.lineWidth = 2 * px; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (0.2 + k), 0, 7); ctx.stroke(); }
+	}
+	ctx.globalAlpha = 1;
+
+	// screen-space text
+	ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+	Z.forEach((z, i) => {
+		const [hx, hy] = toS(z.x + 0.45, z.y + 0.7), [rx] = toS(z.x + z.w - 0.45, 0);
+		const fs = Math.max(11, Math.min(14, s * 0.4)), n = S.pieces.filter(p => p.z === z.id).length;
+		const waits = S.pieces.filter(p => p.z === z.id && status(p) === 'waits').length;
+		ctx.textBaseline = 'middle';
+		ctx.font = `400 ${fs}px -apple-system, Inter, system-ui, sans-serif`; ctx.fillStyle = COL.mu; ctx.textAlign = 'right';
+		ctx.fillText(String(n), rx, hy);
+		const room = rx - hx - ctx.measureText(String(n)).width - 10;
+		ctx.textAlign = 'left'; ctx.font = `500 ${fs}px -apple-system, Inter, system-ui, sans-serif`; ctx.fillStyle = COL.fg;
+		let nm = z.name; while (nm.length > 3 && ctx.measureText(nm).width > room) nm = nm.slice(0, -2) + '…';
+		ctx.fillText(nm, hx, hy);
+		if (s >= 22) {
+			const [, sy2] = toS(0, z.y + 1.05);
+			ctx.font = `${Math.max(9, Math.min(11.5, s * 0.27))}px ui-monospace, Menlo, monospace`; ctx.fillStyle = COL.mu;
+			let line = `${KIND[z.src[0]]} ${z.src[0]} ${z.src[1]} · ${z.src[2]}`;
+			while (line.length > 4 && ctx.measureText(line).width > rx - hx) line = line.slice(0, -2) + '…';
+			ctx.fillText(line, hx, sy2);
+		}
+		if (false) {
+			const [ex, ey] = toS(z.exit[0], z.exit[1]);
+			ctx.font = `600 ${Math.max(9, Math.min(11, s * 0.28))}px ui-monospace, Menlo, monospace`; ctx.fillStyle = COL.am; ctx.textAlign = 'center';
+			const vert = z.exit[1] === z.y + z.h;
+			ctx.fillText(`▲${waits}`, ex + (vert ? s * 0.9 : 0), ey + (vert ? 0 : -s * 0.85));
+		}
+	});
+	if (s >= 38) {
+		for (const p of order) {
+			if (p.over) continue;
+			const [X, Y] = toS(p.x, p.y), st = status(p);
+			ctx.font = `600 ${Math.min(11, s * 0.16)}px ui-monospace, Menlo, monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+			ctx.fillStyle = st === 'landed' ? COL.gr : '#04070c';
+			let lb = p.label; while (lb.length > 2 && ctx.measureText(lb).width > s * 0.62) lb = lb.slice(0, -2) + '…';
+			ctx.fillText(lb, X, Y + s * 0.05);
+			if (st !== 'landed') { ctx.font = `${Math.min(10, s * 0.14)}px ui-monospace, Menlo, monospace`; ctx.fillStyle = 'rgba(4,7,12,.75)'; ctx.fillText(`${age(p)}d`, X, Y - s * 0.17); }
+		}
+	}
+	for (const f of fx) if (f.t === 'f') {
+		const [X, Y] = toS(f.x, f.y - f.age * 0.8);
+		ctx.globalAlpha = 1 - f.age / f.life; ctx.font = `600 11px ui-monospace, Menlo, monospace`; ctx.textAlign = 'center'; ctx.fillStyle = f.col;
+		ctx.shadowColor = f.col; ctx.shadowBlur = 8; ctx.fillText(f.text, X, Y); ctx.shadowBlur = 0;
+	}
+	ctx.globalAlpha = 1;
+}
+
+// ---- Radial command wheel
+const rad = $('radial');
+let R = null;
+function itemsFor(p, z) {
+	if (p) return ONE[p.z]().map(it => it.k === 'open' ? it : { ...it, off: it.off || !!p.session, sub: p.session ? `${p.session.w} running` : it.sub });
+	return [...ALL[z.id]().map(it => ({ ...it, off: it.off || (it.takes === 'all' && S.runs.some(r => r.w === it.w && r.z === z.id)) })),
+		{ k: 'open', lb: 'Focus', sub: 'zoom to zone', ic: '⌖', focus: true }];
+}
+function openRadial(o) {
+	R = o; o.items = itemsFor(o.p, o.z);
+	const col = o.p ? colOf(status(o.p)) : COL.cy;
+	rad.className = ''; rad.style.setProperty('--c', col);
+	const n = o.items.length, r = n <= 2 ? 44 : n <= 3 ? 48 : 54;
+	const angles = n === 1 ? [-90] : n === 2 ? [-160, -20] : o.items.map((_, i) => -90 + i * 360 / n);
+	const glyph = o.p ? '▣' : KIND[o.z.src[0]];
+	const name = o.p ? o.p.label : o.z.name.toUpperCase();
+	rad.innerHTML = '';
+	o.items.forEach((it, i) => {
+		const b = document.createElement('button');
+		b.className = `it k-${it.k}${it.off ? ' off' : ''}`;
+		b.style.setProperty('--a', angles[i] + 'deg'); b.style.setProperty('--r', r + 'px'); b.style.setProperty('--i', i);
+		b.innerHTML = `<span class="ic">${it.ic}</span><span class="lb">${esc(it.lb)}</span>`; b.title = `${i + 1} · ${it.sub}`;
+		b.addEventListener('click', e => { e.stopPropagation(); fire(i); });
+		b.addEventListener('pointerdown', e => e.stopPropagation());
+		rad.append(b);
+	});
+	placeRadial();
+	requestAnimationFrame(() => requestAnimationFrame(() => rad.classList.add('open')));
+	hud();
+}
+function closeRadial(instant) {
+	R = null;
+	if (instant) { rad.className = ''; rad.innerHTML = ''; return; }
+	rad.classList.remove('open'); rad.classList.add('closing');
+	setTimeout(() => { if (!R) { rad.className = ''; rad.innerHTML = ''; } }, 220);
+}
+function placeRadial() {
+	if (!R) return;
+	if (R.p && !S.pieces.includes(R.p)) { S.sel = null; closeRadial(); return; }
+	const [x, y] = R.p ? toS(R.p.x, R.p.y) : toS(R.wx, R.wy);
+	rad.style.transform = `translate(${x}px, ${y}px)`;
+}
+function fire(i) {
+	if (!R) return;
+	const it = R.items[i]; if (!it || it.off) return;
+	const p = R.p, z = R.z;
+	if (it.focus) { flyTo(z); }
+	else if (it.k === 'open') { log(`opened <b>${esc(p ? p.ref : z.src[1])}</b> ${it.sub}`); if (p) floatText(p.x, p.y - 0.7, '↗ opened', COL.fg); }
+	else if (it.k === 'dec') {
+		const from = p.z; it.fn(p); burst(p.x, p.y, COL.am, 18);
+		log(`<span class="am">YOU</span> ${it.lb.toLowerCase()} <b>${esc(p.label)}</b>${p.z !== from && S.pieces.includes(p) ? ` → ${ZB(p.z).name.toUpperCase()}` : ''}`);
+	}
+	else if (it.takes === 'one') { p.session = { w: it.w, prog: 0 }; shock(p.x, p.y, COL.cy, 1.6); log(`<span class="cy">${it.w}</span> session started on <b>${esc(p.label)}</b>`); }
+	else if (it.takes === 'new') { spawnNote('file-work'); }
+	else { S.runs.push({ w: it.w, z: z.id, prog: 0 }); shock(z.x + z.w / 2, z.y + z.h / 2, COL.cy, Math.max(z.w, z.h) * 0.6); log(`<span class="cy">${it.w}</span> running on all of ${z.name.toUpperCase()}`); }
+	closeRadial(); layout(); hud();
+}
+
+// ---- Input
+const hit = (wx, wy) => {
+	let best = null, bd = 0.5;
+	for (const p of S.pieces) { if (p.hidden || p.over) continue; const dd = Math.max(Math.abs(p.x - wx), Math.abs(p.y - wy)); if (dd < bd) { bd = dd; best = p; } }
+	if (best) return { p: best };
+	const z = Z.find(z => wx >= z.x && wx <= z.x + z.w && wy >= z.y && wy <= z.y + z.h);
+	return z ? { z } : {};
+};
+let drag = null;
+cv.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y, moved: false }; cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointermove', e => {
+	if (drag) {
+		const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+		if (drag.moved || Math.hypot(dx, dy) > 4) { drag.moved = true; camT = null; cv.classList.add('pan'); cam.x = drag.cx - dx / cam.s; cam.y = drag.cy - dy / cam.s; tip.style.display = 'none'; return; }
+	}
+	const [wx, wy] = toW(...L(e)), h = hit(wx, wy);
+	S.hover = h.p || null;
+	cv.style.cursor = h.p || h.z ? 'pointer' : '';
+	if (h.p && !R) showTip(h.p, ...L(e)); else tip.style.display = 'none';
+});
+cv.addEventListener('pointerleave', () => { S.hover = null; tip.style.display = 'none'; });
+cv.addEventListener('pointerup', e => {
+	const was = drag; drag = null; cv.classList.remove('pan');
+	if (!was || was.moved) return;
+	const [wx, wy] = toW(...L(e)), h = hit(wx, wy);
+	tip.style.display = 'none';
+	if (h.p) { S.sel = h.p; S.selZone = null; openRadial({ p: h.p }); }
+	else if (h.z) { S.sel = null; S.selZone = h.z.id; openRadial({ z: h.z, wx, wy }); }
+	else { S.sel = null; S.selZone = null; closeRadial(); hud(); }
+});
+cv.addEventListener('dblclick', e => { const [wx, wy] = toW(...L(e)), h = hit(wx, wy); if (h.z) flyTo(h.z); });
+cv.addEventListener('wheel', e => {
+	e.preventDefault(); camT = null;
+	const [wx, wy] = toW(...L(e));
+	cam.s = Math.max(10, Math.min(120, cam.s * Math.exp(-e.deltaY * 0.0015)));
+	const [lx, ly] = L(e); cam.x = wx - (lx - VW / 2) / cam.s; cam.y = wy - (ly - VH / 2) / cam.s;
+}, { passive: false });
+addEventListener('keydown', e => {
+	if (pop.classList.contains('hide')) return;
+	if (/^[1-9]$/.test(e.key) && R) { fire(+e.key - 1); return; }
+	const k = e.key.toLowerCase();
+	if (k === 'escape') { S.sel = null; S.selZone = null; closeRadial(); hud(); }
+	else if (k === ' ') { e.preventDefault(); togglePlay(); }
+	else if (k === 'f') { fitView(); }
+	else if (k === '+' || k === '=') camT = { ...cam, s: Math.min(120, cam.s * 1.4) };
+	else if (k === '-') camT = { ...cam, s: Math.max(10, cam.s / 1.4) };
+	else if (k.startsWith('arrow') || 'wasd'.includes(k) && k.length === 1) {
+		const st = 60 / cam.s; camT = null;
+		if (k === 'arrowleft' || k === 'a') cam.x -= st; if (k === 'arrowright' || k === 'd') cam.x += st;
+		if (k === 'arrowup' || k === 'w') cam.y -= st; if (k === 'arrowdown' || k === 's') cam.y += st;
+	}
+});
+
+const tip = $('tip');
+function showTip(p, x, y) {
+	tip.innerHTML = `<div>${esc(p.title)}</div><div class="m">${age(p)}d in ${ZB(p.z).name} · ${stateText(p)}</div>`;
+	tip.style.display = 'block';
+	const w = tip.offsetWidth, h = tip.offsetHeight;
+	tip.style.left = Math.min(VW - w - 8, x + 14) + 'px'; tip.style.top = (y + 16 + h > VH ? y - h - 12 : y + 16) + 'px';
+}
+
+// ---- HUD
+function togglePlay() { S.playing = !S.playing; log(S.playing ? 'simulation <span class="am">running</span>: agents pick up idle work, new notes arrive' : 'simulation paused'); hud(); }
+$('play').onclick = togglePlay;
+document.querySelectorAll('.sc').forEach(b => b.onclick = () => {
+	document.querySelectorAll('.sc').forEach(x => x.classList.toggle('on', x === b));
+	S.scen = b.dataset.v; S.playing = false; load(); fitView();
+});
+
+const ICON = {
+	open: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h4v4M13 3 7.5 8.5M12 9.5V13H3V4h3.5"/></svg>',
+	copy: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H4A1.5 1.5 0 0 0 2.5 3v5A1.5 1.5 0 0 0 4 9.5h.5"/></svg>',
+	check: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m3.5 8.5 3 3 6-7"/></svg>',
+};
+const urlOf = p => { const m = p.ref.match(/PR #(\d+)/); return m ? `https://github.com/Traction-Team/meta-harness/pull/${m[1]}` : p.ref.split(' · ')[0]; };
+let selKey = '';
+function hud() {
+	const open = S.pieces.filter(p => p.z !== 'landed');
+	$('mbn').textContent = open.filter(p => p.session).length + S.runs.length;
+	$('mbd').style.display = open.some(p => status(p) === 'waits') ? 'block' : 'none';
+	$('play').textContent = S.playing ? 'Pause' : 'Play';
+	$('play').classList.toggle('on', S.playing);
+	// the selection bar: what you picked, where it lives, open or copy it
+	const bar = $('sel'), p = S.sel && S.pieces.includes(S.sel) ? S.sel : null, z = !p && S.selZone ? ZB(S.selZone) : null;
+	if (!p && !z) { bar.classList.remove('on'); selKey = ''; return; }
+	const key = p ? `p${p.id}:${p.z}` : `z${z.id}`;
+	if (key === selKey) { if (p) bar.querySelector('.dot').style.background = colOf(status(p)); return; }
+	selKey = key;
+	const name = p ? `<span>${esc(p.label)}</span>${esc(p.title)}` : `${esc(z.name)} <span style="margin-left:4px">${S.pieces.filter(x => x.z === z.id).length}</span>`;
+	const loc = p ? urlOf(p) : `${z.src[0]} ${z.src[1]} · ${z.src[2]}`;
+	const dot = p ? colOf(status(p)) : 'transparent';
+	bar.innerHTML = `<i class="dot" style="background:${dot};${p ? '' : 'box-shadow:inset 0 0 0 1.5px #9a9ea7'}"></i>
+		<div class="tx"><div class="nm">${name}</div><div class="loc">${esc(loc)}</div></div>
+		<div class="acts"><button data-a="open">${ICON.open}Open</button><i></i><button data-a="copy">${ICON.copy}Copy</button></div>`;
+	bar.querySelector('[data-a=open]').onclick = () => { if (p) floatText(p.x, p.y - 0.7, 'Opened', COL.fg); };
+	bar.querySelector('[data-a=copy]').onclick = e => {
+		navigator.clipboard?.writeText(loc).catch(() => {});
+		const b = e.currentTarget; b.innerHTML = `${ICON.check}Copied`;
+		setTimeout(() => { if (b.isConnected) b.innerHTML = `${ICON.copy}Copy`; }, 1200);
+	};
+	bar.classList.add('on');
+}
+
+// ---- Frame loop
+let last = 0;
+function frame(ts) {
+	const t = ts / 1000, dt = Math.min(0.05, t - (last || t)); last = t;
+	if (camT) {
+		const k = Math.min(1, dt * 7);
+		cam.x += (camT.x - cam.x) * k; cam.y += (camT.y - cam.y) * k; cam.s += (camT.s - cam.s) * k;
+		if (Math.abs(camT.s - cam.s) < 0.05 && Math.hypot(camT.x - cam.x, camT.y - cam.y) < 0.01) camT = null;
+	}
+	for (const p of S.pieces) {
+		let budget = dt * 10;
+		while (p.path.length && budget > 0) {
+			const [tx, ty] = p.path[0], dx = tx - p.x, dy = ty - p.y, dd = Math.hypot(dx, dy);
+			if (dd <= budget) { p.x = tx; p.y = ty; p.path.shift(); budget -= dd; }
+			else { p.x += dx / dd * budget; p.y += dy / dd * budget; budget = 0; }
+			p.trail.unshift([p.x, p.y]); p.trail.length = Math.min(p.trail.length, 6);
+		}
+		if (!p.path.length) {
+			if (p.trail.length) p.trail.pop();
+			if (p.arrive) { p.arrive = false; burst(p.x, p.y, colOf(status(p)), 12); shock(p.x, p.y, colOf(status(p)), 1); }
+		}
+	}
+	for (const f of fx) { f.age += dt; if (f.t === 'p') { f.x += f.vx * dt; f.y += f.vy * dt; f.vx *= 0.92; f.vy *= 0.92; } }
+	for (let i = fx.length - 1; i >= 0; i--) if (fx[i].age >= fx[i].life) fx.splice(i, 1);
+	draw(t); placeRadial();
+	requestAnimationFrame(frame);
+}
+
+// ---- The Mac: menu bar icon, popover under it, pin to float
+const mbi = $('mbi'), arrow = $('arrow');
+let pinned = false;
+function placePop() {
+	if (pinned) return;
+	const r = mbi.getBoundingClientRect(), w = pop.offsetWidth, cx = r.left + r.width / 2;
+	const left = Math.max(8, Math.min(innerWidth - w - 8, cx - w / 2));
+	pop.style.left = left + 'px'; pop.style.top = '34px';
+	pop.style.setProperty('--ax', (cx - left) + 'px');
+	arrow.style.left = (cx - 9) + 'px';
+}
+function showPop(on) {
+	pop.classList.toggle('hide', !on); mbi.classList.toggle('on', on);
+	arrow.classList.toggle('hide', !on || pinned);
+	if (!on) { S.sel = null; S.selZone = null; closeRadial(true); }
+}
+mbi.onclick = e => { e.stopPropagation(); showPop(pop.classList.contains('hide')); };
+$('desk').addEventListener('pointerdown', e => { if (!pinned && !e.target.closest('#menubar')) showPop(false); });
+$('pin').onclick = () => {
+	pinned = !pinned; $('pin').classList.toggle('on', pinned); pop.classList.toggle('pinned', pinned);
+	arrow.classList.toggle('hide', pinned || pop.classList.contains('hide'));
+	if (pinned) { pop.style.top = (pop.offsetTop + 18) + 'px'; pop.style.left = (pop.offsetLeft - 24) + 'px'; } else placePop();
+};
+$('grip').addEventListener('pointerdown', e => {
+	if (!pinned) return;
+	const sx = e.clientX - pop.offsetLeft, sy = e.clientY - pop.offsetTop;
+	const mv = ev => { pop.style.left = (ev.clientX - sx) + 'px'; pop.style.top = Math.max(28, ev.clientY - sy) + 'px'; };
+	const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); };
+	addEventListener('pointermove', mv); addEventListener('pointerup', up);
+});
+addEventListener('resize', placePop);
+const clock = () => { $('clock').textContent = new Date().toLocaleString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).replace(',', ''); };
+clock(); setInterval(clock, 15000);
+// the editor behind the popover: wireframe code
+{
+	const cols = ['#c586c0', '#9cdcfe', '#dcdcaa', '#ce9178', '#6a9955', '#4fc1ff', '#d4d4d4'];
+	let h = '';
+	for (let i = 0; i < 34; i++) {
+		const ind = [0, 1, 1, 2, 2, 3, 1, 0][i % 8] * 22; h += `<div class="ln"><span class="no">${i + 1}</span><span style="width:${ind}px"></span>`;
+		const n = 1 + (i * 7) % 4; for (let k = 0; k < n; k++) h += `<i style="width:${24 + ((i * 13 + k * 29) % 90)}px;background:${cols[(i + k * 3) % cols.length]}"></i>`;
+		h += '</div>';
+	}
+	document.querySelector('.code').innerHTML = h;
+}
+placePop(); resize(); fitView(true); load(); requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>
