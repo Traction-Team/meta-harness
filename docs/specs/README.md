@@ -25,6 +25,7 @@ The design comes from [Mark IV](../../prototype/mk4/), but v1 excludes its monit
 | [CLI](cli.md) | Commands, JSON output, and exit codes |
 | [Configuration](configuration.md) | Every key in `.factory/metafab.yaml` |
 | [Environments](environments.md) | One factory compiled for each developer's environment: `env` variables, selection from Git config, `when`, `switch` and `import` directives, conditional skills, and `metafab env` |
+| [Automations](automations.md) | Factory work that runs on its own: `.factory/automations/`, the run prompt and stub, and `metafab automations sync` into Orca and Amp |
 
 ### Version 2.1 (draft)
 
@@ -34,14 +35,6 @@ These specifications are drafts for approval. They serve the version 2.1 store p
 | --- | --- |
 | [Store](store.md) | Documents and scores in a shared store outside Git: document folders and their rules, the mirror, sync, scores, scorers, the remote, git and local backends, and `metafab store` and `metafab scorer` |
 | [Store protocol](store-protocol.md) | The HTTP API a remote store implements, such as Metastore Cloud |
-
-### Automations (draft)
-
-This specification is approved as the acceptance standard for Plans 2.019 and 2.020, which ship in a 2.x minor release. Each plan lists the edits it makes to the specifications above.
-
-| File | Scope |
-| --- | --- |
-| [Automations](automations.md) | Factory work that runs on its own: `.factory/automations/`, the run prompt and stub, and `metafab automations sync` into Orca and Amp |
 
 ## Architecture
 

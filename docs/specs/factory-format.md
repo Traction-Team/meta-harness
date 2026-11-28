@@ -36,6 +36,7 @@ A factory adds a pipeline to plain Agent Skills. `factory.yaml` lists the workfl
   templates/*                reusable document templates
   scripts/*                  scripts called by workflows
   partials/*                 Markdown that skills and AGENTS.md import (a convention, not a reserved name; see Environments)
+  automations/<name>/automation.md  format 2: work that runs on its own (see automations.md)
   metafab.yaml               Metafab configuration and upstream (see configuration.md)
 ```
 
@@ -251,6 +252,7 @@ The format defines these names at the top of `.factory/`:
 - `skills/`
 - `templates/`
 - `scripts/`
+- `automations/` (format 2; see [Automations](automations.md)). In a format 1 factory it is an ordinary directory, and skills in it install as before
 
 The format reserves these names for future versions:
 

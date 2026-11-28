@@ -3,6 +3,8 @@ import {
   HOOK_NAMES,
   hookCommand,
   hookScript,
+  metafabInvocation,
+  shQuote,
 } from "../../../src/core/hooks/index.js";
 
 const specExample = `#!/bin/sh
@@ -109,5 +111,40 @@ describe("hookCommand", () => {
       expect(script.indexOf(steps[index - 1]!)).toBeLessThan(script.indexOf(steps[index]!));
       expect(command.indexOf(steps[index - 1]!)).toBeLessThan(command.indexOf(steps[index]!));
     }
+  });
+});
+
+describe("metafabInvocation", () => {
+  test("writes the four lookup lines, ending in npx at the CLI version", () => {
+    const lines = metafabInvocation('"$main/dir/node_modules/.bin/metafab"', "1.2.3", "build");
+
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toBe(
+      "if [ -x node_modules/.bin/metafab ]; then node_modules/.bin/metafab build",
+    );
+    expect(lines[1]).toContain('[ -x "$main/dir/node_modules/.bin/metafab" ]');
+    expect(lines[1]).toContain('then "$main/dir/node_modules/.bin/metafab" build');
+    expect(lines[2]).toBe("elif command -v metafab >/dev/null 2>&1; then metafab build");
+    expect(lines[3]).toBe("else npx --yes @seasb/metafab@1.2.3 build");
+  });
+
+  test("is the text the hooks write, so hook output does not change", () => {
+    const lines = metafabInvocation('"$main/./node_modules/.bin/metafab"', "1.0.0", "build");
+
+    expect(hookCommand(".", "1.0.0")).toBe(
+      `(cd "$(git rev-parse --show-toplevel)/." && ${lines.join("; ")}; fi) || true`,
+    );
+    expect(hookScript("post-merge", ".", "1.0.0")).toContain(lines.join("\n"));
+  });
+});
+
+describe("shQuote", () => {
+  test("wraps a plain value in single quotes", () => {
+    expect(shQuote(".")).toBe("'.'");
+    expect(shQuote("feat/a-b")).toBe("'feat/a-b'");
+  });
+
+  test("quotes ', \", $ and a backslash inside the single quotes", () => {
+    expect(shQuote(`my "fab" $x'y\\z`)).toBe(`'my "fab" $x'\\''y\\z'`);
   });
 });

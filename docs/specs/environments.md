@@ -103,6 +103,7 @@ Rules:
 | --- | --- |
 | Every `.md` file in an installed skill directory, including `SKILL.md` below its frontmatter | All |
 | `.factory/AGENTS.md` | All, rendered for every value (see [Root `AGENTS.md`](#root-agentsmd)) |
+| `.factory/automations/run.md` and the body of every `automation.md` | All, rendered by `metafab automations prompt` for the selection |
 | A file that an `import` names | All, rendered in the importing file's context |
 | Templates, scripts, and any file that is not `.md` | None; copied or left unchanged |
 

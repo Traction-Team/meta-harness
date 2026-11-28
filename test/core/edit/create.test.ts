@@ -522,3 +522,60 @@ description: Review a slice before it merges.
     expect(await pathExists(created.path(".factory/workflows/two-lines/SKILL.md"))).toBe(false);
   });
 });
+
+describe("create below automations/", () => {
+  test("creates the skill in a format 1 factory", async () => {
+    const created = await repo();
+
+    const result = await runCli(
+      ["create", "automations/bar", "--description", "An automation-shaped skill."],
+      { cwd: created.root, tty: false },
+    );
+
+    expect(result.code).toBe(0);
+    expect(await pathExists(created.path(".factory/automations/bar/SKILL.md"))).toBe(true);
+  });
+
+  test("refuses the path in a format 2 factory", async () => {
+    const created = await repo({ ".factory/factory.yaml": "format: 2\nname: mark4\n" });
+    const before = await listFiles(created.root);
+
+    const result = await runCli(
+      ["create", "automations/bar", "--description", "No.", "--json"],
+      { cwd: created.root, tty: false },
+    );
+
+    expect(result.code).toBe(1);
+    const output = JSON.parse(result.stdout) as {
+      ok: boolean;
+      code: string;
+      summary: string;
+      problems: { file: string; message: string; fix: string }[];
+    };
+    expect(output.ok).toBe(false);
+    expect(output.code).toBe("create-reserved-path");
+    expect(output.summary).toBe("automations/ holds automations, not skills");
+    expect(output.problems).toEqual([
+      {
+        level: "error",
+        file: ".factory/automations",
+        message: "automations/ holds automations, not skills",
+        fix: "Create .factory/automations/<name>/automation.md by hand",
+      },
+    ]);
+    expect(await listFiles(created.root)).toEqual(before);
+  });
+
+  test("refuses the automations directory itself in a format 2 factory", async () => {
+    const created = await repo({ ".factory/factory.yaml": "format: 2\nname: mark4\n" });
+
+    const result = await runCli(["create", "automations", "--description", "No.", "--json"], {
+      cwd: created.root,
+      tty: false,
+    });
+
+    expect(result.code).toBe(1);
+    const output = JSON.parse(result.stdout) as { code: string };
+    expect(output.code).toBe("create-reserved-path");
+  });
+});

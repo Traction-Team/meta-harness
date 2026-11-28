@@ -83,7 +83,7 @@ A team compiles one factory for each developer's environment: the factory declar
 
 A factory declares work that runs on its own, and Metafab registers it in the harness that schedules it, Orca or Amp. Each run's prompt is rendered for its environment when the run starts. What to build: [Automations](specs/automations.md). The design comes from the Dragonfly factory's automations. 2.019 and 2.020 are approved (2026-11-27).
 
-- [ ] [2.019 Automations format and prompt](plans/2.019-automations-format-and-prompt.md): `.factory/automations/`, `run.md`, validation in `check`, `metafab automations list`, `prompt` and `stub`
+- [x] [2.019 Automations format and prompt](plans/2.019-automations-format-and-prompt.md): `.factory/automations/`, `run.md`, validation in `check`, `metafab automations list`, `prompt` and `stub`
 - [ ] [2.020 Automations sync](plans/2.020-automations-sync.md): `sync orca` through the Orca CLI, `plan amp` and the built-in `metafab-automations` skill for Amp
 - [ ] fab-basic's `run.md` with a `switch env.harness` for asking, notifying and chaining, its daily `sync-automations` automation, and this repository's first automation (needs a plan; after 2.020)
 

@@ -1,0 +1,9 @@
+format: 2
+name: prompt-demo
+
+env:
+  harness:
+    description: The agent tool that runs the workflows
+    values:
+      opencode: { label: In OpenCode }
+      amp: { label: In Amp }

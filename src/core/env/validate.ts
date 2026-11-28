@@ -10,7 +10,8 @@ import { directiveLines, parseMarkdown } from "./directives.js";
 import type { MarkdownDocument, Node } from "./directives.js";
 import { createImportCache } from "./imports.js";
 import { markdownParts } from "./markdown.js";
-import { MAX_COMBINATIONS, combinations } from "./scenarios.js";
+import { rendersContent } from "./render.js";
+import { MAX_COMBINATIONS, allValues, combinations } from "./scenarios.js";
 import type { EnvVariable } from "./types.js";
 
 const FACTORY_FILE = ".factory/factory.yaml";
@@ -69,7 +70,7 @@ export async function environmentProblems(factory: Factory): Promise<Problem[]> 
     route: string,
     text: string,
     frontmatter: boolean,
-  ): Promise<void> => {
+  ): Promise<MarkdownDocument | undefined> => {
     if (format === 1) {
       const lines = directiveLines(text);
       if (lines.length > 0) {
@@ -107,6 +108,7 @@ export async function environmentProblems(factory: Factory): Promise<Problem[]> 
     });
     problems.push(...document.problems);
     problems.push(...importCombinationProblems(document, variables));
+    return document;
   };
 
   for (const skill of factory.skills) {
@@ -128,6 +130,60 @@ export async function environmentProblems(factory: Factory): Promise<Problem[]> 
   // `.factory/AGENTS.md` is rendered whole, so it has no frontmatter to protect.
   if (factory.agentsMd !== undefined) {
     await checkFile(AGENTS_FILE, "AGENTS.md", factory.agentsMd, false);
+  }
+
+  // `run.md` is a partial, and an `automation.md` body is checked like a skill's
+  // Markdown: both are rendered for every selection.
+  const automations = factory.automations;
+  if (automations !== undefined) {
+    if (automations.runFile !== undefined) {
+      const text = await readMarkdown(
+        path.join(factory.dir, "automations", "run.md"),
+        automations.runFile,
+        problems,
+      );
+      if (text !== undefined) {
+        await checkFile(automations.runFile, "automations/run.md", text, true);
+      }
+    }
+
+    // Every parsed body is checked, including one whose frontmatter has no
+    // valid owner and so yields no runnable automation.
+    for (const body of automations.bodies) {
+      const text = await readMarkdown(
+        path.join(factory.dir, "automations", body.name, "automation.md"),
+        body.file,
+        problems,
+      );
+      if (text === undefined) continue;
+
+      const document = await checkFile(
+        body.file,
+        `automations/${body.name}/automation.md`,
+        text,
+        true,
+      );
+      if (document === undefined) continue;
+
+      // Rendering alone is not enough: a block that applies to only some values
+      // still renders its label line, even when it holds only blank lines. A
+      // body that is only the heading `prompt` prints has nothing else to say.
+      if (
+        !rendersContent(
+          document,
+          { variables, selection: allValues(variables) },
+          `# ${body.name}`,
+        )
+      ) {
+        problems.push({
+          level: "error",
+          file: body.file,
+          line: body.bodyLine,
+          message: `The body of ${body.name} is empty`,
+          fix: "Write what the run does in the body, below the frontmatter",
+        });
+      }
+    }
   }
 
   if (format === 2) problems.push(...conditionalSkillProblems(factory));
