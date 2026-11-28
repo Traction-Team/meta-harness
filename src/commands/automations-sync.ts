@@ -7,8 +7,8 @@ import {
   prepareOrcaSync,
 } from "../core/automations/orca.js";
 import type { OrcaSyncResult } from "../core/automations/orca.js";
-import { missingAccount, needsFormatTwo, noTrunk } from "../core/automations/problems.js";
-import { defaultTrunk } from "../core/automations/stub.js";
+import { badBranch, missingAccount, needsFormatTwo, noTrunk } from "../core/automations/problems.js";
+import { defaultTrunk, isBranchName } from "../core/automations/stub.js";
 import { findFactory } from "../core/discovery.js";
 import { loadFactory } from "../core/factory/index.js";
 import { ExitCode } from "../errors.js";
@@ -83,6 +83,9 @@ async function runSync(context: CommandContext): Promise<CommandResult> {
   if (owner === undefined) return failed([missingAccount("orca")]);
 
   const branch = context.options.branch;
+  if (typeof branch === "string" && !(await isBranchName(factory.root, branch))) {
+    return failed([badBranch(branch)]);
+  }
   const trunk = typeof branch === "string" ? branch : await defaultTrunk(factory.root);
   if (trunk === undefined) return failed([noTrunk()]);
 

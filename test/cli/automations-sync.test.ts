@@ -190,6 +190,28 @@ describe("metafab automations sync orca", () => {
   );
 
   test.skipIf(process.platform === "win32")(
+    "refuses a --branch Git rejects, before reading Orca",
+    async () => {
+      const repo = await syncRepo();
+      const fake = await installFakeOrca();
+
+      const result = await run(repo, [
+        "automations",
+        "sync",
+        "orca",
+        "--agent",
+        "opencode",
+        "--branch",
+        "bad..branch",
+      ]);
+
+      expect(result.code).toBe(ExitCode.Failed);
+      expect(result.stderr).toContain("bad..branch is not a branch name");
+      expect((await fake.read()).calls).toEqual([]);
+    },
+  );
+
+  test.skipIf(process.platform === "win32")(
     "prints an edited cron with --dry-run and writes nothing",
     async () => {
       const repo = await syncRepo();
@@ -296,6 +318,28 @@ describe("metafab automations sync orca", () => {
 });
 
 describe("metafab automations plan orca", () => {
+  test.skipIf(process.platform === "win32")(
+    "refuses a --branch Git rejects, before reading Orca",
+    async () => {
+      const repo = await syncRepo();
+      const fake = await installFakeOrca();
+
+      const result = await run(repo, [
+        "automations",
+        "plan",
+        "orca",
+        "--agent",
+        "opencode",
+        "--branch",
+        "bad..branch",
+      ]);
+
+      expect(result.code).toBe(ExitCode.Failed);
+      expect(result.stderr).toContain("bad..branch is not a branch name");
+      expect((await fake.read()).calls).toEqual([]);
+    },
+  );
+
   test.skipIf(process.platform === "win32")("prints the desired set and the changes", async () => {
     const repo = await syncRepo();
     await installFakeOrca();

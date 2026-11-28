@@ -350,6 +350,28 @@ describe("metafab automations plan amp", () => {
     );
   });
 
+  test("refuses a --branch that Git refuses, before planning anything", async () => {
+    process.env.AMP_USER_EMAIL = "person@example.com";
+    const repo = await automationRepo();
+
+    const result = await runCli(
+      ["automations", "plan", "amp", "--branch", "bad..branch", "--json"],
+      { cwd: repo.root },
+    );
+    const json = JSON.parse(result.stdout) as {
+      ok: boolean;
+      problems: { message: string }[];
+      entries?: unknown;
+    };
+
+    expect(result.code).toBe(1);
+    expect(json.ok).toBe(false);
+    expect(json.problems.map((problem) => problem.message)).toEqual([
+      "bad..branch is not a branch name",
+    ]);
+    expect(json).not.toHaveProperty("entries");
+  });
+
   test("refuses a cron Amp cannot express, naming the automation and the reason", async () => {
     process.env.AMP_USER_EMAIL = "person@example.com";
     const repo = await automationRepo("0 8 1 * *");

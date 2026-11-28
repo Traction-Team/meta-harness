@@ -59,6 +59,19 @@ export function renderStub(input: StubInput): string {
 }
 
 /**
+ * `git check-ref-format --branch` accepts the value, so a stub's `git switch
+ * --detach origin/<trunk>` is never given a branch name Git refuses.
+ */
+export async function isBranchName(repoRoot: string, value: string): Promise<boolean> {
+  try {
+    const result = await runGit(["check-ref-format", "--branch", value], { cwd: repoRoot });
+    return result.exitCode === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The remote's default branch: `git symbolic-ref --short
  * refs/remotes/origin/HEAD`, without `origin/`. Undefined when Git cannot say,
  * as outside a repository or when no remote HEAD is set.

@@ -155,7 +155,7 @@ Every sync:
 4. Creates a registration for each entry that has none, updates each one that differs, and handles each managed registration that has no entry (see each target).
 5. Changes nothing on a second run.
 
-`plan <target>` prints the same set without changing anything, and for `orca` the changes a sync would make. `plan` and `sync` take the trunk from `--branch`, or else the remote's default branch as [the stub](#the-stub) does; with neither, they exit 1 with the fix `Pass --branch <trunk>`. They need the target's account, and exit 1 naming the setting that is missing when it is unknown.
+`plan <target>` prints the same set without changing anything, and for `orca` the changes a sync would make. `plan` and `sync` take the trunk from `--branch`, or else the remote's default branch as [the stub](#the-stub) does; with neither, they exit 1 with the fix `Pass --branch <trunk>`. A `--branch` that `git check-ref-format --branch` refuses is an error (exit 1), as for the stub. They need the target's account, and exit 1 naming the setting that is missing when it is unknown.
 
 ### Orca
 

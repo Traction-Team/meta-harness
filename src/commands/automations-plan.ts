@@ -5,12 +5,13 @@ import { desiredSet } from "../core/automations/desired.js";
 import { changeLine, createOrcaRunner, plannedResult, prepareOrcaSync } from "../core/automations/orca.js";
 import type { OrcaCommandPlan } from "../core/automations/orca.js";
 import {
+  badBranch,
   missingAccount,
   missingAmpAccount,
   needsFormatTwo,
   noTrunk,
 } from "../core/automations/problems.js";
-import { defaultTrunk } from "../core/automations/stub.js";
+import { defaultTrunk, isBranchName } from "../core/automations/stub.js";
 import { findFactory } from "../core/discovery.js";
 import { loadFactory } from "../core/factory/index.js";
 import type { Factory } from "../core/factory/types.js";
@@ -58,11 +59,8 @@ async function runPlanOrca(
   context: CommandContext,
   factory: Factory,
   accountEmail: string,
+  trunk: string,
 ): Promise<CommandResult> {
-  const branch = context.options.branch;
-  const trunk = typeof branch === "string" ? branch : await defaultTrunk(factory.root);
-  if (trunk === undefined) return failed([noTrunk()]);
-
   const agent = typeof context.options.agent === "string" ? context.options.agent : undefined;
   const plan = await prepareOrcaSync({
     factory,
@@ -109,11 +107,8 @@ async function runPlanAmp(
   context: CommandContext,
   factory: Factory,
   accountEmail: string,
+  trunk: string,
 ): Promise<CommandResult> {
-  const branch = context.options.branch;
-  const trunk = typeof branch === "string" ? branch : await defaultTrunk(factory.root);
-  if (trunk === undefined) return failed([noTrunk()]);
-
   const desired = await desiredSet(factory, "amp", accountEmail, trunk);
   const entries = planAmp(desired, new Date());
 
@@ -143,7 +138,19 @@ async function runPlan(context: CommandContext): Promise<CommandResult> {
   if (owner === undefined) {
     return failed([target === "amp" ? missingAmpAccount() : missingAccount("orca")]);
   }
-  return target === "amp" ? runPlanAmp(context, factory, owner) : runPlanOrca(context, factory, owner);
+
+  // The trunk is settled before either target builds its desired set, so a
+  // branch Git refuses never reaches a stub or a registration.
+  const branch = context.options.branch;
+  if (typeof branch === "string" && !(await isBranchName(factory.root, branch))) {
+    return failed([badBranch(branch)]);
+  }
+  const trunk = typeof branch === "string" ? branch : await defaultTrunk(factory.root);
+  if (trunk === undefined) return failed([noTrunk()]);
+
+  return target === "amp"
+    ? runPlanAmp(context, factory, owner, trunk)
+    : runPlanOrca(context, factory, owner, trunk);
 }
 
 export const automationsPlanCommand: CommandDefinition = {
