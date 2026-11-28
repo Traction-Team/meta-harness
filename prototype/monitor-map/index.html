@@ -86,7 +86,8 @@ button { font: inherit; color: inherit; }
 #sel .lg b { color: var(--t1); font-weight: 500; font-variant-numeric: tabular-nums; }
 #sel .sw { width: 8px; height: 8px; border-radius: 2px; flex: none; }
 #sel .sw.ol { box-shadow: inset 0 0 0 1px var(--done); }
-#sel .sw.zn { box-shadow: inset 0 0 0 1px var(--t2); }
+#sel .kd { width: 16px; height: 16px; flex: none; color: var(--t2); display: grid; place-items: center; }
+#sel .kd svg { width: 16px; height: 16px; }
 #sel .tx { min-width: 0; flex: 1; display: grid; gap: 1px; }
 #sel .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: var(--t1); }
 #sel .nm span { color: var(--t2); font-weight: 400; margin-right: 6px; }
@@ -104,9 +105,7 @@ button { font: inherit; color: inherit; }
 #radial.open .it { transform: translate(var(--x), var(--y)); opacity: 1; }
 #radial.closing .it { transition-duration: .12s, .1s; transition-delay: 0s; }
 .it:hover, .it:focus-visible { outline: none; background: #313238; box-shadow: inset 0 0 0 .5px rgba(255,255,255,.18); }
-.it .dd { width: 6px; height: 6px; border-radius: 50%; background: var(--wait); flex: none; }
 .it.off { color: var(--t3); }
-.it.off .dd { background: var(--t3); }
 
 /* prototype-only controls, outside the product */
 #proto { position: fixed; left: 16px; bottom: 16px; z-index: 20; display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 9px;
@@ -511,7 +510,7 @@ function openRadial(o) {
 		const b = document.createElement('button');
 		b.className = `it k-${it.k}${it.off ? ' off' : ''}`;
 		b.style.setProperty('--i', i);
-		b.innerHTML = `${it.k === 'dec' ? '<i class="dd"></i>' : ''}<span>${esc(it.lb)}</span>`; b.title = `${it.sub} · ${i + 1}`;
+		b.innerHTML = `<span>${esc(it.lb)}</span>`; b.title = `${it.sub} · ${i + 1}`;
 		b.addEventListener('click', e => { e.stopPropagation(); fire(i); });
 		b.addEventListener('pointerdown', e => e.stopPropagation());
 		rad.append(b);
@@ -659,6 +658,19 @@ const ICON = {
 	copy: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H4A1.5 1.5 0 0 0 2.5 3v5A1.5 1.5 0 0 0 4 9.5h.5"/></svg>',
 	check: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m3.5 8.5 3 3 6-7"/></svg>',
 };
+// what a piece is, from its zone's source: a document, a roadmap line, a branch, an open or merged pull request
+const kindOf = p => { const k = ZB(p.z).src[0]; return k === 'prs' && p.z === 'landed' ? 'merged' : k; };
+const KINDNAME = { files: 'Document', lines: 'Roadmap line', branches: 'Branch', prs: 'Pull request', merged: 'Merged pull request', tickets: 'Ticket' };
+const SV = d => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const KICON = {
+	files: SV('<path d="M4 1.75h5L12.25 5v8.25a1 1 0 0 1-1 1h-7.25a1 1 0 0 1-1-1V2.75a1 1 0 0 1 1-1z"/><path d="M9 1.75V5h3.25M5.5 8.5h5M5.5 11h3.5"/>'),
+	lines: SV('<path d="M6 4.5h7.5M6 8h7.5M6 11.5h7.5"/><circle cx="3" cy="4.5" r=".6" fill="currentColor"/><circle cx="3" cy="8" r=".6" fill="currentColor"/><circle cx="3" cy="11.5" r=".6" fill="currentColor"/>'),
+	branches: SV('<circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5" r="1.5"/><path d="M4.5 5v6M11.5 6.5c0 3-7 2-7 4.5"/>'),
+	prs: SV('<circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="12.5" r="1.5"/><path d="M4.5 5v6M11.5 11V6a1.5 1.5 0 0 0-1.5-1.5H7.5M9 3 7.5 4.5 9 6"/>'),
+	merged: SV('<circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="8.5" r="1.5"/><path d="M4.5 5v6M4.5 5c0 2.5 2 3.5 5.5 3.5"/>'),
+	tickets: SV('<path d="M2.5 4.5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v1.75a1.75 1.75 0 0 0 0 3.5v1.75a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V9.75a1.75 1.75 0 0 0 0-3.5z"/>'),
+	zone: SV('<rect x="2" y="2" width="12" height="12" rx="2.5"/><path d="M2 6h12"/>'),
+};
 const urlOf = p => { const m = p.ref.match(/PR #(\d+)/); return m ? `https://github.com/Traction-Team/meta-harness/pull/${m[1]}` : p.ref.split(' · ')[0]; };
 let selKey = '';
 function hud() {
@@ -682,12 +694,11 @@ function hud() {
 		return;
 	}
 	const key = p ? `p${p.id}:${p.z}` : `z${z.id}:${S.pieces.filter(x => x.z === z.id).length}`;
-	if (key === selKey) { if (p) bar.querySelector('.sw').style.background = colOf(status(p)); return; }
+	if (key === selKey) return;
 	selKey = key;
 	const name = p ? `<span>${esc(p.label)}</span>${esc(p.title)}` : `${esc(z.name)}<span style="margin-left:6px">${S.pieces.filter(x => x.z === z.id).length}</span>`;
 	const loc = p ? urlOf(p) : `${z.src[1]} · ${z.src[2]}`;
-	const landed = p && status(p) === 'landed';
-	bar.innerHTML = `<i class="sw ${p ? (landed ? 'ol' : '') : 'zn'}" style="background:${p && !landed ? colOf(status(p)) : 'transparent'}"></i>
+	bar.innerHTML = `<i class="kd" title="${p ? KINDNAME[kindOf(p)] : 'Stage'}">${p ? KICON[kindOf(p)] : KICON.zone}</i>
 		<div class="tx"><div class="nm">${name}</div><div class="loc">${esc(loc)}</div></div>
 		<div class="acts"><button data-a="open">Open</button><button data-a="copy">Copy</button></div>`;
 	bar.querySelector('[data-a=open]').onclick = () => { if (p) floatText(p.x, p.y, 'Opened', COL.fg); };
