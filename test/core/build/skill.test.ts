@@ -411,6 +411,100 @@ describe("dedupeReadErrors", () => {
   });
 });
 
+describe("built-in metafab-automations skill", () => {
+  const builtin = {
+    dir: fileURLToPath(
+      new URL("../../../resources/metafab-automations-skill", import.meta.url),
+    ),
+    name: "metafab-automations",
+    sourcePath: "resources/metafab-automations-skill",
+  };
+
+  test("holds the Orca sync and the Amp procedure an agent applies", async () => {
+    const result = await compileSkill(builtin, {
+      factoryDir: builtin.dir,
+      comment: builtinComment("1.0.0"),
+    });
+    const skill = result.files.find((file) => file.path === "SKILL.md")!.content.toString("utf8");
+
+    expect(result.problems).toEqual([]);
+
+    // Orca is one command pair, through the dry run first.
+    expect(skill).toContain("metafab automations sync orca --dry-run");
+    expect(skill).toContain("then run it without `--dry-run`");
+    expect(skill).toContain("`--agent`");
+
+    // The seven steps of the Amp procedure, and the set they apply.
+    for (const step of [
+      "1. **Read the desired set.**",
+      "2. **Read what is installed.**",
+      "3. **Put the holding threads under one parent.**",
+      "4. **Create the missing ones.**",
+      "5. **Update the ones that differ.**",
+      "6. **Clear the ones that are gone.**",
+      "7. **Report the diff, and nothing else.**",
+    ]) {
+      expect(skill).toContain(step);
+    }
+    expect(skill).toContain("metafab automations plan amp --branch <trunk> --json");
+    expect(skill).toContain("read `.entries`");
+
+    // The five checks that make a schedule this procedure's to change.
+    for (const check of [
+      "its title starts with `automation: `",
+      "it is a recurring schedule, not an event trigger",
+      "its holding thread belongs to the Amp project for `<repo>`",
+      "its saved prompt, read with `get_schedule` and its `schedule_id`",
+      "its holding thread's title is exactly the schedule's title",
+    ]) {
+      expect(skill).toContain(check);
+    }
+
+    // Every schedule call names the schedule and the thread that holds it, because
+    // one thread can hold several.
+    expect(skill).toContain("read with `get_schedule` and its `schedule_id`");
+    expect(skill).toContain(
+      "update it with `update_schedule`, its `schedule_id` and its holding `thread`",
+    );
+    expect(skill).toContain(
+      "clear it with `clear_schedule`, its `schedule_id` and its holding `thread`",
+    );
+    expect(skill).toContain('never relies on a thread\'s "only schedule"');
+
+    // A holding thread proves which factory owns it after its schedule is gone.
+    expect(skill).toContain(
+      "This thread holds the `automation: <name>` schedule of the `<factory>` factory for metafab automations sync. Do nothing and end.",
+    );
+    expect(skill).toContain("Run the factory automation `<name>` from the `<factory>` factory.");
+    expect(skill).toContain(
+      "This thread holds the factory automation holding threads for metafab automations sync. Do nothing and end.",
+    );
+
+    // Step 4 finds an empty holding thread anywhere in the project, not only under the parent.
+    expect(skill).toContain('`"automation: <name>" author:me archived:false repo:<repo>`');
+    expect(skill).toContain("wherever it sits");
+
+    // Step 6's three retire cases, and the archive order it may not shortcut.
+    expect(skill).toContain("When it still holds another schedule");
+    expect(skill).toContain("has a run in progress");
+    expect(skill).toContain("archive each unarchived child");
+    expect(skill).not.toContain("stop_running_turn");
+    expect(skill).not.toContain("keep_child_threads");
+
+    // The report lines a person reads.
+    expect(skill).toContain("`left alone: <title>`");
+    expect(skill).toContain("`kept:");
+    expect(skill).toContain("`no changes`");
+
+    // The rules, and what an unattended run is allowed to do.
+    expect(skill).toContain("### Rules");
+    expect(skill).toContain("**Only managed schedules are this procedure's to change.**");
+    expect(skill).toContain("**A second run in a row changes nothing.**");
+    expect(skill).toContain("### Unattended runs");
+    expect(skill).toContain("that body is the owner's standing, explicit request");
+  });
+});
+
 describe("built-in metafab skill", () => {
   const builtin = {
     dir: fileURLToPath(new URL("../../../resources/metafab-skill", import.meta.url)),

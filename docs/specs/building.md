@@ -268,6 +268,14 @@ The next `build` removes the installed copies.
 
 The installed copies carry the generated-file comment, with the CLI version that wrote them. `metafab check` detects an outdated built-in skill. `metafab build` replaces it with the current CLI version.
 
+## Built-in `metafab-automations` skill
+
+In a format 2 factory with at least one automation, `build` also installs `metafab-automations`. It tells an agent how to run `metafab automations sync orca` and how to apply `metafab automations plan amp --json` with Amp's schedule and thread tools.
+
+`metafab-skill: false` turns off both built-in skills, and the next `build` removes the installed copies.
+
+`metafab-automations` is owned, versioned and checked like `metafab`: its installed copies carry the generated-file comment with the CLI version, and `metafab check` reports an outdated copy. When a factory's last automation is deleted, the next `build` removes the installed copies.
+
 ## Repeatability
 
 `metafab build` writes, updates, or removes only out-of-date owned output. It reports every changed path.

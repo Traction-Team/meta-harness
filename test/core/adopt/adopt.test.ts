@@ -719,8 +719,23 @@ describe("planAdoption", () => {
     );
   });
 
+  test("blocks a skill whose name is the automation built-in skill name", async () => {
+    const repo = await repoWith({
+      ".agents/skills/metafab-automations/SKILL.md": skill("metafab-automations"),
+    });
+
+    const plan = await planAdoption(repo.root, DESTINATIONS, undefined);
+
+    expect(plan.moves).toEqual([]);
+    expect(plan.blockers).toHaveLength(1);
+    expect(plan.blockers[0]!.file).toBe(".agents/skills/metafab-automations");
+    expect(plan.blockers[0]!.message).toBe(
+      'Skill "metafab-automations" clashes with the built-in "metafab-automations" skill that metafab build installs',
+    );
+  });
+
   test("uses the built-in skill names that build exports", () => {
-    expect(BUILTIN_SKILL_NAMES).toEqual(["metafab"]);
+    expect(BUILTIN_SKILL_NAMES).toEqual(["metafab", "metafab-automations"]);
   });
 
   test("blocks a symlinked .factory/skills destination", async () => {

@@ -1,7 +1,7 @@
 import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Problem } from "../../errors.js";
-import { fileMatches } from "../build/plan.js";
+import { BUILTIN_SKILL_NAMES, fileMatches } from "../build/plan.js";
 import type { BuildPlan, BuildWrite, FileMatch } from "../build/plan.js";
 import { cannotReadProblem } from "../build/skill.js";
 import { destinations } from "../config/destinations.js";
@@ -79,12 +79,13 @@ function modeProblem(write: BuildWrite, match: FileMatch): Problem {
 
 function builtinVersionProblem(
   directory: string,
+  skillName: string,
   installedVersion: string,
   cliVersion: string,
 ): Problem {
   return driftProblem(
-    `${directory}/metafab`,
-    `The installed metafab skill is from ${installedVersion}; this CLI is ${cliVersion}`,
+    `${directory}/${skillName}`,
+    `The installed ${skillName} skill is from ${installedVersion}; this CLI is ${cliVersion}`,
     "Run metafab build",
   );
 }
@@ -218,10 +219,12 @@ export async function compareBuildOutput(
       }
       if (state !== "directory") continue;
 
-      if (skill.name === "metafab" && config.metafabSkill) {
+      if (BUILTIN_SKILL_NAMES.includes(skill.name)) {
         const installedVersion = await readInstalledVersion(root, skillDirectory);
         if (installedVersion !== undefined && installedVersion !== cliVersion) {
-          problems.push(builtinVersionProblem(directory, installedVersion, cliVersion));
+          problems.push(
+            builtinVersionProblem(directory, skill.name, installedVersion, cliVersion),
+          );
           continue;
         }
       }
