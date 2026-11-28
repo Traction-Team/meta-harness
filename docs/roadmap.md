@@ -87,7 +87,17 @@ A factory declares work that runs on its own, and Metafab registers it in the ha
 - [ ] [2.020 Automations sync](plans/2.020-automations-sync.md): `sync orca` through the Orca CLI, `plan amp` and the built-in `metafab-automations` skill for Amp
 - [ ] fab-basic's `run.md` with a `switch env.harness` for asking, notifying and chaining, its daily `sync-automations` automation, and this repository's first automation (needs a plan; after 2.020)
 
-## Milestone 5: Store (version 2.1, draft plans)
+## Milestone 4.2: Workflow files (version 2.1)
+
+A workflow can be a plain Markdown file, `.factory/workflows/<name>.md` or `<name>/workflow.md`, that agents read from `.factory/` instead of loading as a skill; only `SKILL.md` installs as a skill. Root `AGENTS.md` shows the factory layout and a table of every workflow. 2.021 to 2.025 are approved (2026-11-28); 2.025 stays `draft` until 2.1.0 is on npm.
+
+- [ ] [2.021 One format helper](plans/2.021-format-helper.md): the known formats and each feature's minimum format in one module; no behaviour change
+- [ ] [2.022 Workflow files](plans/2.022-workflow-files.md): `format: 3`, `workflows/<name>.md` and `workflows/<name>/workflow.md`, never installed, checked like skills; `create --skill`
+- [ ] [2.023 Workflows in root AGENTS.md](plans/2.023-agents-md-workflows.md): the layout tree and a name, file and when-to-use table; `agents-md: { workflows: false }` turns it off
+- [ ] [2.024 Release 2.1.0](plans/2.024-release-2-1-0.md): `@seasb/metafab@2.1.0` under `latest`
+- [ ] [2.025 Use workflow files](plans/2.025-use-workflow-files.md): fab-basic 0.3 renames its workflows to plain files and drops its own table; this repository updates to it
+
+## Milestone 5: Store (version 2.x, draft plans)
 
 A team keeps its factory's working documents and scores in a shared store outside Git, with a local mirror for agents. What to build: [Store](specs/store.md) and [Store protocol](specs/store-protocol.md). These plans are drafts awaiting approval.
 
@@ -147,13 +157,19 @@ Milestone 4 is a chain: each plan extends the parser, renderer or command the on
 Milestone 4.1 builds on the released environments work (2.011 to 2.014) and on 1.028's `cliLookup`, all merged. 2.019 changes `validate.ts`, `load.ts` and `types.ts` in `src/core/factory/`, as 2.001 does, so the two never run side by side; in roadmap order 2.019 goes first.
 
 ```text
+2.021 ── 2.022 ── 2.023 ── 2.024 ── v2.1.0 on npm ── 2.025
+```
+
+Milestone 4.2 is a chain. 2.021, 2.022 and 2.023 change the factory model and build files that 2.020 and 2.001 also change (`types.ts`, `load.ts`, `validate.ts`, `build/plan.ts`), so none runs beside those. 2.025 stays `draft` until `v2.1.0` is on npm, like 2.018. The store, planned as 2.1.0 before, ships in a later minor.
+
+```text
 1.012 + 1.023 ── 2.011 ── 2.001 ── 2.002 ──┐
 1.020 ─────────────────────────────────────┴─ 2.003 ── 2.004 ─┬─ 2.005 ── 2.006 ─┬─ 2.009
                                                               ├─ 2.007 ── 2.008 ─┘
                                                               └─ 2.010
 ```
 
-Milestone 5 is mostly a chain, because each plan builds on the model the one before it adds. 2.001 needs only 2.011 from Milestone 4, but it changes the same factory files as 2.012 and 2.013 (`factory-yaml.ts`, `types.ts`, `validate.ts`, `load.ts`), so it never runs beside them; in roadmap order it starts after 2.014. After 2.004 merges, 2.007 shares no paths with 2.005 and 2.006 and can run beside them. 2.003 registers every later command as a stub, so each later plan owns only its own command files. 2.010 touches only backend and configuration code, so it can run beside 2.005 to 2.009. Release 2.1.0 after 2.009 and 2.010.
+Milestone 5 is mostly a chain, because each plan builds on the model the one before it adds. 2.001 needs only 2.011 from Milestone 4, but it changes the same factory files as 2.012 and 2.013 (`factory-yaml.ts`, `types.ts`, `validate.ts`, `load.ts`), so it never runs beside them; in roadmap order it starts after 2.014. After 2.004 merges, 2.007 shares no paths with 2.005 and 2.006 and can run beside them. 2.003 registers every later command as a stub, so each later plan owns only its own command files. 2.010 touches only backend and configuration code, so it can run beside 2.005 to 2.009. Release the store after 2.009 and 2.010.
 
 ## Open questions
 
@@ -172,6 +188,7 @@ Record answered questions here with the date and the commit that applied them.
 
 | Date | Decision | Applied in |
 | --- | --- | --- |
+| 2026-11-28 | Approve workflow files: `workflows/<name>.md` and `workflows/<name>/workflow.md` under `format: 3`, read in place from `.factory/` and never installed, while every `SKILL.md` still installs; a generated Workflows section in root `AGENTS.md` (layout, how to read directives, name/file/when table), off with `agents-md: { workflows: false }`; one format helper first; released as 2.1.0, so the store moves to a later minor | [2.021](plans/2.021-format-helper.md) to [2.025](plans/2.025-use-workflow-files.md) |
 | 2026-11-27 | Approve the automations direction: a slim `automation.md` (`owner`, `enabled`, `checkout`, `triggers`, prose body), a registered stub that renders the prompt at run time, harness text in `run.md` with env directives, `sync orca` through the Orca CLI, and `plan amp` applied by the built-in `metafab-automations` skill. Planned as 2.019 and 2.020, because 2.017 and 2.018 became the 2.0.0 release | [Automations](specs/automations.md), [2.019](plans/2.019-automations-format-and-prompt.md), [2.020](plans/2.020-automations-sync.md) |
 | 2026-11-24 | Release 2.0.0 now with environments and the v1 fixes; the store ships as 2.1.0. 2.0.0's unknown-field fix names upgrading Metafab. The checks in real OpenCode and Claude Code sessions do not gate the release, and the open 1.x intake bugs go to 2.0.x | [2.017](plans/2.017-release-2-0-0.md), [2.018](plans/2.018-use-metafab-2.md) |
 | 2026-11-15 | Approve Plan 2.015 as written, including its proposed decisions. It is built against the unreleased branches first (fab-basic on a branch with a draft pull request, the CLI from its own stacked checkout) so the person can evaluate the environments stack, and it pins `2.0.0-next.1` and fab-basic `^0.2.0` once both are released. Stacked plans are linked as GitHub stacks so a whole stack can merge at once | [2.015](plans/2.015-dogfood-environments.md) |
