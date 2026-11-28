@@ -341,20 +341,26 @@ export async function planOrcaSync(input: {
 
   for (const [name, entry] of kept) {
     if (desired.some((wanted) => wanted.name === name)) continue;
-    if (entry.enabled === false) {
-      unchanged.push(name);
-      continue;
-    }
+    // Run history is kept only for an automation that still exists, is turned
+    // off and is owned by this account. A deleted or re-owned one removes its
+    // registration, even when that registration is already disabled.
     const automation = factory.automations?.list.find((candidate) => candidate.name === name);
     const keepsHistory =
       automation !== undefined &&
       !automation.enabled &&
       (automation.owner === "*" || automation.owner.toLowerCase() === account.toLowerCase());
-    changes.push(
-      keepsHistory
-        ? { kind: "disable", name, args: ["automations", "edit", entry.id, "--disabled"], fields: [] }
-        : removeChange(name, entry),
-    );
+    if (!keepsHistory) {
+      changes.push(removeChange(name, entry));
+    } else if (entry.enabled === false) {
+      unchanged.push(name);
+    } else {
+      changes.push({
+        kind: "disable",
+        name,
+        args: ["automations", "edit", entry.id, "--disabled"],
+        fields: [],
+      });
+    }
   }
 
   return { changes, unchanged, leftAlone, agent: agentId };

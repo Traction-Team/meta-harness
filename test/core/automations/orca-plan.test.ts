@@ -305,6 +305,40 @@ describe("planOrcaSync", () => {
     expect(planned.unchanged).toEqual(["intake"]);
   });
 
+  test("removes an already disabled registration after its automation is deleted", async () => {
+    const { repo, factory } = await factoryWith({ intake: { enabled: false } });
+    const installed = installedEntry("intake", repo.root);
+
+    const first = await plan(repo, factory, [installed], null);
+    expect(first.changes.map((change) => change.kind)).toEqual(["disable"]);
+    await applyOrcaSync(first.changes, async () => ({ exitCode: 0, stdout: "{}", stderr: "" }));
+
+    await rm(path.join(repo.root, ".factory", "automations", "intake"), {
+      recursive: true,
+      force: true,
+    });
+    const deleted = await loadFactory(repo.root);
+    const second = await plan(repo, deleted, [{ ...installed, enabled: false }], null);
+
+    expect(second.changes.map((change) => change.args)).toEqual([
+      ["automations", "remove", "id-intake"],
+    ]);
+    expect(second.unchanged).toEqual([]);
+  });
+
+  test("removes an already disabled registration whose automation now names another owner", async () => {
+    const { repo, factory } = await factoryWith({ intake: { owner: "other@example.com" } });
+
+    const planned = await plan(repo, factory, [
+      installedEntry("intake", repo.root, { enabled: false }),
+    ]);
+
+    expect(planned.changes.map((change) => change.args)).toEqual([
+      ["automations", "remove", "id-intake"],
+    ]);
+    expect(planned.unchanged).toEqual([]);
+  });
+
   test("keeps the oldest of two registrations with one title", async () => {
     const { repo, factory } = await factoryWith({ intake: {} });
     const desired = await desiredSet(factory, "orca", ACCOUNT, "main");
