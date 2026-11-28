@@ -21,6 +21,8 @@ const GROUP_HELP = [
   "  metafab automations list [--json]                                                     Show the automations in the factory",
   "  metafab automations prompt <name> [--target <target>] [--env <variable>=<values>]...  Print one run's prompt for an automation",
   "  metafab automations stub <name> --target <orca|amp> [--branch <trunk>]                Print the text a target registers for an automation",
+  "  metafab automations plan <target> [--agent <id>] [--branch <trunk>]                   Show the registrations a target's sync would create, update or remove",
+  "  metafab automations sync orca [--agent <id>] [--branch <trunk>] [--dry-run]           Make Orca's automations match the factory",
   "",
   "Run metafab automations <subcommand> --help for its options.",
   "",

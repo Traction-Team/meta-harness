@@ -200,8 +200,10 @@ See [Sharing a factory](sharing.md) for source handling, merge rules, and public
 | `metafab automations list [--json]` | Every automation in name order, with its owner, enabled state, checkout, triggers and the automations that run after it |
 | `metafab automations prompt <name> [--target <target>] [--env <variable>=<values>]...` | Prints one run's prompt |
 | `metafab automations stub <name> --target <orca\|amp> [--branch <trunk>]` | Prints the text a target registers |
+| `metafab automations plan <target> [--agent <id>] [--branch <trunk>]` | Prints the desired set for the target's account, and for `orca` the changes a sync would make |
+| `metafab automations sync orca [--agent <id>] [--branch <trunk>] [--dry-run]` | Makes Orca match the files |
 
-See [Automations](automations.md) for the files, the prompt, the stub and validation.
+See [Automations](automations.md) for the files, the prompt, the stub, sync and validation.
 
 ## Configuration
 

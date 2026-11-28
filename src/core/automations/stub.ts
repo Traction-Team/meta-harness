@@ -15,8 +15,10 @@ export interface StubInput {
   cliVersion: string;
 }
 
-const MARKER = (name: string, factoryName: string): string =>
-  `Run the factory automation \`${name}\` from the \`${factoryName}\` factory.`;
+/** The first line of a stub: the marker sync uses to recognise its registrations. */
+export function stubMarker(name: string, factoryName: string): string {
+  return `Run the factory automation \`${name}\` from the \`${factoryName}\` factory.`;
+}
 
 const CLEAN_STEP =
   "Run `git status --porcelain --untracked-files=all`. If it prints anything or fails, report that this run needs a clean checkout, and stop.";
@@ -49,7 +51,7 @@ export function renderStub(input: StubInput): string {
   steps.push(prompt);
 
   const lines = [
-    MARKER(automation.name, factoryName),
+    stubMarker(automation.name, factoryName),
     "",
     ...steps.map((step, index) => `${index + 1}. ${step}`),
   ];

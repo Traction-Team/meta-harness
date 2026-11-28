@@ -552,6 +552,8 @@ describe("help data", () => {
       "automations list",
       "automations prompt",
       "automations stub",
+      "automations plan",
+      "automations sync",
       "env",
       "env set",
       "env unset",

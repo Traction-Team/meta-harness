@@ -291,6 +291,20 @@ const CASES: readonly ContractCase[] = [
     required: [{ name: "target", flag: "--target" }],
   },
   {
+    command: "automations plan",
+    name: "a missing target exits 1 with a fix",
+    args: ["automations", "plan"],
+    prepare: () => newDirectory(),
+    exitCode: ExitCode.Failed,
+  },
+  {
+    command: "automations sync",
+    name: "a missing target exits 1 with a fix",
+    args: ["automations", "sync"],
+    prepare: () => newDirectory(),
+    exitCode: ExitCode.Failed,
+  },
+  {
     command: "env",
     name: "a format 1 factory declares no variables",
     args: ["env"],
