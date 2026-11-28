@@ -95,19 +95,44 @@ export interface BuildReport {
 
 const SKILL_DESTINATIONS = [CLAUDE_SKILLS_DIRECTORY, AGENTS_SKILLS_DIRECTORY];
 
-const BUILTIN_SKILL_DIR = fileURLToPath(
-  new URL("../../../resources/metafab-skill", import.meta.url),
-);
+/** One skill `build` compiles from this package's `resources/` directory. */
+interface BuiltinSkill {
+  name: string;
+  dir: string;
+  sourcePath: string;
+}
 
-/** Installed name of the skill that `build` compiles from this package. */
-const BUILTIN_SKILL_NAME = "metafab";
+function resourceDir(name: string): string {
+  return fileURLToPath(new URL(`../../../resources/${name}-skill`, import.meta.url));
+}
+
+const BUILTIN_SKILLS: readonly BuiltinSkill[] = [
+  { name: "metafab", dir: resourceDir("metafab"), sourcePath: "resources/metafab-skill" },
+  {
+    name: "metafab-automations",
+    dir: resourceDir("metafab-automations"),
+    sourcePath: "resources/metafab-automations-skill",
+  },
+];
 
 /**
  * Skill names that `build` installs from the package itself. Adoption must not
  * move a repository skill onto one of these names: the built-in copy would
  * shadow or overwrite the moved skill.
  */
-export const BUILTIN_SKILL_NAMES: readonly string[] = [BUILTIN_SKILL_NAME];
+export const BUILTIN_SKILL_NAMES: readonly string[] = BUILTIN_SKILLS.map((skill) => skill.name);
+
+/**
+ * The built-in skills this factory gets. `metafab-automations` is installed
+ * only when the factory has an automation, because a factory without one has
+ * nothing to register.
+ */
+function builtInSkills(factory: Factory, config: Config): BuiltinSkill[] {
+  if (!config.metafabSkill) return [];
+  const names = ["metafab"];
+  if ((factory.automations?.list.length ?? 0) > 0) names.push("metafab-automations");
+  return BUILTIN_SKILLS.filter((skill) => names.includes(skill.name));
+}
 
 const IMPORT_AGENTS = /^@(\.\/)?AGENTS\.md\s*$/;
 
@@ -362,28 +387,32 @@ async function compileFactorySkills(
   return desired;
 }
 
-async function compileBuiltinSkill(
+async function compileBuiltinSkills(
+  factory: Factory,
   config: Config,
   cliVersion: string,
   errors: Problem[],
-): Promise<DesiredSkill | undefined> {
-  if (!config.metafabSkill) return undefined;
+): Promise<DesiredSkill[]> {
+  const desired: DesiredSkill[] = [];
 
-  const compiled = await compileSkill(
-    { dir: BUILTIN_SKILL_DIR, name: BUILTIN_SKILL_NAME, sourcePath: "resources/metafab-skill" },
-    { factoryDir: BUILTIN_SKILL_DIR, comment: builtinComment(cliVersion) },
-  );
+  for (const source of builtInSkills(factory, config)) {
+    const compiled = await compileSkill(
+      { dir: source.dir, name: source.name, sourcePath: source.sourcePath },
+      { factoryDir: source.dir, comment: builtinComment(cliVersion) },
+    );
 
-  if (compiled.problems.length > 0) errors.push(...compiled.problems);
+    if (compiled.problems.length > 0) errors.push(...compiled.problems);
+    desired.push({
+      name: compiled.name,
+      files: compiled.files.map((file) => ({
+        path: file.path,
+        content: file.content,
+        mode: file.mode,
+      })),
+    });
+  }
 
-  return {
-    name: BUILTIN_SKILL_NAME,
-    files: compiled.files.map((file) => ({
-      path: file.path,
-      content: file.content,
-      mode: file.mode,
-    })),
-  };
+  return desired;
 }
 
 export interface DesiredOutput {
@@ -425,13 +454,11 @@ export async function desiredOutput(
     imports,
     errors,
   );
-  const builtin = await compileBuiltinSkill(config, cliVersion, errors);
+  const builtins = await compileBuiltinSkills(factory, config, cliVersion, errors);
 
   const skills = new Map<string, DesiredSkill[]>();
   for (const destination of destinations(config.agents)) {
-    const selected = [...factorySkills];
-    if (builtin !== undefined) selected.push(builtin);
-    skills.set(destination.directory, selected);
+    skills.set(destination.directory, [...factorySkills, ...builtins]);
   }
 
   // Rendered for every value, so the committed block is the same for everyone.

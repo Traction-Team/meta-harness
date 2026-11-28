@@ -590,6 +590,78 @@ describe("removals", () => {
   });
 });
 
+const AUTOMATION =
+  '---\nowner: "*"\ntriggers:\n  - schedule: { cron: "0 8 * * 1", tz: Australia/Sydney }\n---\n\nDo the work.\n';
+
+describe("built-in skills", () => {
+  test("installs metafab-automations only when the factory has an automation", async () => {
+    const without = await makeBuildRepo({
+      ".factory/factory.yaml": "format: 2\nname: demo\n",
+      ".factory/metafab.yaml": "agents: [codex]\n",
+    });
+
+    const first = await build(without.root);
+
+    expect(first.report.changed.some((change) => change.path.includes("metafab-automations"))).toBe(
+      false,
+    );
+    expect(await pathExists(without.path(".agents", "skills", "metafab", "SKILL.md"))).toBe(true);
+    expect(await pathExists(without.path(".agents", "skills", "metafab-automations"))).toBe(false);
+
+    const withAutomation = await makeBuildRepo({
+      ".factory/factory.yaml": "format: 2\nname: demo\n",
+      ".factory/metafab.yaml": "agents: [codex]\n",
+      ".factory/automations/intake/automation.md": AUTOMATION,
+    });
+
+    const second = await build(withAutomation.root);
+
+    expect(second.report.changed).toContainEqual({
+      path: ".agents/skills/metafab-automations/SKILL.md",
+      action: "created",
+    });
+    expect(
+      await readFile(withAutomation.path(".agents", "skills", "metafab-automations", "SKILL.md"), "utf8"),
+    ).toContain("name: metafab-automations");
+    expect(await pathExists(withAutomation.path(".agents", "skills", "metafab", "SKILL.md"))).toBe(
+      true,
+    );
+  });
+
+  test("removes metafab-automations after the last automation is deleted", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/factory.yaml": "format: 2\nname: demo\n",
+      ".factory/metafab.yaml": "agents: [codex]\n",
+      ".factory/automations/intake/automation.md": AUTOMATION,
+    });
+    await build(repo.root);
+    await rm(repo.path(".factory", "automations"), { recursive: true });
+
+    const { report } = await build(repo.root);
+
+    expect(report.changed).toContainEqual({
+      path: ".agents/skills/metafab-automations",
+      action: "removed",
+    });
+    expect(await pathExists(repo.path(".agents", "skills", "metafab-automations"))).toBe(false);
+    expect(await pathExists(repo.path(".agents", "skills", "metafab", "SKILL.md"))).toBe(true);
+  });
+
+  test("metafab-skill: false installs neither built-in skill", async () => {
+    const repo = await makeBuildRepo({
+      ".factory/factory.yaml": "format: 2\nname: demo\n",
+      ".factory/metafab.yaml": "agents: [codex]\nmetafab-skill: false\n",
+      ".factory/automations/intake/automation.md": AUTOMATION,
+    });
+
+    const { report } = await build(repo.root);
+
+    expect(report.changed.some((change) => change.path.includes("metafab"))).toBe(false);
+    expect(await pathExists(repo.path(".agents", "skills", "metafab"))).toBe(false);
+    expect(await pathExists(repo.path(".agents", "skills", "metafab-automations"))).toBe(false);
+  });
+});
+
 describe("symlinks in installed output", () => {
   test("replaces a dangling symlink at a desired file path without writing outside the repo", async () => {
     const repo = await makeBuildRepo({

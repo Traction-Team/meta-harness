@@ -19,8 +19,10 @@ import { normalizeProblemPath } from "./util/fs.js";
 import { didYouMean } from "./util/suggest.js";
 import { cliVersion } from "./util/version.js";
 import { automationsListCommand } from "./commands/automations-list.js";
+import { automationsPlanCommand } from "./commands/automations-plan.js";
 import { automationsPromptCommand } from "./commands/automations-prompt.js";
 import { automationsStubCommand } from "./commands/automations-stub.js";
+import { automationsSyncCommand } from "./commands/automations-sync.js";
 import { buildCommand } from "./commands/build.js";
 import { checkCommand } from "./commands/check.js";
 import { createCommand } from "./commands/create.js";
@@ -52,6 +54,8 @@ export const COMMANDS: readonly CommandDefinition[] = [
   automationsListCommand,
   automationsPromptCommand,
   automationsStubCommand,
+  automationsPlanCommand,
+  automationsSyncCommand,
   envCommand,
   envSetCommand,
   envUnsetCommand,

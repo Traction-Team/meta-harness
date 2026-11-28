@@ -149,24 +149,26 @@ A registration is **managed** when its title is `automation: <name>`, its prompt
 
 Every sync:
 
-1. Reads the desired set from the files in the current checkout. If any automation has an error, sync changes nothing and exits 1 with the errors.
+1. Reads the desired set from the files in the current checkout. If any automation has an error, including an error in a file its prompt depends on (as [The prompt](#the-prompt) lists them), sync changes nothing and exits 1 with the errors.
 2. Refuses, changing nothing, when an automation in the set cannot be expressed in the target, naming the automation and the reason (exit 1).
 3. Keeps the oldest of two managed registrations with the same title and removes the others.
 4. Creates a registration for each entry that has none, updates each one that differs, and handles each managed registration that has no entry (see each target).
 5. Changes nothing on a second run.
 
+`plan <target>` prints the same set without changing anything, and for `orca` the changes a sync would make. `plan` and `sync` take the trunk from `--branch`, or else the remote's default branch as [the stub](#the-stub) does; with neither, they exit 1 with the fix `Pass --branch <trunk>`. A `--branch` that `git check-ref-format --branch` refuses is an error (exit 1), as for the stub. They need the target's account, and exit 1 naming the setting that is missing when it is unknown.
+
 ### Orca
 
-`metafab automations sync orca [--agent <id>] [--branch <trunk>] [--dry-run]` uses the `orca` CLI on this machine, always against the local Orca and never a paired remote one. It needs a main checkout: a bare repository's linked worktree is refused (exit 1).
+`metafab automations sync orca [--agent <id>] [--branch <trunk>] [--dry-run]` uses the `orca` CLI on this machine, always against the local Orca and never a paired remote one. It needs a main checkout, and refuses a bare repository's linked worktree or a main checkout that does not hold the factory (exit 1) with `This repository has no main checkout for Orca to run in` and the fix `Run the sync from a normal clone`.
 
 - **Account:** `git config user.email` in the repository.
-- **Belongs to this repository:** the automation's run context path is the repository root.
-- **A registration** is an Orca automation named `automation: <name>`, with the stub for `--target orca` as its prompt, the cron and `tz` as its trigger and time zone, the agent `--agent`, a fresh session for every run, and, for `checkout: worktree`, a new worktree per run on the repository from `origin/<trunk>` with setup run. For `checkout: main`, it runs in the main checkout. Sync restores each of these settings when a person changed one in Orca.
+- **Belongs to this repository:** the automation's run context path is the repository's main checkout.
+- **A registration** is an Orca automation named `automation: <name>`, with the stub for `--target orca` as its prompt, the cron and `tz` as its trigger and time zone, the agent `--agent`, a fresh session for every run, and, for `checkout: worktree`, a new worktree per run on the repository from `origin/<trunk>` with setup run. For `checkout: main`, it runs in the main checkout. Sync always passes `--timezone`, because an automation created without one takes the zone of the browser that made it. Sync restores each of these settings when a person changed one in Orca.
 - **Agent:** `--agent`, such as `opencode`, `claude` or `codex`. Without it, sync uses the agent of the managed registrations when they all have the same one. Otherwise, when the desired set is not empty, it is missing input (exit 2, `required: ["agent"]`) and nothing changes.
 - **Main checkout:** registrations name the repository's main checkout, even when sync runs in a linked worktree.
 - **A managed registration with no entry:** when its automation still exists, is owned by this account and is disabled, sync disables it in Orca and keeps its run history. Otherwise (the automation is deleted, or now has another owner) sync removes it.
 - `--dry-run` prints the changes and makes none.
-- When `orca` is not installed or its runtime does not answer, sync exits 1 with Orca's message and the fix `Start Orca, then run the sync again`. A sync that fails partway leaves the changes it made; the next sync finishes the work.
+- When `orca` is not installed, sync exits 1 with `The orca command was not found` and the fix `Install Orca, or run the sync on a machine that has it`. When it is installed but does not answer, sync exits 1 with Orca's message and the fix `Start Orca, then run the sync again`. A sync that fails partway leaves the changes it made; the next sync finishes the work.
 
 ### Amp
 
@@ -174,10 +176,11 @@ Amp's schedules can be changed only by an agent's tools inside an Amp thread, so
 
 - **Account:** `AMP_USER_EMAIL`. When it is unset, `plan amp` exits 1, because the session is not an Amp thread and nothing else can say which account would hold the schedules.
 - **Expressible:** an Amp schedule repeats every day or on a list of weekdays, at plain hours and minutes. The cron's minute and hour must be numbers or comma lists, its day of month and month `*`, and its day of week `*`, days or ranges of days. Any other cron is refused with the reason.
-- **Each entry** has `name`, `title` (`automation: <name>`), `schedule` (a `DTSTART;TZID=<tz>:<stamp>` line and an `RRULE` line), `schedule_label` (the days and times in words), `run_mode` (`fresh`) and `prompt` (the stub for `--target amp`, with trailing whitespace removed, as Amp stores it). The `DTSTART` stamp is the first firing at or after now in `tz`, skipping a wall-clock time that the zone's daylight-saving change skips.
+- **Each entry** has `name`, `title` (`automation: <name>`), `schedule` (a `DTSTART;TZID=<tz>:<stamp>` line and an `RRULE` line), `schedule_label` (the days and times in words, ending with the zone, such as `Mondays and Thursdays, 8:00 AM Australia/Sydney`), `run_mode` (`fresh`) and `prompt` (the stub for `--target amp`, with trailing whitespace removed, as Amp stores it). The `DTSTART` stamp is the first firing at or after now in `tz`, skipping a wall-clock time that the zone's daylight-saving change skips and, for a time that a fall-back change repeats, counting only its first occurrence, which is how RFC 5545 reads a `TZID` time.
 - **Comparing:** only the `TZID` and the `RRULE` are compared with an installed schedule, never the `DTSTART` stamp, which moves on its own as time passes.
-- **Holding threads:** Amp keeps one schedule per thread, so each schedule is held by a thread made for it. That thread is titled like the schedule, and its only message is `This thread holds the \`automation: <name>\` schedule for metafab automations sync. Do nothing and end.` Every holding thread in an account sits under one parent thread titled `Factory automations`. The skill gives the procedure.
-- **A managed schedule with no entry** is cleared, and its holding thread is archived.
+- **Holding threads:** Each schedule is held by a thread made for it, and the sync addresses each schedule by its ID, because Amp lets a thread hold several. That thread is titled like the schedule, and its only message is `This thread holds the \`automation: <name>\` schedule of the \`<factory>\` factory for metafab automations sync. Do nothing and end.`, so it proves which factory owns it after its schedule is gone. Every holding thread of one Amp project in an account sits under one parent thread in that project, titled `Factory automations`: Amp threads belong to a project, the sync finds the parent with a search scoped to the repository, and two repositories synced from one account would otherwise fight over one parent. The skill gives the procedure.
+- **Tool shapes:** `list_schedules` returns the account's schedules and event triggers in its `automations` array, and an entry may not carry the schedule's ID; `get_schedule` on the holding thread names it, and lists the thread's schedules when it holds several. `set_schedule` anchors a schedule that has no `DTSTART` in the browser's time zone, so the sync passes the entry's `schedule` as given. `update_schedule` takes the `TZID` and the `RRULE` together in its `schedule` field.
+- **A managed schedule with no entry** is cleared. Its holding thread is archived, after the finished runs under it, once it holds no other schedule and no run of it is still working; until then a later sync retires it. Amp takes a thread's unarchived children first: its option to archive a thread that still has unarchived children applies to the current thread alone, so the finished runs are archived and then the holding thread.
 
 ## Commands
 
@@ -189,7 +192,7 @@ Amp's schedules can be changed only by an agent's tools inside an Amp thread, so
 | `metafab automations plan <target> [--agent <id>] [--branch <trunk>]` | Prints the desired set for the target's account, and for `orca` the changes a sync would make |
 | `metafab automations sync orca [--agent <id>] [--branch <trunk>] [--dry-run]` | Makes Orca match the files ([Orca](#orca)) |
 
-`metafab check` validates every automation and `run.md`. `prompt` and `stub` write the text alone to standard output; with `--json` they write `{ ..., "prompt": "<text>" }`.
+`metafab check` validates every automation and `run.md`. `prompt` and `stub` write the text alone to standard output; with `--json` they write `{ ..., "prompt": "<text>" }`. `plan amp --json` adds `account` and `entries`. `plan orca --json` adds those and `created`, `updated`, `disabled`, `removed`, `unchanged` and `leftAlone`; `sync orca --json` adds the last six.
 
 Running an automation by hand is `metafab automations prompt <name>` given to an agent session, for example `p=$(metafab automations prompt intake) && claude -p "$p"`. It is a real run.
 

@@ -1,7 +1,11 @@
 import type { Problem } from "../../errors.js";
 import { normalizeProblemPath } from "../../util/fs.js";
+import type { Factory } from "../factory/types.js";
 import { TARGETS } from "./types.js";
 import type { Automation, Target } from "./types.js";
+
+const AUTOMATIONS_DIR = ".factory/automations";
+const AUTOMATION_FILE = ".factory/automations/";
 
 /** The fix every format 1 factory gets from the `automations` commands. */
 const FORMAT_TWO_FIX = "Set format: 2 in .factory/factory.yaml";
@@ -70,6 +74,19 @@ export function otherOwner(automation: Automation, account: string): Problem {
   };
 }
 
+/**
+ * `plan amp` needs `AMP_USER_EMAIL`: outside an Amp thread nothing else names
+ * the account that would hold the schedules.
+ */
+export function missingAmpAccount(): Problem {
+  return {
+    level: "error",
+    file: normalizeProblemPath("metafab"),
+    message: "The Amp account is unknown: AMP_USER_EMAIL is not set, so this is not an Amp thread",
+    fix: "Run metafab automations plan amp inside an Amp thread",
+  };
+}
+
 /** Neither `--branch` nor `origin/HEAD` named a trunk. */
 export function noTrunk(): Problem {
   return {
@@ -87,5 +104,27 @@ export function badBranch(branch: string): Problem {
     file: normalizeProblemPath("metafab"),
     message: `${branch} is not a branch name`,
     fix: "Pass --branch <trunk> with a branch name, such as main",
+  };
+}
+
+/** Every error `check` reports in `.factory/automations/`. */
+export function automationErrors(factory: Factory): Problem[] {
+  return factory.problems.filter(
+    (problem) =>
+      problem.level === "error" &&
+      (problem.file === AUTOMATIONS_DIR || problem.file.startsWith(AUTOMATION_FILE)),
+  );
+}
+
+/**
+ * The repository has no checkout Orca can run in: a bare repository, or a
+ * linked worktree whose main checkout does not hold the factory.
+ */
+export function noMainCheckout(): Problem {
+  return {
+    level: "error",
+    file: normalizeProblemPath("metafab"),
+    message: "This repository has no main checkout for Orca to run in",
+    fix: "Run the sync from a normal clone",
   };
 }

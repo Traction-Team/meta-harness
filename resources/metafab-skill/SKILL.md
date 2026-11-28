@@ -125,6 +125,8 @@ Installed skills are ignored by Git, so a clone, a new worktree, a pull, a branc
   ```
 - **Cloud agents and CI.** They start from a fresh clone, so run `metafab build` in their setup step. CI then runs `git diff --exit-code -- AGENTS.md CLAUDE.md .gitignore .gitattributes` and `metafab check`.
 
+To register automations in a harness, load `metafab-automations`.
+
 ## Check and resolve problems
 
 Run `metafab check`. It reports each problem with a path, line, and suggested fix. Errors return exit code 1.

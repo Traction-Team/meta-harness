@@ -260,6 +260,31 @@ describe("runCheck", () => {
     ]);
   });
 
+  test("a built-in metafab-automations skill from another CLI version is reported", async () => {
+    const target = await checkRepo({
+      ".factory/factory.yaml": "format: 2\nname: demo\n",
+      ".factory/metafab.yaml": "agents: [codex]\n",
+      ".factory/automations/intake/automation.md":
+        '---\nowner: "*"\ntriggers:\n  - schedule: { cron: "0 8 * * 1", tz: Australia/Sydney }\n---\n\nDo the work.\n',
+    });
+    await build(target.root);
+
+    const skill = target.path(".agents", "skills", "metafab-automations", "SKILL.md");
+    await writeFile(skill, (await readFile(skill, "utf8")).replace(PACKAGE_VERSION, "0.0.1"));
+
+    const problems = await runCheck(target.root, PACKAGE_VERSION);
+
+    expect(problems).toEqual([
+      {
+        level: "error",
+        file: ".agents/skills/metafab-automations",
+        line: 1,
+        message: `The installed metafab-automations skill is from 0.0.1; this CLI is ${PACKAGE_VERSION}`,
+        fix: "Run metafab build",
+      },
+    ]);
+  });
+
   describe.skipIf(process.platform === "win32")("installed file modes", () => {
     test.each([
       ["0666", 0o666],

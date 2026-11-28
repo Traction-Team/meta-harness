@@ -113,8 +113,13 @@ describe("loadAutomations", () => {
 
     const config = await loadConfig(factory.dir);
     const plan = await planBuild(factory, config, "2.0.0");
-    expect(plan.writes.some((write) => write.path.includes("automations"))).toBe(false);
-    expect(plan.writes.some((write) => write.path.includes("intake"))).toBe(false);
+    const installed = plan.writes.map((write) => write.path);
+    // The only automations-related output is the built-in skill that registers them.
+    expect(installed.filter((file) => file.includes("automations")).sort()).toEqual([
+      ".agents/skills/metafab-automations/SKILL.md",
+      ".claude/skills/metafab-automations/SKILL.md",
+    ]);
+    expect(installed.some((file) => file.includes("intake"))).toBe(false);
   });
 
   test("build installs nothing from a factory's automations", async () => {
@@ -124,7 +129,11 @@ describe("loadAutomations", () => {
 
     expect(plan.errors).toEqual([]);
     const installed = plan.writes.map((write) => write.path);
-    expect(installed.some((file) => file.includes("automations"))).toBe(false);
+    // The only automations-related output is the built-in skill that registers them.
+    expect(installed.filter((file) => file.includes("automations")).sort()).toEqual([
+      ".agents/skills/metafab-automations/SKILL.md",
+      ".claude/skills/metafab-automations/SKILL.md",
+    ]);
     expect(
       installed.some((file) => file.includes("/intake/") || file.includes("/plan-intake/")),
     ).toBe(false);
