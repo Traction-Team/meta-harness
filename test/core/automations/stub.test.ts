@@ -309,14 +309,19 @@ describe("defaultTrunk", () => {
 });
 
 describe("relativeFactoryDir", () => {
-  test("keeps the whitespace in the factory directory's name", async () => {
-    const directory = " fab ";
-    const { clone } = await cloneWithOrigin({
-      [`${directory}/.factory/factory.yaml`]: FACTORY,
-    });
+  // Windows cannot name a directory with a trailing space, so the git step of
+  // `cloneWithOrigin` fails before the directory name is ever tested.
+  test.skipIf(process.platform === "win32")(
+    "keeps the whitespace in the factory directory's name",
+    async () => {
+      const directory = " fab ";
+      const { clone } = await cloneWithOrigin({
+        [`${directory}/.factory/factory.yaml`]: FACTORY,
+      });
 
-    expect(await relativeFactoryDir(path.join(clone, directory))).toBe(directory);
-  });
+      expect(await relativeFactoryDir(path.join(clone, directory))).toBe(directory);
+    },
+  );
 
   test("is . at the repository root", async () => {
     const { clone } = await cloneWithOrigin({ "README.md": "hello\n" });
