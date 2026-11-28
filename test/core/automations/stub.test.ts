@@ -149,6 +149,10 @@ async function cloneWithOrigin(files: Record<string, string>): Promise<Clone> {
   await git(source, ["push", "--quiet", "origin", "main"]);
 
   await git(container, ["clone", "--quiet", origin, clone]);
+  // `automations prompt --target orca` reads `user.email` in the clone, and a
+  // clone starts with no local config, so set it here instead of relying on the
+  // machine's global Git config.
+  await git(clone, ["config", "user.email", "metafab@example.com"]);
   return { container, clone, source };
 }
 
