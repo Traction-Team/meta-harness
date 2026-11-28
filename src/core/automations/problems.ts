@@ -74,6 +74,19 @@ export function otherOwner(automation: Automation, account: string): Problem {
   };
 }
 
+/**
+ * `plan amp` needs `AMP_USER_EMAIL`: outside an Amp thread nothing else names
+ * the account that would hold the schedules.
+ */
+export function missingAmpAccount(): Problem {
+  return {
+    level: "error",
+    file: normalizeProblemPath("metafab"),
+    message: "The Amp account is unknown: AMP_USER_EMAIL is not set, so this is not an Amp thread",
+    fix: "Run metafab automations plan amp inside an Amp thread",
+  };
+}
+
 /** Neither `--branch` nor `origin/HEAD` named a trunk. */
 export function noTrunk(): Problem {
   return {

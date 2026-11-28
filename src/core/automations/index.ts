@@ -6,4 +6,5 @@ export * from "./account.js";
 export * from "./prompt.js";
 export * from "./stub.js";
 export * from "./desired.js";
+export * from "./amp-schedule.js";
 export * from "./orca.js";

@@ -1,7 +1,15 @@
 import { account } from "../core/automations/account.js";
+import { planAmp } from "../core/automations/amp-schedule.js";
+import type { AmpEntry } from "../core/automations/amp-schedule.js";
+import { desiredSet } from "../core/automations/desired.js";
 import { changeLine, createOrcaRunner, plannedResult, prepareOrcaSync } from "../core/automations/orca.js";
 import type { OrcaCommandPlan } from "../core/automations/orca.js";
-import { missingAccount, needsFormatTwo, noTrunk } from "../core/automations/problems.js";
+import {
+  missingAccount,
+  missingAmpAccount,
+  needsFormatTwo,
+  noTrunk,
+} from "../core/automations/problems.js";
 import { defaultTrunk } from "../core/automations/stub.js";
 import { findFactory } from "../core/discovery.js";
 import { loadFactory } from "../core/factory/index.js";
@@ -23,7 +31,7 @@ function targetProblem(value: string | undefined): Problem {
     level: "error",
     file: normalizeProblemPath("metafab"),
     message: value === undefined ? "automations plan requires a target" : `Unknown target "${value}"`,
-    fix: "Run metafab automations plan orca",
+    fix: "Run metafab automations plan orca, or metafab automations plan amp",
   };
 }
 
@@ -83,24 +91,66 @@ async function runPlanOrca(
   return result;
 }
 
+/** The lines `plan amp` prints without `--json`. */
+function describeAmp(entries: readonly AmpEntry[]): string {
+  if (entries.length === 0) return "No automations to register in Amp.";
+
+  const lines: string[] = [];
+  for (const entry of entries) {
+    if (lines.length > 0) lines.push("");
+    lines.push(entry.title);
+    lines.push(`  label:    ${entry.schedule_label}`);
+    for (const line of entry.schedule.split("\n")) lines.push(`  ${line}`);
+  }
+  return lines.join("\n");
+}
+
+async function runPlanAmp(
+  context: CommandContext,
+  factory: Factory,
+  accountEmail: string,
+): Promise<CommandResult> {
+  const branch = context.options.branch;
+  const trunk = typeof branch === "string" ? branch : await defaultTrunk(factory.root);
+  if (trunk === undefined) return failed([noTrunk()]);
+
+  const desired = await desiredSet(factory, "amp", accountEmail, trunk);
+  const entries = planAmp(desired, new Date());
+
+  const result: CommandResult = {
+    ok: true,
+    command: COMMAND,
+    exitCode: ExitCode.Ok,
+    problems: [],
+    account: accountEmail,
+    entries,
+  };
+  if (context.options.json !== true) result.summary = describeAmp(entries);
+  return result;
+}
+
 async function runPlan(context: CommandContext): Promise<CommandResult> {
   const target = context.positionals[0];
-  if (context.positionals.length !== 1 || target !== "orca") return failed([targetProblem(target)]);
+  if (context.positionals.length !== 1 || (target !== "orca" && target !== "amp")) {
+    return failed([targetProblem(target)]);
+  }
 
   const location = await findFactory(context.cwd, { command: COMMAND });
   const factory = await loadFactory(location.root);
   if (factory.factoryYaml?.format !== 2) return failed([needsFormatTwo()]);
 
-  const owner = await account("orca", factory.root);
-  if (owner === undefined) return failed([missingAccount("orca")]);
-  return runPlanOrca(context, factory, owner);
+  const owner = await account(target, factory.root);
+  if (owner === undefined) {
+    return failed([target === "amp" ? missingAmpAccount() : missingAccount("orca")]);
+  }
+  return target === "amp" ? runPlanAmp(context, factory, owner) : runPlanOrca(context, factory, owner);
 }
 
 export const automationsPlanCommand: CommandDefinition = {
   name: COMMAND,
   description: "Show the registrations a target's sync would create, update or remove",
   usage: "metafab automations plan <target> [--agent <id>] [--branch <trunk>]",
-  arguments: [{ name: "target", description: "The harness to plan for; orca" }],
+  arguments: [{ name: "target", description: "The harness to plan for; orca or amp" }],
   options: {
     agent: {
       type: "string",
