@@ -166,8 +166,15 @@ export async function environmentProblems(factory: Factory): Promise<Problem[]> 
       if (document === undefined) continue;
 
       // Rendering alone is not enough: a block that applies to only some values
-      // still renders its label line, even when it holds only blank lines.
-      if (!rendersContent(document, { variables, selection: allValues(variables) })) {
+      // still renders its label line, even when it holds only blank lines. A
+      // body that is only the heading `prompt` prints has nothing else to say.
+      if (
+        !rendersContent(
+          document,
+          { variables, selection: allValues(variables) },
+          `# ${body.name}`,
+        )
+      ) {
         problems.push({
           level: "error",
           file: body.file,

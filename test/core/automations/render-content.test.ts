@@ -183,6 +183,29 @@ describe("check's empty-body rule", () => {
     ]);
   });
 
+  test("reports a body that is only the automation's own heading", async () => {
+    const problems = await checkProblems({
+      ".factory/automations/intake/automation.md": FRONTMATTER + lines("# intake", ""),
+    });
+
+    expect(errorsOf(problems)).toContainEqual({
+      level: "error",
+      file: ".factory/automations/intake/automation.md",
+      line: 6,
+      message: "The body of intake is empty",
+      fix: "Write what the run does in the body, below the frontmatter",
+    });
+  });
+
+  test("accepts a body that starts with the automation's own heading and then has text", async () => {
+    const problems = await loadProblems({
+      ".factory/automations/intake/automation.md":
+        FRONTMATTER + lines("# intake", "", "Triage the backlog.", ""),
+    });
+
+    expect(problems).toEqual([]);
+  });
+
   test("accepts a body with one line that applies to only some values", async () => {
     const problems = await loadProblems({
       ".factory/automations/intake/automation.md": FRONTMATTER + AMP_ONLY,

@@ -60,8 +60,9 @@ export async function renderPrompt(
 
   const runText = await renderRunFile(factory, variables, selection, imports);
   const body = await parseBody(automation, variables, imports);
+  const ownHeading = `# ${automation.name}`;
 
-  if (!rendersContent(body, { variables, selection })) {
+  if (!rendersContent(body, { variables, selection }, ownHeading)) {
     const message = `${automation.name} has nothing to do in this environment`;
     throw new MetafabError(message, {
       exitCode: ExitCode.Failed,
@@ -82,10 +83,13 @@ export async function renderPrompt(
   ];
   const run = section(runText);
   if (run !== "") sections.push(run);
-  // The template puts the name on its own line directly above the body, so the
-  // body's leading blank lines are trimmed rather than kept.
-  const text = section(renderDocument(body, { variables, selection }));
-  sections.push(`# ${automation.name}\n${text}`);
+  // The template puts the name on its own line directly above the body, so a
+  // body that starts with the same heading leaves it out rather than show it
+  // twice, and the blank lines around it are trimmed rather than kept.
+  const text = section(
+    withoutOwnHeading(renderDocument(body, { variables, selection }), ownHeading),
+  );
+  sections.push(`${ownHeading}\n${text}`);
 
   if (after.length > 0) {
     const names = after.map((name) => `\`${name}\``).join(", ");
@@ -245,6 +249,20 @@ async function renderRunFile(
     route: "automations/run.md",
   });
   return renderDocument(document, { variables, selection });
+}
+
+/**
+ * The rendered body without its first non-blank line when that line is the
+ * heading the prompt prints, so the name appears once. Any other heading, such
+ * as `# Other` or `## <name>`, is the body's own and is kept.
+ */
+function withoutOwnHeading(text: string, ownHeading: string): string {
+  const lines = text.split("\n");
+  const index = lines.findIndex((line) => line.trim() !== "");
+  const first = lines[index];
+  if (first === undefined || first.trimEnd() !== ownHeading) return text;
+  lines.splice(index, 1);
+  return lines.join("\n");
 }
 
 /**

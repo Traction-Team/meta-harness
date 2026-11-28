@@ -228,6 +228,18 @@ describe("metafab automations prompt", () => {
     expect(result.stdout).not.toContain("In OpenCode, ask");
   });
 
+  test("shows the automation's heading once when the body starts with it", async () => {
+    const repo = await promptRepo({
+      ".factory/automations/intake/automation.md":
+        '---\nowner: "*"\ntriggers:\n  - schedule: { cron: "0 8 * * 1,4", tz: Australia/Sydney }\n---\n\n# intake\n\nTriage the backlog.\n',
+    });
+
+    const result = await run(repo, ["automations", "prompt", "intake", "--env", "harness=amp"]);
+
+    expect(result.code, result.stderr).toBe(ExitCode.Ok);
+    expect(result.stdout.match(/^# intake$/gm)).toHaveLength(1);
+  });
+
   test("adds the prompt as data with --json, and not the output flag", async () => {
     const repo = await promptRepo();
 

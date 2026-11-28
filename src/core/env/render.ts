@@ -26,32 +26,52 @@ export function renderDocument(document: MarkdownDocument, context: RenderContex
  * applies to only some values, even when the block holds only blank lines, so a
  * document can render something and still have nothing to do. `check`'s
  * empty-body rule and `prompt` both ask this, so they agree on what empty means.
+ *
+ * `ownHeading` is a line the caller prints above the document itself, such as
+ * an automation's `# <name>`. When the document's first non-blank line is
+ * exactly that line, the caller leaves it out, so it is not content either.
  */
-export function rendersContent(document: MarkdownDocument, context: RenderContext): boolean {
-  return hasContent(document.nodes, [], context);
+export function rendersContent(
+  document: MarkdownDocument,
+  context: RenderContext,
+  ownHeading?: string,
+): boolean {
+  return hasContent(document.nodes, [], context, { line: ownHeading, leading: true });
+}
+
+interface OwnHeading {
+  /** The line the caller prints above the document, compared with trailing whitespace ignored. */
+  line?: string;
+  /** True until the walk reaches the first non-blank text line that applies. */
+  leading: boolean;
 }
 
 function hasContent(
   nodes: readonly Node[],
   enclosing: readonly Condition[],
   context: RenderContext,
+  heading: OwnHeading,
 ): boolean {
   for (const node of nodes) {
     if (node.kind === "text") {
-      if (node.text.trim() !== "") return true;
-      continue;
+      if (node.text.trim() === "") continue;
+      if (heading.leading) {
+        heading.leading = false;
+        if (heading.line !== undefined && node.text.trimEnd() === heading.line) continue;
+      }
+      return true;
     }
 
     // An import has no text of its own: its children count in place.
     if (node.kind === "import") {
-      if (hasContent(node.children, enclosing, context)) return true;
+      if (hasContent(node.children, enclosing, context, heading)) return true;
       continue;
     }
 
     if (node.kind === "when") {
       const applies = classify(node.condition, enclosing, context.selection, context.variables);
       if (applies.kind === "none") continue;
-      if (hasContent(node.children, [...enclosing, node.condition], context)) return true;
+      if (hasContent(node.children, [...enclosing, node.condition], context, heading)) return true;
       continue;
     }
 
@@ -59,7 +79,7 @@ function hasContent(
       const condition = branchCondition(node, branch);
       const applies = classify(condition, enclosing, context.selection, context.variables);
       if (applies.kind === "none") continue;
-      if (hasContent(branch.children, [...enclosing, condition], context)) return true;
+      if (hasContent(branch.children, [...enclosing, condition], context, heading)) return true;
     }
   }
 

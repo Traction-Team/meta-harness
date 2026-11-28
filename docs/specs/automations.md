@@ -108,7 +108,7 @@ Run the factory automation `intake` unattended. Nobody is watching this session.
 When this run ends, start each automation that runs after it, as the run instructions say: `plan-intake`.
 ```
 
-1. The first line is fixed. The run-instructions section is left out when there is no `run.md`. The last line is left out when no enabled automation runs `after` this one.
+1. The first line is fixed. The run-instructions section is left out when there is no `run.md`. The last line is left out when no enabled automation runs `after` this one. When the body starts with the heading `# <name>`, the prompt leaves it out, so the heading appears once.
 2. `prompt` exits 1 and prints nothing to standard output when the automation does not exist (`No automation named <name>`), is disabled (`<name> is turned off`), renders to an empty body for the selection (`<name> has nothing to do in this environment`), or when `check` reports an error in a file the prompt depends on: its own `automation.md`, `run.md`, a file either of them imports, or the `automation.md` of an automation on its `after` line. A loop that passes through it is such an error too. Errors in any other file do not stop it.
 3. With `--target <target>`, `prompt` also checks the account. When `owner` is not `"*"` and is not the target's account, it exits 1 with `<name> belongs to <owner>, and this run acts as <account>`. When the account is unknown (`AMP_USER_EMAIL` unset for `amp`, no `user.email` for `orca`), it exits 1 and says which setting is missing.
 4. `--env` previews another selection, as for `build`.

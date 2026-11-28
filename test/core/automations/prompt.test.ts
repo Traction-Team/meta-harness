@@ -172,6 +172,89 @@ describe("metafab automations prompt", () => {
     );
   });
 
+  test("prints the name once when the body starts with its heading", async () => {
+    const repo = await promptRepo({
+      // The heading ends in spaces, which the match ignores.
+      ".factory/automations/intake/automation.md":
+        '---\ndescription: Triage the intake backlog\nowner: "*"\ntriggers:\n  - schedule: { cron: "0 8 * * 1,4", tz: Australia/Sydney }\n---\n\n# intake   \n\nTriage the intake backlog with the `file-work` workflow\'s rules.\n',
+    });
+
+    const result = await prompt(repo, ["--env", "harness=amp"]);
+
+    expect(result.code, result.stderr).toBe(ExitCode.Ok);
+    expect(result.stdout).toBe([FIRST, RUN_AMP, BODY, AFTER].join("\n\n") + "\n");
+  });
+
+  test("keeps a first heading that is not the automation's name", async () => {
+    const repo = await promptRepo({
+      ".factory/automations/intake/automation.md": [
+        "---",
+        'owner: "*"',
+        "triggers:",
+        '  - schedule: { cron: "0 8 * * 1,4", tz: Australia/Sydney }',
+        "---",
+        "",
+        "# Other",
+        "",
+        "Triage the backlog.",
+        "",
+      ].join("\n"),
+    });
+
+    const result = await prompt(repo, ["--env", "harness=amp"]);
+
+    expect(result.code, result.stderr).toBe(ExitCode.Ok);
+    expect(result.stdout).toBe(
+      [FIRST, RUN_AMP, "# intake\n# Other\n\nTriage the backlog.", AFTER].join("\n\n") + "\n",
+    );
+  });
+
+  test("a body that is only its heading exits 1 with nothing on stdout", async () => {
+    const repo = await promptRepo({
+      ".factory/automations/intake/automation.md": [
+        "---",
+        'owner: "*"',
+        "triggers:",
+        '  - schedule: { cron: "0 8 * * 1,4", tz: Australia/Sydney }',
+        "---",
+        "",
+        "# intake",
+        "",
+      ].join("\n"),
+    });
+
+    const result = await prompt(repo, ["--env", "harness=amp"]);
+
+    expect(result.code).toBe(ExitCode.Failed);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("The body of intake is empty");
+  });
+
+  test("a heading is not content, so a selection that leaves only it exits 1", async () => {
+    const repo = await promptRepo({
+      ".factory/automations/intake/automation.md": [
+        "---",
+        'owner: "*"',
+        "triggers:",
+        '  - schedule: { cron: "0 8 * * 1,4", tz: Australia/Sydney }',
+        "---",
+        "",
+        "# intake",
+        "",
+        "<!-- factory:when env.harness == amp -->",
+        "In Amp, triage the backlog.",
+        "<!-- factory:endwhen -->",
+        "",
+      ].join("\n"),
+    });
+
+    const result = await prompt(repo, ["--env", "harness=opencode"]);
+
+    expect(result.code).toBe(ExitCode.Failed);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("intake has nothing to do in this environment");
+  });
+
   test("a selection that empties the body exits 1 with nothing on stdout", async () => {
     const repo = await promptRepo({
       ".factory/automations/intake/automation.md": [
