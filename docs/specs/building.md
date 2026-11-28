@@ -15,6 +15,7 @@ Installed skill directories are generated output and are ignored by Git. Root `A
 | Standing instructions and pipeline | Generated block in root `AGENTS.md` | All targets |
 | `@AGENTS.md` import | Root `CLAUDE.md`, only when the file already exists | `claude` |
 | Built-in `metafab` skill | Each selected skill directory | All targets unless disabled |
+| Built-in `metafab-automations` skill | Each selected skill directory | All targets, in a format 2 factory with at least one automation, unless disabled |
 
 A factory skill is any directory below `.factory/` that contains `SKILL.md`.
 
